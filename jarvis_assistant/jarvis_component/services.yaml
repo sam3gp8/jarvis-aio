@@ -1,0 +1,413 @@
+analyze_camera:
+  name: Analyze Camera
+  description: "JARVIS analyzes a camera snapshot and describes what he sees, with optional spoken announcement. Automatically uses Frigate event snapshots or Nest event media when available."
+  fields:
+    entity_id:
+      name: Camera entity
+      description: The camera entity to capture and analyze.
+      required: true
+      selector:
+        entity:
+          domain: camera
+    prompt:
+      name: Prompt
+      description: What to look for. Leave blank for a general description.
+      required: false
+      example: "Is there anyone at the front door?"
+      selector:
+        text:
+    announce:
+      name: Announce result
+      description: Speak the analysis via TTS (default true).
+      required: false
+      selector:
+        boolean:
+    frames:
+      name: Clip frames
+      description: >-
+        Number of frames to capture for a short temporal "clip" instead of a
+        single snapshot. 1 (default) = snapshot. 2-4 lets JARVIS describe what
+        HAPPENED (e.g. someone approached and left a package) rather than a
+        single frozen instant.
+      required: false
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 6
+          mode: slider
+    interval:
+      name: Frame interval (seconds)
+      description: Seconds between captured frames when frames > 1 (default 1.2).
+      required: false
+      example: 1.2
+      selector:
+        number:
+          min: 0.5
+          max: 5
+          step: 0.1
+          mode: slider
+
+analyze_on_event:
+  name: Analyze Camera on Event
+  description: "Push-triggered camera analysis — intended for automations that fire on doorbell_chime or person_detected events. Waits briefly for the event snapshot to be captured, then analyzes it with context about what triggered it."
+  fields:
+    entity_id:
+      name: Camera entity
+      description: The camera entity associated with the event.
+      required: true
+      selector:
+        entity:
+          domain: camera
+    reason:
+      name: Event reason
+      description: What triggered this analysis (e.g. 'Doorbell pressed', 'Person detected', 'Package arrival').
+      required: false
+      example: "Doorbell pressed"
+      selector:
+        text:
+
+conversation_summary:
+  name: Conversation Summary
+  description: "JARVIS summarizes recent conversation history and delivers a briefing."
+  fields:
+    hours:
+      name: Hours back
+      description: How many hours of history to summarize (default 24).
+      required: false
+      default: 24
+      selector:
+        number:
+          min: 1
+          max: 168
+          unit_of_measurement: hours
+    device_id:
+      name: Device filter
+      description: Restrict summary to a specific device. Leave blank for all.
+      required: false
+      selector:
+        text:
+    announce:
+      name: Announce result
+      description: Speak the summary via TTS (default true).
+      required: false
+      selector:
+        boolean:
+    store:
+      name: Store summary
+      description: Save the summary to the conversation database (default true).
+      required: false
+      selector:
+        boolean:
+
+sentinel_start:
+  name: Start Sentinel
+  description: "Activates JARVIS Sentinel — proactive monitoring of doors, locks, motion, and anomalies."
+
+sentinel_stop:
+  name: Stop Sentinel
+  description: "Deactivates JARVIS Sentinel monitoring."
+
+database_purge:
+  name: Purge Database
+  description: "Remove conversation history older than a specified number of days."
+  fields:
+    days:
+      name: Days to keep
+      description: Records older than this will be deleted (default 30).
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 365
+          unit_of_measurement: days
+
+database_stats:
+  name: Database Stats
+  description: "Returns conversation database statistics (fires jarvis_db_stats event)."
+
+briefing:
+  name: Deliver Briefing
+  description: "JARVIS compiles and speaks a context-aware briefing — time, weather, presence, overnight events, open doors, calendar, and unusual energy usage."
+  fields:
+    announce:
+      name: Announce result
+      description: Speak the briefing via TTS (default true).
+      required: false
+      selector:
+        boolean:
+    include_weather:
+      name: Include weather
+      required: false
+      default: true
+      selector:
+        boolean:
+    include_calendar:
+      name: Include calendar events
+      required: false
+      default: true
+      selector:
+        boolean:
+    include_presence:
+      name: Include who's home
+      required: false
+      default: true
+      selector:
+        boolean:
+    include_events:
+      name: Include overnight sentinel events
+      required: false
+      default: true
+      selector:
+        boolean:
+    include_energy:
+      name: Include energy anomalies
+      required: false
+      default: true
+      selector:
+        boolean:
+    hours:
+      name: Hours of events to include
+      required: false
+      default: 12
+      selector:
+        number:
+          min: 1
+          max: 48
+          unit_of_measurement: hours
+
+scene_by_intent:
+  name: Activate Scene by Intent
+  description: "JARVIS picks the best scene matching a natural-language intent. Example intent: 'something cozy for movie night', 'bright and energetic', 'time for bed'."
+  fields:
+    intent:
+      name: Intent
+      description: What mood or activity are you going for?
+      required: true
+      example: "something relaxing"
+      selector:
+        text:
+    announce:
+      name: Announce result
+      required: false
+      default: true
+      selector:
+        boolean:
+
+routine:
+  name: Run Routine
+  description: "Run a named routine (goodnight, goodmorning, leaving, arriving). JARVIS narrates each step. Custom routines can be defined in /config/jarvis_routines.yaml."
+  fields:
+    name:
+      name: Routine name
+      description: Which routine to run
+      required: true
+      selector:
+        select:
+          options:
+            - goodnight
+            - goodmorning
+            - leaving
+            - arriving
+          custom_value: true
+
+add_reminder:
+  name: Add Reminder
+  description: "Add a context-aware reminder — JARVIS will speak it at the specified time, but only if someone is home and not during quiet hours (by default)."
+  fields:
+    label:
+      name: Reminder text
+      description: What JARVIS should remind you about
+      required: true
+      example: "Take your evening medication"
+      selector:
+        text:
+    trigger_at:
+      name: Trigger time
+      description: ISO datetime (e.g. 2026-04-17T21:00:00)
+      required: true
+      selector:
+        text:
+    repeat:
+      name: Repeat
+      required: false
+      selector:
+        select:
+          options:
+            - daily
+            - weekly
+            - hourly
+    require_home:
+      name: Only if home
+      description: Skip the reminder if nobody is home
+      required: false
+      default: true
+      selector:
+        boolean:
+    respect_quiet:
+      name: Respect quiet hours (22:00–07:00)
+      required: false
+      default: true
+      selector:
+        boolean:
+# ── v5.2 Observer Mode services ──────────────────────────────────────────────
+
+nap:
+  name: Nap (mute announcements)
+  description: "Suppress non-critical announcements for a set duration. Critical events (smoke, leak, forced entry) still break through."
+  fields:
+    duration_minutes:
+      name: Duration (minutes)
+      description: How long to stay quiet.
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 480
+          unit_of_measurement: min
+          mode: slider
+
+shush:
+  name: Shush (mute an entity or category)
+  description: "Tell JARVIS to stop announcing a specific entity or category going forward. With no arguments, silences whatever he just said."
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The entity to mute (e.g. sensor.washer_power).
+      required: false
+      selector:
+        text:
+    category:
+      name: Category
+      description: "A category to mute: appliances, doors_windows, presence, energy, security, climate, lights, schedule."
+      required: false
+      selector:
+        select:
+          options:
+            - appliances
+            - doors_windows
+            - presence
+            - energy
+            - security
+            - climate
+            - lights
+            - schedule
+
+unshush:
+  name: Unshush (clear mutes)
+  description: "Undo a shush. With no arguments, clears all mutes."
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The entity to unmute.
+      required: false
+      selector:
+        text:
+    category:
+      name: Category
+      description: The category to unmute.
+      required: false
+      selector:
+        text:
+
+observer_start:
+  name: Observer — Start
+  description: "Start JARVIS's observer mode — proactive awareness of state changes in your home."
+
+observer_stop:
+  name: Observer — Stop
+  description: "Stop observer mode."
+
+observer_status:
+  name: Observer — Status
+  description: "Fire a jarvis_observer_status event with current state: running, mute list, last announcement, sleep state."
+
+create_automation:
+  name: Create Automation
+  description: "Create a Home Assistant automation from parameters."
+  fields:
+    alias:
+      name: Alias
+      description: Human-readable name for the automation.
+      required: true
+      selector:
+        text:
+    trigger:
+      name: Trigger
+      description: Trigger configuration (HA format).
+      required: true
+      selector:
+        object:
+    action:
+      name: Action
+      description: Action configuration (HA format).
+      required: true
+      selector:
+        object:
+
+diagnose_doorbell:
+  name: Diagnose Doorbell
+  description: "Run doorbell pipeline diagnostics and fire event with results."
+
+test_notify:
+  name: Test Notification
+  description: "Send a test push notification to the configured phone."
+
+test_tts:
+  name: Test TTS
+  description: "Play a JARVIS voice test tone on the broadcast group."
+
+lockdown:
+  name: Lockdown
+  description: "Engage or lift the formal lockdown state — locks all locks and closes all open doors. Windows already open at engage are left as-is; new windows opening during lockdown are flagged as a breach."
+  fields:
+    state:
+      name: State
+      description: "on to engage lockdown, off to lift it."
+      required: true
+      example: "on"
+      selector:
+        select:
+          options:
+            - "on"
+            - "off"
+    reason:
+      name: Reason
+      description: "Optional note for logs (e.g. 'leaving for the weekend')."
+      required: false
+      selector:
+        text:
+
+train_doorbell_backlog:
+  name: Train doorbell backlog
+  description: >-
+    Analyse the Nest doorbell's recorded event history with JARVIS vision and
+    append the results to the doorbell training dataset. Best-effort — depends on
+    the Nest integration exposing its event-media store.
+  fields:
+    limit:
+      name: Max events
+      description: Maximum number of past events to analyse in this run.
+      required: false
+      default: 40
+      selector:
+        number:
+          min: 1
+          max: 500
+          mode: box
+
+check_packages:
+  name: Check for packages and mail
+  description: >-
+    Run an on-demand vision check of the porch/doorbell camera(s) for delivered
+    packages or mail and announce anything new.
+  fields:
+    entity_id:
+      name: Camera (optional)
+      description: A specific camera to check. Leave empty to auto-detect porch/doorbell cameras.
+      required: false
+      selector:
+        entity:
+          domain: camera

@@ -1,0 +1,26 @@
+{
+  "domain": "jarvis",
+  "name": "JARVIS AI Assistant",
+  "version": "6.3.2",
+  "config_flow": true,
+  "documentation": "https://github.com/sam3gp8/jarvis-aio",
+  "issue_tracker": "https://github.com/sam3gp8/jarvis-aio/issues",
+  "requirements": [
+    "groq>=0.9.0"
+  ],
+  "dependencies": [
+    "http",
+    "frontend",
+    "panel_custom"
+  ],
+  "after_dependencies": [
+    "conversation",
+    "tts",
+    "media_player",
+    "camera",
+    "mqtt"
+  ],
+  "codeowners": ["@sam3gp8"],
+  "iot_class": "cloud_polling",
+  "integration_type": "service"
+}

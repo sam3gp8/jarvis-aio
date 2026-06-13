@@ -1,0 +1,44 @@
+{
+  "title": "JARVIS AI Assistant",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect JARVIS to Groq",
+        "description": "Get your Groq API key at [console.groq.com](https://console.groq.com). The connection will be tested before saving.",
+        "data": {
+          "api_key":   "Groq API key",
+          "model":     "Model",
+          "honorific": "Address me as"
+        },
+        "data_description": {
+          "api_key": "Starts with gsk_..."
+        }
+      }
+    },
+    "error": {
+      "invalid_api_key": "Invalid Groq API key. Check console.groq.com for a valid key starting with gsk_...",
+      "cannot_connect":  "Cannot reach the Groq API. Check your network and base URL.",
+      "unknown":         "Unexpected error — check the Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "JARVIS is already configured. Use the Configure button to update settings.",
+      "import_failed": "Could not read jarvis_config.json. Check the addon logs."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "JARVIS settings",
+        "description": "{speaker_count} media player(s) found.",
+        "data": {
+          "cast_speakers":  "Speakers to broadcast to",
+          "tts_engine":     "TTS entity (Piper = Jarvis voice)",
+          "use_hass_api":   "Enable home control (lights, climate, locks, etc.)",
+          "cast_announce":  "Use announce mode on Cast speakers",
+          "honorific":      "Address me as",
+          "model":          "Groq model"
+        }
+      }
+    }
+  }
+}

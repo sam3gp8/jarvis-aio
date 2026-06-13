@@ -1,0 +1,56 @@
+blueprint:
+  name: JARVIS — Analyze camera on doorbell or motion
+  description: >
+    When a doorbell rings or motion/person is detected, JARVIS analyzes the
+    camera snapshot and announces what he sees. Works with Nest doorbells,
+    Frigate person detection, and any camera/binary_sensor pair.
+  domain: automation
+  input:
+    trigger_entity:
+      name: Trigger entity
+      description: Doorbell, motion sensor, or person-detected binary_sensor
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+            - event
+    camera_entity:
+      name: Camera to analyze
+      description: The camera that should be analyzed when the trigger fires
+      selector:
+        entity:
+          domain: camera
+    reason:
+      name: Context for JARVIS
+      description: What JARVIS should be told about the trigger
+      default: "Someone has triggered the camera"
+      selector:
+        text:
+    cooldown_seconds:
+      name: Cooldown
+      description: Minimum seconds between consecutive analyses (avoid spam)
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 600
+          unit_of_measurement: seconds
+
+trigger:
+  - platform: state
+    entity_id: !input trigger_entity
+    to: "on"
+  - platform: state
+    entity_id: !input trigger_entity
+    attribute: event_type
+
+mode: single
+max_exceeded: silent
+
+action:
+  - service: jarvis.analyze_on_event
+    data:
+      entity_id: !input camera_entity
+      reason: !input reason
+  - delay:
+      seconds: !input cooldown_seconds

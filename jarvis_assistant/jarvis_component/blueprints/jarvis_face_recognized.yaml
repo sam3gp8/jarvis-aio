@@ -1,0 +1,84 @@
+blueprint:
+  name: JARVIS — Announce recognized faces
+  description: >
+    When DoubleTake recognizes a face on a camera, JARVIS announces who it is
+    (or "an unknown person") and optionally analyzes what they're doing.
+    Fires on the `jarvis_face_recognized` event.
+  domain: automation
+  input:
+    target_camera:
+      name: Camera to filter on (optional)
+      description: Leave blank to announce all recognitions across all cameras
+      default: ""
+      selector:
+        text:
+    greet_known:
+      name: Greet known people by name
+      description: Announce "Your [name] is at [location]"
+      default: true
+      selector:
+        boolean:
+    alert_unknown:
+      name: Alert on unknown faces
+      description: Announce and analyze when an unknown person is seen
+      default: true
+      selector:
+        boolean:
+    cooldown_seconds:
+      name: Cooldown per person
+      description: Don't re-announce the same person within this many seconds
+      default: 300
+      selector:
+        number:
+          min: 30
+          max: 3600
+          unit_of_measurement: seconds
+
+trigger:
+  - platform: event
+    event_type: jarvis_face_recognized
+
+mode: queued
+max: 10
+
+variables:
+  target_cam: !input target_camera
+  greet: !input greet_known
+  alert_unk: !input alert_unknown
+
+condition:
+  - condition: template
+    value_template: >-
+      {{ target_cam == "" or trigger.event.data.camera_entity == target_cam }}
+  - condition: template
+    value_template: >-
+      {{ trigger.event.data.is_confident }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ not trigger.event.data.is_unknown and greet }}
+        sequence:
+          - service: jarvis.analyze_on_event
+            data:
+              entity_id: "{{ trigger.event.data.camera_entity }}"
+              reason: >-
+                {{ trigger.event.data.name }} has been recognized at the
+                {{ trigger.event.data.camera | replace('_', ' ') }}
+
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.event.data.is_unknown and alert_unk }}
+        sequence:
+          - service: jarvis.analyze_on_event
+            data:
+              entity_id: "{{ trigger.event.data.camera_entity }}"
+              reason: >-
+                An unknown person has been detected at the
+                {{ trigger.event.data.camera | replace('_', ' ') }} — describe them
+
+  - delay:
+      seconds: !input cooldown_seconds
