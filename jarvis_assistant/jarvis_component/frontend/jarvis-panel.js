@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.3.2 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.4.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -926,6 +926,20 @@ class JarvisPanel extends HTMLElement {
     return svg;
   }
 
+  async _toggleAreaLights(areaId, roomName, isOn) {
+    if (!this._hass || !areaId) return;
+    const turnOn = !isOn;
+    try {
+      await this._hass.callService('light', turnOn ? 'turn_on' : 'turn_off',
+        {}, { area_id: areaId });
+      this._toast((turnOn ? '◯ ' : '● ') + roomName + ' lights ' + (turnOn ? 'on' : 'off'), 'ok');
+      // Reflect the new state quickly rather than waiting for the 5s poll.
+      setTimeout(() => { try { this._fetchLiveData(); } catch (e) {} }, 500);
+    } catch (err) {
+      this._toast('✗ ' + roomName + ' lights — ' + (err && err.message || err), 'err');
+    }
+  }
+
   _build3DHouse() {
     const scene = this.shadowRoot?.querySelector('#house3d-scene');
     const el = this.shadowRoot?.querySelector('#house3d');
@@ -942,6 +956,19 @@ class JarvisPanel extends HTMLElement {
     };
     const domKey = norm(d.dominantRoom && d.dominantRoom.name);
     const isDominant = (n) => !!domKey && norm(n) === domKey;
+
+    // Per-room light state (on/total/area_id) for the light indicator + toggle.
+    const lightInfo = (d.areasGrid || []).map(a => ({
+      k: norm(a.name), on: a.lights_on || 0, total: a.lights_total || 0, area_id: a.id,
+    }));
+    const lightFor = (n) => {
+      const nn = norm(n);
+      if (!nn) return null;
+      let hit = lightInfo.find(a => a.k === nn);
+      if (!hit) hit = lightInfo.find(a => a.k.length >= 4 && nn.length >= 4 && (a.k.includes(nn) || nn.includes(a.k)));
+      return (hit && hit.total > 0) ? hit : null;
+    };
+
     const fl = this._currentFloor;
     el.innerHTML = '';
 
@@ -975,16 +1002,21 @@ class JarvisPanel extends HTMLElement {
 
     const floorsToShow = fl === 'all' ? ['bsmt', '1f', '2f'] : [fl];
 
-    // Floor base-Y from cumulative wall heights so floors physically stack.
-    // Y is inverted (up = negative). 1F floor sits at y=0; its walls rise to -WH.1f.
-    // 2F floor sits at the top of 1F walls; basement floor sits below 1F floor.
-    // Each room's walls are drawn centered on the room group origin, so the
-    // group origin = floor base - half wall height (places floor slab at base).
+    // Visual air between stacked floors so each level reads as a distinct
+    // stratum instead of merging into one tall block. Floors still physically
+    // stack (cumulative wall heights), now with a gap inserted between them.
+    const FLOOR_GAP = 13;
     const floorBaseY = {
       '1f': 0,
-      '2f': -WH['1f'],
-      'bsmt': WH['bsmt'],
+      '2f': -(WH['1f'] + FLOOR_GAP),
+      'bsmt': WH['bsmt'] + FLOOR_GAP,
     };
+
+    // Re-center the shown floors vertically so inserting gaps (or viewing a
+    // single floor) doesn't drift the house off-frame.
+    const _bases = floorsToShow.map(fk => floorBaseY[fk] || 0);
+    const _tops  = floorsToShow.map(fk => (floorBaseY[fk] || 0) - (WH[fk] || 22));
+    const yMid = (Math.max(..._bases) + Math.min(..._tops)) / 2;
 
     const self = this;
 
@@ -999,12 +1031,53 @@ class JarvisPanel extends HTMLElement {
       return e;
     }
 
+    // A horizontal plane placed in world space (used for per-floor decks).
+    function mkPlane(cx, cy, cz, w, dpth, bg, bd, cls) {
+      const e = document.createElement('div');
+      e.className = 'h3d-face' + (cls ? ' ' + cls : '');
+      e.style.cssText = 'width:' + w + 'px;height:' + dpth + 'px;background:' + bg
+        + ';border:.5px solid ' + (bd || 'rgba(0,242,254,.15)')
+        + ';transform:translate3d(' + (cx - w/2) + 'px,' + (cy - dpth/2) + 'px,' + cz
+        + 'px) rotateX(90deg)';
+      el.appendChild(e);
+      return e;
+    }
+
+    // A glowing deck + corner badge for each floor — reinforces the strata.
+    function addFloorPlatform(fk) {
+      const fd = plan[fk];
+      if (!fd || !fd.rooms) return;
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      fd.rooms.forEach(rm => {
+        if (rm.type === 'door' || rm.type === 'stairs') return;
+        minX = Math.min(minX, rm.x * S); maxX = Math.max(maxX, (rm.x + rm.w) * S);
+        minZ = Math.min(minZ, rm.y * S); maxZ = Math.max(maxZ, (rm.y + rm.h) * S);
+      });
+      if (!isFinite(minX)) return;
+      const pad = 7;
+      const pw = (maxX - minX) + pad * 2, pd = (maxZ - minZ) + pad * 2;
+      const px = (minX + maxX) / 2 - centerX, pz = (minZ + maxZ) / 2 - centerZ;
+      const baseY = (floorBaseY[fk] || 0) - yMid;
+      // Deck sits a hair below the room floor slabs.
+      mkPlane(px, baseY + 2, pz, pw, pd,
+        'rgba(0,242,254,.045)', 'rgba(0,242,254,.28)', 'h3d-platform');
+      // Floor badge at the near corner.
+      const badge = document.createElement('div');
+      badge.className = 'h3d-floor-badge';
+      badge.textContent = fd.label || fk.toUpperCase();
+      badge.style.cssText = 'transform:translate3d(' + (px - pw/2 - 1) + 'px,'
+        + (baseY + 1) + 'px,' + (pz + pd/2 - 8) + 'px) rotateX(90deg)';
+      el.appendChild(badge);
+    }
+
     function addRoom(rm, fk) {
       const h = WH[fk] || 22;
       // Group origin centered on wall mid-height: floor slab ends up at floorBaseY.
-      const by = (floorBaseY[fk] || 0) - h / 2;
+      const by = (floorBaseY[fk] || 0) - yMid - h / 2;
       const oc = isOcc(rm.name);
       const dom = oc && isDominant(rm.name);
+      const li = lightFor(rm.name);
+      const lit = !!(li && li.on > 0);
       const w = rm.w * S, dd = rm.h * S;
       const x = rm.x * S + w/2 - centerX;
       const z = rm.y * S + dd/2 - centerZ;
@@ -1025,12 +1098,16 @@ class JarvisPanel extends HTMLElement {
       mkFace(g, 0, 0, -dd/2, w, h, 0, 0, 0, fc, bc);
       mkFace(g, -w/2, 0, 0, dd, h, 0, 90, 0, fc, bc);
       mkFace(g,  w/2, 0, 0, dd, h, 0, 90, 0, fc, bc);
-      // Floor — the glowing slab that reads as room occupancy from above
+      // Floor — the glowing slab that reads as room OCCUPANCY (cyan) from above
       const floor = mkFace(g, 0, h/2, 0, w, dd, 90, 0, 0, 'rgba(0,242,254,' + floorAl + ')', bc);
       if (dom) floor.classList.add('h3d-glow-dom');
       else if (oc) floor.classList.add('h3d-glow');
-      // Ceiling/cap
-      mkFace(g, 0, -h/2, 0, w, dd, 90, 0, 0, 'rgba(6,14,22,.4)', 'rgba(0,130,170,.1)');
+      // Ceiling/cap — glows WARM AMBER when the room's LIGHTS are on, so light
+      // state reads distinctly from the cyan occupancy on the floor.
+      const ceil = mkFace(g, 0, -h/2, 0, w, dd, 90, 0, 0,
+        lit ? 'rgba(255,184,72,.14)' : 'rgba(6,14,22,.4)',
+        lit ? 'rgba(255,196,96,.45)' : 'rgba(0,130,170,.1)');
+      if (lit) ceil.classList.add('h3d-lit');
 
       // Label on floor
       const lbl = document.createElement('div');
@@ -1050,6 +1127,26 @@ class JarvisPanel extends HTMLElement {
         g.appendChild(dot);
       }
 
+      // Light indicator + control — a clickable bulb on the ceiling. Amber +
+      // glow when on, dim outline when off. Click toggles the area's lights.
+      if (li) {
+        const lamp = document.createElement('div');
+        lamp.className = 'h3d-lamp' + (lit ? ' on' : '');
+        lamp.style.cssText = 'transform:translate3d(-8px,' + (-h/2 - 2) + 'px,0) rotateX(90deg)';
+        lamp.title = (li.total > 1 ? li.on + '/' + li.total + ' lights on' : (lit ? 'Light on' : 'Light off'))
+          + ' — tap to toggle';
+        lamp.innerHTML = '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
+          + '<path d="M9 21h6v-1.5H9V21zm3-19a7 7 0 00-4.2 12.6c.5.4.7.7.7 1.2v.7h7v-.7c0-.5.2-.8.7-1.2A7 7 0 0012 2z" fill="currentColor"/></svg>';
+        // Don't let a tap on the bulb start a rotate-drag.
+        lamp.addEventListener('pointerdown', function(ev) { ev.stopPropagation(); });
+        lamp.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+        lamp.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          self._toggleAreaLights(li.area_id, rm.name, lit);
+        });
+        g.appendChild(lamp);
+      }
+
       el.appendChild(g);
     }
 
@@ -1057,7 +1154,7 @@ class JarvisPanel extends HTMLElement {
       if (!garageRoom) return;
       const h = WH['1f'] || 28;
       // Match addRoom's group origin: floor base minus half wall height.
-      const by = (floorBaseY['1f'] || 0) - h / 2;
+      const by = (floorBaseY['1f'] || 0) - yMid - h / 2;
       const w = garageRoom.w * S;
       const dd = garageRoom.h * S;
       const gx = garageRoom.x * S + w/2 - centerX;
@@ -1120,6 +1217,7 @@ class JarvisPanel extends HTMLElement {
     floorsToShow.forEach(function(fk) {
       var fd = plan[fk];
       if (!fd || !fd.rooms) return;
+      addFloorPlatform(fk);   // glowing deck + badge first, rooms sit on top
       fd.rooms.forEach(function(rm) {
         if (rm.type === 'stairs' || rm.type === 'door') return;
         if (rm.type === 'bath') {
@@ -1147,7 +1245,7 @@ class JarvisPanel extends HTMLElement {
           var e = document.createElement('div');
           e.className = 'h3d-label';
           e.style.cssText = 'width:60px;color:rgba(0,242,254,.2);font-size:4px;transform:translate3d('
-            + (lx - 30) + 'px,' + ((floorBaseY['bsmt'] || 0) - 1) + 'px,' + lz + 'px) rotateX(90deg)';
+            + (lx - 30) + 'px,' + ((floorBaseY['bsmt'] || 0) - yMid - 1) + 'px,' + lz + 'px) rotateX(90deg)';
           e.textContent = lbl.text;
           el.appendChild(e);
         });
@@ -3132,6 +3230,50 @@ class JarvisPanel extends HTMLElement {
     0%, 100% { box-shadow: 0 0 16px 3px rgba(0,242,254,0.40); }
     50%      { box-shadow: 0 0 32px 7px rgba(0,242,254,0.72); }
   }
+  .h3d-platform {
+    box-shadow: 0 0 22px 1px rgba(0,242,254,0.10);
+    pointer-events: none;
+  }
+  .h3d-floor-badge {
+    position: absolute;
+    font-family: var(--font-display);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: rgba(0,242,254,0.55);
+    text-shadow: 0 0 8px rgba(0,242,254,0.4);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .h3d-lit {
+    box-shadow: 0 0 18px 2px rgba(255,184,72,0.30);
+  }
+  .h3d-lamp {
+    position: absolute;
+    width: 17px;
+    height: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: rgba(0,242,254,0.35);
+    background: rgba(6,14,22,0.55);
+    border: 1px solid rgba(0,242,254,0.22);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: transform 0.12s ease, box-shadow 0.2s ease, color 0.2s ease;
+  }
+  .h3d-lamp:hover {
+    color: #fff;
+    border-color: rgba(255,200,110,0.7);
+    transform: scale(1.18);
+  }
+  .h3d-lamp.on {
+    color: #ffce6b;
+    background: rgba(58,40,12,0.6);
+    border-color: rgba(255,196,96,0.75);
+    box-shadow: 0 0 13px 2px rgba(255,184,72,0.6);
+  }
   .house3d-hud-tl, .house3d-hud-tr {
     position: absolute;
     color: rgba(0,242,254,0.4);
@@ -3955,7 +4097,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.3.2 ",
+  "%c JARVIS Panel %c v6.4.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

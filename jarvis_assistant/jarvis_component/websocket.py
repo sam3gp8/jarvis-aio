@@ -207,6 +207,22 @@ def _dominant_area(hass: HomeAssistant) -> str | None:
     return best_area or candidates[0]
 
 
+def _area_light_state(hass: HomeAssistant, area_id: str) -> tuple[int, int]:
+    """Count (lights_on, lights_total) for an area — cheap, light-domain only.
+    Used to drive the per-room light indicator + toggle in the 3D house."""
+    on = total = 0
+    for eid in _entities_in_area(hass, area_id):
+        if not eid.startswith("light."):
+            continue
+        st = hass.states.get(eid)
+        if st is None:
+            continue
+        total += 1
+        if st.state == "on":
+            on += 1
+    return on, total
+
+
 def _area_live_readings(hass: HomeAssistant, area_id: str) -> dict:
     """Pull temperature, humidity, any lights-on count in the area."""
     temp = None
@@ -418,12 +434,15 @@ async def ws_get_panel_data(
         for aid in _all_areas_with_anything(hass):
             caps = _area_capabilities(hass, aid)
             active = audio_routing.is_area_occupied(hass, aid)
+            l_on, l_total = _area_light_state(hass, aid)
             areas_list.append({
                 "id":       aid,
                 "name":     _area_name(hass, aid),
                 "caps":     caps,
                 "active":   active,
                 "bedroom":  aid in bedroom_areas,
+                "lights_on":    l_on,
+                "lights_total": l_total,
             })
         # Sort: active first, then bedrooms, then alphabetical
         areas_list.sort(key=lambda a: (not a["active"], not a["bedroom"], a["name"].lower()))
