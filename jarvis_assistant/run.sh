@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# JARVIS AI Assistant — All-In-One Installer v6.4.0
+# JARVIS AI Assistant — All-In-One Installer v6.4.1
 # Zero-touch install. After pressing Start you do nothing else.
 # ==============================================================================
 set -euo pipefail
@@ -50,7 +50,7 @@ fi
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 bashio::log.info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.4.0"
+bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.4.1"
 bashio::log.info "  Provider       : ${LLM_PROVIDER}"
 bashio::log.info "  Model          : ${MODEL}"
 bashio::log.info "  Honorific      : ${HONORIFIC}"
@@ -90,13 +90,26 @@ cp "${COMPONENT_SRC}"/*.json "${COMPONENT_DST}/"
 cp "${COMPONENT_SRC}"/*.yaml "${COMPONENT_DST}/" 2>/dev/null || true
 
 # Frontend panel assets (JS + images/icons + styles)
+FRONTEND_CHANGED="false"
 if [ -d "${COMPONENT_SRC}/frontend" ]; then
     mkdir -p "${COMPONENT_DST}/frontend"
+    # Detect whether the panel JS actually changed (content hash) so we can apply
+    # frontend-only updates without waiting on a version-gated full HA restart.
+    NEW_JS_HASH=""
+    if [ -f "${COMPONENT_SRC}/frontend/${PANEL_JS_FILENAME:-jarvis-panel.js}" ]; then
+        NEW_JS_HASH=$(sha1sum "${COMPONENT_SRC}/frontend/jarvis-panel.js" 2>/dev/null | awk '{print $1}')
+    fi
+    OLD_JS_HASH=""
+    [ -f /config/.jarvis_frontend_hash ] && OLD_JS_HASH=$(cat /config/.jarvis_frontend_hash 2>/dev/null)
     cp "${COMPONENT_SRC}/frontend/"*.js  "${COMPONENT_DST}/frontend/" 2>/dev/null || true
     cp "${COMPONENT_SRC}/frontend/"*.png "${COMPONENT_DST}/frontend/" 2>/dev/null || true
     cp "${COMPONENT_SRC}/frontend/"*.svg "${COMPONENT_DST}/frontend/" 2>/dev/null || true
     cp "${COMPONENT_SRC}/frontend/"*.css "${COMPONENT_DST}/frontend/" 2>/dev/null || true
     cp "${COMPONENT_SRC}/frontend/"*.woff2 "${COMPONENT_DST}/frontend/" 2>/dev/null || true
+    if [ -n "${NEW_JS_HASH}" ] && [ "${NEW_JS_HASH}" != "${OLD_JS_HASH}" ]; then
+        FRONTEND_CHANGED="true"
+        echo "${NEW_JS_HASH}" > /config/.jarvis_frontend_hash 2>/dev/null || true
+    fi
     bashio::log.info "  Panel frontend assets copied (js/png/svg/css)"
 fi
 
@@ -269,6 +282,32 @@ PREVIOUS_VER=$(cat "${PREVIOUS_VER_FILE}" 2>/dev/null || echo "none")
 if [ "${INSTALLED_VER}" = "${PREVIOUS_VER}" ]; then
     bashio::log.info "  Component v${INSTALLED_VER} already loaded — skipping HA restart."
     bashio::log.info "  (To force restart: delete /config/.jarvis_last_installed_version)"
+    # Backend code is unchanged, but if ONLY the panel JS changed we still need
+    # the integration to re-register the panel (new content-hash URL) so the
+    # browser fetches the new dashboard. A config-entry reload does this in
+    # seconds without a full HA restart and cannot cause the restart loop.
+    if [ "${FRONTEND_CHANGED}" = "true" ]; then
+        bashio::log.info "  Panel JS changed — reloading JARVIS integration to refresh the dashboard..."
+        ENTRY_ID=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            "http://supervisor/core/api/config/config_entries" 2>/dev/null \
+            | python3 -c "import sys,json
+try:
+    d=json.load(sys.stdin)
+    print(next((e['entry_id'] for e in d if e.get('domain')=='jarvis'), ''))
+except Exception:
+    print('')" 2>/dev/null)
+        if [ -n "${ENTRY_ID}" ]; then
+            if curl -s -X POST -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+                "http://supervisor/core/api/config/config_entries/entry/${ENTRY_ID}/reload" \
+                > /dev/null 2>&1; then
+                bashio::log.info "  Dashboard refreshed. Hard-refresh your browser (Ctrl+Shift+R)."
+            else
+                bashio::log.warning "  Auto-reload failed — reload JARVIS under Settings → Devices & Services, then hard-refresh."
+            fi
+        else
+            bashio::log.warning "  Could not locate the JARVIS entry to reload — reload it manually, then hard-refresh."
+        fi
+    fi
 else
     bashio::log.info "  Version changed: ${PREVIOUS_VER} → ${INSTALLED_VER} — restarting HA..."
     echo "${INSTALLED_VER}" > "${PREVIOUS_VER_FILE}"

@@ -47,12 +47,20 @@ async def async_register_panel(hass: HomeAssistant) -> bool:
         _LOGGER.error("JARVIS panel: JS file not found at %s", js_path)
         return False
 
-    # Cache buster: file modification time
+    # Cache buster: content hash. The URL changes if and only if the JS bytes
+    # change, so a stale browser/service-worker cache cannot survive an actual
+    # update — and an unchanged file won't churn the URL on every reload. (mtime
+    # fallback only if the file can't be read for some reason.)
     try:
-        js_mtime = int(os.path.getmtime(js_path))
+        import hashlib
+        with open(js_path, "rb") as _f:
+            js_token = hashlib.sha1(_f.read()).hexdigest()[:10]
     except Exception:
-        import time
-        js_mtime = int(time.time())
+        try:
+            js_token = str(int(os.path.getmtime(js_path)))
+        except Exception:
+            import time
+            js_token = str(int(time.time()))
 
     # Register static path for serving JS
     try:
@@ -62,8 +70,15 @@ async def async_register_panel(hass: HomeAssistant) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS panel: static path note: %s", exc)
 
-    # Register the custom panel
-    cache_busted_url = f"{PANEL_STATIC_URL}/{PANEL_JS_FILENAME}?v={js_mtime}"
+    # Register the custom panel. Remove any existing registration first so a
+    # reload always applies the fresh (content-hashed) module_url — otherwise
+    # panel_custom raises "already registered" and the new URL is silently
+    # dropped, which is exactly how a stale panel survives an update.
+    cache_busted_url = f"{PANEL_STATIC_URL}/{PANEL_JS_FILENAME}?v={js_token}"
+    try:
+        frontend.async_remove_panel(hass, PANEL_URL_PATH)
+    except Exception:
+        pass
     try:
         await panel_custom.async_register_panel(
             hass,
