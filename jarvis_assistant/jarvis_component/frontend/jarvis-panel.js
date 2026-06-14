@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.4.1 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.4.2 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -365,10 +365,13 @@ class JarvisPanel extends HTMLElement {
         lastMotion: live.dominant.last_motion,
       },
       areasGrid: live.areas.map(a => ({
+        id: a.id,
         name: a.name,
         caps: a.caps || [],
         active: a.active,
         bedroom: a.bedroom,
+        lights_on: a.lights_on || 0,
+        lights_total: a.lights_total || 0,
       })),
       activity: this._activityData && this._activityData.length > 0
         ? this._activityData
@@ -1005,7 +1008,7 @@ class JarvisPanel extends HTMLElement {
     // Visual air between stacked floors so each level reads as a distinct
     // stratum instead of merging into one tall block. Floors still physically
     // stack (cumulative wall heights), now with a gap inserted between them.
-    const FLOOR_GAP = 13;
+    const FLOOR_GAP = 26;
     const floorBaseY = {
       '1f': 0,
       '2f': -(WH['1f'] + FLOOR_GAP),
@@ -1060,7 +1063,7 @@ class JarvisPanel extends HTMLElement {
       const baseY = (floorBaseY[fk] || 0) - yMid;
       // Deck sits a hair below the room floor slabs.
       mkPlane(px, baseY + 2, pz, pw, pd,
-        'rgba(0,242,254,.045)', 'rgba(0,242,254,.28)', 'h3d-platform');
+        'rgba(0,242,254,.07)', 'rgba(0,242,254,.42)', 'h3d-platform');
       // Floor badge at the near corner.
       const badge = document.createElement('div');
       badge.className = 'h3d-floor-badge';
@@ -1461,10 +1464,20 @@ class JarvisPanel extends HTMLElement {
              `).join("")}
            </div>`
         : `<div class="area-caps"><div class="cap cap-empty"><span class="cap-lbl">—</span></div></div>`;
+      const hasLights = (a.lights_total || 0) > 0;
+      const lit = hasLights && (a.lights_on || 0) > 0;
+      const lightCtl = hasLights
+        ? `<button class="area-light ${lit ? 'on' : ''}" data-light-area="${this._esc(a.id || '')}" data-area-name="${this._esc(a.name)}" title="${a.lights_on}/${a.lights_total} lights on — tap to toggle">
+             <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
+           </button>`
+        : '';
       return `
         <div class="area ${a.active ? 'active' : ''} ${a.bedroom ? 'bedroom' : ''}">
           ${iconsRow}
-          <div class="area-name">${a.name}</div>
+          <div class="area-foot">
+            <div class="area-name">${a.name}</div>
+            ${lightCtl}
+          </div>
         </div>`;
     };
 
@@ -2076,6 +2089,17 @@ class JarvisPanel extends HTMLElement {
         this._toast(v === 0 ? "✓ hourly cap → unlimited" : `✓ hourly cap → ${v}/hr`, "ok");
       });
     }
+
+    // Area-card light toggles (flat, always-clickable control mirroring the 3D lamp)
+    this.shadowRoot.querySelectorAll('.area-light').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const areaId = btn.getAttribute('data-light-area');
+        const name = btn.getAttribute('data-area-name') || 'Area';
+        const isOn = btn.classList.contains('on');
+        this._toggleAreaLights(areaId, name, isOn);
+      });
+    });
 
     // Pattern-engine suggestions: approve / dismiss / YAML reveal
     this.shadowRoot.querySelectorAll(".sug").forEach(card => {
@@ -3231,17 +3255,17 @@ class JarvisPanel extends HTMLElement {
     50%      { box-shadow: 0 0 32px 7px rgba(0,242,254,0.72); }
   }
   .h3d-platform {
-    box-shadow: 0 0 22px 1px rgba(0,242,254,0.10);
+    box-shadow: 0 0 30px 2px rgba(0,242,254,0.16);
     pointer-events: none;
   }
   .h3d-floor-badge {
     position: absolute;
     font-family: var(--font-display);
-    font-size: 8px;
-    font-weight: 600;
-    letter-spacing: 2px;
-    color: rgba(0,242,254,0.55);
-    text-shadow: 0 0 8px rgba(0,242,254,0.4);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: rgba(120,225,255,0.85);
+    text-shadow: 0 0 10px rgba(0,242,254,0.6);
     pointer-events: none;
     white-space: nowrap;
   }
@@ -3446,6 +3470,52 @@ class JarvisPanel extends HTMLElement {
     margin-top: auto;
   }
   .area.active .area-name { color: var(--cyan); border-top-color: var(--cyan-faint); }
+  .area-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    padding-top: 4px;
+  }
+  .area-foot .area-name {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+  }
+  .area.active .area-foot { border-top-color: var(--cyan-faint); }
+  .area-light {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    padding: 3px 7px;
+    border-radius: 999px;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid rgba(0,242,254,0.22);
+    color: var(--text-dim);
+    transition: color 0.15s, border-color 0.15s, box-shadow 0.2s;
+    flex-shrink: 0;
+  }
+  .area-light .al-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(0,242,254,0.3);
+    transition: background 0.15s, box-shadow 0.2s;
+  }
+  .area-light:hover { color: #fff; border-color: rgba(255,200,110,0.6); }
+  .area-light.on {
+    color: #ffce6b;
+    border-color: rgba(255,196,96,0.7);
+    box-shadow: 0 0 10px rgba(255,184,72,0.4);
+  }
+  .area-light.on .al-dot {
+    background: #ffce6b;
+    box-shadow: 0 0 8px 1px rgba(255,184,72,0.8);
+  }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
   /* LOG */
@@ -4097,7 +4167,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.4.1 ",
+  "%c JARVIS Panel %c v6.4.2 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
