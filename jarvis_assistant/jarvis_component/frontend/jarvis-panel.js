@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.4.2 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.6.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -961,6 +961,7 @@ class JarvisPanel extends HTMLElement {
     const isDominant = (n) => !!domKey && norm(n) === domKey;
 
     // Per-room light state (on/total/area_id) for the light indicator + toggle.
+    const lightControlOn = (d.config && d.config.light_control_enabled) !== false;
     const lightInfo = (d.areasGrid || []).map(a => ({
       k: norm(a.name), on: a.lights_on || 0, total: a.lights_total || 0, area_id: a.id,
     }));
@@ -1134,19 +1135,21 @@ class JarvisPanel extends HTMLElement {
       // glow when on, dim outline when off. Click toggles the area's lights.
       if (li) {
         const lamp = document.createElement('div');
-        lamp.className = 'h3d-lamp' + (lit ? ' on' : '');
+        lamp.className = 'h3d-lamp' + (lit ? ' on' : '') + (lightControlOn ? '' : ' static');
         lamp.style.cssText = 'transform:translate3d(-8px,' + (-h/2 - 2) + 'px,0) rotateX(90deg)';
         lamp.title = (li.total > 1 ? li.on + '/' + li.total + ' lights on' : (lit ? 'Light on' : 'Light off'))
-          + ' — tap to toggle';
+          + (lightControlOn ? ' — tap to toggle' : '');
         lamp.innerHTML = '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
           + '<path d="M9 21h6v-1.5H9V21zm3-19a7 7 0 00-4.2 12.6c.5.4.7.7.7 1.2v.7h7v-.7c0-.5.2-.8.7-1.2A7 7 0 0012 2z" fill="currentColor"/></svg>';
-        // Don't let a tap on the bulb start a rotate-drag.
-        lamp.addEventListener('pointerdown', function(ev) { ev.stopPropagation(); });
-        lamp.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
-        lamp.addEventListener('click', function(ev) {
-          ev.stopPropagation();
-          self._toggleAreaLights(li.area_id, rm.name, lit);
-        });
+        if (lightControlOn) {
+          // Don't let a tap on the bulb start a rotate-drag.
+          lamp.addEventListener('pointerdown', function(ev) { ev.stopPropagation(); });
+          lamp.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+          lamp.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            self._toggleAreaLights(li.area_id, rm.name, lit);
+          });
+        }
         g.appendChild(lamp);
       }
 
@@ -1466,8 +1469,9 @@ class JarvisPanel extends HTMLElement {
         : `<div class="area-caps"><div class="cap cap-empty"><span class="cap-lbl">—</span></div></div>`;
       const hasLights = (a.lights_total || 0) > 0;
       const lit = hasLights && (a.lights_on || 0) > 0;
+      const ctlOn = (this._liveData && this._liveData.config && this._liveData.config.light_control_enabled) !== false;
       const lightCtl = hasLights
-        ? `<button class="area-light ${lit ? 'on' : ''}" data-light-area="${this._esc(a.id || '')}" data-area-name="${this._esc(a.name)}" title="${a.lights_on}/${a.lights_total} lights on — tap to toggle">
+        ? `<button class="area-light ${lit ? 'on' : ''} ${ctlOn ? '' : 'static'}" data-light-area="${this._esc(a.id || '')}" data-area-name="${this._esc(a.name)}" title="${a.lights_on}/${a.lights_total} lights on${ctlOn ? ' — tap to toggle' : ''}">
              <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
            </button>`
         : '';
@@ -1699,6 +1703,24 @@ class JarvisPanel extends HTMLElement {
               data-cfg-key="rich_reasoning"
               data-cfg-val="${(d.config?.rich_reasoning) ? 'false' : 'true'}">
               ${(d.config?.rich_reasoning) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Light Control</span>
+            <span class="toggle-desc">Off = still show which rooms have lights on, but disable toggling from the dashboard</span>
+            <button class="toggle-btn ${(d.config?.light_control_enabled !== false) ? 'on' : 'off'}"
+              data-cfg-key="light_control_enabled"
+              data-cfg-val="${(d.config?.light_control_enabled !== false) ? 'false' : 'true'}">
+              ${(d.config?.light_control_enabled !== false) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Appliance Power Guessing</span>
+            <span class="toggle-desc">Off = only announce appliances with native sensors or ones you've mapped (no guessing from the power meter)</span>
+            <button class="toggle-btn ${(d.config?.appliance_power_guessing) ? 'on' : 'off'}"
+              data-cfg-key="appliance_power_guessing"
+              data-cfg-val="${(d.config?.appliance_power_guessing) ? 'false' : 'true'}">
+              ${(d.config?.appliance_power_guessing) ? 'ON' : 'OFF'}
             </button>
           </div>
         </div>
@@ -2090,16 +2112,20 @@ class JarvisPanel extends HTMLElement {
       });
     }
 
-    // Area-card light toggles (flat, always-clickable control mirroring the 3D lamp)
-    this.shadowRoot.querySelectorAll('.area-light').forEach(btn => {
-      btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        const areaId = btn.getAttribute('data-light-area');
-        const name = btn.getAttribute('data-area-name') || 'Area';
-        const isOn = btn.classList.contains('on');
-        this._toggleAreaLights(areaId, name, isOn);
+    // Area-card light toggles (flat, always-clickable control mirroring the 3D lamp).
+    // Skipped entirely when light control is disabled — the pill stays as a pure indicator.
+    const _lightCtlOn = (this._liveData && this._liveData.config && this._liveData.config.light_control_enabled) !== false;
+    if (_lightCtlOn) {
+      this.shadowRoot.querySelectorAll('.area-light').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const areaId = btn.getAttribute('data-light-area');
+          const name = btn.getAttribute('data-area-name') || 'Area';
+          const isOn = btn.classList.contains('on');
+          this._toggleAreaLights(areaId, name, isOn);
+        });
       });
-    });
+    }
 
     // Pattern-engine suggestions: approve / dismiss / YAML reveal
     this.shadowRoot.querySelectorAll(".sug").forEach(card => {
@@ -3516,6 +3542,10 @@ class JarvisPanel extends HTMLElement {
     background: #ffce6b;
     box-shadow: 0 0 8px 1px rgba(255,184,72,0.8);
   }
+  .area-light.static { cursor: default; }
+  .area-light.static:hover { color: var(--text-dim); border-color: rgba(0,242,254,0.22); }
+  .area-light.static.on:hover { color: #ffce6b; border-color: rgba(255,196,96,0.7); }
+  .h3d-lamp.static { cursor: default; }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
   /* LOG */
@@ -4167,7 +4197,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.4.2 ",
+  "%c JARVIS Panel %c v6.6.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

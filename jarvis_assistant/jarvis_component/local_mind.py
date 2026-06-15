@@ -270,7 +270,7 @@ def _pick(variants: list[str], entity_id: str, hour: int) -> str:
 
 def _compose(honorific: str, friendly_name: str, entity_id: str, to_state: str,
              hour: int, *, novelty: str, away: bool, escalated: bool,
-             device_class: str = "") -> str:
+             device_class: str = "", urgency: str = "") -> str:
     name = friendly_name or (entity_id.split(".", 1)[-1].replace("_", " ").title()
                              if entity_id else "A device")
     core = f"{name} {_state_phrase(to_state, device_class, entity_id)}"
@@ -287,17 +287,23 @@ def _compose(honorific: str, friendly_name: str, entity_id: str, to_state: str,
         else:
             clauses.append("which is out of pattern for this time of day")
     tail = (" — " + ", ".join(clauses)) if clauses else ""
-    openers_urgent = [f"{honorific.title()}, your attention please:",
-                      f"{honorific.title()}, you should know:"]
-    openers_info = [f"{honorific.title()},", f"For your awareness, {honorific} —"]
-    opener = _pick(openers_urgent if escalated else openers_info, entity_id, hour + 7)
+    # The opener carries JARVIS's personality and varies every time (anti-repeat),
+    # matched to register — plain and unembellished when the matter is grave. The
+    # factual body above stays stable; only the voice around it varies.
+    try:
+        from . import persona
+        register = persona.register_for(urgency) if urgency else ("urgent" if escalated else "neutral")
+        opener = persona.announce_opener(honorific, register)
+    except Exception:
+        opener = f"{honorific.title()},"
     return f"{opener} {core}{tail}."
 
 
 def compose_announcement(honorific: str, friendly_name: str, entity_id: str = "",
                          to_state: str = "", device_class: str = "", *,
                          hour: Optional[int] = None, novelty: str = "unknown",
-                         away: bool = False, escalated: bool = False) -> str:
+                         away: bool = False, escalated: bool = False,
+                         urgency: str = "") -> str:
     """
     Public verbalizer — the single voice for ALL local speech. The learned-cache
     replay, the legacy templates, and the last-ditch fallback all compose through
@@ -309,7 +315,7 @@ def compose_announcement(honorific: str, friendly_name: str, entity_id: str = ""
         hour = datetime.now().hour
     return _compose(honorific, friendly_name, entity_id, to_state, int(hour),
                     novelty=novelty, away=away, escalated=escalated,
-                    device_class=device_class)
+                    device_class=device_class, urgency=urgency)
 
 
 # ── The assessment ───────────────────────────────────────────────────────────

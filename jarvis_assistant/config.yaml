@@ -4,7 +4,7 @@ description: >
   Advanced routing and observer mode are configured via Settings → Devices &
   Services → JARVIS → Configure (where you can use proper area and entity
   pickers).
-version: "6.4.2"
+version: "6.6.0"
 slug: "jarvis_assistant"
 url: "https://github.com/sam3gp8/jarvis-aio"
 init: false

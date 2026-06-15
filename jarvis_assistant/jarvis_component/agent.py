@@ -1513,4 +1513,9 @@ async def run_agent(
         )
         return result.get("text", "")
     except Exception:
-        return "I've completed the requested actions, sir."
+        try:
+            from . import persona
+            hon = (config.get("honorific", "sir") if isinstance(config, dict) else "sir")
+            return persona.completed(hon)
+        except Exception:
+            return "I've completed the requested actions, sir."

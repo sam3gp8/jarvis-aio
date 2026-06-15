@@ -548,6 +548,8 @@ async def ws_get_panel_data(
                 "package_detection": bool(_runtime_opt(hass, entry, "package_detection", True)),
                 "visitor_learning": bool(_runtime_opt(hass, entry, "visitor_learning", True)),
                 "rich_reasoning": bool(_runtime_opt(hass, entry, "rich_reasoning", False)),
+                "light_control_enabled": bool(_runtime_opt(hass, entry, "light_control_enabled", True)),
+                "appliance_power_guessing": bool(_runtime_opt(hass, entry, "appliance_power_guessing", False)),
                 "llm_base_url": str(_runtime_opt(hass, entry, "llm_base_url", "") or ""),
                 "notify_service": current_notify,
                 "notify_services_available": notify_services,
@@ -873,6 +875,8 @@ PANEL_WRITABLE_KEYS = {
     "llm_base_url",                 # str: OpenAI-compatible endpoint (Ollama GPU server)
     "pattern_min_occurrences",      # int: pattern engine repeat threshold
     "pattern_confidence",           # float: pattern engine confidence threshold
+    "light_control_enabled",        # bool: allow toggling lights from the dashboard
+    "appliance_power_guessing",     # bool: announce fingerprint/auto-discovered guesses
 }
 
 # ── Debug log ring buffer ────────────────────────────────────────────────────

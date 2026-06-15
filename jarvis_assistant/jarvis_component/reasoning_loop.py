@@ -83,7 +83,7 @@ async def _decision_from_cache(hass, cached: dict, *, honorific: str,
     msg = local_mind.compose_announcement(
         honorific, friendly_name, entity_id, to_state, device_class,
         hour=hour, novelty=grade, away=not anyone_home,
-        escalated=urgency in ("high", "critical"))
+        escalated=urgency in ("high", "critical"), urgency=urgency)
     return {
         "speak": True,
         "message": msg,

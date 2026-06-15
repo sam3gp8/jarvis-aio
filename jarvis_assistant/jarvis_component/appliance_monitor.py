@@ -238,22 +238,52 @@ class _NativeAppliance:
     entity_id: str             # The status entity (e.g. binary_sensor.washer_run_completed)
     device_name: str           # Human-friendly device name
     appliance: ApplianceType
-    trigger_state: str         # State value that means "done" (e.g. "on", "completed")
+    trigger_states: frozenset  # State values (lowercase) that mean "done"
     last_state: str = ""
     announced: bool = False
 
 
-# Native status patterns: (keyword_in_entity, trigger_state, appliance_type)
+# Native status patterns: (keyword_in_entity, {done-state values, lowercased}, type)
+# Matching is case-insensitive against the entity_id and friendly name. The done
+# values are a set so one pattern can accept several "finished" spellings.
 _NATIVE_PATTERNS = [
-    ("run_completed",    "on",        None),   # Samsung washer/dryer
-    ("run_complete",     "on",        None),
-    ("cycle_complete",   "on",        None),
-    ("job_state",        "finished",  None),   # LG ThinQ
-    ("machine_state",    "idle",      None),   # After running → idle
-    ("washer_job_state", "finished",  ApplianceType.WASHER),
-    ("dryer_job_state",  "finished",  ApplianceType.DRYER),
-    ("dishwasher_job",   "finished",  ApplianceType.DISHWASHER),
+    ("run_completed",    {"on"},                                       None),  # SmartThinQ / Samsung
+    ("wash_completed",   {"on"},                                       None),
+    ("dry_completed",    {"on"},                                       None),
+    ("run_complete",     {"on"},                                       None),
+    ("cycle_complete",   {"on"},                                       None),
+    ("run_state",        {"end", "finished", "complete", "completed"}, None),  # LG ThinQ run state
+    ("job_state",        {"finished", "end", "complete", "completed"}, None),  # LG ThinQ
+    ("washer_job_state", {"finished", "end"},                          ApplianceType.WASHER),
+    ("dryer_job_state",  {"finished", "end"},                          ApplianceType.DRYER),
+    ("dishwasher_job",   {"finished", "end"},                          ApplianceType.DISHWASHER),
 ]
+
+
+# Appliances that must NEVER produce a "cycle complete" announcement: things that
+# cycle continuously (fridges, freezers, A/C, heat pumps) or that the user does
+# not want narrated (stoves/ovens/ranges). Checked at the single announce
+# chokepoint so it covers every detection path (native, declared, power, delta).
+_NEVER_ANNOUNCE_HINTS = (
+    "fridge", "refrigerator", "freezer", "ice maker", "icemaker",
+    "air condition", "air-condition", "aircon", "hvac", "heat pump", "heatpump",
+    "mini split", "minisplit", "furnace", "air handler",
+    "stove", "oven", "range", "cooktop", "cook top", "wall oven",
+)
+
+
+def _is_never_announce(appliance, label: str, friendly: str) -> bool:
+    """True if this appliance should never be announced (continuous-cycle or
+    user-excluded). Stoves/ovens/ranges map to ApplianceType.OVEN, so that whole
+    type is excluded; fridges/AC are matched by keyword."""
+    if appliance == ApplianceType.OVEN:
+        return True
+    text = f"{label} {friendly}".lower()
+    if any(h in text for h in _NEVER_ANNOUNCE_HINTS):
+        return True
+    import re as _re
+    toks = set(_re.findall(r"[a-z0-9/]+", text))
+    return bool(toks & {"ac", "a/c"})
 
 
 # ── Whole-home energy delta tracking ────────────────────────────────────────
@@ -289,6 +319,7 @@ class _MonitorState:
         self.disagg: list = []           # declared appliances WITHOUT a dedicated entity
         self.claimed: set = set()        # entities owned by a declared appliance
         self.announce_unknown: bool = False  # announce loads that match no declared appliance
+        self.power_guessing: bool = False     # announce fingerprint/auto-discovered guesses
         self.unsub = None
         self.running = False
 
@@ -508,48 +539,53 @@ def _discover_sensors(hass: HomeAssistant) -> dict[str, _SensorState]:
 
 def _discover_native_appliances(hass: HomeAssistant) -> dict[str, _NativeAppliance]:
     """
-    Find smart appliances that expose native status entities.
-    E.g. Samsung washer with binary_sensor.washer_run_completed.
+    Find smart appliances that expose native status entities (the device already
+    tracks its own cycle completion — no power guessing needed).
+    E.g. SmartThinQ/LG washer with binary_sensor.<dev>_run_completed or
+    sensor.<dev>_run_state, or a Samsung washer/dryer.
+
+    Deduped per device: binary_sensor is scanned before sensor, so a clean
+    "run completed" binary wins over a run_state sensor on the same appliance and
+    we never register two natives for one machine (which would double-announce).
     """
     found = {}
+    claimed_devices = set()   # device names already covered by a native
 
     for domain in ("binary_sensor", "sensor"):
         for state in hass.states.async_all(domain):
             eid = state.entity_id
             fname = (state.attributes.get("friendly_name") or "").lower()
 
-            for pattern, trigger, forced_type in _NATIVE_PATTERNS:
+            for pattern, done_states, forced_type in _NATIVE_PATTERNS:
                 if pattern not in eid.lower() and pattern not in fname:
                     continue
 
-                # Determine appliance type from entity context
-                atype = forced_type
-                if not atype:
-                    atype = _classify_appliance(eid, fname)
-                if not atype:
-                    # Check the parent device name
-                    dev_name, _ = _get_device_siblings(hass, eid)
-                    if dev_name:
-                        atype = _classify_appliance("", dev_name)
+                dev_name, _ = _get_device_siblings(hass, eid)
+                dev_key = (dev_name or eid).lower()
+                if dev_key in claimed_devices:
+                    break  # device already has a native — don't double up
+
+                # Determine appliance type from entity/device context
+                atype = forced_type or _classify_appliance(eid, fname)
+                if not atype and dev_name:
+                    atype = _classify_appliance("", dev_name)
                 if not atype:
                     atype = ApplianceType.GENERIC
 
-                dev_name, _ = _get_device_siblings(hass, eid)
                 display_name = dev_name or fname or eid
-
                 found[eid] = _NativeAppliance(
                     entity_id=eid,
                     device_name=display_name,
                     appliance=atype,
-                    trigger_state=trigger,
-                    last_state=state.state or "",
+                    trigger_states=frozenset(done_states),
+                    last_state=(state.state or "").lower(),
                 )
+                claimed_devices.add(dev_key)
                 _LOGGER.info(
-                    "Appliance [native]: %s → %s (trigger='%s', "
-                    "device='%s')",
-                    eid, atype.label, trigger, display_name,
+                    "Appliance [native]: %s → %s (done=%s, device='%s')",
+                    eid, atype.label, sorted(done_states), display_name,
                 )
-                break  # Don't match multiple patterns for same entity
+                break  # one pattern per entity
 
     return found
 
@@ -705,20 +741,18 @@ def _on_state_changed(event: Event) -> None:
     # ── Native appliance status change ──────────────────────────────
     if entity_id in _MON.natives:
         native = _MON.natives[entity_id]
-        old_state_val = native.last_state
-        new_state_val = new_state.state or ""
-        native.last_state = new_state_val
+        old_l = native.last_state
+        new_l = (new_state.state or "").lower()
+        native.last_state = new_l
 
-        if (new_state_val == native.trigger_state
-                and old_state_val != native.trigger_state
+        if (new_l in native.trigger_states
+                and old_l not in native.trigger_states
                 and not native.announced):
             native.announced = True
             _LOGGER.info(
                 "Native appliance DONE: %s (%s) — %s → %s",
-                entity_id, native.appliance.label,
-                old_state_val, new_state_val,
+                entity_id, native.appliance.label, old_l, new_l,
             )
-            # Create a synthetic sensor state for _announce_done
             synth = _SensorState(
                 entity_id=entity_id,
                 friendly_name=native.device_name,
@@ -729,8 +763,8 @@ def _on_state_changed(event: Event) -> None:
             _MON.hass.async_create_task(
                 _announce_done(synth, native.appliance.label)
             )
-        elif new_state_val != native.trigger_state:
-            # Reset announced flag when appliance starts a new cycle
+        elif new_l not in native.trigger_states:
+            # Reset when the appliance leaves the "done" state (new cycle).
             native.announced = False
         return
 
@@ -922,6 +956,30 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
     """Announce appliance cycle completion through JARVIS audio pipeline."""
     hass = _MON.hass
     config = _MON.config
+
+    # Never announce continuous-cycle or user-excluded appliances (fridges, A/C,
+    # stoves/ovens). This is the single chokepoint, so it catches native,
+    # declared, power-sensor and whole-home-delta paths alike.
+    if _is_never_announce(sensor.appliance, appliance_label, sensor.friendly_name or ""):
+        _LOGGER.info(
+            "Appliance announcement suppressed (excluded type): %s / %s",
+            appliance_label, sensor.friendly_name,
+        )
+        return
+
+    # Power-guessing gate: only NATIVE completion entities and USER-DECLARED
+    # appliances are trusted. Auto-discovered / power-fingerprinted detections are
+    # guesses and stay silent unless the user enables power guessing.
+    method = sensor.discovery_method or ""
+    trusted = any(method.startswith(t) for t in
+                  ("native_status", "declared_entity", "explicit_config", "whole_home_match"))
+    if not trusted and not _MON.power_guessing:
+        _LOGGER.info(
+            "Appliance announcement suppressed (power guessing off): %s [method=%s]",
+            appliance_label, method,
+        )
+        return
+
     honorific = config.get("honorific", "sir")
     nice_name = appliance_label.replace("_", " ").title()
     friendly = sensor.friendly_name or nice_name
@@ -1087,6 +1145,7 @@ async def start(hass: HomeAssistant, config: dict) -> None:
     # holds the live panel values; the persisted config is the boot-time fallback.
     _prof_val = None
     _unknown_val = None
+    _guess_val = None
     try:
         from .const import DOMAIN as _DOM
         for _eid, _data in (hass.data.get(_DOM) or {}).items():
@@ -1096,6 +1155,8 @@ async def start(hass: HomeAssistant, config: dict) -> None:
                     _prof_val = _rc["appliance_profile"]
                 if "appliance_announce_unknown" in _rc:
                     _unknown_val = _rc["appliance_announce_unknown"]
+                if "appliance_power_guessing" in _rc:
+                    _guess_val = _rc["appliance_power_guessing"]
                 break
     except Exception as _exc:
         _LOGGER.debug("Appliance profile runtime read note: %s", _exc)
@@ -1115,6 +1176,8 @@ async def start(hass: HomeAssistant, config: dict) -> None:
         config["appliance_profile"] = _prof_val
     if _unknown_val is not None:
         config["appliance_announce_unknown"] = _unknown_val
+    if _guess_val is not None:
+        config["appliance_power_guessing"] = _guess_val
     _MON.config = config
 
     # Discover sensors
@@ -1124,6 +1187,26 @@ async def start(hass: HomeAssistant, config: dict) -> None:
     _MON.natives = await hass.async_add_executor_job(
         _discover_native_appliances, hass,
     )
+
+    # If a device exposes a native completion entity, drop any power sensor on the
+    # SAME device — otherwise the washer would announce twice per cycle (once from
+    # run_completed, once from the power drop). Native is authoritative.
+    if _MON.natives and _MON.sensors:
+        native_devs = set()
+        for nat in _MON.natives.values():
+            dn, _ = _get_device_siblings(hass, nat.entity_id)
+            native_devs.add((dn or nat.device_name or "").lower())
+        for seid in list(_MON.sensors.keys()):
+            sdn, _ = _get_device_siblings(hass, seid)
+            if (sdn or "").lower() in native_devs and (sdn or "").strip():
+                _MON.sensors.pop(seid, None)
+                _LOGGER.info("Appliance: power sensor %s superseded by native on same device", seid)
+
+    # Whole-home power guessing is OFF by default. When off, only NATIVE
+    # completion entities and USER-DECLARED appliances are announced; the
+    # fingerprint/area/auto-discovery guesses are suppressed at the announce
+    # chokepoint. The user can opt back into guessing from Settings.
+    _MON.power_guessing = bool(config.get("appliance_power_guessing", False))
 
     # Discover whole-home energy meter for delta tracking
     _MON.delta = await hass.async_add_executor_job(
@@ -1181,21 +1264,19 @@ async def start(hass: HomeAssistant, config: dict) -> None:
                 _LOGGER.info("Appliance [declared/power]: %s → %s", ent, ap["name"])
             elif not is_power and ent not in _MON.natives:
                 low = ent.lower()
-                trigger = "off"
-                for kw, ts, _t in _NATIVE_PATTERNS:
+                done = {"on"}   # default for a "completed"-style binary sensor
+                for kw, ds, _t in _NATIVE_PATTERNS:
                     if kw in low:
-                        trigger = ts
-                        break
-                else:
-                    for cand in ("finished", "complete", "completed", "idle", "standby"):
-                        # leave default 'off'; user can map a power sensor for precision
+                        done = set(ds)
                         break
                 _MON.natives[ent] = _NativeAppliance(
                     entity_id=ent, device_name=ap["name"], appliance=atype,
-                    trigger_state=trigger,
+                    trigger_states=frozenset(done),
+                    last_state=((hass.states.get(ent).state or "").lower()
+                                if hass.states.get(ent) else ""),
                 )
-                _LOGGER.info("Appliance [declared/native]: %s → %s (done='%s')",
-                             ent, ap["name"], trigger)
+                _LOGGER.info("Appliance [declared/native]: %s → %s (done=%s)",
+                             ent, ap["name"], sorted(done))
         elif ap.get("watts", 0) > 0:
             # No dedicated entity — becomes a whole-home disaggregation candidate.
             _MON.disagg.append(ap)
