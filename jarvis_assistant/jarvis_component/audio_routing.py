@@ -183,12 +183,20 @@ def currently_occupied_areas(hass: HomeAssistant) -> list[str]:
 
 
 def anyone_home(hass: HomeAssistant) -> bool:
-    """True if any presence sensor anywhere is on, OR if HA's `person` entities
-    show anyone home. This guides fallback for medium/high urgency."""
-    if currently_occupied_areas(hass):
-        return True
-    # Also check HA person entities as a secondary signal
+    """True if anyone appears to be home: any occupancy/motion/presence sensor on
+    ANYWHERE (area assignment is not required — a motion sensor with no area still
+    proves presence), or any person/device_tracker reading 'home'. Guides the
+    'while no one is home' announcement clause and medium/high fallback routing."""
+    occ_classes = ("occupancy", "motion", "presence")
+    on_states = ("on", "home", "detected", "true", "occupied")
+    for s in hass.states.async_all("binary_sensor"):
+        if (s.attributes.get("device_class") in occ_classes
+                and str(s.state).lower() in on_states):
+            return True
     for s in hass.states.async_all("person"):
+        if str(s.state).lower() == "home":
+            return True
+    for s in hass.states.async_all("device_tracker"):
         if str(s.state).lower() == "home":
             return True
     return False
