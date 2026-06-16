@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# JARVIS AI Assistant — All-In-One Installer v6.6.0
+# JARVIS AI Assistant — All-In-One Installer v6.7.0
 # Zero-touch install. After pressing Start you do nothing else.
 # ==============================================================================
 set -euo pipefail
@@ -43,14 +43,21 @@ COGNITION_ENABLED=$(bashio::config 'cognition_enabled' || echo "true")
 COGNITION_THRESHOLD=$(bashio::config 'cognition_threshold' || echo "0.6")
 
 # ── Validate ─────────────────────────────────────────────────────────────────
+# An LLM is required, but it can be a CLOUD key OR a LOCAL model. Local-first
+# users running Ollama (or any OpenAI-compatible endpoint) don't need a cloud
+# API key at all — provider=ollama (with an optional llm_base_url) is enough.
 if bashio::var.is_empty "${API_KEY}"; then
-    bashio::log.fatal "No Groq API key set. Add it in the addon Configuration tab."
-    exit 1
+    if [ "${LLM_PROVIDER}" = "ollama" ] || [ "${LLM_PROVIDER}" = "custom" ] || ! bashio::var.is_empty "${LLM_BASE_URL}"; then
+        bashio::log.info "No cloud API key set — using a local LLM (provider=${LLM_PROVIDER}${LLM_BASE_URL:+, url=${LLM_BASE_URL}})."
+    else
+        bashio::log.fatal "No LLM configured. Either set a cloud API key, or set llm_provider to 'ollama' (optionally with llm_base_url) to use a local model."
+        exit 1
+    fi
 fi
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 bashio::log.info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.6.0"
+bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.7.0"
 bashio::log.info "  Provider       : ${LLM_PROVIDER}"
 bashio::log.info "  Model          : ${MODEL}"
 bashio::log.info "  Honorific      : ${HONORIFIC}"

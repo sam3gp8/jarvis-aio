@@ -71,11 +71,14 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
         if cfg:
             return await self.async_step_import(cfg)
 
-        # Manual fallback — minimal: just API key
+        # Manual fallback — a cloud API key OR a local LLM endpoint.
         errors: dict[str, str] = {}
         if user_input is not None:
             api_key = user_input.get(CONF_API_KEY, "").strip()
-            if api_key:
+            base_url = user_input.get("llm_base_url", "").strip()
+            if api_key or base_url:
+                # No cloud key + a local URL ⇒ run a local model (Ollama).
+                provider = "groq" if api_key else "ollama"
                 await self.async_set_unique_id(DOMAIN)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
@@ -84,23 +87,27 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_API_KEY: api_key,
                         CONF_MODEL: user_input.get(CONF_MODEL, DEFAULT_MODEL),
                         CONF_HONORIFIC: user_input.get(CONF_HONORIFIC, DEFAULT_HONORIFIC),
-                        "llm_provider": "groq",
+                        "llm_provider": provider,
+                        "llm_base_url": base_url,
                         "schema_version": 7,
                     },
                 )
-            errors["base"] = "invalid_auth"
+            errors["base"] = "need_llm"
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_API_KEY): str,
+                vol.Optional(CONF_API_KEY, default=""): str,
+                vol.Optional("llm_base_url", default=""): str,
                 vol.Optional(CONF_MODEL, default=DEFAULT_MODEL): str,
                 vol.Optional(CONF_HONORIFIC, default=DEFAULT_HONORIFIC): str,
             }),
             errors=errors,
             description_placeholders={
                 "note": "The JARVIS addon normally configures this automatically. "
-                        "Manual setup is only needed if the addon config is missing.",
+                        "Provide a cloud API key, OR leave it blank and enter a local "
+                        "LLM URL (e.g. http://homeassistant.local:11434/v1) to run "
+                        "Ollama with no cloud account.",
             },
         )
 
@@ -112,9 +119,14 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
             import_data.get(CONF_API_KEY)
             or import_data.get("groq_api_key", "")
         ).strip()
+        base_url = (import_data.get("llm_base_url", "") or "").strip()
+        provider = import_data.get("llm_provider", "groq")
+        local_ok = bool(base_url) or provider in ("ollama", "custom")
 
-        if not api_key:
-            _LOGGER.warning("JARVIS: config file found but no API key")
+        # An LLM is required, but a local model counts: proceed if we have either
+        # a cloud key OR a local endpoint (provider=ollama/custom, or a base_url).
+        if not api_key and not local_ok:
+            _LOGGER.warning("JARVIS: config found but no API key and no local LLM")
             return self.async_abort(reason="import_failed")
 
         await self.async_set_unique_id(DOMAIN)
@@ -122,15 +134,16 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
             updates={CONF_API_KEY: api_key}
         )
 
-        _LOGGER.info("JARVIS: auto-configuring from addon config")
+        _LOGGER.info("JARVIS: auto-configuring from addon config (provider=%s%s)",
+                     provider, ", local" if (not api_key and local_ok) else "")
         return self.async_create_entry(
             title="JARVIS",
             data={
                 CONF_API_KEY: api_key,
                 CONF_MODEL: import_data.get(CONF_MODEL, import_data.get("model", DEFAULT_MODEL)),
                 CONF_HONORIFIC: import_data.get(CONF_HONORIFIC, import_data.get("honorific", DEFAULT_HONORIFIC)),
-                "llm_provider": import_data.get("llm_provider", "groq"),
-                "llm_base_url": import_data.get("llm_base_url", ""),
+                "llm_provider": provider,
+                "llm_base_url": base_url,
                 "schema_version": 7,
             },
             options={k: v for k, v in import_data.items()

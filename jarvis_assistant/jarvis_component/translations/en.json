@@ -4,26 +4,29 @@
     "step": {
       "user": {
         "title": "Connect JARVIS",
-        "description": "Configure JARVIS for conversation. Most of the tuning happens afterward via the Configure button.",
+        "description": "Connect JARVIS to an LLM. Use a cloud provider's API key, OR leave the key blank and point to a local model (Ollama) — no cloud account needed.",
         "data": {
-          "api_key":      "LLM API key",
-          "model":        "Model",
-          "honorific":    "Address me as",
-          "llm_provider": "LLM provider"
+          "api_key": "LLM API key (optional)",
+          "model": "Model",
+          "honorific": "Address me as",
+          "llm_provider": "LLM provider",
+          "llm_base_url": "Local LLM URL (Ollama)"
         },
         "data_description": {
-          "api_key": "Groq keys start with gsk_... / OpenAI with sk-... / Gemini from Google AI Studio"
+          "api_key": "Leave blank to use a local model. Cloud keys: Groq gsk_... / OpenAI sk-... / Gemini from Google AI Studio.",
+          "llm_base_url": "For a local model, e.g. http://homeassistant.local:11434/v1 (Ollama). Leave blank if using a cloud key."
         }
       }
     },
     "error": {
-      "invalid_auth":   "Invalid API key.",
+      "invalid_auth": "Invalid API key.",
       "cannot_connect": "Cannot reach the LLM API. Check your network and base URL.",
-      "unknown":        "Unexpected error — check the Home Assistant logs for details."
+      "unknown": "Unexpected error — check the Home Assistant logs for details.",
+      "need_llm": "Enter either a cloud API key or a local LLM URL. For a local model, leave the key blank and set the URL to your Ollama endpoint."
     },
     "abort": {
       "already_configured": "JARVIS is already configured. Use the Configure button to update settings.",
-      "import_failed":      "Could not read jarvis_config.json. Check the addon logs."
+      "import_failed": "Could not read jarvis_config.json. Check the addon logs."
     }
   },
   "options": {
@@ -32,38 +35,38 @@
         "title": "JARVIS — Core",
         "description": "Step 1 of 3: persona, directive, and conversation model.",
         "data": {
-          "honorific":        "Address me as",
+          "honorific": "Address me as",
           "directive_preset": "Directive preset",
-          "directive":        "Custom directive (optional, overrides preset)",
-          "model":            "Conversation model",
-          "use_hass_api":     "Enable home control (lights, climate, locks, etc.)"
+          "directive": "Custom directive (optional, overrides preset)",
+          "model": "Conversation model",
+          "use_hass_api": "Enable home control (lights, climate, locks, etc.)"
         }
       },
       "routing": {
         "title": "JARVIS — Routing",
         "description": "Step 2 of 3: pick which HA areas are bedrooms (for sleep detection), which media_player group to use for broadcasts, and your phone notify service.",
         "data": {
-          "bedroom_areas":   "Bedroom areas (for sleep detection during quiet hours)",
+          "bedroom_areas": "Bedroom areas (for sleep detection during quiet hours)",
           "broadcast_group": "Broadcast speaker group (typically your home Cast group)",
-          "notify_service":  "Phone notify service (e.g. notify.mobile_app_yourphone)"
+          "notify_service": "Phone notify service (e.g. notify.mobile_app_yourphone)"
         },
         "data_description": {
-          "bedroom_areas":   "Any presence sensor in these areas fires sleep mode during quiet hours.",
+          "bedroom_areas": "Any presence sensor in these areas fires sleep mode during quiet hours.",
           "broadcast_group": "Used for critical and high-urgency announcements.",
-          "notify_service":  "Used when you're away from home or asleep."
+          "notify_service": "Used when you're away from home or asleep."
         }
       },
       "observer": {
         "title": "JARVIS — Observer Mode",
         "description": "Step 3 of 3: proactive awareness. JARVIS watches your home and speaks up when something's worth noting. Requires a Gemini API key (billing-enabled recommended).",
         "data": {
-          "observer_enabled":     "Enable observer mode",
-          "gemini_api_key":       "Gemini API key",
-          "classifier_model":     "Classifier model (Tier 1 — cheap)",
-          "reasoning_model":      "Reasoning model (Tier 2 — main)",
-          "review_model":         "Review model (Tier 3 — periodic)",
+          "observer_enabled": "Enable observer mode",
+          "gemini_api_key": "Gemini API key",
+          "classifier_model": "Classifier model (Tier 1 — cheap)",
+          "reasoning_model": "Reasoning model (Tier 2 — main)",
+          "review_model": "Review model (Tier 3 — periodic)",
           "observer_quiet_start": "Quiet hours start (HH:MM)",
-          "observer_quiet_end":   "Quiet hours end (HH:MM)"
+          "observer_quiet_end": "Quiet hours end (HH:MM)"
         }
       }
     }
