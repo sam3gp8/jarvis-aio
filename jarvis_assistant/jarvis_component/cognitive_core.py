@@ -434,6 +434,37 @@ class SafetyManager:
 
         return actions
 
+    def _residents_away(self) -> bool:
+        """Confident 'the residents are away' — for intrusion only.
+
+        Based on tracked presence (person / device_tracker) or an explicitly
+        armed-away alarm, NEVER on motion/occupancy: intrusion exists to judge
+        motion, so motion cannot also be the signal that says whether anyone is
+        home. Crucially, the ABSENCE of tracking is not 'away' — with no person/
+        device_tracker entities we cannot claim the house is empty, so this returns
+        False and motion is never treated as an intruder. That is what prevents the
+        false "motion … while no one is home" alerts when someone is home but their
+        phone isn't tracked."""
+        # A resident's device/person reading 'home' wins outright.
+        for st in self.hass.states.async_all("person"):
+            if str(st.state).lower() == "home":
+                return False
+        for st in self.hass.states.async_all("device_tracker"):
+            if str(st.state).lower() == "home":
+                return False
+        # An intentionally armed-away alarm is a strong 'away' signal.
+        for st in self.hass.states.async_all("alarm_control_panel"):
+            if str(st.state).lower() in ("armed_away", "armed_vacation"):
+                return True
+        # Otherwise, only 'away' if presence is actually tracked and reads away.
+        tracked = False
+        for st in self.hass.states.async_all("person"):
+            tracked = True
+        for st in self.hass.states.async_all("device_tracker"):
+            if str(st.state).lower() in ("home", "not_home", "away"):
+                tracked = True
+        return tracked
+
 
 # ── Lockdown (v5.9.36) ──────────────────────────────────────────────────────
 
@@ -543,39 +574,6 @@ class LockdownManager:
                     and str(st.state).lower() in occ_on):
                 return True
         return False
-
-    def _residents_away(self) -> bool:
-        """Confident 'the residents are away' — for intrusion only.
-
-        This must be based on tracked presence (person / device_tracker) or an
-        explicitly armed-away alarm, NEVER on motion/occupancy: the whole point of
-        intrusion detection is to judge motion, so motion can't also be the signal
-        that says whether anyone is home.
-
-        Crucially, the ABSENCE of presence tracking is not 'away'. If the home has
-        no person/device_tracker entities (or they're unknown), we cannot claim the
-        house is empty, so this returns False and motion is never treated as an
-        intruder. This is what prevents the false "motion … while no one is home"
-        alerts when someone is home but their phone isn't tracked."""
-        # A resident's device/person reading 'home' wins outright.
-        for st in self.hass.states.async_all("person"):
-            if str(st.state).lower() == "home":
-                return False
-        for st in self.hass.states.async_all("device_tracker"):
-            if str(st.state).lower() == "home":
-                return False
-        # An intentionally armed-away alarm is a strong 'away' signal.
-        for st in self.hass.states.async_all("alarm_control_panel"):
-            if str(st.state).lower() in ("armed_away", "armed_vacation"):
-                return True
-        # Otherwise, only 'away' if presence is actually tracked and reads away.
-        tracked = False
-        for st in self.hass.states.async_all("person"):
-            tracked = True
-        for st in self.hass.states.async_all("device_tracker"):
-            if str(st.state).lower() in ("home", "not_home", "away"):
-                tracked = True
-        return tracked
 
     def _open_windows(self) -> set:
         out = set()

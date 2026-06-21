@@ -4,6 +4,25 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.7.3] — Safety-loop fix + regression test harness
+- **Fix (critical):** since v6.7.1 the cognitive safety tick had been throwing
+  `AttributeError` every cycle. `SafetyManager.tick` and `_check_intrusion` call
+  `self._residents_away()`, but that method was defined on `LockdownManager`, not
+  `SafetyManager` — so freeze, intrusion, and nighttime-lockdown checks were
+  silently dying inside the loop's exception handler. `_residents_away` has been
+  moved to `SafetyManager` where it is used; `LockdownManager` keeps the
+  `_anyone_home` predicate it actually calls. Behaviour of both is unchanged from
+  the v6.7.1 intent — they are now simply on the right classes.
+- **Tooling:** introduced a Home-Assistant-free **pytest harness** under `tests/`.
+  A `conftest.py` installs minimal `homeassistant.*` stubs into `sys.modules`
+  before collection and loads integration modules under a synthetic `jc` package;
+  hand-rolled fakes (`FakeHass`, `FakeProvider`) exercise `cognitive_core` and
+  `reasoning_loop` as near-pure functions. A thin `pytest-homeassistant-custom-
+  component` integration layer is scaffolded (skips cleanly until that dep is
+  installed). 36 tests now cover the safety predicates, freeze thresholds, and the
+  reasoning resilience cascade (cloud failure → breaker open → local floor). This
+  is the harness that caught the bug above.
+
 ## [6.3.2] — Startup no longer blocked
 - **Fix:** the cognitive loop was created with `async_create_task`, which Home
   Assistant tracks as part of config-entry setup — so HA's bootstrap waited the

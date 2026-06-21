@@ -25,6 +25,7 @@ Public API:
 
 from __future__ import annotations
 
+import bisect
 import random
 import time
 from collections import deque
@@ -145,13 +146,11 @@ def _reg(pools: dict, register: str) -> list:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+_REGISTER_BY_URGENCY = {"critical": "grave", "high": "urgent"}
+
+
 def register_for(urgency: Optional[str]) -> str:
-    u = (urgency or "").lower()
-    if u == "critical":
-        return "grave"
-    if u == "high":
-        return "urgent"
-    return "neutral"
+    return _REGISTER_BY_URGENCY.get((urgency or "").lower(), "neutral")
 
 
 def acknowledge(honorific: str = "sir", register: str = "neutral") -> str:
@@ -170,19 +169,16 @@ def unable(honorific: str = "sir") -> str:
     return _pick(_UNABLE["neutral"], "unable", honorific)
 
 
+# Hour → daypart, as edges for a branch-free bisect lookup. Buckets:
+#   [0,5)=night  [5,12)=morning  [12,17)=afternoon  [17,22)=evening  [22,24)=night
+_GREET_EDGES = [5, 12, 17, 22]
+_GREET_BUCKETS = ["night", "morning", "afternoon", "evening", "night"]
+
+
 def greeting(honorific: str = "sir", hour: Optional[int] = None) -> str:
     if hour is None:
         hour = time.localtime().tm_hour
-    if hour < 5:
-        bucket = "night"
-    elif hour < 12:
-        bucket = "morning"
-    elif hour < 17:
-        bucket = "afternoon"
-    elif hour < 22:
-        bucket = "evening"
-    else:
-        bucket = "night"
+    bucket = _GREET_BUCKETS[bisect.bisect_right(_GREET_EDGES, hour)]
     return _pick(_GREET[bucket], f"greet:{bucket}", honorific)
 
 
