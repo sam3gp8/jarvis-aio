@@ -411,3 +411,90 @@ check_packages:
       selector:
         entity:
           domain: camera
+
+speak:
+  name: Speak
+  description: >-
+    Make a context-aware spoken announcement in a target area. JARVIS measures
+    the room's light, noise, and media activity and shapes the delivery (volume,
+    rate, whisper/projected style), ducking any active media and restoring it
+    afterward.
+  fields:
+    message:
+      name: Message
+      description: The text for JARVIS to speak.
+      required: true
+      example: "The garage door has been open for twenty minutes."
+      selector:
+        text:
+          multiline: true
+    target_area:
+      name: Target area
+      description: The area to announce in. Determines which speakers and sensors are used.
+      required: true
+      example: office
+      selector:
+        area:
+    critical:
+      name: Critical
+      description: >-
+        Force an authoritative, full-volume delivery that overrides quiet hours
+        and ducks media. Use for safety and security alerts.
+      required: false
+      default: false
+      selector:
+        boolean:
+    user_id:
+      name: User
+      description: >-
+        Optional user identity for per-user biometric/profile filtering
+        (reserved; currently threaded through and logged).
+      required: false
+      selector:
+        text:
+    expect_response:
+      name: Expect response
+      description: >-
+        Open a short, wake-word-free voice-confirmation window after speaking.
+        Pair with confirm_intent to execute on an affirmative reply.
+      required: false
+      default: false
+      selector:
+        boolean:
+    confirm_intent:
+      name: Confirmation intent
+      description: >-
+        The local intent to execute if the user confirms during the response
+        window (e.g. "secure_area", "lights_off").
+      required: false
+      selector:
+        text:
+
+process_intent:
+  name: Process intent
+  description: >-
+    Route a spoken or typed phrase to a local JARVIS command (no cloud). If a
+    confirmation window from a prior jarvis.speak is open, an affirmative phrase
+    completes that pending action; otherwise the phrase is matched as a fresh
+    command (e.g. "secure the garage", "turn off the lights", "turn it off").
+  fields:
+    phrase:
+      name: Phrase
+      description: The phrase to interpret.
+      required: true
+      example: "turn it off"
+      selector:
+        text:
+    target_area:
+      name: Target area
+      description: The area context used to resolve pronouns and scope actions.
+      required: true
+      example: office
+      selector:
+        area:
+    user_id:
+      name: User
+      description: Optional user identity for per-user handling.
+      required: false
+      selector:
+        text:

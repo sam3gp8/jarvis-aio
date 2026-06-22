@@ -45,6 +45,10 @@ from .llm_provider import create_provider
 from .migrations import migrate_config, CURRENT_SCHEMA_VERSION
 from .panel_register import async_register_panel, async_unregister_panel
 from .websocket import async_register as async_register_ws
+from .proactive_audio import (
+    async_setup_proactive_audio,
+    async_unload_proactive_audio,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -490,6 +494,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.warning("JARVIS WS command registration failed (non-fatal): %s", exc)
 
+    # ── v6.8 Proactive audio (jarvis.speak) + infrastructure audit ─────────
+    try:
+        await async_setup_proactive_audio(hass, entry)
+    except Exception as exc:
+        _LOGGER.warning("JARVIS proactive-audio setup failed (non-fatal): %s", exc)
+
     _LOGGER.info("JARVIS online. Good day, %s. Routines available: %s",
                  honorific, ", ".join(list_routines()))
     return True
@@ -540,6 +550,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 unsub()
         except Exception:
             pass
+
+    # Cancel proactive-audio listeners (audit interval + startup) and service
+    try:
+        await async_unload_proactive_audio(hass, entry)
+    except Exception as exc:
+        _LOGGER.debug("Proactive-audio unload note: %s", exc)
 
     # Remove services registered by this entry
     for service in ("analyze_camera", "analyze_on_event",
