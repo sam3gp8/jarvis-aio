@@ -31,9 +31,8 @@ from . import audio_routing
 from .audio import ProsodyController
 from .automation import PredictiveHabitMatrix
 from .const import CONF_BROADCAST_GROUP, CONF_HONORIFIC, DEFAULT_HONORIFIC, DOMAIN
-from .diagnostics import InfrastructureTriage
+from .diagnostics import FaultLog, InfrastructureTriage
 from .intent import LocalIntentRouter
-from .memory import LocalSemanticMemory
 from .vision import SpatialContextEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -431,7 +430,7 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
     await async_register_services(hass)
 
     honorific = _resolve_honorific(hass, entry)
-    memory = LocalSemanticMemory()
+    fault_log = FaultLog()
     predictor = PredictiveHabitMatrix()
 
     async def _run_audit(_now=None) -> None:
@@ -447,7 +446,7 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
                 # Recall prior occurrences (file I/O off the event loop) and fold
                 # them into the spoken warning.
                 matches = await hass.async_add_executor_job(
-                    memory.query_related_faults, tags
+                    fault_log.query_related_faults, tags
                 )
                 if matches:
                     message += _history_phrase(matches, honorific)
@@ -464,7 +463,7 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
                 )
                 # Persist this occurrence for future recall.
                 await hass.async_add_executor_job(
-                    memory.commit_event, verdict["message"], tags
+                    fault_log.commit_event, verdict["message"], tags
                 )
 
             # Habit modelling: sample occupancy and surface likely upcoming actions.

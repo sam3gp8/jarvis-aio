@@ -4,7 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.10.1] — Installer fix: deploy Python subpackages
+## [6.10.2] — Fix memory-module collision (restore semantic memory)
+- **Regression fix.** The `memory/` package added in 6.9.0 shadowed the existing
+  top-level `memory.py` (ChromaDB / FTS5 semantic memory). Because Python resolves
+  a package before a same-named module, `from .memory import get_memory_stats`
+  (and `search_memory`, `store_memory`, `get_conversation_context`) silently
+  imported the package — which only exported the fault store — so those calls hit
+  their `except` paths: the panel's Memory card read **Backend: unavailable /
+  Stored Memories: 0** and the conversation agent lost long-term recall. The
+  collision was latent until 6.10.1 (which first actually deployed the
+  subpackages) unmasked it.
+- **Fix:** removed the `memory/` package and relocated its rolling fault-history
+  store to **`diagnostics/fault_log.py`** as `FaultLog` (it was never semantic
+  memory — it's an infrastructure fault ledger, and belongs with diagnostics).
+  `proactive_audio` now imports `FaultLog` from `.diagnostics`; the audit's
+  "this has occurred before" recall is unchanged. The on-disk file moves from
+  `/config/jarvis/semantic_memory.json` to `/config/jarvis/fault_history.json`.
+  `from .memory import …` once again resolves to the real `memory.py`, restoring
+  `get_memory_stats`, `search_memory`, `store_memory`, and conversation context.
+  Tests relocated accordingly (117 passing).
+
+
 - **Critical install fix.** `run.sh` copied only the component's top-level
   `*.py`/`*.json`/`*.yaml` (plus the `frontend/`, `translations/`, `blueprints/`
   asset dirs) and never the Python subpackages. With `audio/`, `diagnostics/`,
