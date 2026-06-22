@@ -4,7 +4,21 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.10.0] — Local intent routing + predictive habit matrix
+## [6.10.1] — Installer fix: deploy Python subpackages
+- **Critical install fix.** `run.sh` copied only the component's top-level
+  `*.py`/`*.json`/`*.yaml` (plus the `frontend/`, `translations/`, `blueprints/`
+  asset dirs) and never the Python subpackages. With `audio/`, `diagnostics/`,
+  `vision/`, `memory/`, `intent/`, and `automation/` absent from
+  `/config/custom_components/jarvis/`, `proactive_audio.py`'s top-level
+  `from .audio import ProsodyController` raised `ModuleNotFoundError` and the
+  whole integration failed to set up. The installer now copies every source
+  subdirectory that is a Python package (selected by `__init__.py`, so future
+  subpackages are picked up automatically), clearing previously-installed
+  packages first so renamed/removed modules don't linger. Asset dirs have no
+  `__init__.py` and are untouched. No Python changed (suite still 117 passing);
+  this is purely the install step.
+
+
 - **`intent/intent_router.py` — `LocalIntentRouter`:** local, cloud-free command
   matching with ordered regex patterns (`secure the garage`, `turn off the
   lights`, pronoun forms like `turn it off` / `close it`). Pronoun context

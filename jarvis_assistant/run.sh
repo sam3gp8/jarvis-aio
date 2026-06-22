@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# JARVIS AI Assistant — All-In-One Installer v6.10.0
+# JARVIS AI Assistant — All-In-One Installer v6.10.1
 # Zero-touch install. After pressing Start you do nothing else.
 # ==============================================================================
 set -euo pipefail
@@ -57,7 +57,7 @@ fi
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 bashio::log.info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.10.0"
+bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.10.1"
 bashio::log.info "  Provider       : ${LLM_PROVIDER}"
 bashio::log.info "  Model          : ${MODEL}"
 bashio::log.info "  Honorific      : ${HONORIFIC}"
@@ -95,6 +95,29 @@ rm -rf "${COMPONENT_DST}/__pycache__" 2>/dev/null || true
 cp "${COMPONENT_SRC}"/*.py   "${COMPONENT_DST}/"
 cp "${COMPONENT_SRC}"/*.json "${COMPONENT_DST}/"
 cp "${COMPONENT_SRC}"/*.yaml "${COMPONENT_DST}/" 2>/dev/null || true
+
+# Python subpackages (audio/, diagnostics/, vision/, memory/, intent/,
+# automation/, …). The top-level cp above only takes root *.py — without this,
+# every `from .audio import …` fails at load with ModuleNotFoundError and the
+# whole integration refuses to set up. Selection is by __init__.py, so current
+# and future packages are picked up automatically; asset dirs (frontend/,
+# translations/, blueprints/) have no __init__.py and are untouched here.
+# First clear previously-installed packages so renamed/removed modules don't
+# linger at the destination.
+if [ -d "${COMPONENT_DST}" ]; then
+    for dst_pkg in "${COMPONENT_DST}"/*/; do
+        [ -f "${dst_pkg}__init__.py" ] && rm -rf "${dst_pkg}"
+    done
+fi
+SUBPKG_COUNT=0
+for src_pkg in "${COMPONENT_SRC}"/*/; do
+    [ -f "${src_pkg}__init__.py" ] || continue
+    pkg_name=$(basename "${src_pkg}")
+    cp -r "${COMPONENT_SRC}/${pkg_name}" "${COMPONENT_DST}/"
+    rm -rf "${COMPONENT_DST}/${pkg_name}/__pycache__"
+    SUBPKG_COUNT=$((SUBPKG_COUNT + 1))
+done
+bashio::log.info "  Installed ${SUBPKG_COUNT} Python subpackages"
 
 # Frontend panel assets (JS + images/icons + styles)
 FRONTEND_CHANGED="false"
