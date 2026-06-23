@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# JARVIS AI Assistant — All-In-One Installer v6.10.2
+# JARVIS AI Assistant — All-In-One Installer v6.14.0
 # Zero-touch install. After pressing Start you do nothing else.
 # ==============================================================================
 set -euo pipefail
@@ -57,7 +57,7 @@ fi
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 bashio::log.info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.10.2"
+bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.14.0"
 bashio::log.info "  Provider       : ${LLM_PROVIDER}"
 bashio::log.info "  Model          : ${MODEL}"
 bashio::log.info "  Honorific      : ${HONORIFIC}"
@@ -118,6 +118,18 @@ for src_pkg in "${COMPONENT_SRC}"/*/; do
     SUBPKG_COUNT=$((SUBPKG_COUNT + 1))
 done
 bashio::log.info "  Installed ${SUBPKG_COUNT} Python subpackages"
+
+# memory/ was migrated to the top-level memory.py module in 6.10.2. If a stale
+# memory/ package is still present in the SOURCE tree — e.g. an in-place unzip
+# of a new release over an old folder, which adds files but never deletes ones
+# that were removed — it gets baked into the image and copied above, where it
+# shadows memory.py and breaks semantic memory (panel shows "unavailable").
+# Whenever memory.py is the canonical module, guarantee no memory/ package
+# survives at the destination, regardless of what the source tree carried.
+if [ -f "${COMPONENT_SRC}/memory.py" ] && [ -d "${COMPONENT_DST}/memory" ]; then
+    rm -rf "${COMPONENT_DST}/memory"
+    bashio::log.info "  Removed stale memory/ package (memory.py is canonical)"
+fi
 
 # Frontend panel assets (JS + images/icons + styles)
 FRONTEND_CHANGED="false"

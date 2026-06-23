@@ -867,6 +867,15 @@ def _handle_nest_event(hass: HomeAssistant, event: Event) -> None:
             "source": "nest",
         }
         _LOGGER.debug("JARVIS: cached Nest event %s for %s", event_id, entity_id)
+        try:
+            hass.bus.async_fire("jarvis_camera_event", {
+                "entity_id": entity_id,
+                "source": "nest",
+                "label": str(data.get("event_type") or data.get("type") or "motion"),
+                "confidence": None,
+            })
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as exc:
         _LOGGER.debug("JARVIS: error caching Nest event: %s", exc)
 
@@ -899,6 +908,17 @@ def _handle_frigate_event(hass: HomeAssistant, event: Event) -> None:
                 "source": "frigate",
             }
             _LOGGER.debug("JARVIS: cached Frigate event %s for %s", event_id, entity_id)
+            # Surface an importance signal the command-center panel can auto-focus on.
+            try:
+                _score = after.get("score") or after.get("top_score")
+                hass.bus.async_fire("jarvis_camera_event", {
+                    "entity_id": entity_id,
+                    "source": "frigate",
+                    "label": str(after.get("label", "object")),
+                    "confidence": round(float(_score) * 100) if _score is not None else None,
+                })
+            except Exception:  # noqa: BLE001
+                pass
     except Exception as exc:
         _LOGGER.debug("JARVIS: error caching Frigate event: %s", exc)
 

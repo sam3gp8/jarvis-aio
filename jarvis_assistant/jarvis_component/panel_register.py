@@ -28,6 +28,62 @@ PANEL_WEBCOMPONENT:   Final = "jarvis-panel"
 PANEL_STATIC_URL:     Final = "/jarvis_panel_static"
 PANEL_JS_FILENAME:    Final = "jarvis-panel.js"
 
+# Command Center — the operational HUD (separate sidebar entry, same static dir)
+CMD_URL_PATH:         Final = "jarvis-command"
+CMD_TITLE:            Final = "Command Center"
+CMD_ICON:             Final = "mdi:hexagon-multiple-outline"
+CMD_WEBCOMPONENT:     Final = "jarvis-command"
+CMD_JS_FILENAME:      Final = "jarvis-command.js"
+
+
+def _hash_file(path: str) -> str:
+    """Content hash for cache-busting; mtime/time fallback if unreadable."""
+    try:
+        import hashlib
+        with open(path, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:10]
+    except Exception:
+        try:
+            return str(int(os.path.getmtime(path)))
+        except Exception:
+            import time
+            return str(int(time.time()))
+
+
+async def _register_one(
+    hass: HomeAssistant, panel_dir: str, *,
+    webcomponent: str, url_path: str, title: str, icon: str, js_filename: str,
+) -> bool:
+    """Register a single custom panel served from the shared static dir."""
+    js_path = os.path.join(panel_dir, js_filename)
+    if not os.path.isfile(js_path):
+        _LOGGER.error("JARVIS panel: JS file not found at %s", js_path)
+        return False
+    module_url = f"{PANEL_STATIC_URL}/{js_filename}?v={_hash_file(js_path)}"
+    try:
+        frontend.async_remove_panel(hass, url_path)
+    except Exception:
+        pass
+    try:
+        await panel_custom.async_register_panel(
+            hass,
+            webcomponent_name=webcomponent,
+            frontend_url_path=url_path,
+            sidebar_title=title,
+            sidebar_icon=icon,
+            module_url=module_url,
+            embed_iframe=False,
+            require_admin=False,
+        )
+        _LOGGER.info("JARVIS panel registered: /%s", url_path)
+        return True
+    except ValueError:
+        _LOGGER.debug("JARVIS panel /%s already registered (idempotent)", url_path)
+        return True
+    except Exception as exc:
+        _LOGGER.error("JARVIS panel registration failed (/%s): %s", url_path, exc)
+        return False
+
 
 async def async_register_panel(hass: HomeAssistant) -> bool:
     """
@@ -47,22 +103,7 @@ async def async_register_panel(hass: HomeAssistant) -> bool:
         _LOGGER.error("JARVIS panel: JS file not found at %s", js_path)
         return False
 
-    # Cache buster: content hash. The URL changes if and only if the JS bytes
-    # change, so a stale browser/service-worker cache cannot survive an actual
-    # update — and an unchanged file won't churn the URL on every reload. (mtime
-    # fallback only if the file can't be read for some reason.)
-    try:
-        import hashlib
-        with open(js_path, "rb") as _f:
-            js_token = hashlib.sha1(_f.read()).hexdigest()[:10]
-    except Exception:
-        try:
-            js_token = str(int(os.path.getmtime(js_path)))
-        except Exception:
-            import time
-            js_token = str(int(time.time()))
-
-    # Register static path for serving JS
+    # Register static path for serving the frontend dir (both panels' JS live here)
     try:
         await hass.http.async_register_static_paths([
             StaticPathConfig(PANEL_STATIC_URL, panel_dir, cache_headers=False)
@@ -70,41 +111,25 @@ async def async_register_panel(hass: HomeAssistant) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS panel: static path note: %s", exc)
 
-    # Register the custom panel. Remove any existing registration first so a
-    # reload always applies the fresh (content-hashed) module_url — otherwise
-    # panel_custom raises "already registered" and the new URL is silently
-    # dropped, which is exactly how a stale panel survives an update.
-    cache_busted_url = f"{PANEL_STATIC_URL}/{PANEL_JS_FILENAME}?v={js_token}"
-    try:
-        frontend.async_remove_panel(hass, PANEL_URL_PATH)
-    except Exception:
-        pass
-    try:
-        await panel_custom.async_register_panel(
-            hass,
-            webcomponent_name=PANEL_WEBCOMPONENT,
-            frontend_url_path=PANEL_URL_PATH,
-            sidebar_title=PANEL_TITLE,
-            sidebar_icon=PANEL_ICON,
-            module_url=cache_busted_url,
-            embed_iframe=False,
-            require_admin=False,
-        )
-        _LOGGER.info("JARVIS panel registered: /%s", PANEL_URL_PATH)
-        return True
-    except ValueError:
-        # "Overwriting panel" — already registered, this is fine
-        _LOGGER.debug("JARVIS panel already registered (idempotent)")
-        return True
-    except Exception as exc:
-        _LOGGER.error("JARVIS panel registration failed: %s", exc)
-        return False
+    # Main control panel + the Command Center HUD (separate sidebar entries).
+    main_ok = await _register_one(
+        hass, panel_dir,
+        webcomponent=PANEL_WEBCOMPONENT, url_path=PANEL_URL_PATH,
+        title=PANEL_TITLE, icon=PANEL_ICON, js_filename=PANEL_JS_FILENAME,
+    )
+    await _register_one(
+        hass, panel_dir,
+        webcomponent=CMD_WEBCOMPONENT, url_path=CMD_URL_PATH,
+        title=CMD_TITLE, icon=CMD_ICON, js_filename=CMD_JS_FILENAME,
+    )
+    return main_ok
 
 
 def async_unregister_panel(hass: HomeAssistant) -> None:
-    """Unregister on entry unload. Best-effort, errors non-fatal."""
-    try:
-        frontend.async_remove_panel(hass, PANEL_URL_PATH)
-        _LOGGER.info("JARVIS panel unregistered")
-    except Exception as exc:
-        _LOGGER.debug("JARVIS panel unregister note: %s", exc)
+    """Unregister both panels on entry unload. Best-effort, errors non-fatal."""
+    for path in (PANEL_URL_PATH, CMD_URL_PATH):
+        try:
+            frontend.async_remove_panel(hass, path)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS panel /%s unregister note: %s", path, exc)
+    _LOGGER.info("JARVIS panels unregistered")

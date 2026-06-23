@@ -28,11 +28,13 @@ from homeassistant.helpers import (
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from . import audio_routing
-from .audio import ProsodyController
-from .automation import PredictiveHabitMatrix
+from .audio import NoiseGate, ProsodyController
+from .automation import EntityLockRegistry, PredictiveHabitMatrix
+from .boot_guard import AlertBuffer
 from .const import CONF_BROADCAST_GROUP, CONF_HONORIFIC, DEFAULT_HONORIFIC, DOMAIN
 from .diagnostics import FaultLog, InfrastructureTriage
 from .intent import LocalIntentRouter
+from .state_ledger import StateLedger
 from .vision import SpatialContextEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -209,10 +211,15 @@ def _build_telemetry(
     # listener is attending closely enough that we can skip the preamble.
     spatial = SpatialContextEngine(hass).evaluate(area_id)
 
+    # Differential noise compensation: discount running-appliance noise so a loud
+    # dishwasher doesn't push prosody to project unnecessarily.
+    raw_db = max(db_vals) if db_vals else None
+    ambient_db = NoiseGate(hass).compensated_db(raw_db)
+
     return {
         "critical_alert": critical,
         "ambient_lux": min(lux_vals) if lux_vals else None,
-        "ambient_db": max(db_vals) if db_vals else None,
+        "ambient_db": ambient_db,
         "media_active": media_active,
         "skip_preamble": spatial["skip_preamble"],
         "spatial_confidence": spatial["confidence"],
@@ -349,15 +356,132 @@ async def _run_predictor(hass: HomeAssistant, predictor: PredictiveHabitMatrix) 
 
 
 # ── Service registration ──────────────────────────────────────────────────────
+# ── Shared singletons ─────────────────────────────────────────────────────────
+def _state_ledger(hass: HomeAssistant) -> StateLedger:
+    """One shared write-ahead recovery ledger per HA instance."""
+    store = hass.data.setdefault(DOMAIN, {})
+    ledger = store.get("_state_ledger")
+    if ledger is None:
+        ledger = StateLedger()
+        store["_state_ledger"] = ledger
+    return ledger
+
+
+def _entity_locks(hass: HomeAssistant) -> EntityLockRegistry:
+    """One shared entity-concurrency registry per HA instance."""
+    store = hass.data.setdefault(DOMAIN, {})
+    registry = store.get("_entity_locks")
+    if registry is None:
+        registry = EntityLockRegistry()
+        store["_entity_locks"] = registry
+    return registry
+
+
 def _intent_router(hass: HomeAssistant) -> LocalIntentRouter:
     """One shared router per HA instance so a feedback window opened by
     jarvis.speak survives until process_intent delivers the response."""
     store = hass.data.setdefault(DOMAIN, {})
     router = store.get("_intent_router")
     if router is None:
-        router = LocalIntentRouter(hass)
+        router = LocalIntentRouter(
+            hass, ledger=_state_ledger(hass), mutex=_entity_locks(hass)
+        )
         store["_intent_router"] = router
     return router
+
+
+async def _reconcile_state_ledger(hass: HomeAssistant) -> list[dict]:
+    """During boot, replay outstanding high-stakes intents and check whether the
+    physical device actually reached the desired state — surfacing actions a
+    crash or power loss interrupted. File reads run off-loop; state reads on-loop."""
+    ledger = _state_ledger(hass)
+    pending = await hass.async_add_executor_job(ledger.pending_intents)
+    discrepancies: list[dict] = []
+    for intent in pending:
+        st = hass.states.get(intent["entity_id"])
+        actual = st.state if st is not None else None
+        if str(actual) != intent["desired_state"]:
+            discrepancies.append({**intent, "actual": actual})
+    for d in discrepancies:
+        _LOGGER.warning(
+            "State ledger: %s was meant to be '%s' before shutdown but is '%s' — "
+            "a prior action may have been interrupted",
+            d.get("entity_id"), d.get("desired_state"), d.get("actual"),
+        )
+    # Resolved or stale intents shouldn't linger across boots.
+    await hass.async_add_executor_job(ledger.compact)
+    return discrepancies
+
+
+# ── Boot guard + alert queue ──────────────────────────────────────────────────
+# Until the integration finishes initialising (and after any config-entry reload),
+# jarvis.speak calls are buffered rather than dropped or fired into a half-built
+# system, then replayed in order once JARVIS reports ready.
+ALERT_BUFFER_KEY = "_alert_buffer"
+
+
+def _alert_buffer(hass: HomeAssistant) -> AlertBuffer:
+    store = hass.data.setdefault(DOMAIN, {})
+    buffer = store.get(ALERT_BUFFER_KEY)
+    if buffer is None:
+        buffer = AlertBuffer()
+        store[ALERT_BUFFER_KEY] = buffer
+    return buffer
+
+
+def _boot_ready(hass: HomeAssistant) -> bool:
+    return _alert_buffer(hass).ready
+
+
+async def _dispatch_speak(hass: HomeAssistant, data: dict) -> None:
+    """Resolve the target area and deliver one announcement. Shared by the live
+    service handler and the boot-queue drainer."""
+    message: str = data["message"]
+    target: str = data["target_area"]
+    critical: bool = data.get("critical", False)
+    user_id: str | None = data.get("user_id")
+    expect_response: bool = data.get("expect_response", False)
+    confirm_intent: str | None = data.get("confirm_intent")
+
+    area_id = _resolve_area_id(hass, target)
+    if area_id is None:
+        _LOGGER.warning("jarvis.speak: unknown area %r — ignoring", target)
+        return
+    if user_id:
+        # Reserved for per-user biometric/profile filtering; threaded through
+        # and logged until a profile store exists.
+        _LOGGER.debug("jarvis.speak: addressed to user_id=%s", user_id)
+
+    await _announce(hass, message, area_id, critical)
+
+    # Optionally open a short voice-confirmation window for an actionable
+    # announcement ("Shall I secure the garage, sir?").
+    if expect_response and confirm_intent:
+        try:
+            await _intent_router(hass).open_feedback_window(
+                {"intent": confirm_intent, "area": area_id}
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("jarvis.speak: failed to open feedback window")
+
+
+def _boot_begin(hass: HomeAssistant) -> None:
+    """Mark the integration as initialising (gates jarvis.speak). Idempotent and
+    reload-safe — resets readiness so a reload re-gates until ready again."""
+    _alert_buffer(hass).begin()
+
+
+async def mark_boot_ready(hass: HomeAssistant) -> None:
+    """Flip to ready and replay any alerts buffered during initialisation, in the
+    order they arrived."""
+    buffer = _alert_buffer(hass)
+
+    async def _cb(data: dict) -> None:
+        await _dispatch_speak(hass, data)
+
+    replayed = await buffer.mark_ready(_cb)
+    if replayed:
+        _LOGGER.info("JARVIS ready — replayed %d buffered alert(s)", replayed)
 
 
 async def async_register_services(hass: HomeAssistant) -> None:
@@ -367,33 +491,13 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return
 
     async def _handle_speak(call: ServiceCall) -> None:
-        message: str = call.data["message"]
-        target: str = call.data["target_area"]
-        critical: bool = call.data.get("critical", False)
-        user_id: str | None = call.data.get("user_id")
-        expect_response: bool = call.data.get("expect_response", False)
-        confirm_intent: str | None = call.data.get("confirm_intent")
-
-        area_id = _resolve_area_id(hass, target)
-        if area_id is None:
-            _LOGGER.warning("jarvis.speak: unknown area %r — ignoring", target)
+        # Boot guard: buffer until the integration is fully initialised.
+        buffer = _alert_buffer(hass)
+        if not buffer.ready:
+            buffer.enqueue(dict(call.data))
+            _LOGGER.info("jarvis.speak buffered — JARVIS still initialising")
             return
-        if user_id:
-            # Reserved for per-user biometric/profile filtering; threaded through
-            # and logged until a profile store exists.
-            _LOGGER.debug("jarvis.speak: addressed to user_id=%s", user_id)
-
-        await _announce(hass, message, area_id, critical)
-
-        # Optionally open a short voice-confirmation window for an actionable
-        # announcement ("Shall I secure the garage, sir?").
-        if expect_response and confirm_intent:
-            try:
-                await _intent_router(hass).open_feedback_window(
-                    {"intent": confirm_intent, "area": area_id}
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("jarvis.speak: failed to open feedback window")
+        await _dispatch_speak(hass, call.data)
 
     async def _handle_process_intent(call: ServiceCall) -> None:
         phrase: str = call.data["phrase"]
@@ -429,11 +533,16 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
     cancel them alongside the integration's other listeners."""
     await async_register_services(hass)
 
+    # Boot guard: gate jarvis.speak until this setup completes (reload-safe).
+    _boot_begin(hass)
+
     honorific = _resolve_honorific(hass, entry)
     fault_log = FaultLog()
     predictor = PredictiveHabitMatrix()
 
     async def _run_audit(_now=None) -> None:
+        if not _boot_ready(hass):
+            return  # hold monitoring until the integration reports ready
         entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
         if entry_data.get("_audit_running"):
             return  # don't overlap a slow announcement with the next tick
@@ -484,6 +593,14 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
     )
     _LOGGER.debug("Proactive audio scheduled (audit every %s)", AUDIT_INTERVAL)
 
+    # Recover from any high-stakes action interrupted by a crash before opening
+    # the gate, then replay anything buffered during initialisation.
+    try:
+        await _reconcile_state_ledger(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("State ledger reconciliation failed")
+    await mark_boot_ready(hass)
+
 
 async def async_unload_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Cancel the audit listeners and remove the service if no entry needs it."""
@@ -505,4 +622,8 @@ async def async_unload_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) 
         for svc in (SERVICE_SPEAK, SERVICE_PROCESS_INTENT):
             if hass.services.has_service(DOMAIN, svc):
                 hass.services.async_remove(DOMAIN, svc)
-        hass.data.get(DOMAIN, {}).pop("_intent_router", None)
+        store = hass.data.get(DOMAIN, {})
+        store.pop("_intent_router", None)
+        store.pop("_state_ledger", None)
+        store.pop("_entity_locks", None)
+        store.pop(ALERT_BUFFER_KEY, None)

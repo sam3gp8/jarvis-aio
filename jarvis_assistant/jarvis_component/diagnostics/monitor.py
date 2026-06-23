@@ -86,6 +86,12 @@ class InfrastructureTriage:
         ),
     )
 
+    #: Root-cause diagnostic tree for the core switch — when it drops offline,
+    #: its upstream power monitor distinguishes a power loss from a link fault.
+    CORE_SWITCH_LABEL = "the core network switch"
+    CORE_SWITCH_POWER_ENTITY = "sensor.core_switch_power_watts"
+    CORE_SWITCH_POWER_FLOOR = 1.0  # watts below this ⇒ treat as unpowered
+
     def __init__(self, hass, *, honorific: str = "sir") -> None:
         self.hass = hass
         self.honorific = honorific
@@ -171,6 +177,9 @@ class InfrastructureTriage:
         if not findings:
             return {"alert_required": False, "message": "", "critical": False, "tags": []}
 
+        # Walk root-cause dependency trees to turn bare symptoms into cause/effect.
+        self._enrich_root_cause(findings)
+
         critical = any(f.severity >= _SEV_CRITICAL for f in findings)
         # Speak the most severe items first.
         findings.sort(key=lambda f: f.severity, reverse=True)
@@ -181,6 +190,31 @@ class InfrastructureTriage:
             if f.label and f.label not in tags:
                 tags.append(f.label)
         return {"alert_required": True, "message": message, "critical": critical, "tags": tags}
+
+    def _enrich_root_cause(self, findings: list[Finding]) -> None:
+        """Inspect cross-entity dependencies to deduce why a fault occurred and
+        fold the deduction into the finding's spoken clause. Currently models the
+        core switch ← upstream power monitor relationship."""
+        for f in findings:
+            if f.label != self.CORE_SWITCH_LABEL or f.severity < _SEV_CRITICAL:
+                continue
+            state = self.hass.states.get(self.CORE_SWITCH_POWER_ENTITY)
+            watts = _as_float(state.state) if state is not None else None
+            if state is None or str(state.state).lower() in _UNKNOWN_STATES or watts is None:
+                f.phrase += (
+                    ", and its upstream power monitor is unreachable too — "
+                    "most likely an upstream power loss on its utility circuit"
+                )
+            elif watts < self.CORE_SWITCH_POWER_FLOOR:
+                f.phrase += (
+                    f", drawing only {watts:.0f} watts upstream — consistent with "
+                    "a power loss on its utility circuit rather than the switch itself failing"
+                )
+            else:
+                f.phrase += (
+                    f", though it's still drawing {watts:.0f} watts upstream, so this "
+                    "points to a network or uplink fault rather than a power loss"
+                )
 
     def _compose(self, findings: list[Finding], critical: bool) -> str:
         honorific = self.honorific.title()

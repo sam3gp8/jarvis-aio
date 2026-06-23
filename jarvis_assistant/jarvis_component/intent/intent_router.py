@@ -88,8 +88,10 @@ class LocalIntentRouter:
     """Route phrases to local actions, with room-context pronoun resolution and
     a short voice-confirmation window."""
 
-    def __init__(self, hass) -> None:
+    def __init__(self, hass, *, ledger=None, mutex=None) -> None:
         self.hass = hass
+        self.ledger = ledger  # optional StateLedger (duck-typed); write-ahead for high-stakes
+        self.mutex = mutex    # optional EntityLockRegistry (duck-typed); concurrency control
         self._pending_feedback: dict | None = None
         self._feedback_cancel = None
 
@@ -126,43 +128,110 @@ class LocalIntentRouter:
 
     # ── Execution ─────────────────────────────────────────────────────────
     async def _call_domain_in_area(
-        self, domain: str, service: str, area_id: str
+        self, domain: str, service: str, area_id: str,
+        *, high_stakes: bool = False, desired_state: str | None = None,
+        priority: int | None = None,
     ) -> list[str]:
-        """Call a service on every entity of `domain` in `area_id`. Returns the
-        entity_ids acted on."""
-        acted: list[str] = []
+        """Call a service on the entities of `domain` in `area_id`. Acquires a
+        per-entity concurrency lock first (skipping entities held at equal-or-
+        higher priority), writes a recovery-ledger intent before high-stakes
+        actions, and releases the locks after. Returns the entity_ids acted on."""
+        candidates: list[str] = []
         for st in self.hass.states.async_all(domain):
             try:
                 if self._area_of(st.entity_id) != area_id:
                     continue
             except Exception:  # noqa: BLE001
                 continue
-            acted.append(st.entity_id)
-        if acted:
-            try:
-                await self.hass.services.async_call(
-                    domain, service, {"entity_id": acted}, blocking=True
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("intent: %s.%s failed for %s", domain, service, acted)
+            candidates.append(st.entity_id)
+        if not candidates:
+            return []
+
+        # Concurrency control: only act on entities we can lock at this priority.
+        tokens: dict = {}
+        if self.mutex is not None and priority is not None:
+            targets: list[str] = []
+            for eid in candidates:
+                token = self.mutex.try_acquire(eid, priority)
+                if token is not None:
+                    tokens[eid] = token
+                    targets.append(eid)
+                else:
+                    _LOGGER.info("intent: %s busy (higher-priority lock) — skipping", eid)
+            if not targets:
                 return []
-        return acted
+        else:
+            targets = candidates
+
+        # Write-ahead: durably record intent BEFORE issuing a high-stakes call.
+        txns: list[str] = []
+        if high_stakes and self.ledger is not None and desired_state is not None:
+            for eid in targets:
+                try:
+                    txns.append(
+                        self.ledger.record_intent(
+                            eid, desired_state, action=f"{domain}.{service}"
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.exception("ledger record_intent failed for %s", eid)
+
+        try:
+            await self.hass.services.async_call(
+                domain, service, {"entity_id": targets}, blocking=True
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("intent: %s.%s failed for %s", domain, service, targets)
+            self._release_all(tokens)
+            return []
+
+        for txn in txns:
+            try:
+                self.ledger.mark_complete(txn)
+            except Exception:  # noqa: BLE001
+                pass
+        self._release_all(tokens)
+        return targets
+
+    def _release_all(self, tokens: dict) -> None:
+        if self.mutex is None:
+            return
+        for token in tokens.values():
+            try:
+                self.mutex.release(token)
+            except Exception:  # noqa: BLE001
+                pass
 
     async def execute(self, decision: dict, area_id: str, *, user_id: str | None = None) -> dict:
         """Carry out a matched intent in the given area."""
         intent = decision["intent"]
 
+        priority = None
+        if self.mutex is not None:
+            from .automation.mutex import Priority  # lazy — keeps module HA-free
+            priority = Priority.INTENT
+
         if intent == "lights_off":
-            acted = await self._call_domain_in_area("light", "turn_off", area_id)
+            acted = await self._call_domain_in_area(
+                "light", "turn_off", area_id, priority=priority
+            )
             return {"executed": bool(acted), "intent": intent, "entities": acted}
 
         if intent == "lights_on":
-            acted = await self._call_domain_in_area("light", "turn_on", area_id)
+            acted = await self._call_domain_in_area(
+                "light", "turn_on", area_id, priority=priority
+            )
             return {"executed": bool(acted), "intent": intent, "entities": acted}
 
         if intent == "secure_area":
-            covers = await self._call_domain_in_area("cover", "close_cover", area_id)
-            locks = await self._call_domain_in_area("lock", "lock", area_id)
+            covers = await self._call_domain_in_area(
+                "cover", "close_cover", area_id,
+                high_stakes=True, desired_state="closed", priority=priority,
+            )
+            locks = await self._call_domain_in_area(
+                "lock", "lock", area_id,
+                high_stakes=True, desired_state="locked", priority=priority,
+            )
             return {
                 "executed": bool(covers or locks),
                 "intent": intent,
@@ -175,13 +244,23 @@ class LocalIntentRouter:
                 return {"executed": False, "intent": intent,
                         "reason": "nothing active to act on in this area"}
             service = "close_cover" if domain == "cover" else "turn_off"
+            token = None
+            if self.mutex is not None and priority is not None:
+                token = self.mutex.try_acquire(entity_id, priority)
+                if token is None:
+                    return {"executed": False, "intent": intent, "entity_id": entity_id,
+                            "reason": "entity busy (higher-priority lock)"}
             try:
                 await self.hass.services.async_call(
                     domain, service, {"entity_id": entity_id}, blocking=True
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("intent: context action failed for %s", entity_id)
+                if token is not None:
+                    self.mutex.release(token)
                 return {"executed": False, "intent": intent, "entity_id": entity_id}
+            if token is not None:
+                self.mutex.release(token)
             return {"executed": True, "intent": intent, "entity_id": entity_id}
 
         return {"executed": False, "intent": intent, "reason": "unhandled intent"}

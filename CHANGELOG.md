@@ -4,7 +4,110 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.10.2] — Fix memory-module collision (restore semantic memory)
+## [6.14.0] — Command Center panel: live HUD + live/selectable cameras
+The tactical HUD ships as a real panel — a second sidebar entry, "Command Center"
+(`/jarvis-command`), alongside the existing detailed JARVIS panel.
+- **New panel (`frontend/jarvis-command.js`, `jarvis-command`).** The operational
+  HUD: monospace/terminal styling, ASCII rules, the three-over-two layout. All data
+  is live off `jarvis/get_panel_data` + `jarvis/get_activity_log` (polled): system
+  status (observer/cognition/satellite count/LLM link), a 2D top-down occupancy plan
+  whose nodes are driven by real per-area presence (dominant area labelled with live
+  temp), and a live activity log. Quick actions are wired to real services —
+  `jarvis.briefing`, `jarvis/set_lockdown` (toggles, reflects live state),
+  `jarvis.diagnose_doorbell`.
+- **Live, selectable camera feeds.** The camera panel streams the selected camera via
+  HA's MJPEG proxy using the entity's rotating `access_token`, with a chip selector
+  built from the live camera list and a still-image fallback for cameras that don't
+  serve MJPEG (e.g. Nest/WebRTC). 
+- **Event auto-focus.** `camera.py` now fires a `jarvis_camera_event` when a
+  Frigate/Nest detection lands (entity, label, confidence); the panel subscribes to
+  it (and to `jarvis_face_recognized`) and automatically switches the main feed to
+  the camera of the event, banners "EVENT FOCUS · <label> <conf>%", flags the area on
+  the plan, then reverts to the user's selection after ~25s.
+- **Registration.** `panel_register.py` refactored to a shared `_register_one` helper
+  registering both panels from the same static dir, each with independent content-hash
+  cache-busting. The installer already copies `frontend/*.js`, so the new component
+  ships with no run.sh change. No regressions — 170 passing.
+
+
+Two additions from the resilience blueprint. (§7's `LocalSemanticMemory` was again
+**not** re-added — `memory/` would shadow `memory.py`; the recovery ledger remains
+top-level.)
+- **Entity concurrency mutex (`automation/mutex.py`).** `EntityLockRegistry` enforces
+  per-entity mutual exclusion on a priority ladder (PREDICTIVE < ROUTINE < INTENT <
+  VISUAL < SAFETY): an equal-or-lower priority request is discarded while a lock is
+  held, and a strictly-higher one preempts the holder — so a real-time presence
+  command beats a stochastic predictive one rather than colliding. The intent router
+  now acquires per-entity locks (at INTENT priority) before acting and releases after,
+  skipping any entity already held at higher priority. Lock ops are synchronous dict
+  mutations (safe on HA's single-threaded loop); the registry is stdlib-only and
+  unit-tested, with an async `guard` context manager.
+- **Differential noise gating (`audio/noise_gate.py`).** `NoiseGate` checks appliance
+  power signatures (`sensor.<appliance>_power`) and subtracts the dominant running
+  appliance's known dB contribution from the raw `ambient_db` before it reaches
+  prosody — so a running dishwasher or microwave doesn't push JARVIS to project
+  louder. Wired into `jarvis.speak`'s telemetry build; dB is floored at 0 and None
+  passes through.
+- **Tests:** +18 (mutex acquire/discard/preempt/release/guard, noise-gate threshold/
+  dominant-attenuation/floor/passthrough) — 170 passing.
+
+
+Two additions from the resilience blueprint. (§5's `LocalSemanticMemory` was again
+**not** re-added, and the recovery ledger was placed at the top level rather than
+the spec's `memory/ledger.py` — a `memory/` package would shadow `memory.py`.)
+- **Heartbeat + failover (`diagnostics/heartbeat.py`).** `HeartbeatMonitor` probes
+  fixed-IP audio satellites, flags a node unavailable after 3 missed cycles, and
+  reroutes audio to the first available adjacent speaker (then any available node,
+  then None). The probe defaults to a short TCP connect to the ESPHome API port but
+  is injectable; the failover state machine is pure and fully unit-tested. This is a
+  configured capability — construct it with your satellites' IPs/adjacency and drive
+  `run_once` from an interval; it is not auto-started.
+- **Write-ahead state ledger (`state_ledger.py`).** `StateLedger` durably appends a
+  device intent (fsync'd JSON-lines) before a high-stakes action fires and a
+  completion record after. On boot the integration reconciles any intent that never
+  completed against the device's current state, logging actions a crash or power loss
+  interrupted, then compacts the log. The intent router now records intent before
+  `secure_area` (cover/lock) via an injected, duck-typed ledger — the router stays
+  import-free and standalone-testable.
+- **Tests:** +20 (heartbeat miss-threshold/recovery/failover ladder/injected probe,
+  ledger record/complete/pending/reconcile/compact/torn-line tolerance) — 152 passing.
+
+
+Three additions from the resilience blueprint (the spec's `LocalSemanticMemory`
+was deliberately **not** re-added — it's the package that collided with `memory.py`;
+its fault-history role already lives in `diagnostics/fault_log.py`).
+- **Boot guard + alert queue (`boot_guard.py`).** `jarvis.speak` calls that arrive
+  before the integration finishes initialising — or during a config-entry reload —
+  are now buffered in a bounded in-memory queue and replayed in arrival order once
+  setup reports ready, instead of being dropped or fired into a half-built system.
+  Reload-safe (re-gates on each setup), drop-oldest overflow at 25, and the
+  15-minute audit holds until ready. The buffer logic is a stdlib-only `AlertBuffer`
+  so it's unit-tested directly.
+- **Root-cause diagnostic trees (`diagnostics/monitor.py`).** When the core network
+  switch drops offline, the triage engine now inspects its upstream power monitor
+  (`sensor.core_switch_power_watts`) and folds the deduction into the spoken verdict:
+  near-zero or unreachable power ⇒ "an upstream power loss on its utility circuit";
+  power still present ⇒ "a network or uplink fault rather than a power loss."
+- **Air-gapped fallback templates (`intent/templates.py`).** A curated set of
+  hardcoded status phrases (grounded in this property's entities — switch, freeze
+  sensor, sump pump, garage, storage, …) with keyword matching, for instant
+  informational responses when every model link is unreachable. A starting
+  scaffold, not 50 invented strings; extend `STATUS_TEMPLATES` as needed.
+- **Tests:** +15 (root-cause branches, boot-queue buffer/replay/reload/overflow,
+  template lookup/matching) — 132 passing.
+
+
+- **Follow-up to 6.10.2.** Removing `memory/` from the repo isn't enough if the
+  package still lingers in a deployed copy. Extracting a new release over an old
+  add-on folder adds files but never deletes ones that were removed, so a stale
+  `memory/` can survive in the source tree, ride into the rebuilt image, and get
+  copied to `/config/custom_components/jarvis/memory/` on every start — where it
+  again shadows `memory.py` and the Memory card reads "unavailable." `run.sh` now
+  defensively deletes any `memory/` directory at the destination whenever the
+  canonical `memory.py` is present, so a stale package cannot survive a deploy
+  regardless of what the source tree carried. No Python change (117 passing).
+
+
 - **Regression fix.** The `memory/` package added in 6.9.0 shadowed the existing
   top-level `memory.py` (ChromaDB / FTS5 semantic memory). Because Python resolves
   a package before a same-named module, `from .memory import get_memory_stats`

@@ -57,6 +57,45 @@ def test_verdict_carries_finding_tags():
     assert any("freeze" in t for t in v["tags"])
 
 
+def test_root_cause_power_loss_when_switch_unpowered():
+    v = _verdict({
+        **_HEALTHY,
+        "binary_sensor.core_switch_status": ("off", {}),
+        "sensor.core_switch_power_watts": ("0", {}),
+    })
+    assert v["critical"] is True
+    assert "power loss" in v["message"].lower()
+    assert "watts" in v["message"].lower()
+
+
+def test_root_cause_link_fault_when_switch_still_powered():
+    v = _verdict({
+        **_HEALTHY,
+        "binary_sensor.core_switch_status": ("off", {}),
+        "sensor.core_switch_power_watts": ("42", {}),
+    })
+    assert v["critical"] is True
+    msg = v["message"].lower()
+    assert "network or uplink fault" in msg
+    assert "42 watts" in msg
+
+
+def test_root_cause_monitor_unreachable():
+    v = _verdict({
+        **_HEALTHY,
+        "binary_sensor.core_switch_status": ("off", {}),
+        "sensor.core_switch_power_watts": ("unavailable", {}),
+    })
+    assert v["critical"] is True
+    assert "power monitor is unreachable" in v["message"].lower()
+
+
+def test_root_cause_absent_when_switch_healthy():
+    # No core-switch fault → no power-cause clause appended.
+    v = _verdict({**_HEALTHY, "sensor.server_root_storage_usage": ("97", {})})
+    assert "watts" not in v["message"].lower()
+
+
 def test_storage_warning_band():
     v = _verdict({**_HEALTHY, "sensor.server_root_storage_usage": ("92", {})})
     assert v["alert_required"] is True
