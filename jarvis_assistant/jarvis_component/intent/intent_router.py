@@ -97,7 +97,7 @@ class LocalIntentRouter:
 
     # ── Area helper (lazy import keeps the module HA-free at import time) ──
     def _area_of(self, entity_id: str):
-        from . import audio_routing  # lazy
+        from .. import audio_routing  # lazy
         return audio_routing.entity_area(self.hass, entity_id)
 
     # ── Context resolution ────────────────────────────────────────────────
@@ -208,7 +208,7 @@ class LocalIntentRouter:
 
         priority = None
         if self.mutex is not None:
-            from .automation.mutex import Priority  # lazy — keeps module HA-free
+            from ..automation.mutex import Priority  # lazy — keeps module HA-free
             priority = Priority.INTENT
 
         if intent == "lights_off":

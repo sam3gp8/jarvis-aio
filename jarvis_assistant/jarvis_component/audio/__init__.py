@@ -1,4 +1,3 @@
-"""JARVIS audio layer: prosody and announcement shaping."""
 """JARVIS audio layer: adaptive prosody + appliance-noise compensation."""
 from __future__ import annotations
 

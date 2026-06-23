@@ -1,7 +1,7 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-ARG JARVIS_VERSION=6.14.0
+ARG JARVIS_VERSION=6.14.2
 
 RUN echo "Building JARVIS ${JARVIS_VERSION}" \
     && if ! command -v pip3 >/dev/null 2>&1; then apk add --no-cache py3-pip; fi \

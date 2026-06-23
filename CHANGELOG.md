@@ -4,7 +4,42 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.14.0] — Command Center panel: live HUD + live/selectable cameras
+## [6.14.2] — Audit fix: wrong relative-import levels in intent router
+Proactive audit (not wait-and-see) of the code paths that only began loading after
+6.14.1 surfaced two real bugs in `intent/intent_router.py`:
+- **`from . import audio_routing` → `from ..`.** `intent_router` lives in the
+  `intent/` subpackage, so the single-dot form resolved to the non-existent
+  `intent.audio_routing` instead of the top-level `audio_routing`. It's a lazy
+  import inside `_area_of`, and `_call_domain_in_area` calls `_area_of` inside a
+  `try/except` that swallows the `ImportError` — so `secure_area`/`lights_off`
+  would have silently matched zero entities and done nothing. Now `..audio_routing`.
+- **`from .automation.mutex import Priority` → `from ..automation.mutex`.** Same
+  class of bug (added in 6.13.0): `.automation` resolved to `intent.automation`
+  (doesn't exist) rather than the top-level `automation` package; would have thrown
+  on any guarded intent execution. Now `..automation.mutex`.
+- **New `scripts/audit.py`.** A real compile gate plus a cross-file resolver that
+  verifies every relative import (top-level and lazy) points at a name that actually
+  exists — the check that catches wrong levels and stale exports. Both bugs above
+  compiled clean and passed the unit tests (which exercise pure functions, not these
+  paths), which is exactly why this gate is now part of the release process. Audit
+  reports clean; 170 tests passing.
+
+
+- **Bug.** `audio/__init__.py` carried two module docstrings (a v6.13.0 edit
+  prepended a second without removing the original), which pushed
+  `from __future__ import annotations` to line 3 → `SyntaxError: from __future__
+  imports must occur at the beginning of the file`. This aborted the whole
+  integration import on HA startup (`Unable to import component: jarvis`). It was
+  latent through 6.13.0–6.14.0 and only surfaced on the first HA restart after
+  deploying. Fixed by collapsing to a single docstring.
+- **Why the release audit missed it.** The pre-release syntax gate used
+  `ast.parse`, which does **not** enforce `__future__` positioning — it parsed the
+  broken file clean. Switched the gate to a real `compile()` / `py_compile`
+  (bytecode compile), which catches `__future__` placement and matches how HA
+  actually imports. Re-audited the full tree: all 62 modules compile clean. 170
+  tests passing.
+
+
 The tactical HUD ships as a real panel — a second sidebar entry, "Command Center"
 (`/jarvis-command`), alongside the existing detailed JARVIS panel.
 - **New panel (`frontend/jarvis-command.js`, `jarvis-command`).** The operational
