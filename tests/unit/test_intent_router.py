@@ -109,3 +109,18 @@ def test_resolve_is_area_scoped():
 
     r, _ = _router({"light.kitchen_lamp": ("on", {})})
     assert r.resolve_active_entity(AREA, area_of=area_of) == (None, None)
+
+
+def test_router_accepts_optional_ledger():
+    # The router takes an injected ledger (duck-typed) without importing it, so
+    # the pure matching/resolution paths stay standalone-loadable.
+    class FakeLedger:
+        def record_intent(self, *a, **k):
+            return "txn"
+
+        def mark_complete(self, *a, **k):
+            pass
+
+    r = ir.LocalIntentRouter(FakeHass(), ledger=FakeLedger())
+    assert r.ledger is not None
+    assert ir.match_intent("secure the garage")["intent"] == "secure_area"
