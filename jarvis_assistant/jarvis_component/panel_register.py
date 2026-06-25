@@ -111,25 +111,27 @@ async def async_register_panel(hass: HomeAssistant) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS panel: static path note: %s", exc)
 
-    # Main control panel + the Command Center HUD (separate sidebar entries).
+    # Clean up the old separate Command Center panel from <=6.14.x — it's now
+    # folded into the main JARVIS panel, so the standalone entry must go.
+    try:
+        frontend.async_remove_panel(hass, CMD_URL_PATH)
+    except Exception:
+        pass
+
+    # Single combined panel: the JARVIS Command Center (dashboard + cameras +
+    # 3D residence + settings + logs all in one).
     main_ok = await _register_one(
         hass, panel_dir,
         webcomponent=PANEL_WEBCOMPONENT, url_path=PANEL_URL_PATH,
         title=PANEL_TITLE, icon=PANEL_ICON, js_filename=PANEL_JS_FILENAME,
     )
-    await _register_one(
-        hass, panel_dir,
-        webcomponent=CMD_WEBCOMPONENT, url_path=CMD_URL_PATH,
-        title=CMD_TITLE, icon=CMD_ICON, js_filename=CMD_JS_FILENAME,
-    )
     return main_ok
 
 
 def async_unregister_panel(hass: HomeAssistant) -> None:
-    """Unregister both panels on entry unload. Best-effort, errors non-fatal."""
-    for path in (PANEL_URL_PATH, CMD_URL_PATH):
-        try:
-            frontend.async_remove_panel(hass, path)
-        except Exception as exc:
-            _LOGGER.debug("JARVIS panel /%s unregister note: %s", path, exc)
-    _LOGGER.info("JARVIS panels unregistered")
+    """Unregister the panel on entry unload. Best-effort, errors non-fatal."""
+    try:
+        frontend.async_remove_panel(hass, PANEL_URL_PATH)
+        _LOGGER.info("JARVIS panel unregistered")
+    except Exception as exc:
+        _LOGGER.debug("JARVIS panel /%s unregister note: %s", PANEL_URL_PATH, exc)

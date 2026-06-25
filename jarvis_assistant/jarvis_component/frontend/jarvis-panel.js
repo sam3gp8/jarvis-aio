@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.14.3 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.15.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -38,6 +38,15 @@ class JarvisPanel extends HTMLElement {
     this._pendingRender = false;   // owed full render deferred during editing
     this._lastLogSig = null;       // signature of currently-rendered log
     this._lastLogFilter = null;    // filter the log was last rendered under
+    // Camera Watch — live feed, selectable, event auto-focus
+    this._cams = [];
+    this._activeCam = null;        // entity currently shown
+    this._manualCam = null;        // last user-picked entity (revert target)
+    this._camFocus = null;         // {entity,label,conf} when an event grabs focus
+    this._camFocusTimer = null;
+    this._camStillTimer = null;
+    this._camSubs = [];
+    this._lastCamKey = "";         // entity|token of the attached stream
   }
 
   // ─── HA property setters ─────────────────────────────────────────────────
@@ -99,12 +108,17 @@ class JarvisPanel extends HTMLElement {
       this._fetchLiveData();  // immediate first call
       this._fetchInterval = setInterval(() => this._fetchLiveData(), 5000);
     }
+    this._subscribeCameraEvents();
   }
 
   _stopIntervals() {
     if (this._clockInterval)    { clearInterval(this._clockInterval);    this._clockInterval = null; }
     if (this._rotationInterval) { clearInterval(this._rotationInterval); this._rotationInterval = null; }
     if (this._fetchInterval)    { clearInterval(this._fetchInterval);    this._fetchInterval = null; }
+    if (this._camFocusTimer)    { clearTimeout(this._camFocusTimer);     this._camFocusTimer = null; }
+    if (this._camStillTimer)    { clearInterval(this._camStillTimer);    this._camStillTimer = null; }
+    this._camSubs.forEach(u => { try { u && u(); } catch (_) {} });
+    this._camSubs = [];
   }
 
   async _fetchLiveData() {
@@ -1550,8 +1564,26 @@ class JarvisPanel extends HTMLElement {
       ${this._renderSuggestions(d)}
     </div>
 
-    <!-- CENTER: FLOOR PLAN + DOMINANT ROOM -->
-    <div class="c-anchor panel floorplan-panel">
+    <!-- CENTER: CAMERA (primary focus) + RESIDENCE, side by side -->
+    <div class="c-center">
+
+      <!-- CAMERA WATCH — live, selectable, auto-focuses on events -->
+      <div class="c-camera panel">
+        <div class="head">
+          <span>Camera Watch</span>
+          <span class="side" id="cam-state">◉ LIVE</span>
+        </div>
+        <div class="cam-sel" id="cam-sel"></div>
+        <div class="cam-feed" id="cam-feed">
+          <div class="cam-none">NO CAMERA SELECTED</div>
+          <div class="cam-tag" id="cam-tag"></div>
+          <div class="cam-vig"></div><div class="cam-scan"></div>
+        </div>
+        <div class="cam-strip" id="cam-strip"></div>
+      </div>
+
+      <!-- RESIDENCE OVERVIEW — 3D isometric floor plan -->
+      <div class="c-anchor panel floorplan-panel">
       <div class="head">
         <span>Residence Overview</span>
         <span class="side">◉ PRESENCE</span>
@@ -1579,6 +1611,8 @@ class JarvisPanel extends HTMLElement {
           ${this._domGauges(d.dominantRoom)}
         </div>
       </div>
+      </div>
+
     </div>
 
     <!-- RIGHT: ACTIVITY -->
@@ -2078,6 +2112,7 @@ class JarvisPanel extends HTMLElement {
     if (this._currentTab === 'dashboard') {
       this._build3DHouse();
       this._wire3DDrag();
+      this._setupCameras();
     }
 
     // Service-call buttons
@@ -2697,6 +2732,148 @@ class JarvisPanel extends HTMLElement {
   }
 
   // ─── Styles (ported from HTML mockup; pared for panel) ──────────────────
+
+  // ─── Camera Watch: live, selectable, event auto-focus ──────────────────
+  _setupCameras() {
+    const d = this._liveData;
+    const cams = (d && d.config && d.config.cameras) || [];
+    this._cams = Array.isArray(cams) ? cams : [];
+    if (!this._activeCam && this._cams.length) {
+      this._activeCam = this._cams[0].entity_id;
+      this._manualCam = this._activeCam;
+    }
+    this._lastCamKey = "";  // a full render replaced the feed node — force re-attach
+    this._renderCamSelector();
+    this._renderCameraFeed();
+  }
+
+  _renderCamSelector() {
+    const sel = this.shadowRoot?.getElementById("cam-sel");
+    if (!sel) return;
+    if (!this._cams.length) { sel.innerHTML = '<span class="camchip">— no cameras —</span>'; return; }
+    sel.innerHTML = this._cams.map(c => {
+      const on = c.entity_id === this._activeCam;
+      const evt = this._camFocus && this._camFocus.entity === c.entity_id;
+      const short = (c.name || c.entity_id).replace(/^camera\./, "").toUpperCase().slice(0, 18);
+      return `<span class="camchip ${on ? 'on' : ''} ${evt ? 'evt' : ''}" data-cam="${this._esc(c.entity_id)}">${this._esc(short)}</span>`;
+    }).join("");
+    sel.querySelectorAll(".camchip[data-cam]").forEach(chip =>
+      chip.addEventListener("click", () => this._selectCam(chip.getAttribute("data-cam"))));
+  }
+
+  _camToken(entity) {
+    const st = this._hass && this._hass.states && this._hass.states[entity];
+    return st && st.attributes ? st.attributes.access_token : null;
+  }
+
+  _renderCameraFeed() {
+    const feed = this.shadowRoot?.getElementById("cam-feed");
+    if (!feed) return;
+    const entity = this._activeCam;
+    const stateEl = this.shadowRoot.getElementById("cam-state");
+    const tagEl = this.shadowRoot.getElementById("cam-tag");
+    const stripEl = this.shadowRoot.getElementById("cam-strip");
+
+    if (!entity) {
+      feed.querySelector("img")?.remove();
+      if (!feed.querySelector(".cam-none")) {
+        const n = document.createElement("div"); n.className = "cam-none"; n.textContent = "NO CAMERA SELECTED"; feed.prepend(n);
+      }
+      if (stripEl) stripEl.innerHTML = "";
+      return;
+    }
+    const cam = this._cams.find(c => c.entity_id === entity);
+    if (tagEl) tagEl.textContent = "◱ " + entity;
+
+    // event-focus banner
+    let foc = feed.querySelector(".cam-focus");
+    if (this._camFocus && this._camFocus.entity === entity) {
+      if (!foc) { foc = document.createElement("div"); foc.className = "cam-focus"; feed.appendChild(foc); }
+      const cf = this._camFocus.conf != null ? ` ${this._camFocus.conf}%` : "";
+      foc.innerHTML = `<i></i>EVENT · ${this._esc((this._camFocus.label || "").toUpperCase())}${cf}`;
+      if (stateEl) { stateEl.textContent = "◉ EVENT"; stateEl.style.color = "var(--red)"; }
+    } else {
+      foc?.remove();
+      if (stateEl) { stateEl.textContent = "◉ LIVE"; stateEl.style.color = "var(--green)"; }
+    }
+
+    // live MJPEG via HA's camera proxy; only (re)attach when entity or token changes
+    const tok = this._camToken(entity);
+    const key = entity + "|" + (tok || "");
+    if (key !== this._lastCamKey) {
+      this._lastCamKey = key;
+      feed.querySelector(".cam-none")?.remove();
+      let img = feed.querySelector("img");
+      if (!img) { img = document.createElement("img"); feed.prepend(img); img.addEventListener("error", () => this._camFallback(entity)); }
+      img.src = tok
+        ? `/api/camera_proxy_stream/${entity}?token=${encodeURIComponent(tok)}`
+        : `/api/camera_proxy_stream/${entity}`;
+    }
+    if (stripEl) {
+      const tgt = this._camFocus && this._camFocus.entity === entity && this._camFocus.conf != null
+        ? `${(this._camFocus.label || 'OBJECT').toUpperCase()} [${this._camFocus.conf}%]` : "STREAMING";
+      stripEl.innerHTML = `<span>SRC <b>${this._esc(entity.split(".").pop())}</b></span><span>MJPEG</span><span>TARGET <b>${this._esc(tgt)}</b></span>`;
+    }
+  }
+
+  _camFallback(entity) {
+    // Nest/WebRTC cameras may not serve MJPEG — fall back to a refreshed still.
+    if (entity !== this._activeCam) return;
+    const feed = this.shadowRoot?.getElementById("cam-feed");
+    const img = feed && feed.querySelector("img");
+    if (!img) return;
+    const tok = this._camToken(entity);
+    const still = () => { img.src = `/api/camera_proxy/${entity}?token=${encodeURIComponent(tok || "")}&_=${Date.now()}`; };
+    still();
+    if (!this._camStillTimer) this._camStillTimer = setInterval(() => { if (this._activeCam === entity) still(); }, 2000);
+  }
+
+  _selectCam(entity) {
+    if (!entity) return;
+    if (this._camStillTimer) { clearInterval(this._camStillTimer); this._camStillTimer = null; }
+    this._activeCam = entity;
+    this._manualCam = entity;
+    this._camFocus = null;
+    this._renderCamSelector();
+    this._renderCameraFeed();
+  }
+
+  async _subscribeCameraEvents() {
+    const conn = this._hass && this._hass.connection;
+    if (!conn || this._camSubs.length) return;  // subscribe once
+    try {
+      this._camSubs.push(await conn.subscribeEvents(e => this._onCamEvent(e.data || {}), "jarvis_camera_event"));
+    } catch (_) {}
+    try {
+      this._camSubs.push(await conn.subscribeEvents(e => {
+        const x = e.data || {};
+        if (x.is_confident && x.camera_entity) {
+          this._onCamEvent({ entity_id: x.camera_entity, label: x.name || "FACE", confidence: Math.round(x.confidence || 0) });
+        }
+      }, "jarvis_face_recognized"));
+    } catch (_) {}
+  }
+
+  _onCamEvent(data) {
+    const entity = data.entity_id;
+    if (!entity) return;
+    if (this._camStillTimer) { clearInterval(this._camStillTimer); this._camStillTimer = null; }
+    if (!this._cams.find(c => c.entity_id === entity)) this._cams.push({ entity_id: entity, name: entity });
+    this._manualCam = this._manualCam || this._activeCam;
+    this._activeCam = entity;
+    this._camFocus = { entity, label: data.label || "EVENT", conf: (data.confidence != null ? data.confidence : null) };
+    this._lastCamKey = "";  // force the stream to re-attach to the event camera
+    this._renderCamSelector();
+    this._renderCameraFeed();
+    this._toast(`◉ EVENT · ${entity.split(".").pop()} — camera focused`, "ok");
+    if (this._camFocusTimer) clearTimeout(this._camFocusTimer);
+    this._camFocusTimer = setTimeout(() => {
+      this._camFocus = null;
+      if (this._manualCam) { this._activeCam = this._manualCam; this._lastCamKey = ""; }
+      this._renderCamSelector();
+      this._renderCameraFeed();
+    }, 25000);
+  }
 
   _styles() {
     return `
@@ -4186,6 +4363,45 @@ class JarvisPanel extends HTMLElement {
     .footer { grid-template-columns: 1fr; text-align: center; gap: 4px; padding: 10px; }
     .footer .mid, .footer > div:last-child { display: none; }
   }
+  /* CENTER: camera (primary) + residence overview, side by side */
+  .c-center { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; align-items: start; min-width: 0; }
+  .c-center > .panel { min-width: 0; }
+  @media (max-width: 1280px) { .c-center { grid-template-columns: 1fr; } }
+
+  .c-camera { display: flex; flex-direction: column; }
+  .cam-sel { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .camchip {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; color: var(--text-dim);
+    border: 1px solid var(--line); padding: 4px 9px; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+  }
+  .camchip:hover { border-color: var(--line-hot); color: var(--cyan); }
+  .camchip.on { color: var(--cyan); border-color: var(--line-hot); background: rgba(0,242,254,0.08); }
+  .camchip.evt { color: var(--red); border-color: rgba(255,77,109,0.5); background: rgba(255,77,109,0.08); }
+  .cam-feed {
+    position: relative; flex: 1; min-height: 380px; overflow: hidden;
+    border: 1px solid var(--line); background: #05090f; border-radius: 4px;
+  }
+  .cam-feed img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-none {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
+  }
+  .cam-vig { position: absolute; inset: 0; z-index: 3; pointer-events: none;
+    background: radial-gradient(ellipse 78% 80% at 50% 46%, transparent 55%, rgba(0,0,0,0.7) 100%); }
+  .cam-scan { position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0.35;
+    background: linear-gradient(rgba(0,0,0,0) 50%, rgba(0,0,0,0.22) 50%),
+                linear-gradient(90deg, rgba(255,0,0,0.05), rgba(0,255,0,0.02), rgba(0,0,255,0.05));
+    background-size: 100% 3px, 7px 100%; }
+  .cam-tag { position: absolute; top: 8px; left: 10px; z-index: 6; font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.08em; color: rgba(0,242,254,0.7); }
+  .cam-focus { position: absolute; top: 8px; right: 10px; z-index: 6; font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.08em; color: var(--red); display: flex; align-items: center; gap: 5px;
+    background: rgba(8,12,20,0.72); padding: 3px 8px; border: 1px solid rgba(255,77,109,0.4); }
+  .cam-focus i { width: 6px; height: 6px; border-radius: 50%; background: var(--red); animation: camblink 1.1s steps(1) infinite; }
+  @keyframes camblink { 50% { opacity: 0; } }
+  .cam-strip { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.05em; color: var(--cyan); padding: 9px 2px 0; margin-top: 10px; border-top: 1px solid var(--line); }
+  .cam-strip b { color: var(--text); }
 </style>
     `;
   }
@@ -4197,7 +4413,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.14.3 ",
+  "%c JARVIS Panel %c v6.15.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

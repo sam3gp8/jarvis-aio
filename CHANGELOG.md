@@ -4,7 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.14.3] — Fix: Command Center rendered unstyled + empty camera list
+## [6.15.0] — One panel: Command Center folded into JARVIS (camera-forward)
+The separate Command Center panel is retired; its capability now lives in the main
+JARVIS panel, which keeps its 3D isometric floor plan (the 2D top-down experiment is
+dropped).
+- **Camera Watch in the dashboard.** The live/selectable camera feed with event
+  auto-focus — ported from the standalone panel into `jarvis-panel.js` — now sits in
+  the Command Center tab. The dashboard centre is a 2-up: **Camera Watch (primary,
+  wider) beside the 3D Residence Overview**. Cameras read from `config.cameras`, stream
+  via HA's MJPEG proxy with the entity's access token, switch on chip click, and
+  auto-focus the relevant feed on a `jarvis_camera_event` / `jarvis_face_recognized`
+  (banner + 25s revert), with a still-image fallback for Nest/WebRTC. Subscriptions and
+  timers are torn down in `_stopIntervals`.
+- **Single panel.** `panel_register.py` registers only the JARVIS panel now and removes
+  the stale `/jarvis-command` sidebar entry on upgrade. `jarvis-command.js` deleted.
+- **JS behavioural test.** `scripts/smoke_panel.js` retargeted to the combined panel:
+  renders it under jsdom with a realistic payload and asserts the dashboard draws —
+  styles, the 3D scene, and the folded-in Camera Watch (chips from `config.cameras`,
+  auto-selected stream wired with the token). 9/9 pass. Python audit clean, 170 tests
+  passing.
+
+
 First real-deployment look at the new panel surfaced two frontend bugs (data was
 flowing — areas, presence, live log all correct — but the panel was broken):
 - **Orphaned stylesheet.** The component's CSS (`JC_STYLES`) was defined but never
