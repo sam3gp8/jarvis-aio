@@ -4,7 +4,32 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.16.1] — Fix: camera aspect ratio + residence sizing
+## [6.17.0] — Residence becomes its own tab + home-style templates
+The residence overview moves out of the cramped dashboard column into a dedicated
+full-width tab, which is what unlocks the annotated-house treatment.
+- **New "Residence" tab** between Command Center and Settings. Command Center keeps
+  System Status / Camera Watch / Activity — the camera now owns the full center column
+  (more room for the feed).
+- **Full-width residence + callouts restored.** With the width back, the leader-line
+  callouts return in the margins like the concept render: live presence on the left
+  (dominant red, occupied cyan, idle dim) and system layers on the right, around a
+  larger 3D house that auto-fits the wider canvas.
+- **Home-style templates.** A HOME STYLE selector picks the massing/roof shell that the
+  floor-plan rooms populate — Cape Cod, Colonial, Ranch, Two-Story, Craftsman, Modern,
+  Townhouse, Apartment, Cabin. Peaked styles render a gable (end-walls + ridge), flat
+  styles a parapet cap; the choice persists via `residence_style` config and tags the
+  banner. This is the foundation for the template-driven 3D you described.
+- Smoke test now exercises both tabs (18 checks): Command Center camera at native
+  aspect with the residence moved out, and the Residence tab's scene, style selector,
+  banner stats, restored callouts, and live dominant-room flag. Audit clean, 170 tests.
+
+> Honest scope: the roof massing is a first pass built in CSS, and I can't visually
+> verify 3D in my environment — the gable/flat shells differentiate styles but may need
+> a tuning pass from a screenshot. True per-style accuracy, solid sloped/hip roofs, and
+> satellite-imagery-derived geometry are the WebGL/Three.js build, which I'd take on as
+> its own track on your go-ahead.
+
+
 Corrections to the 6.16.0 dashboard from live feedback.
 - **Camera shows its native aspect ratio.** The feed was a tall flex box with
   `object-fit: cover`, which cropped a 16:9 stream into an ultra-wide strip. The feed

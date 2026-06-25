@@ -56,20 +56,34 @@ el.hass = hass;
 setTimeout(() => {
   const sr = el.shadowRoot, html = sr.innerHTML;
   const checks = [
+    // ── Command Center tab (default) ──
     ["stylesheet injected", html.includes("<style>") && html.includes("--cyan:") && html.includes("#00f2fe")],
     ["dashboard grid present", !!sr.querySelector(".grid")],
-    ["camera + residence wrapper (c-center)", !!sr.querySelector(".c-center")],
+    ["Residence tab button present", !!sr.querySelector('[data-tab="residence"]')],
     ["Camera Watch module present", !!sr.querySelector(".c-camera") && !!sr.querySelector("#cam-feed")],
-    ["3D residence scene kept", !!sr.querySelector("#house3d-scene")],
+    ["camera owns center (residence moved out of dashboard)", !sr.querySelector("#house3d-scene")],
     ["camera chips from config.cameras (2)", sr.querySelectorAll(".camchip[data-cam]").length === 2],
     ['camera auto-selected (no "NO CAMERA")', !/NO CAMERA SELECTED/.test(sr.querySelector("#cam-feed")?.innerHTML || "NO CAMERA SELECTED")],
     ["live MJPEG src wired with token", !!(sr.querySelector("#cam-feed img") && /camera_proxy_stream\/camera\.front\?token=tok123/.test(sr.querySelector("#cam-feed img").src))],
+    ["camera native aspect (height:auto, no object-fit)", /\.cam-feed img\s*\{[^}]*height:\s*auto/.test(html) && !/\.cam-feed img\s*\{[^}]*object-fit/.test(html)],
     ["system status rows live (RUNNING)", /RUNNING/.test(html)],
-    ["property data-merge banner present", !!sr.querySelector(".res-banner") && /MYRTLE/.test(sr.querySelector("#res-addr")?.textContent || "")],
-    ["banner stats populated (sqft + bed/bath)", /\d/.test(sr.querySelector("#res-sqft")?.textContent || "") && /\d/.test(sr.querySelector("#res-bb")?.textContent || "")],
-    ["sqft estimate not absurd (<= 5000)", (() => { const m = (sr.querySelector("#res-sqft")?.textContent || "").replace(/[^\d]/g, ""); return m && Number(m) <= 5000; })()],
-    ["overlapping callouts cleared in narrow column", sr.querySelectorAll(".res-co").length === 0],
   ];
+
+  // ── switch to Residence tab and re-check ──
+  el._currentTab = "residence";
+  el._render();
+  const r = el.shadowRoot, rhtml = r.innerHTML;
+  checks.push(
+    ["residence tab renders 3D scene", !!r.querySelector("#house3d-scene")],
+    ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
+    ["property data-merge banner present", !!r.querySelector(".res-banner") && /MYRTLE/.test(r.querySelector("#res-addr")?.textContent || "")],
+    ["banner stats populated (sqft + bed/bath)", /\d/.test(r.querySelector("#res-sqft")?.textContent || "") && /\d/.test(r.querySelector("#res-bb")?.textContent || "")],
+    ["sqft estimate sane (<= 5000)", (() => { const m = (r.querySelector("#res-sqft")?.textContent || "").replace(/[^\d]/g, ""); return m && Number(m) <= 5000; })()],
+    ["style tag reflects template", /CAPE COD/.test(r.querySelector("#res-style-tag")?.textContent || "")],
+    ["leader-line callouts restored (full width)", r.querySelectorAll(".res-co").length >= 6],
+    ["dominant room callout flagged from live presence", !!r.querySelector(".res-co.dom")]
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();

@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.16.1 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.17.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -461,8 +461,8 @@ class JarvisPanel extends HTMLElement {
       el.classList.toggle("active", !!a.active);
     });
 
-    // Floor plan — rebuild 3D with updated presence data
-    if (this._currentTab === 'dashboard') {
+    // Floor plan — rebuild 3D with updated presence data (residence tab)
+    if (this._currentTab === 'residence') {
       this._build3DHouse();
     }
   }
@@ -1287,6 +1287,43 @@ class JarvisPanel extends HTMLElement {
       }
     }
 
+    // ── Roof: home-style template massing on the highest floor ──
+    // Same local space as the floors. Geometry is deliberately simple (flat
+    // cap, or gable end-walls + ridge beam) using only rotations that can be
+    // reasoned about without a live 3D render; solid sloped/hip roofs and true
+    // per-style accuracy are the WebGL track.
+    if (fl === 'all' || fl === '2f') {
+      var rsKey = this._residenceStyle();
+      var rs = this._resStyles()[rsKey] || this._resStyles().cape_cod;
+      var topY = (floorBaseY['2f'] || 0) - (WH['2f'] || 22) - yMid;
+      var rOver = 6;
+      var rW = (gMaxX - gMinX) + rOver * 2;
+      var rD = (gMaxZ - gMinZ) + rOver * 2;
+      if (rs.roof === 'flat') {
+        mkPlane(0, topY - 3, 0, rW, rD, 'rgba(0,242,254,.07)', 'rgba(0,242,254,.55)', 'h3d-roof');
+      } else {
+        var ridgeX = rW >= rD;
+        var rSpan = ridgeX ? rD : rW;
+        var rLen = ridgeX ? rW : rD;
+        var peakH = Math.min(rSpan * 0.5 * (rs.pitch || 0.8), 64);
+        if (ridgeX) mkPlane(0, topY - peakH, 0, rLen, 3, 'rgba(0,242,254,.12)', 'rgba(120,235,255,.75)', 'h3d-roof');
+        else        mkPlane(0, topY - peakH, 0, 3, rLen, 'rgba(0,242,254,.12)', 'rgba(120,235,255,.75)', 'h3d-roof');
+        [1, -1].forEach(function(sg) {
+          var tri = document.createElement('div');
+          tri.className = 'h3d-roof-gable';
+          var tx = ridgeX ? sg * (rLen / 2) : 0;
+          var tz = ridgeX ? 0 : sg * (rLen / 2);
+          var ty = topY - peakH / 2;
+          var ry = ridgeX ? 90 : 0;
+          tri.style.cssText = 'position:absolute;width:' + rSpan + 'px;height:' + peakH + 'px;'
+            + 'background:rgba(0,242,254,.09);clip-path:polygon(0 100%,50% 0,100% 100%);'
+            + 'transform:translate3d(' + (tx - rSpan / 2) + 'px,' + (ty - peakH / 2) + 'px,' + tz
+            + 'px) rotateY(' + ry + 'deg)';
+          el.appendChild(tri);
+        });
+      }
+    }
+
     this._update3DTransform();
     this._buildResidenceAnnotations();
   }
@@ -1320,8 +1357,87 @@ class JarvisPanel extends HTMLElement {
       }
       sqEl.textContent = sqft ? '~' + Number(sqft).toLocaleString() : '—';
     }
+    const styleTag = this.shadowRoot.querySelector('#res-style-tag');
+    if (styleTag) {
+      const rs = this._resStyles()[this._residenceStyle()];
+      styleTag.textContent = (rs && rs.label) ? rs.label.toUpperCase() : '—';
+    }
+
+    // Leader-line callouts — the residence has full width on its own tab now,
+    // so the annotations sit in the margins like the concept render.
     const co = this.shadowRoot.querySelector('#res-callouts');
-    if (co) co.innerHTML = '';
+    if (!co) return;
+    const calloutHTML = (side, top, title, lines, cls) =>
+      '<div class="res-co ' + side + ' ' + (cls || '') + '" style="top:' + top + '%;">' +
+        '<div class="res-co-label"><div class="res-co-t">' + this._esc(title) + '</div>' +
+          lines.map(l => '<div class="res-co-l">' + this._esc(l) + '</div>').join('') +
+        '</div><div class="res-co-line"></div><div class="res-co-dot"></div></div>';
+    const domName = d.dominantRoom && d.dominantRoom.name;
+    const pick = [];
+    if (domName) { const dm = areas.find(a => a.name === domName); if (dm) pick.push(dm); }
+    areas.filter(a => a.active).forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
+    areas.forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
+    const slots = [15, 37, 59, 81];
+    const rooms = pick.slice(0, 4).map((a, i) => {
+      const caps = (a.caps || []).map(c => String(c).toUpperCase()).join(' · ') || 'NO SENSORS';
+      const status = a.active ? (a.name === domName ? '● DOMINANT' : '● OCCUPIED') : '○ CLEAR';
+      const cls = a.active ? (a.name === domName ? 'dom' : 'occ') : '';
+      return calloutHTML('left', slots[i], (a.name || '').toUpperCase(), [status, caps], cls);
+    });
+    const satState = (d.satellites && d.satellites.state) || '—';
+    const systems = [
+      ['HVAC SYSTEM',     ['CLIMATE ZONES', 'PRESENCE-LINKED'], ''],
+      ['ELECTRICAL',      ['MAIN + SUB PANELS', 'LOAD MONITOR'], ''],
+      ['PLUMBING STACKS', ['SUPPLY + WASTE', 'FREEZE WATCH'], ''],
+      ['NETWORK MESH',    ['SATELLITES ' + satState, 'WYOMING VOICE'], 'occ'],
+    ];
+    const sys = systems.map((s, i) => calloutHTML('right', slots[i], s[0], s[1], s[2]));
+    co.innerHTML = rooms.join('') + sys.join('');
+  }
+
+  // Home-style templates: the massing/roof shell that floors + rooms populate.
+  _resStyles() {
+    return {
+      cape_cod:  { label: 'Cape Cod',   roof: 'gable', pitch: 1.0 },
+      colonial:  { label: 'Colonial',   roof: 'gable', pitch: 0.7 },
+      ranch:     { label: 'Ranch',      roof: 'hip',   pitch: 0.5 },
+      two_story: { label: 'Two-Story',  roof: 'gable', pitch: 0.65 },
+      craftsman: { label: 'Craftsman',  roof: 'hip',   pitch: 0.6 },
+      modern:    { label: 'Modern',     roof: 'flat',  pitch: 0 },
+      townhouse: { label: 'Townhouse',  roof: 'gable', pitch: 0.85 },
+      apartment: { label: 'Apartment',  roof: 'flat',  pitch: 0 },
+      cabin:     { label: 'Cabin',      roof: 'gable', pitch: 1.25 },
+    };
+  }
+
+  _residenceStyle() {
+    const d = this._data();
+    const s = (d.config && d.config.residence_style) || 'cape_cod';
+    return this._resStyles()[s] ? s : 'cape_cod';
+  }
+
+  _residenceStyleOptions(d) {
+    const styles = this._resStyles();
+    const cur = (d.config && d.config.residence_style) || 'cape_cod';
+    return Object.keys(styles).map(k =>
+      '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + styles[k].label + '</option>'
+    ).join('');
+  }
+
+  _wireResidenceControls() {
+    const sel = this.shadowRoot.getElementById('res-style-sel');
+    if (sel && !sel._wired) {
+      sel._wired = true;
+      sel.addEventListener('change', async () => {
+        const val = sel.value;
+        this._zoomAuto = true;  // refit massing for the new style
+        if (this._liveData && this._liveData.config) this._liveData.config.residence_style = val;
+        this._build3DHouse();
+        const rs = this._resStyles()[val];
+        this._toast('◉ Home style → ' + (rs ? rs.label : val), 'ok');
+        try { await this._saveConfig('residence_style', val); } catch (_) {}
+      });
+    }
   }
 
   _update3DTransform() {
@@ -1577,6 +1693,7 @@ class JarvisPanel extends HTMLElement {
   <!-- TAB NAV -->
   <div class="tab-bar">
     <button class="tab ${this._currentTab === 'dashboard' ? 'active' : ''}" data-tab="dashboard">Command Center</button>
+    <button class="tab ${this._currentTab === 'residence' ? 'active' : ''}" data-tab="residence">Residence</button>
     <button class="tab ${this._currentTab === 'settings' ? 'active' : ''}" data-tab="settings">Settings</button>
     <button class="tab ${this._currentTab === 'logs' ? 'active' : ''}" data-tab="logs">Logs</button>
   </div>
@@ -1614,63 +1731,19 @@ class JarvisPanel extends HTMLElement {
       ${this._renderSuggestions(d)}
     </div>
 
-    <!-- CENTER: CAMERA (primary focus) + RESIDENCE, side by side -->
-    <div class="c-center">
-
-      <!-- CAMERA WATCH — live, selectable, auto-focuses on events -->
-      <div class="c-camera panel">
-        <div class="head">
-          <span>Camera Watch</span>
-          <span class="side" id="cam-state">◉ LIVE</span>
-        </div>
-        <div class="cam-sel" id="cam-sel"></div>
-        <div class="cam-feed" id="cam-feed">
-          <div class="cam-none">NO CAMERA SELECTED</div>
-          <div class="cam-tag" id="cam-tag"></div>
-          <div class="cam-vig"></div><div class="cam-scan"></div>
-        </div>
-        <div class="cam-strip" id="cam-strip"></div>
-      </div>
-
-      <!-- RESIDENCE OVERVIEW — 3D isometric floor plan -->
-      <div class="c-anchor panel floorplan-panel">
+    <!-- CENTER: CAMERA WATCH — full width (residence now has its own tab) -->
+    <div class="c-camera panel">
       <div class="head">
-        <span>Residence Overview</span>
-        <span class="side">◉ PRESENCE</span>
+        <span>Camera Watch</span>
+        <span class="side" id="cam-state">◉ LIVE</span>
       </div>
-      <div class="floor-tabs">
-        <button class="floor-tab ${this._currentFloor === 'all' ? 'active' : ''}" data-floor="all">All</button>
-        <button class="floor-tab ${this._currentFloor === '1f' ? 'active' : ''}" data-floor="1f">1st Floor</button>
-        <button class="floor-tab ${this._currentFloor === '2f' ? 'active' : ''}" data-floor="2f">2nd Floor</button>
-        <button class="floor-tab ${this._currentFloor === 'bsmt' ? 'active' : ''}" data-floor="bsmt">Basement</button>
+      <div class="cam-sel" id="cam-sel"></div>
+      <div class="cam-feed" id="cam-feed">
+        <div class="cam-none">NO CAMERA SELECTED</div>
+        <div class="cam-tag" id="cam-tag"></div>
+        <div class="cam-vig"></div><div class="cam-scan"></div>
       </div>
-      <div class="floorplan-wrap" id="floorplan-wrap">
-        <div class="house3d-scene" id="house3d-scene">
-          <div class="house3d" id="house3d"></div>
-          <div class="res-callouts" id="res-callouts"></div>
-          <div class="res-banner">
-            <div class="res-banner-t">PROPERTY · <span id="res-addr">1111 MYRTLE RD</span></div>
-            <div class="res-banner-s">SATELLITE + ARCHITECTURAL DATA MERGE</div>
-          </div>
-          <div class="res-stat">
-            <div class="res-stat-i"><label>EST SQ FT</label><b id="res-sqft">—</b></div>
-            <div class="res-stat-i"><label>BED / BATH</label><b id="res-bb">—</b></div>
-            <div class="res-stat-i"><label>ANGLE</label><b id="house3d-angle">45°</b></div>
-          </div>
-        </div>
-      </div>
-      <!-- Dominant room info below the plan -->
-      <div class="dom-info">
-        <div class="dom-left">
-          <div class="dom-name" id="dom-name">${d.dominantRoom.name}</div>
-          <div class="dom-sub" id="dom-sub">${d.dominantRoom.subtitle}</div>
-        </div>
-        <div class="dom-gauges">
-          ${this._domGauges(d.dominantRoom)}
-        </div>
-      </div>
-      </div>
-
+      <div class="cam-strip" id="cam-strip"></div>
     </div>
 
     <!-- RIGHT: ACTIVITY -->
@@ -1709,6 +1782,61 @@ class JarvisPanel extends HTMLElement {
       <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":60}'>Nap 60m</button>
       <button class="ctrl"         data-svc="jarvis.unshush">Unshush All</button>
       <button class="ctrl"         data-svc="jarvis.observer_status">Status Dump</button>
+    </div>
+  </div>
+  ` : ''}
+
+  ${this._currentTab === 'residence' ? `
+  <!-- ═══ RESIDENCE TAB ═══ -->
+  <div class="res-tab">
+    <div class="res-main panel floorplan-panel">
+      <div class="head">
+        <span>Residence Overview</span>
+        <span class="side">◉ PRESENCE</span>
+      </div>
+
+      <!-- style template + floor controls -->
+      <div class="res-controls">
+        <div class="res-style">
+          <label>HOME STYLE</label>
+          <select class="res-style-sel" id="res-style-sel">
+            ${this._residenceStyleOptions(d)}
+          </select>
+        </div>
+        <div class="floor-tabs">
+          <button class="floor-tab ${this._currentFloor === 'all' ? 'active' : ''}" data-floor="all">All</button>
+          <button class="floor-tab ${this._currentFloor === '1f' ? 'active' : ''}" data-floor="1f">1st Floor</button>
+          <button class="floor-tab ${this._currentFloor === '2f' ? 'active' : ''}" data-floor="2f">2nd Floor</button>
+          <button class="floor-tab ${this._currentFloor === 'bsmt' ? 'active' : ''}" data-floor="bsmt">Basement</button>
+        </div>
+      </div>
+
+      <div class="floorplan-wrap res-wrap-big" id="floorplan-wrap">
+        <div class="house3d-scene" id="house3d-scene">
+          <div class="house3d" id="house3d"></div>
+          <div class="res-callouts" id="res-callouts"></div>
+          <div class="res-banner">
+            <div class="res-banner-t">PROPERTY · <span id="res-addr">1111 MYRTLE RD</span></div>
+            <div class="res-banner-s">SATELLITE + ARCHITECTURAL DATA MERGE</div>
+          </div>
+          <div class="res-stat">
+            <div class="res-stat-i"><label>EST SQ FT</label><b id="res-sqft">—</b></div>
+            <div class="res-stat-i"><label>BED / BATH</label><b id="res-bb">—</b></div>
+            <div class="res-stat-i"><label>STYLE</label><b id="res-style-tag">—</b></div>
+            <div class="res-stat-i"><label>ANGLE</label><b id="house3d-angle">45°</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dom-info">
+        <div class="dom-left">
+          <div class="dom-name" id="dom-name">${d.dominantRoom.name}</div>
+          <div class="dom-sub" id="dom-sub">${d.dominantRoom.subtitle}</div>
+        </div>
+        <div class="dom-gauges">
+          ${this._domGauges(d.dominantRoom)}
+        </div>
+      </div>
     </div>
   </div>
   ` : ''}
@@ -2166,11 +2294,14 @@ class JarvisPanel extends HTMLElement {
       });
     });
 
-    // Build 3D house on initial render
+    // Camera Watch lives on the Command Center; the 3D house on its own tab.
     if (this._currentTab === 'dashboard') {
+      this._setupCameras();
+    }
+    if (this._currentTab === 'residence') {
       this._build3DHouse();
       this._wire3DDrag();
-      this._setupCameras();
+      this._wireResidenceControls();
     }
 
     // Service-call buttons
@@ -4498,6 +4629,22 @@ class JarvisPanel extends HTMLElement {
     .res-co-line { width: 34px; }
     .res-co-l { font-size: 7px; }
   }
+  /* RESIDENCE TAB — full-width house with style template */
+  .res-tab { display: block; }
+  .res-main { display: flex; flex-direction: column; }
+  .res-controls { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  .res-style { display: flex; align-items: center; gap: 8px; }
+  .res-style > label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; color: var(--text-dim); }
+  .res-style-sel {
+    background: var(--bg); color: var(--cyan); border: 1px solid var(--line);
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; padding: 6px 11px;
+    border-radius: var(--radius); outline: none; cursor: pointer;
+  }
+  .res-style-sel:hover { border-color: var(--line-hot); }
+  .res-wrap-big { min-height: 560px; }
+  .res-wrap-big .house3d-scene { height: 560px; }
+  .h3d-roof { position: absolute; }
+  .h3d-roof-gable { position: absolute; backface-visibility: hidden; }
 </style>
     `;
   }
@@ -4509,7 +4656,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.16.1 ",
+  "%c JARVIS Panel %c v6.17.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
