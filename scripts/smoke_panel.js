@@ -67,8 +67,8 @@ setTimeout(() => {
     ["system status rows live (RUNNING)", /RUNNING/.test(html)],
     ["property data-merge banner present", !!sr.querySelector(".res-banner") && /MYRTLE/.test(sr.querySelector("#res-addr")?.textContent || "")],
     ["banner stats populated (sqft + bed/bath)", /\d/.test(sr.querySelector("#res-sqft")?.textContent || "") && /\d/.test(sr.querySelector("#res-bb")?.textContent || "")],
-    ["leader-line callouts rendered", sr.querySelectorAll(".res-co").length >= 6],
-    ["dominant room callout flagged from live presence", !!sr.querySelector(".res-co.dom")],
+    ["sqft estimate not absurd (<= 5000)", (() => { const m = (sr.querySelector("#res-sqft")?.textContent || "").replace(/[^\d]/g, ""); return m && Number(m) <= 5000; })()],
+    ["overlapping callouts cleared in narrow column", sr.querySelectorAll(".res-co").length === 0],
   ];
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }

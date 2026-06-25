@@ -4,7 +4,32 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.16.0] — Residence Overview: architectural data-merge HUD
+## [6.16.1] — Fix: camera aspect ratio + residence sizing
+Corrections to the 6.16.0 dashboard from live feedback.
+- **Camera shows its native aspect ratio.** The feed was a tall flex box with
+  `object-fit: cover`, which cropped a 16:9 stream into an ultra-wide strip. The feed
+  now sizes to the image's own ratio (`width:100%; height:auto`, no crop), so the
+  picture is whole and correctly proportioned.
+- **3D house auto-fits its column.** The house was scaled for the full-width centre it
+  had before the camera split; in the narrower shared column it oversized and clipped.
+  It now computes a fit-zoom from the scene width on every build (honoring a manual
+  wheel-zoom once set), so it stays whole whatever the column width. Reminder: drag
+  rotates — the default ~45° isometric is the intended view; a near-0° drag flattens
+  the floor plates to lines.
+- **Sq-ft estimate sane.** The estimate used a wrong factor and printed ~14,450. It's
+  now clamped to a believable range (and still overridable via `floor_plan_sqft`).
+- **Perimeter callouts pulled back.** They need generous side margins like the concept
+  render; in the narrow secondary column they overlapped the house. The property banner
+  + stats stay; the callouts return only when the residence has the width (see note).
+- Smoke test updated (12 checks): native-aspect feed, banner + sane stats, callouts
+  cleared. Python audit clean, 170 tests passing.
+
+> Note: the residence can't carry the annotated-house concept *and* be a narrow panel
+> beside a primary camera — that composition needs width. Make the residence the wide/
+> primary element and the full callout treatment fits; keep the camera primary and the
+> residence stays a clean house + banner.
+
+
 The 3D Residence Overview now carries the identity of the "satellite + architectural
 data-merge" concept — rendered in the panel's own medium (CSS/SVG, no engine, no
 build), not a photoreal CGI reproduction.

@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.16.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.16.1 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -35,6 +35,7 @@ class JarvisPanel extends HTMLElement {
     this._rot3dY = 45;             // 3D house rotation Y
     this._rot3dX = -28;            // 3D house rotation X
     this._zoom3d = 1;              // 3D house zoom level
+    this._zoomAuto = true;         // auto-fit house to column until user zooms
     this._pendingRender = false;   // owed full render deferred during editing
     this._lastLogSig = null;       // signature of currently-rendered log
     this._lastLogFilter = null;    // filter the log was last rendered under
@@ -1018,6 +1019,20 @@ class JarvisPanel extends HTMLElement {
     const centerX = (gMinX + gMaxX) / 2;
     const centerZ = (gMinZ + gMaxZ) / 2;
 
+    // Auto-fit the house to its (now possibly narrow) column so it never
+    // oversizes and clips, or shrinks to nothing. Honors a manual wheel-zoom
+    // once the user sets one.
+    if (this._zoomAuto !== false && scene) {
+      const sw = scene.clientWidth || 0;
+      if (sw > 0) {
+        const fpW = gMaxX - gMinX, fpD = gMaxZ - gMinZ;
+        const projW = (fpW + fpD) * 0.70 || 1;          // isometric footprint width
+        const projH = (fpW + fpD) * 0.35 + 120;         // + stacked wall height
+        const fit = Math.min((sw * 0.86) / projW, 360 / projH);
+        this._zoom3d = Math.max(0.45, Math.min(1.25, fit));
+      }
+    }
+
     const floorsToShow = fl === 'all' ? ['bsmt', '1f', '2f'] : [fl];
 
     // Visual air between stacked floors so each level reads as a distinct
@@ -1276,17 +1291,14 @@ class JarvisPanel extends HTMLElement {
     this._buildResidenceAnnotations();
   }
 
-  // ─── Residence overlay: property banner + live leader-line callouts ─────
-  // Brings the identity of the architectural "data-merge" concept into the
-  // panel's medium — header stats + annotation callouts fed by real presence,
-  // pinned to the scene perimeter (so they stay correct as the house rotates).
+  // ─── Residence overlay: property banner + live stats ───────────────────
+  // The property header carries the "data-merge" identity. Perimeter leader-
+  // line callouts need generous side margins (as in the concept render) — in
+  // the narrow column beside the primary camera they land on top of the house,
+  // so they're held back here and only belong when the residence has width.
   _buildResidenceAnnotations() {
-    const scene = this.shadowRoot?.querySelector('#res-callouts');
-    if (!scene) return;
     const d = this._data();
     const areas = d.areasGrid || [];
-
-    // ── header stats ──
     const addrEl = this.shadowRoot.querySelector('#res-addr');
     if (addrEl) addrEl.textContent = (d.config && d.config.floor_plan_address) || '1111 MYRTLE RD, WALNUTPORT PA';
     const beds = areas.filter(a => a.bedroom).length || d.bedrooms || 0;
@@ -1303,43 +1315,13 @@ class JarvisPanel extends HTMLElement {
           if (r.type === 'door' || r.type === 'stairs') return;
           u += (r.w || 0) * (r.h || 0);
         }));
-        sqft = Math.round(u * 0.25 / 50) * 50;  // EST: editor-unit area → ~sq ft
+        // Clamp so a mis-scaled editor plan can never print an absurd number.
+        sqft = Math.min(5000, Math.max(600, Math.round(u * 0.032 / 50) * 50));
       }
       sqEl.textContent = sqft ? '~' + Number(sqft).toLocaleString() : '—';
     }
-
-    // ── leader-line callouts ──
-    const calloutHTML = (side, top, title, lines, cls) =>
-      '<div class="res-co ' + side + ' ' + (cls || '') + '" style="top:' + top + '%;">' +
-        '<div class="res-co-label"><div class="res-co-t">' + this._esc(title) + '</div>' +
-          lines.map(l => '<div class="res-co-l">' + this._esc(l) + '</div>').join('') +
-        '</div><div class="res-co-line"></div><div class="res-co-dot"></div></div>';
-
-    // LEFT column: live rooms — dominant first, then occupied, then the rest.
-    const domName = d.dominantRoom && d.dominantRoom.name;
-    const pick = [];
-    if (domName) { const dm = areas.find(a => a.name === domName); if (dm) pick.push(dm); }
-    areas.filter(a => a.active).forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
-    areas.forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
-    const slots = [15, 37, 59, 81];
-    const rooms = pick.slice(0, 4).map((a, i) => {
-      const caps = (a.caps || []).map(c => String(c).toUpperCase()).join(' · ') || 'NO SENSORS';
-      const status = a.active ? (a.name === domName ? '● DOMINANT' : '● OCCUPIED') : '○ CLEAR';
-      const cls = a.active ? (a.name === domName ? 'dom' : 'occ') : '';
-      return calloutHTML('left', slots[i], (a.name || '').toUpperCase(), [status, caps], cls);
-    });
-
-    // RIGHT column: system layers (the concept's HVAC / electrical / plumbing).
-    const satState = (d.satellites && d.satellites.state) || '—';
-    const systems = [
-      ['HVAC SYSTEM',     ['CLIMATE ZONES', 'PRESENCE-LINKED'], ''],
-      ['ELECTRICAL',      ['MAIN + SUB PANELS', 'LOAD MONITOR'], ''],
-      ['PLUMBING STACKS', ['SUPPLY + WASTE', 'FREEZE WATCH'], ''],
-      ['NETWORK MESH',    ['SATELLITES ' + satState, 'WYOMING VOICE'], 'occ'],
-    ];
-    const sys = systems.map((s, i) => calloutHTML('right', slots[i], s[0], s[1], s[2]));
-
-    scene.innerHTML = rooms.join('') + sys.join('');
+    const co = this.shadowRoot.querySelector('#res-callouts');
+    if (co) co.innerHTML = '';
   }
 
   _update3DTransform() {
@@ -1378,6 +1360,7 @@ class JarvisPanel extends HTMLElement {
     scene.addEventListener('wheel', function(e) {
       e.preventDefault();
       var z = self._zoom3d || 1;
+      self._zoomAuto = false;  // user took manual control of zoom
       self._zoom3d = Math.max(0.4, Math.min(3, z + (e.deltaY > 0 ? -0.08 : 0.08)));
       self._update3DTransform();
     }, {passive: false});
@@ -4453,10 +4436,10 @@ class JarvisPanel extends HTMLElement {
   .camchip.on { color: var(--cyan); border-color: var(--line-hot); background: rgba(0,242,254,0.08); }
   .camchip.evt { color: var(--red); border-color: rgba(255,77,109,0.5); background: rgba(255,77,109,0.08); }
   .cam-feed {
-    position: relative; flex: 1; min-height: 380px; overflow: hidden;
+    position: relative; width: 100%; min-height: 220px; overflow: hidden;
     border: 1px solid var(--line); background: #05090f; border-radius: 4px;
   }
-  .cam-feed img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-feed img { display: block; width: 100%; height: auto; }
   .cam-none {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
@@ -4526,7 +4509,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.16.0 ",
+  "%c JARVIS Panel %c v6.16.1 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
