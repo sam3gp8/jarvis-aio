@@ -162,7 +162,7 @@ class JarvisCommand extends HTMLElement {
 
   _init() {
     this._inited = true;
-    this.shadowRoot.innerHTML = `<div class="app">
+    this.shadowRoot.innerHTML = `<style>${JC_STYLES}</style><div class="app">
       <div class="rule" id="rtop"></div>
       <div class="head"><div class="title">[J.A.R.V.I.S. // CORE_HUD]</div>
         <div class="statusline">STATUS: <b id="sysstate">…</b></div></div>
@@ -245,7 +245,8 @@ class JarvisCommand extends HTMLElement {
     const d = await this._ws("jarvis/get_panel_data");
     if (!d) return;
     this._data = d;
-    this._cams = Array.isArray(d.cameras) ? d.cameras : [];
+    const cams = (d.config && d.config.cameras) || d.cameras;
+    this._cams = Array.isArray(cams) ? cams : [];
     if (!this._activeCam && this._cams.length) {
       this._activeCam = this._cams[0].entity_id;
       this._manualCam = this._activeCam;
@@ -301,15 +302,16 @@ class JarvisCommand extends HTMLElement {
     }
 
     // lockdown button reflects live state if present
+    const lk = (d.config && d.config.lockdown) || d.lockdown;
     const lock = this.shadowRoot.getElementById("btn-lock");
-    if (lock && typeof d.lockdown !== "undefined") lock.classList.toggle("on", !!d.lockdown);
+    if (lock && lk) lock.classList.toggle("on", !!lk.active);
   }
 
   // ── Residence: 2D plan from live areas ────────────────────────
   _renderPlan(d) {
     const areas = Array.isArray(d.areas) ? d.areas : [];
     const active = areas.filter((a) => a.active);
-    const pres = d.presence || {};
+    const pres = d.dominant || d.presence || {};
     const domId = pres.area_id || null;
 
     // assign active areas to fixed node slots (dominant first)
@@ -497,7 +499,8 @@ class JarvisCommand extends HTMLElement {
     try {
       if (which === "briefing") { await this._hass.callService("jarvis", "briefing", {}); this._toast("BRIEFING dispatched"); }
       else if (which === "lockdown") {
-        const cur = !!(this._data && this._data.lockdown);
+        const lk = this._data && ((this._data.config && this._data.config.lockdown) || this._data.lockdown);
+        const cur = !!(lk && lk.active);
         await this._ws("jarvis/set_lockdown", { on: !cur });
         this._toast(!cur ? "LOCKDOWN engaged" : "LOCKDOWN released");
         this._loadData();

@@ -4,7 +4,28 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.14.2] — Audit fix: wrong relative-import levels in intent router
+## [6.14.3] — Fix: Command Center rendered unstyled + empty camera list
+First real-deployment look at the new panel surfaced two frontend bugs (data was
+flowing — areas, presence, live log all correct — but the panel was broken):
+- **Orphaned stylesheet.** The component's CSS (`JC_STYLES`) was defined but never
+  injected into the shadow DOM — the `innerHTML` started at `<div class="app">` with
+  no `<style>`. Result: a plain unstyled text stack, no grid/borders/colours. Now
+  injected as `<style>${JC_STYLES}</style>…`.
+- **Data-contract mismatches.** The panel read `d.cameras`, `d.presence`, and
+  `d.lockdown`, but `get_panel_data` returns presence under `dominant` and nests
+  `cameras` + `lockdown` inside `config`. So the camera picker was always empty
+  ("NO CAMERA SELECTED") and the dominant-area temp showed "—". Now reads
+  `d.config.cameras`, `d.dominant`, and `d.config.lockdown` (with fallbacks).
+- **Why the audit missed it + the fix.** The release gates were Python-only
+  (`scripts/audit.py`, pytest) plus `node --check`, which validates JS *syntax* but
+  not behaviour — an orphaned const and a wrong object path are both valid syntax.
+  Added `scripts/smoke_panel.js`: renders the component under jsdom with a realistic
+  `get_panel_data` payload and asserts it actually draws (styles injected, grid +
+  modules present, camera chips populated from `config.cameras`, dominant area/temp
+  shown, live MJPEG `src` wired with the access token). 10/10 pass. Python audit
+  clean, 170 tests passing.
+
+
 Proactive audit (not wait-and-see) of the code paths that only began loading after
 6.14.1 surfaced two real bugs in `intent/intent_router.py`:
 - **`from . import audio_routing` → `from ..`.** `intent_router` lives in the
