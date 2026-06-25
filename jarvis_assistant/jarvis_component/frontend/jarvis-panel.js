@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.15.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.16.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -1273,6 +1273,73 @@ class JarvisPanel extends HTMLElement {
     }
 
     this._update3DTransform();
+    this._buildResidenceAnnotations();
+  }
+
+  // ─── Residence overlay: property banner + live leader-line callouts ─────
+  // Brings the identity of the architectural "data-merge" concept into the
+  // panel's medium — header stats + annotation callouts fed by real presence,
+  // pinned to the scene perimeter (so they stay correct as the house rotates).
+  _buildResidenceAnnotations() {
+    const scene = this.shadowRoot?.querySelector('#res-callouts');
+    if (!scene) return;
+    const d = this._data();
+    const areas = d.areasGrid || [];
+
+    // ── header stats ──
+    const addrEl = this.shadowRoot.querySelector('#res-addr');
+    if (addrEl) addrEl.textContent = (d.config && d.config.floor_plan_address) || '1111 MYRTLE RD, WALNUTPORT PA';
+    const beds = areas.filter(a => a.bedroom).length || d.bedrooms || 0;
+    const baths = areas.filter(a => /bath/i.test(a.name || '')).length;
+    const bbEl = this.shadowRoot.querySelector('#res-bb');
+    if (bbEl) bbEl.textContent = beds + ' / ' + (baths || '—');
+    const sqEl = this.shadowRoot.querySelector('#res-sqft');
+    if (sqEl) {
+      let sqft = d.config && d.config.floor_plan_sqft;
+      if (!sqft) {
+        const plan = this._getFloorPlan();
+        let u = 0;
+        Object.keys(plan).forEach(fk => (plan[fk] && plan[fk].rooms || []).forEach(r => {
+          if (r.type === 'door' || r.type === 'stairs') return;
+          u += (r.w || 0) * (r.h || 0);
+        }));
+        sqft = Math.round(u * 0.25 / 50) * 50;  // EST: editor-unit area → ~sq ft
+      }
+      sqEl.textContent = sqft ? '~' + Number(sqft).toLocaleString() : '—';
+    }
+
+    // ── leader-line callouts ──
+    const calloutHTML = (side, top, title, lines, cls) =>
+      '<div class="res-co ' + side + ' ' + (cls || '') + '" style="top:' + top + '%;">' +
+        '<div class="res-co-label"><div class="res-co-t">' + this._esc(title) + '</div>' +
+          lines.map(l => '<div class="res-co-l">' + this._esc(l) + '</div>').join('') +
+        '</div><div class="res-co-line"></div><div class="res-co-dot"></div></div>';
+
+    // LEFT column: live rooms — dominant first, then occupied, then the rest.
+    const domName = d.dominantRoom && d.dominantRoom.name;
+    const pick = [];
+    if (domName) { const dm = areas.find(a => a.name === domName); if (dm) pick.push(dm); }
+    areas.filter(a => a.active).forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
+    areas.forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
+    const slots = [15, 37, 59, 81];
+    const rooms = pick.slice(0, 4).map((a, i) => {
+      const caps = (a.caps || []).map(c => String(c).toUpperCase()).join(' · ') || 'NO SENSORS';
+      const status = a.active ? (a.name === domName ? '● DOMINANT' : '● OCCUPIED') : '○ CLEAR';
+      const cls = a.active ? (a.name === domName ? 'dom' : 'occ') : '';
+      return calloutHTML('left', slots[i], (a.name || '').toUpperCase(), [status, caps], cls);
+    });
+
+    // RIGHT column: system layers (the concept's HVAC / electrical / plumbing).
+    const satState = (d.satellites && d.satellites.state) || '—';
+    const systems = [
+      ['HVAC SYSTEM',     ['CLIMATE ZONES', 'PRESENCE-LINKED'], ''],
+      ['ELECTRICAL',      ['MAIN + SUB PANELS', 'LOAD MONITOR'], ''],
+      ['PLUMBING STACKS', ['SUPPLY + WASTE', 'FREEZE WATCH'], ''],
+      ['NETWORK MESH',    ['SATELLITES ' + satState, 'WYOMING VOICE'], 'occ'],
+    ];
+    const sys = systems.map((s, i) => calloutHTML('right', slots[i], s[0], s[1], s[2]));
+
+    scene.innerHTML = rooms.join('') + sys.join('');
   }
 
   _update3DTransform() {
@@ -1597,8 +1664,16 @@ class JarvisPanel extends HTMLElement {
       <div class="floorplan-wrap" id="floorplan-wrap">
         <div class="house3d-scene" id="house3d-scene">
           <div class="house3d" id="house3d"></div>
-          <div class="house3d-hud-tl">1111 MYRTLE RD</div>
-          <div class="house3d-hud-tr" id="house3d-angle">45°</div>
+          <div class="res-callouts" id="res-callouts"></div>
+          <div class="res-banner">
+            <div class="res-banner-t">PROPERTY · <span id="res-addr">1111 MYRTLE RD</span></div>
+            <div class="res-banner-s">SATELLITE + ARCHITECTURAL DATA MERGE</div>
+          </div>
+          <div class="res-stat">
+            <div class="res-stat-i"><label>EST SQ FT</label><b id="res-sqft">—</b></div>
+            <div class="res-stat-i"><label>BED / BATH</label><b id="res-bb">—</b></div>
+            <div class="res-stat-i"><label>ANGLE</label><b id="house3d-angle">45°</b></div>
+          </div>
         </div>
       </div>
       <!-- Dominant room info below the plan -->
@@ -4402,6 +4477,44 @@ class JarvisPanel extends HTMLElement {
   .cam-strip { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px;
     letter-spacing: 0.05em; color: var(--cyan); padding: 9px 2px 0; margin-top: 10px; border-top: 1px solid var(--line); }
   .cam-strip b { color: var(--text); }
+  /* RESIDENCE OVERVIEW — architectural data-merge overlay */
+  #house3d { filter: drop-shadow(0 0 12px rgba(0, 242, 254, 0.10)); }
+  .res-banner { position: absolute; top: 10px; left: 13px; z-index: 8; pointer-events: none; }
+  .res-banner-t { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; color: var(--cyan); text-shadow: 0 0 12px rgba(0,242,254,0.35); }
+  .res-banner-s { font-family: var(--font-mono); font-size: 7.5px; letter-spacing: 0.22em; color: var(--text-dim); margin-top: 3px; }
+  .res-stat { position: absolute; top: 9px; right: 13px; z-index: 8; pointer-events: none; display: flex; gap: 16px; }
+  .res-stat-i { text-align: right; }
+  .res-stat-i label { display: block; font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.2em; color: var(--text-dim); }
+  .res-stat-i b { font-family: var(--font-display); font-size: 13px; font-weight: 500; color: var(--cyan); letter-spacing: 0.04em; }
+
+  .res-callouts { position: absolute; inset: 0; z-index: 7; pointer-events: none; }
+  .res-co { position: absolute; display: flex; align-items: center; opacity: 0; animation: coIn 0.5s ease forwards; }
+  @keyframes coIn { to { opacity: 1; } }
+  .res-co.left  { left: 13px;  flex-direction: row; }
+  .res-co.right { right: 13px; flex-direction: row-reverse; }
+  .res-co-label { padding: 4px 9px; background: rgba(6, 11, 20, 0.80); border: 1px solid var(--line);
+    border-left: 2px solid var(--cyan-dim); min-width: 116px; backdrop-filter: blur(2px); }
+  .res-co.right .res-co-label { border-left: 1px solid var(--line); border-right: 2px solid var(--cyan-dim); text-align: right; }
+  .res-co-t { font-family: var(--font-display); font-size: 9.5px; font-weight: 500; letter-spacing: 0.12em; color: var(--text); }
+  .res-co-l { font-family: var(--font-mono); font-size: 7.5px; letter-spacing: 0.05em; color: var(--text-dim); margin-top: 2px; }
+  .res-co-line { width: 60px; height: 1px; background: linear-gradient(90deg, var(--cyan-dim), transparent); }
+  .res-co.right .res-co-line { background: linear-gradient(270deg, var(--cyan-dim), transparent); }
+  .res-co-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 7px var(--cyan); margin-left: -3px; flex: none; }
+  .res-co.right .res-co-dot { margin-left: 0; margin-right: -3px; }
+  .res-co.occ .res-co-label { border-left-color: var(--cyan); }
+  .res-co.occ.right .res-co-label { border-right-color: var(--cyan); border-left-color: var(--line); }
+  .res-co.occ .res-co-t { color: var(--cyan); }
+  .res-co.occ .res-co-line { background: linear-gradient(90deg, var(--cyan), transparent); }
+  .res-co.occ.right .res-co-line { background: linear-gradient(270deg, var(--cyan), transparent); }
+  .res-co.dom .res-co-label { border-left-color: var(--red); box-shadow: 0 0 16px rgba(255,77,109,0.20); }
+  .res-co.dom .res-co-t { color: var(--red); }
+  .res-co.dom .res-co-dot { background: var(--red); box-shadow: 0 0 9px var(--red); }
+  .res-co.dom .res-co-line { background: linear-gradient(90deg, var(--red), transparent); }
+  @media (max-width: 1480px) {
+    .res-co-label { min-width: 96px; padding: 3px 7px; }
+    .res-co-line { width: 34px; }
+    .res-co-l { font-size: 7px; }
+  }
 </style>
     `;
   }
@@ -4413,7 +4526,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.15.0 ",
+  "%c JARVIS Panel %c v6.16.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

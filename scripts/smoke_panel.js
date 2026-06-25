@@ -65,6 +65,10 @@ setTimeout(() => {
     ['camera auto-selected (no "NO CAMERA")', !/NO CAMERA SELECTED/.test(sr.querySelector("#cam-feed")?.innerHTML || "NO CAMERA SELECTED")],
     ["live MJPEG src wired with token", !!(sr.querySelector("#cam-feed img") && /camera_proxy_stream\/camera\.front\?token=tok123/.test(sr.querySelector("#cam-feed img").src))],
     ["system status rows live (RUNNING)", /RUNNING/.test(html)],
+    ["property data-merge banner present", !!sr.querySelector(".res-banner") && /MYRTLE/.test(sr.querySelector("#res-addr")?.textContent || "")],
+    ["banner stats populated (sqft + bed/bath)", /\d/.test(sr.querySelector("#res-sqft")?.textContent || "") && /\d/.test(sr.querySelector("#res-bb")?.textContent || "")],
+    ["leader-line callouts rendered", sr.querySelectorAll(".res-co").length >= 6],
+    ["dominant room callout flagged from live presence", !!sr.querySelector(".res-co.dom")],
   ];
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }

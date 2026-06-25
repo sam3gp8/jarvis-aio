@@ -4,7 +4,32 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.15.0] — One panel: Command Center folded into JARVIS (camera-forward)
+## [6.16.0] — Residence Overview: architectural data-merge HUD
+The 3D Residence Overview now carries the identity of the "satellite + architectural
+data-merge" concept — rendered in the panel's own medium (CSS/SVG, no engine, no
+build), not a photoreal CGI reproduction.
+- **Property banner.** Top-left header — `PROPERTY · <address> · SATELLITE +
+  ARCHITECTURAL DATA MERGE` — with the address pulled from `floor_plan_address`.
+- **Live stat block.** Top-right: EST SQ FT (from `floor_plan_sqft`, else estimated
+  from the floor-plan geometry and labelled `~`), BED / BATH (counted from real
+  area metadata), and the live rotation angle.
+- **Leader-line callouts.** Annotation labels pinned to the scene perimeter with
+  connector lines + nodes, the way the concept image annotates rooms. The left column
+  is fed by **real presence** — dominant room flagged red, occupied rooms cyan, the
+  rest dim — and refreshes every poll. The right column annotates the system layers
+  (HVAC / electrical / plumbing / network mesh). Callouts are pinned to the frame, not
+  projected onto the geometry, so they stay correct while you drag-rotate the house.
+- **Wireframe glow** on the house, and the prior `house3d-hud` corner labels are
+  replaced by the banner/stat overlay. The 3D isometric house, drag-rotate, floor
+  tabs, presence glow and per-room light toggles are all unchanged underneath.
+- Smoke test extended (now 13 checks) to assert the banner, populated stats, callout
+  rendering, and dominant-room flagging. Python audit clean, 170 tests passing.
+
+Not photoreal: this is a stylized HUD interpretation, not the ray-traced render. A true
+volumetric version would need a WebGL/Three.js scene and a real satellite-image asset —
+a separate, much larger build if you ever want to go there.
+
+
 The separate Command Center panel is retired; its capability now lives in the main
 JARVIS panel, which keeps its 3D isometric floor plan (the 2D top-down experiment is
 dropped).

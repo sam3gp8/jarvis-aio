@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# JARVIS AI Assistant — All-In-One Installer v6.15.0
+# JARVIS AI Assistant — All-In-One Installer v6.16.0
 # Zero-touch install. After pressing Start you do nothing else.
 # ==============================================================================
 set -euo pipefail
@@ -57,7 +57,7 @@ fi
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 bashio::log.info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.15.0"
+bashio::log.info "  JARVIS AI Assistant — AIO Installer v6.16.0"
 bashio::log.info "  Provider       : ${LLM_PROVIDER}"
 bashio::log.info "  Model          : ${MODEL}"
 bashio::log.info "  Honorific      : ${HONORIFIC}"
