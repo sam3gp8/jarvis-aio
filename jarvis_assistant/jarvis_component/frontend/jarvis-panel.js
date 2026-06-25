@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.17.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.18.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -963,364 +963,185 @@ class JarvisPanel extends HTMLElement {
     const el = this.shadowRoot?.querySelector('#house3d');
     if (!scene || !el) return;
     const d = this._data();
-    const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const areaList = (d.areasGrid || []).map(a => ({ k: norm(a.name), active: !!a.active }));
-    const isOcc = (n) => {
-      const nn = norm(n);
-      if (!nn) return false;
-      let hit = areaList.find(a => a.k === nn);
-      if (!hit) hit = areaList.find(a => a.k.length >= 4 && nn.length >= 4 && (a.k.includes(nn) || nn.includes(a.k)));
-      return hit ? hit.active : false;
-    };
-    const domKey = norm(d.dominantRoom && d.dominantRoom.name);
-    const isDominant = (n) => !!domKey && norm(n) === domKey;
+    const areaMap = {};
+    (d.areasGrid || []).forEach(a => { areaMap[String(a.name).toLowerCase()] = a.active; });
+    const domName = String((d.dominantRoom && d.dominantRoom.name) || '').toLowerCase();
+    const isOcc = (n) => !!areaMap[String(n).toLowerCase()];
+    const isDom = (n) => String(n).toLowerCase() === domName && domName !== '';
+    const fl = this._currentFloor || 'all';
+    const styleKey = this._residenceStyle();
+    const rs = this._resStyles()[styleKey] || this._resStyles().cape_cod;
 
-    // Per-room light state (on/total/area_id) for the light indicator + toggle.
-    const lightControlOn = (d.config && d.config.light_control_enabled) !== false;
-    const lightInfo = (d.areasGrid || []).map(a => ({
-      k: norm(a.name), on: a.lights_on || 0, total: a.lights_total || 0, area_id: a.id,
-    }));
-    const lightFor = (n) => {
-      const nn = norm(n);
-      if (!nn) return null;
-      let hit = lightInfo.find(a => a.k === nn);
-      if (!hit) hit = lightInfo.find(a => a.k.length >= 4 && nn.length >= 4 && (a.k.includes(nn) || nn.includes(a.k)));
-      return (hit && hit.total > 0) ? hit : null;
-    };
-
-    const fl = this._currentFloor;
+    // Appraisal dims (feet * scale). Ridge runs along X; front = +Z.
+    const P = 3;
+    const GW = 30 * P, GD = 24 * P, HW = 33 * P, HD = 24 * P, TW = GW + HW, TD = HD;
+    const WH1 = 28, WH2 = 22, WHB = 16, PITCH = 36;
     el.innerHTML = '';
-
-    // Read room geometry from floor plan editor config
-    const plan = this._getFloorPlan();
-    const S = 2.8; // 2D editor units to 3D px scale
-    const WH = {
-      '1f': 28,
-      '2f': 22,
-      'bsmt': 16,
-    };
-
-    // X/Z center always uses the FULL house footprint (union of all floors),
-    // independent of which floor is shown — prevents the house shifting when
-    // switching floor tabs.
-    let gMinX = Infinity, gMaxX = -Infinity, gMinZ = Infinity, gMaxZ = -Infinity;
-    Object.keys(plan).forEach(fk => {
-      const fd = plan[fk];
-      if (!fd || !fd.rooms) return;
-      fd.rooms.forEach(rm => {
-        if (rm.type === 'door' || rm.type === 'stairs') return;
-        gMinX = Math.min(gMinX, rm.x * S);
-        gMaxX = Math.max(gMaxX, (rm.x + rm.w) * S);
-        gMinZ = Math.min(gMinZ, rm.y * S);
-        gMaxZ = Math.max(gMaxZ, (rm.y + rm.h) * S);
-      });
-    });
-    if (!isFinite(gMinX)) return; // no rooms at all
-    const centerX = (gMinX + gMaxX) / 2;
-    const centerZ = (gMinZ + gMaxZ) / 2;
-
-    // Auto-fit the house to its (now possibly narrow) column so it never
-    // oversizes and clips, or shrinks to nothing. Honors a manual wheel-zoom
-    // once the user sets one.
-    if (this._zoomAuto !== false && scene) {
-      const sw = scene.clientWidth || 0;
-      if (sw > 0) {
-        const fpW = gMaxX - gMinX, fpD = gMaxZ - gMinZ;
-        const projW = (fpW + fpD) * 0.70 || 1;          // isometric footprint width
-        const projH = (fpW + fpD) * 0.35 + 120;         // + stacked wall height
-        const fit = Math.min((sw * 0.86) / projW, 360 / projH);
-        this._zoom3d = Math.max(0.45, Math.min(1.25, fit));
-      }
-    }
-
-    const floorsToShow = fl === 'all' ? ['bsmt', '1f', '2f'] : [fl];
-
-    // Visual air between stacked floors so each level reads as a distinct
-    // stratum instead of merging into one tall block. Floors still physically
-    // stack (cumulative wall heights), now with a gap inserted between them.
-    const FLOOR_GAP = 26;
-    const floorBaseY = {
-      '1f': 0,
-      '2f': -(WH['1f'] + FLOOR_GAP),
-      'bsmt': WH['bsmt'] + FLOOR_GAP,
-    };
-
-    // Re-center the shown floors vertically so inserting gaps (or viewing a
-    // single floor) doesn't drift the house off-frame.
-    const _bases = floorsToShow.map(fk => floorBaseY[fk] || 0);
-    const _tops  = floorsToShow.map(fk => (floorBaseY[fk] || 0) - (WH[fk] || 22));
-    const yMid = (Math.max(..._bases) + Math.min(..._tops)) / 2;
-
     const self = this;
 
-    function mkFace(p, x, y, z, w, h, rx, ry, rz, bg, bd) {
+    // Auto-fit the house to the (full-width) scene unless the user wheel-zoomed.
+    if (this._zoomAuto !== false) {
+      const sw = scene.clientWidth || 900;
+      const proj = (TW + TD) * 0.62;
+      this._zoom3d = Math.max(0.7, Math.min(2.4, (sw * 0.5) / proj));
+    }
+
+    const F = (p, x, y, z, w, h, a, b, c, bg, bd) => {
       const e = document.createElement('div');
       e.className = 'h3d-face';
       e.style.cssText = 'width:' + w + 'px;height:' + h + 'px;background:' + bg
         + ';border:.5px solid ' + (bd || 'rgba(0,242,254,.15)')
-        + ';transform:translate3d(' + (x - w/2) + 'px,' + (y - h/2) + 'px,' + z + 'px)'
-        + ' rotateX(' + rx + 'deg) rotateY(' + ry + 'deg) rotateZ(' + rz + 'deg)';
-      p.appendChild(e);
-      return e;
-    }
+        + ';transform:translate3d(' + (x - w / 2) + 'px,' + (y - h / 2) + 'px,' + z + 'px)'
+        + ' rotateX(' + a + 'deg) rotateY(' + b + 'deg) rotateZ(' + c + 'deg)';
+      p.appendChild(e); return e;
+    };
 
-    // A horizontal plane placed in world space (used for per-floor decks).
-    function mkPlane(cx, cy, cz, w, dpth, bg, bd, cls) {
-      const e = document.createElement('div');
-      e.className = 'h3d-face' + (cls ? ' ' + cls : '');
-      e.style.cssText = 'width:' + w + 'px;height:' + dpth + 'px;background:' + bg
-        + ';border:.5px solid ' + (bd || 'rgba(0,242,254,.15)')
-        + ';transform:translate3d(' + (cx - w/2) + 'px,' + (cy - dpth/2) + 'px,' + cz
-        + 'px) rotateX(90deg)';
-      el.appendChild(e);
-      return e;
-    }
-
-    // A glowing deck + corner badge for each floor — reinforces the strata.
-    function addFloorPlatform(fk) {
-      const fd = plan[fk];
-      if (!fd || !fd.rooms) return;
-      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-      fd.rooms.forEach(rm => {
-        if (rm.type === 'door' || rm.type === 'stairs') return;
-        minX = Math.min(minX, rm.x * S); maxX = Math.max(maxX, (rm.x + rm.w) * S);
-        minZ = Math.min(minZ, rm.y * S); maxZ = Math.max(maxZ, (rm.y + rm.h) * S);
-      });
-      if (!isFinite(minX)) return;
-      const pad = 7;
-      const pw = (maxX - minX) + pad * 2, pd = (maxZ - minZ) + pad * 2;
-      const px = (minX + maxX) / 2 - centerX, pz = (minZ + maxZ) / 2 - centerZ;
-      const baseY = (floorBaseY[fk] || 0) - yMid;
-      // Deck sits a hair below the room floor slabs.
-      mkPlane(px, baseY + 2, pz, pw, pd,
-        'rgba(0,242,254,.07)', 'rgba(0,242,254,.42)', 'h3d-platform');
-      // Floor badge at the near corner.
-      const badge = document.createElement('div');
-      badge.className = 'h3d-floor-badge';
-      badge.textContent = fd.label || fk.toUpperCase();
-      badge.style.cssText = 'transform:translate3d(' + (px - pw/2 - 1) + 'px,'
-        + (baseY + 1) + 'px,' + (pz + pd/2 - 8) + 'px) rotateX(90deg)';
-      el.appendChild(badge);
-    }
-
-    function addRoom(rm, fk) {
-      const h = WH[fk] || 22;
-      // Group origin centered on wall mid-height: floor slab ends up at floorBaseY.
-      const by = (floorBaseY[fk] || 0) - yMid - h / 2;
-      const oc = isOcc(rm.name);
-      const dom = oc && isDominant(rm.name);
-      const li = lightFor(rm.name);
-      const lit = !!(li && li.on > 0);
-      const w = rm.w * S, dd = rm.h * S;
-      const x = rm.x * S + w/2 - centerX;
-      const z = rm.y * S + dd/2 - centerZ;
-
-      // Occupancy glow tiers: dominant (most-recent activity) brightest + pulse,
-      // occupied solid cyan, idle dim wireframe.
-      const al = dom ? .20 : (oc ? .12 : .025);
-      const floorAl = dom ? .26 : (oc ? .16 : .012);
-      const bc = dom ? 'rgba(130,235,255,.85)' : (oc ? 'rgba(0,242,254,.6)' : 'rgba(0,242,254,.12)');
+    const room = (ox, oz, w, dd, h, by, nm, oc, dom) => {
+      const x = ox - TW / 2 + w / 2, z = oz - TD / 2 + dd / 2;
+      const al = dom ? .20 : (oc ? .14 : .03);
+      const bc = dom ? 'rgba(130,235,255,.85)' : (oc ? 'rgba(0,242,254,.55)' : 'rgba(0,242,254,.12)');
       const fc = 'rgba(0,242,254,' + al + ')';
-
       const g = document.createElement('div');
-      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d('
-        + x + 'px,' + by + 'px,' + z + 'px)';
-
-      // 4 walls
-      mkFace(g, 0, 0,  dd/2, w, h, 0, 0, 0, fc, bc);
-      mkFace(g, 0, 0, -dd/2, w, h, 0, 0, 0, fc, bc);
-      mkFace(g, -w/2, 0, 0, dd, h, 0, 90, 0, fc, bc);
-      mkFace(g,  w/2, 0, 0, dd, h, 0, 90, 0, fc, bc);
-      // Floor — the glowing slab that reads as room OCCUPANCY (cyan) from above
-      const floor = mkFace(g, 0, h/2, 0, w, dd, 90, 0, 0, 'rgba(0,242,254,' + floorAl + ')', bc);
-      if (dom) floor.classList.add('h3d-glow-dom');
-      else if (oc) floor.classList.add('h3d-glow');
-      // Ceiling/cap — glows WARM AMBER when the room's LIGHTS are on, so light
-      // state reads distinctly from the cyan occupancy on the floor.
-      const ceil = mkFace(g, 0, -h/2, 0, w, dd, 90, 0, 0,
-        lit ? 'rgba(255,184,72,.14)' : 'rgba(6,14,22,.4)',
-        lit ? 'rgba(255,196,96,.45)' : 'rgba(0,130,170,.1)');
-      if (lit) ceil.classList.add('h3d-lit');
-
-      // Label on floor
-      const lbl = document.createElement('div');
-      lbl.className = 'h3d-label';
-      const fs = w > 60 ? '7px' : (w > 35 ? '5.5px' : '4px');
-      lbl.style.cssText = 'width:' + w + 'px;color:'
-        + (dom ? 'rgba(190,245,255,1)' : (oc ? 'rgba(0,242,254,.95)' : 'rgba(0,242,254,.4)'))
-        + ';transform:translate3d(' + (-w/2) + 'px,' + (h/2 - 1) + 'px,0) rotateX(90deg);font-size:' + fs;
-      lbl.textContent = rm.name.toUpperCase();
-      g.appendChild(lbl);
-
-      // Occupancy dot (presence marker) — larger + glowing for the dominant room
+      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + x + 'px,' + by + 'px,' + z + 'px)';
+      if (oc || dom) g.className = dom ? 'h3d-glow-dom' : 'h3d-glow';
+      F(g, 0, 0, dd / 2, w, h, 0, 0, 0, fc, bc);
+      F(g, 0, 0, -dd / 2, w, h, 0, 0, 0, fc, bc);
+      F(g, -w / 2, 0, 0, dd, h, 0, 90, 0, fc, bc);
+      F(g, w / 2, 0, 0, dd, h, 0, 90, 0, fc, bc);
+      F(g, 0, h / 2, 0, w, dd, 90, 0, 0, 'rgba(0,242,254,' + (dom ? .26 : (oc ? .16 : .012)) + ')', bc);
+      const l = document.createElement('div'); l.className = 'h3d-label';
+      l.style.cssText = 'width:' + w + 'px;color:' + (oc ? 'rgba(0,242,254,.95)' : 'rgba(0,242,254,.4)')
+        + ';transform:translate3d(' + (-w / 2) + 'px,' + (h / 2 - 1) + 'px,0) rotateX(90deg);font-size:' + (w > 45 ? '7px' : '5px');
+      l.textContent = nm; g.appendChild(l);
       if (oc) {
-        const dot = document.createElement('div');
-        dot.className = 'h3d-occ-dot' + (dom ? ' h3d-occ-dot-dom' : '');
-        dot.style.cssText = 'transform:translate3d(-3px,' + (h/2 - 1) + 'px,0) rotateX(90deg)';
-        g.appendChild(dot);
+        const dt = document.createElement('div');
+        dt.className = 'h3d-occ-dot' + (dom ? ' h3d-occ-dot-dom' : '');
+        dt.style.cssText = 'transform:translate3d(-3px,' + (h / 2 - 1) + 'px,0) rotateX(90deg)';
+        g.appendChild(dt);
       }
-
-      // Light indicator + control — a clickable bulb on the ceiling. Amber +
-      // glow when on, dim outline when off. Click toggles the area's lights.
-      if (li) {
-        const lamp = document.createElement('div');
-        lamp.className = 'h3d-lamp' + (lit ? ' on' : '') + (lightControlOn ? '' : ' static');
-        lamp.style.cssText = 'transform:translate3d(-8px,' + (-h/2 - 2) + 'px,0) rotateX(90deg)';
-        lamp.title = (li.total > 1 ? li.on + '/' + li.total + ' lights on' : (lit ? 'Light on' : 'Light off'))
-          + (lightControlOn ? ' — tap to toggle' : '');
-        lamp.innerHTML = '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
-          + '<path d="M9 21h6v-1.5H9V21zm3-19a7 7 0 00-4.2 12.6c.5.4.7.7.7 1.2v.7h7v-.7c0-.5.2-.8.7-1.2A7 7 0 0012 2z" fill="currentColor"/></svg>';
-        if (lightControlOn) {
-          // Don't let a tap on the bulb start a rotate-drag.
-          lamp.addEventListener('pointerdown', function(ev) { ev.stopPropagation(); });
-          lamp.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
-          lamp.addEventListener('click', function(ev) {
-            ev.stopPropagation();
-            self._toggleAreaLights(li.area_id, rm.name, lit);
-          });
-        }
-        g.appendChild(lamp);
-      }
-
       el.appendChild(g);
-    }
+    };
 
-    function addGarageDoors(garageRoom) {
-      if (!garageRoom) return;
-      const h = WH['1f'] || 28;
-      // Match addRoom's group origin: floor base minus half wall height.
-      const by = (floorBaseY['1f'] || 0) - yMid - h / 2;
-      const w = garageRoom.w * S;
-      const dd = garageRoom.h * S;
-      const gx = garageRoom.x * S + w/2 - centerX;
-      const gz = garageRoom.y * S + dd/2 - centerZ;
-      const doorW = w * 0.27;
-      const doorH = h * 0.72;
-      const frontZ = gz + dd/2 + 0.3;
+    const gableRoof = () => {
+      const cx = GW + HW / 2 - TW / 2, rw = HW + 8, rd = HD + 8;
+      const sLen = (rd / 2) / Math.cos(PITCH * Math.PI / 180);
+      const g = document.createElement('div');
+      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + (-WH1 - WH2 - 2) + 'px,0)';
+      const rc = 'rgba(8,20,30,.82)', rsk = 'rgba(0,150,190,.3)';
+      F(g, 0, sLen / 2, 0, rw, sLen, PITCH, 0, 0, rc, rsk);   // front slope
+      F(g, 0, sLen / 2, 0, rw, sLen, -PITCH, 0, 0, rc, rsk);  // back slope
+      F(g, -rw / 2 - 1, sLen * .35, 0, 3, sLen * .5, 0, 0, 0, 'rgba(0,242,254,.025)', rsk); // gable ends
+      F(g, rw / 2 + 1, sLen * .35, 0, 3, sLen * .5, 0, 0, 0, 'rgba(0,242,254,.025)', rsk);
+      F(g, 0, -1, 0, rw + 2, 4, 90, 0, 0, 'rgba(0,120,160,.18)', rsk); // ridge cap
+      el.appendChild(g);
+    };
 
-      // Find cover entities with "garage" in name, sorted by entity_id for
-      // stable bay assignment (Object.keys order is not guaranteed).
-      var coverStates = [];
+    const flatRoof = () => {
+      const cx = GW + HW / 2 - TW / 2, rw = HW + 8, rd = HD + 8;
+      const g = document.createElement('div');
+      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + (-WH1 - WH2 - 2) + 'px,0)';
+      const rsk = 'rgba(0,150,190,.3)';
+      F(g, 0, 0, 0, rw, rd, 90, 0, 0, 'rgba(8,20,30,.7)', rsk);
+      F(g, 0, -3, rd / 2, rw, 6, 0, 0, 0, 'rgba(0,242,254,.03)', rsk);   // parapet lips
+      F(g, 0, -3, -rd / 2, rw, 6, 0, 0, 0, 'rgba(0,242,254,.03)', rsk);
+      F(g, -rw / 2, -3, 0, rd, 6, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);
+      F(g, rw / 2, -3, 0, rd, 6, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);
+      el.appendChild(g);
+    };
+
+    const dormer = (cx, faceDir) => {
+      const dw = 22, dd = 18, dh = 18;
+      const dormZ = faceDir * (HD / 2 * 0.4);
+      const dormY = -WH1 - WH2 + 8;
+      const rsk = 'rgba(0,150,190,.3)', rc = 'rgba(8,20,30,.78)';
+      const g = document.createElement('div');
+      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + dormY + 'px,' + dormZ + 'px)';
+      F(g, 0, 0, faceDir * dd / 2, dw, dh, 0, 0, 0, 'rgba(0,242,254,.045)', rsk);   // front wall
+      F(g, -dw / 2, 0, 0, dd, dh, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);            // side walls
+      F(g, dw / 2, 0, 0, dd, dh, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);
+      F(g, 0, -1, faceDir * (dd / 2 + .5), dw * .5, dh * .42, 0, 0, 0, 'rgba(0,242,254,.12)', 'rgba(0,242,254,.35)'); // window
+      // Gable cap via compound rotation (rotateX 90 folds flat, rotateZ tilts the slope).
+      const sW = dw * 0.55, sL = dd + 3, roofY = -(dh / 2) - 2;
+      F(g, -dw * 0.22, roofY, 0, sL, sW, 90, 0, -25, rc, rsk);
+      F(g, dw * 0.22, roofY, 0, sL, sW, 90, 0, 25, rc, rsk);
+      el.appendChild(g);
+    };
+
+    const chimney = () => {
+      const cx = GW + 31 * P - TW / 2, cz = 2 * P;
+      const g = document.createElement('div');
+      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + (-WH1 - WH2 - 20) + 'px,' + cz + 'px)';
+      const cc = 'rgba(0,242,254,.04)', cs = 'rgba(0,242,254,.2)';
+      F(g, 0, 0, 4.5, 9, 28, 0, 0, 0, cc, cs); F(g, 0, 0, -4.5, 9, 28, 0, 0, 0, cc, cs);
+      F(g, 4.5, 0, 0, 9, 28, 0, 90, 0, cc, cs); F(g, -4.5, 0, 0, 9, 28, 0, 90, 0, cc, cs);
+      F(g, 0, -14, 0, 9, 9, 90, 0, 0, 'rgba(0,242,254,.05)', cs);
+      el.appendChild(g);
+    };
+
+    const garageDoors = () => {
+      const gcx = GW / 2 - TW / 2, doorW = GW * 0.27, doorH = WH1 * 0.72, frontZ = GD / 2 + 0.3;
+      let covers = [];
       try {
-        Object.keys(self._hass?.states || {})
-          .filter(function(eid) {
-            if (!eid.startsWith('cover.')) return false;
-            var s = self._hass.states[eid];
-            var fn = (s.attributes && s.attributes.friendly_name || eid).toLowerCase();
-            return fn.indexOf('garage') >= 0 || eid.indexOf('garage') >= 0;
-          })
-          .sort()
-          .forEach(function(eid) {
-            coverStates.push({ id: eid, state: self._hass.states[eid].state });
-          });
-      } catch(e) {}
-
-      [-1, 0, 1].forEach(function(i, idx) {
-        var isOpen = coverStates[idx] ? coverStates[idx].state === 'open' : false;
-        var doorColor = isOpen ? 'rgba(0,245,160,.06)' : 'rgba(0,242,254,.025)';
-        var doorBorder = isOpen ? 'rgba(0,245,160,.3)' : 'rgba(0,242,254,.13)';
-
-        var e = document.createElement('div');
-        e.className = 'h3d-face';
-
-        var doorX = gx + i * w * 0.31 - doorW/2;
-
+        covers = Object.keys((self._hass && self._hass.states) || {})
+          .filter(e => e.startsWith('cover.'))
+          .map(id => ({ id, st: self._hass.states[id] }))
+          .filter(c => String((c.st && c.st.attributes && c.st.attributes.friendly_name) || c.id).toLowerCase().includes('garage') || c.id.toLowerCase().includes('garage'));
+      } catch (_) {}
+      [-1, 0, 1].forEach((i, idx) => {
+        const cov = covers[idx];
+        const isOpen = cov ? cov.st.state === 'open' : false;
+        const e = document.createElement('div'); e.className = 'h3d-face';
+        const doorX = gcx + i * GW * 0.31 - doorW / 2;
+        const dc = isOpen ? 'rgba(0,245,160,.07)' : 'rgba(0,242,254,.03)';
+        const db = isOpen ? 'rgba(0,245,160,.3)' : 'rgba(0,242,254,.14)';
         if (isOpen) {
-          e.style.cssText = 'width:' + doorW + 'px;height:' + doorH + 'px;background:' + doorColor
-            + ';border:1px solid ' + doorBorder
-            + ';transform:translate3d(' + doorX + 'px,' + (by - h/2 + 2) + 'px,' + frontZ + 'px)'
-            + ' rotateX(-80deg);transform-origin:center top';
+          e.style.cssText = 'width:' + doorW + 'px;height:' + doorH + 'px;background:' + dc + ';border:1px solid ' + db
+            + ';transform:translate3d(' + doorX + 'px,' + (-WH1 / 2 + 2) + 'px,' + frontZ + 'px) rotateX(-80deg);transform-origin:center top';
         } else {
-          e.style.cssText = 'width:' + doorW + 'px;height:' + doorH + 'px;background:' + doorColor
-            + ';border:1px solid ' + doorBorder + ';border-radius:2px 2px 0 0'
-            + ';transform:translate3d(' + doorX + 'px,' + (by + h/2 - doorH/2) + 'px,' + frontZ + 'px)';
+          e.style.cssText = 'width:' + doorW + 'px;height:' + doorH + 'px;background:' + dc + ';border:1px solid ' + db
+            + ';border-radius:2px 2px 0 0;transform:translate3d(' + doorX + 'px,' + (WH1 / 2 - doorH / 2) + 'px,' + frontZ + 'px)';
         }
-
-        // Panel lines
-        [.25, .5, .75].forEach(function(f) {
-          var ln = document.createElement('div');
-          ln.style.cssText = 'position:absolute;left:5%;width:90%;height:1px;top:' + Math.round(f*100) + '%;background:' + (isOpen ? 'rgba(0,245,160,.1)' : 'rgba(0,242,254,.06)');
+        [.25, .5, .75].forEach(f => {
+          const ln = document.createElement('div');
+          ln.style.cssText = 'position:absolute;left:5%;width:90%;height:1px;top:' + Math.round(f * 100) + '%;background:' + (isOpen ? 'rgba(0,245,160,.12)' : 'rgba(0,242,254,.07)');
           e.appendChild(ln);
         });
-
         el.appendChild(e);
       });
+    };
+
+    // ── BUILD ──
+    if (fl === 'all' || fl === 'bsmt')
+      room(GW, 0, HW, HD, WHB, WH1 + 10, 'Basement', isOcc('Basement'), isDom('Basement'));
+
+    if (fl === 'all' || fl === '1f') {
+      room(0, 0, GW, GD, WH1, 0, 'Garage', isOcc('Garage'), isDom('Garage'));
+      room(GW, 0, 12 * P, 12 * P, WH1, 0, 'Kitchen', isOcc('Kitchen'), isDom('Kitchen'));
+      room(GW, 12 * P, 12 * P, 12 * P, WH1, 0, 'Dining', isOcc('Dining Room'), isDom('Dining Room'));
+      room(GW + 12 * P, 0, 5 * P, 5 * P, WH1, 0, 'Bath', false, false);
+      room(GW + 17 * P, 0, 16 * P, 12 * P, WH1, 0, 'Guest Rm', isOcc('Guest Room'), isDom('Guest Room'));
+      room(GW + 12 * P, 5 * P, 21 * P, 12 * P, WH1, 0, 'Living Rm', isOcc('Living Room'), isDom('Living Room'));
+      room(GW, 17 * P, 33 * P, 4 * P, WH1, 0, 'Hallway', isOcc('Downstairs Hallway'), isDom('Downstairs Hallway'));
+      garageDoors();
+      const gr = document.createElement('div');
+      gr.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + (GW / 2 - TW / 2) + 'px,' + (-WH1 - 2) + 'px,0)';
+      F(gr, 0, 0, 0, GW + 3, GD + 3, 90, 0, 0, 'rgba(8,20,30,.55)', 'rgba(0,150,190,.18)');
+      el.appendChild(gr);
     }
 
-    // Build rooms from floor plan config
-    var garageRoom = null;
-    floorsToShow.forEach(function(fk) {
-      var fd = plan[fk];
-      if (!fd || !fd.rooms) return;
-      addFloorPlatform(fk);   // glowing deck + badge first, rooms sit on top
-      fd.rooms.forEach(function(rm) {
-        if (rm.type === 'stairs' || rm.type === 'door') return;
-        if (rm.type === 'bath') {
-          // Bath is a room too, just render it
-          addRoom(rm, fk);
-          return;
-        }
-        addRoom(rm, fk);
-        if (rm.name.toLowerCase() === 'garage') garageRoom = rm;
-      });
-    });
-
-    // Garage doors on 1F
-    if ((fl === 'all' || fl === '1f') && garageRoom) {
-      addGarageDoors(garageRoom);
-    }
-
-    // Utility labels for basement
-    if (fl === 'all' || fl === 'bsmt') {
-      var bsmtData = plan['bsmt'];
-      if (bsmtData && bsmtData.labels) {
-        bsmtData.labels.forEach(function(lbl) {
-          var lx = lbl.x * S - centerX;
-          var lz = lbl.y * S - centerZ;
-          var e = document.createElement('div');
-          e.className = 'h3d-label';
-          e.style.cssText = 'width:60px;color:rgba(0,242,254,.2);font-size:4px;transform:translate3d('
-            + (lx - 30) + 'px,' + ((floorBaseY['bsmt'] || 0) - yMid - 1) + 'px,' + lz + 'px) rotateX(90deg)';
-          e.textContent = lbl.text;
-          el.appendChild(e);
-        });
-      }
-    }
-
-    // ── Roof: home-style template massing on the highest floor ──
-    // Same local space as the floors. Geometry is deliberately simple (flat
-    // cap, or gable end-walls + ridge beam) using only rotations that can be
-    // reasoned about without a live 3D render; solid sloped/hip roofs and true
-    // per-style accuracy are the WebGL track.
     if (fl === 'all' || fl === '2f') {
-      var rsKey = this._residenceStyle();
-      var rs = this._resStyles()[rsKey] || this._resStyles().cape_cod;
-      var topY = (floorBaseY['2f'] || 0) - (WH['2f'] || 22) - yMid;
-      var rOver = 6;
-      var rW = (gMaxX - gMinX) + rOver * 2;
-      var rD = (gMaxZ - gMinZ) + rOver * 2;
+      room(GW + 2, 2 * P, 12 * P, 10 * P, WH2, -WH2, "Eliana's Rm", isOcc("Eliana's Room"), isDom("Eliana's Room"));
+      room(GW + 14 * P, 3 * P, 7 * P, 8 * P, WH2, -WH2, 'Bath 2F', false, false);
+      room(GW + 21 * P, 2 * P, 12 * P, 10 * P, WH2, -WH2, 'Master Bed', isOcc('Master Bedroom'), isDom('Master Bedroom'));
+      room(GW + 14 * P, 11 * P, 7 * P, 6 * P, WH2, -WH2, 'Hall', false, false);
       if (rs.roof === 'flat') {
-        mkPlane(0, topY - 3, 0, rW, rD, 'rgba(0,242,254,.07)', 'rgba(0,242,254,.55)', 'h3d-roof');
+        flatRoof();
       } else {
-        var ridgeX = rW >= rD;
-        var rSpan = ridgeX ? rD : rW;
-        var rLen = ridgeX ? rW : rD;
-        var peakH = Math.min(rSpan * 0.5 * (rs.pitch || 0.8), 64);
-        if (ridgeX) mkPlane(0, topY - peakH, 0, rLen, 3, 'rgba(0,242,254,.12)', 'rgba(120,235,255,.75)', 'h3d-roof');
-        else        mkPlane(0, topY - peakH, 0, 3, rLen, 'rgba(0,242,254,.12)', 'rgba(120,235,255,.75)', 'h3d-roof');
-        [1, -1].forEach(function(sg) {
-          var tri = document.createElement('div');
-          tri.className = 'h3d-roof-gable';
-          var tx = ridgeX ? sg * (rLen / 2) : 0;
-          var tz = ridgeX ? 0 : sg * (rLen / 2);
-          var ty = topY - peakH / 2;
-          var ry = ridgeX ? 90 : 0;
-          tri.style.cssText = 'position:absolute;width:' + rSpan + 'px;height:' + peakH + 'px;'
-            + 'background:rgba(0,242,254,.09);clip-path:polygon(0 100%,50% 0,100% 100%);'
-            + 'transform:translate3d(' + (tx - rSpan / 2) + 'px,' + (ty - peakH / 2) + 'px,' + tz
-            + 'px) rotateY(' + ry + 'deg)';
-          el.appendChild(tri);
-        });
+        gableRoof();
+        dormer(GW + 8 * P - TW / 2, 1);
+        dormer(GW + 27 * P - TW / 2, 1);
+        dormer(GW + 18 * P - TW / 2, -1);
+        chimney();
       }
     }
 
@@ -1328,11 +1149,6 @@ class JarvisPanel extends HTMLElement {
     this._buildResidenceAnnotations();
   }
 
-  // ─── Residence overlay: property banner + live stats ───────────────────
-  // The property header carries the "data-merge" identity. Perimeter leader-
-  // line callouts need generous side margins (as in the concept render) — in
-  // the narrow column beside the primary camera they land on top of the house,
-  // so they're held back here and only belong when the residence has width.
   _buildResidenceAnnotations() {
     const d = this._data();
     const areas = d.areasGrid || [];
@@ -1438,6 +1254,21 @@ class JarvisPanel extends HTMLElement {
         try { await this._saveConfig('residence_style', val); } catch (_) {}
       });
     }
+    // Angle preset + fit buttons — quick way back to a good view.
+    this.shadowRoot.querySelectorAll('.res-angles [data-angle]').forEach(btn => {
+      if (btn._wired) return;
+      btn._wired = true;
+      btn.addEventListener('click', () => {
+        const v = btn.getAttribute('data-angle');
+        if (v === 'fit') {
+          this._rot3dY = 45; this._rot3dX = -28; this._zoomAuto = true;
+          this._build3DHouse();
+        } else {
+          this._rot3dY = parseInt(v, 10);
+          this._update3DTransform();
+        }
+      });
+    });
   }
 
   _update3DTransform() {
@@ -1808,6 +1639,13 @@ class JarvisPanel extends HTMLElement {
           <button class="floor-tab ${this._currentFloor === '1f' ? 'active' : ''}" data-floor="1f">1st Floor</button>
           <button class="floor-tab ${this._currentFloor === '2f' ? 'active' : ''}" data-floor="2f">2nd Floor</button>
           <button class="floor-tab ${this._currentFloor === 'bsmt' ? 'active' : ''}" data-floor="bsmt">Basement</button>
+        </div>
+        <div class="res-angles">
+          <button class="floor-tab" data-angle="45">45°</button>
+          <button class="floor-tab" data-angle="135">135°</button>
+          <button class="floor-tab" data-angle="225">225°</button>
+          <button class="floor-tab" data-angle="315">315°</button>
+          <button class="floor-tab" data-angle="fit" title="reset zoom + angle">⤢ Fit</button>
         </div>
       </div>
 
@@ -4633,6 +4471,7 @@ class JarvisPanel extends HTMLElement {
   .res-tab { display: block; }
   .res-main { display: flex; flex-direction: column; }
   .res-controls { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  .res-angles { display: flex; gap: 4px; flex-wrap: wrap; }
   .res-style { display: flex; align-items: center; gap: 8px; }
   .res-style > label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; color: var(--text-dim); }
   .res-style-sel {
@@ -4656,7 +4495,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.17.0 ",
+  "%c JARVIS Panel %c v6.18.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

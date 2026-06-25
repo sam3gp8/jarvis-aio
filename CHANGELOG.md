@@ -4,7 +4,29 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.17.0] — Residence becomes its own tab + home-style templates
+## [6.18.0] — Restore the approved solid-house 3D renderer
+The 3D residence now uses the solid-walled Cape Cod renderer that was approved earlier
+in this project (the one with a real gable roof, dormers, and chimney) — not the flat
+floor-plate version that had crept in and collapsed to lines at low view angles.
+- **Real house, real roof.** Walls render as solid volumes; the roof is an actual gable
+  (front/back slopes + ridge + gable ends) with three dormers and a chimney. Garage
+  doors sit at ground level and read open/closed from any `cover.*garage*` entity.
+- **Live + dominant aware.** Occupied rooms glow cyan, the dominant room brightest with a
+  pulsing node, idle rooms dim — driven by real presence.
+- **Style selector drives the roof.** Cape Cod / Colonial / etc. keep the gabled roof;
+  Modern / Apartment switch to a flat parapet cap. Rooms stay the same underneath.
+- **Angle presets + Fit.** New 45° / 135° / 225° / 315° buttons and a Fit reset on the
+  Residence tab, so a stray drag to a flat angle is one click to recover (the flat view
+  was why the house looked broken). Scroll still zooms; drag still rotates; the house
+  auto-fits the full-width tab.
+- Smoke test (20 checks) now asserts the solid house actually builds (30+ faces, not flat
+  plates) and the angle presets render. Audit clean, 170 tests passing.
+
+> The renderer is the CSS-3D version pulled from this chat's history. It's a faithful
+> stylized model of the actual house, not a Three.js/satellite reconstruction — that
+> remains the separate, larger track if you want true engine-grade 3D.
+
+
 The residence overview moves out of the cramped dashboard column into a dedicated
 full-width tab, which is what unlocks the annotated-house treatment.
 - **New "Residence" tab** between Command Center and Settings. Command Center keeps

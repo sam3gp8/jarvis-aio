@@ -75,6 +75,8 @@ setTimeout(() => {
   const r = el.shadowRoot, rhtml = r.innerHTML;
   checks.push(
     ["residence tab renders 3D scene", !!r.querySelector("#house3d-scene")],
+    ["solid house built (many faces, not flat plates)", r.querySelectorAll("#house3d .h3d-face").length >= 30],
+    ["angle preset controls present", r.querySelectorAll(".res-angles [data-angle]").length >= 4],
     ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
     ["property data-merge banner present", !!r.querySelector(".res-banner") && /MYRTLE/.test(r.querySelector("#res-addr")?.textContent || "")],
     ["banner stats populated (sqft + bed/bath)", /\d/.test(r.querySelector("#res-sqft")?.textContent || "") && /\d/.test(r.querySelector("#res-bb")?.textContent || "")],
