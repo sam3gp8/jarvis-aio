@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.21.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.23.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -24,6 +24,12 @@
  * browser and (b) rasterizable here via cairosvg for verification. Same math both places.
  * Works under Node (module.exports) and in the browser (window.JARVIS3D).
  */
+/* JARVIS Residence — 3D house core (v3 rebuild)
+ * Real dimensions from the architect's ApexSketch; labels/layout from the JARVIS editor.
+ * Pure-geometry axonometric projection rendered to SVG so it is (a) rotatable in the
+ * browser and (b) rasterizable here via cairosvg for verification. Same math both places.
+ * Works under Node (module.exports) and in the browser (window.JARVIS3D).
+ */
 const JARVIS3D = (function () {
   'use strict';
 
@@ -31,13 +37,24 @@ const JARVIS3D = (function () {
   var GW = 30, HW = 33, D = 24;                 // garage W, house W, depth
   var XG0 = 0, XGH = GW, XHE = GW + HW;         // garage 0..30, house 30..63
   var WALL = 9;                                 // 1st-floor wall height = main eave
-  var RISE = 11, RIDGE = WALL + RISE;           // main roof: eave 9 -> ridge 20
-  var GWALL = 9, GRISE = 5, GRIDGE = GWALL + GRISE; // garage roof: eave 9 -> ridge 14
+  var BASE_RISE = 11, GBASE_RISE = 5;           // roof rises at pitch 1.0
+  var RISE = BASE_RISE, RIDGE = WALL + RISE;    // main roof: eave 9 -> ridge 20
+  var GWALL = 9, GRISE = GBASE_RISE, GRIDGE = GWALL + GRISE; // garage roof: eave 9 -> ridge 14
   var RY = D / 2;                               // ridge centerline (depth) = 12
   var OVH = 1.2;                                // roof overhang
   var SCALE = 8.6;                              // feet -> px
   var PITCH = 30 * Math.PI / 180;               // camera elevation
   var CENTER = [(XG0 + XHE) / 2, RY, WALL * 0.5]; // rotate about model center
+
+  // ---------- per-render home spec (type/specs); fields left unset = approved default ----------
+  // garageBays, dormersFront, dormersRear: counts · chimney: 'right'|'left'|'none' · pitch: roof-rise scale
+  var SPEC = {};
+  function applySpec(s) {
+    SPEC = s || {};
+    var p = SPEC.pitch > 0 ? SPEC.pitch : 1;
+    RISE = BASE_RISE * p; RIDGE = WALL + RISE;
+    GRISE = GBASE_RISE * p; GRIDGE = GWALL + GRISE;
+  }
 
   // ---------- palette (JARVIS dark-cyan HUD) ----------
   var C = {
@@ -154,14 +171,14 @@ const JARVIS3D = (function () {
     if (state !== 'off' && GL) GL.push({ p: [[cx-r-1.2,yB-0.05,cz-r-1.2],[cx+r+1.2,yB-0.05,cz-r-1.2],[cx+r+1.2,yB-0.05,cz+r+1.2],[cx-r-1.2,yB-0.05,cz+r+1.2]], f: state==='dom'?C.glowDom:C.glowOn });
   }
 
-  // ---------- garage doors (3, on the garage front wall y=0) ----------
+  // ---------- garage doors (count = SPEC.garageBays, default 3; fill the garage front) ----------
   function garageDoors(L, GL, state) {
-    var dw = 7.6, gap = 1.8, z0 = 0.4, z1 = 7.4, i, x0;
-    var xs = [gap, gap*2+dw, gap*3+dw*2];
+    var bays = SPEC.garageBays > 0 ? SPEC.garageBays : 3, gap = 1.8;
+    var dw = (GW - gap * (bays + 1)) / bays, z0 = 0.4, z1 = 7.4, i, x0;
     var f = state === 'on' || state === 'dom' ? C.doorOn : C.doorOff;
     var s = state === 'on' || state === 'dom' ? C.glassOn : C.doorS;
-    for (i = 0; i < 3; i++) {
-      x0 = xs[i];
+    for (i = 0; i < bays; i++) {
+      x0 = gap + i * (dw + gap);
       F(L, [[x0,-0.06,z0],[x0+dw,-0.06,z0],[x0+dw,-0.06,z1],[x0,-0.06,z1]], f, s, 1.0, { cls: 'gdoor' });
       for (var k = 1; k < 4; k++) { var zz = z0 + (z1 - z0) * k / 4; F(L, [[x0,-0.06,zz],[x0+dw,-0.06,zz]], 'none', s, 0.45); }
       if ((state === 'on' || state === 'dom') && GL) GL.push({ p: [[x0-1.2,-0.06,z0],[x0+dw+1.2,-0.06,z0],[x0+dw+1.2,-0.06,z1+1.2],[x0-1.2,-0.06,z1+1.2]], f: C.glowOn });
@@ -200,8 +217,11 @@ const JARVIS3D = (function () {
     roofPlane(L, XGH - OVH, XHE + OVH, D + OVH, WALL, RY, RIDGE, C.roofDk, C.roofSdk, 0.7); // back slope
   }
 
-  function chimney(L) {
-    var x0 = XHE, x1 = XHE + 2.2, ya = 9.6, yb = 13.2, zt = RIDGE + 4;
+  function chimney(L, side) {
+    if (side === 'none') return;
+    var ya = 9.6, yb = 13.2, zt, x0, x1;
+    if (side === 'left') { x0 = XG0; x1 = XG0 - 2.2; zt = GRIDGE + 4; }   // west gable (garage end)
+    else { x0 = XHE; x1 = XHE + 2.2; zt = RIDGE + 4; }                    // default: east gable
     F(L, [[x1,ya,0],[x1,yb,0],[x1,yb,zt],[x1,ya,zt]], C.chimF, C.chimS, 0.7);      // outer
     F(L, [[x0,ya,0],[x1,ya,0],[x1,ya,zt],[x0,ya,zt]], 'rgba(8,19,29,0.97)', C.chimS, 0.6); // front side
     F(L, [[x0,yb,0],[x1,yb,0],[x1,yb,zt],[x0,yb,zt]], 'rgba(8,19,29,0.97)', C.dim, 0.5);    // back side
@@ -272,6 +292,7 @@ const JARVIS3D = (function () {
   // ---------- assemble a frame for given options ----------
   function build(opts) {
     opts = opts || {};
+    applySpec(opts.spec);                           // home type/specs (empty = default)
     var lit = opts.lit || {};                       // { 'master bedroom':'on'|'dom', ... }
     var floor = opts.floor || 'all';
     var stOf = function (name) { var s = lit[String(name).toLowerCase()]; return s === 'dom' ? 'dom' : s ? 'on' : 'off'; };
@@ -285,13 +306,25 @@ const JARVIS3D = (function () {
     }
 
     buildShell(L, GL);
-    chimney(L);
+    chimney(L, SPEC.chimney);
     garageDoors(L, GL, stOf('garage'));
 
-    // dormers
-    dormerFront(L, GL, XGH + 9, stOf("eliana's room"));
-    dormerFront(L, GL, XGH + 24, stOf('master bedroom'));
-    dormerRearRound(L, GL, XGH + 16, stOf('bath'));
+    // dormers — counts configurable; unset = the approved default layout
+    if (SPEC.dormersFront == null) {
+      dormerFront(L, GL, XGH + 9, stOf("eliana's room"));
+      dormerFront(L, GL, XGH + 24, stOf('master bedroom'));
+    } else {
+      var fKeys = ["eliana's room", 'master bedroom'], df;
+      for (df = 0; df < SPEC.dormersFront; df++)
+        dormerFront(L, GL, XGH + HW * (df + 1) / (SPEC.dormersFront + 1), stOf(fKeys[df] || fKeys[fKeys.length - 1]));
+    }
+    if (SPEC.dormersRear == null) {
+      dormerRearRound(L, GL, XGH + 16, stOf('bath'));
+    } else {
+      var dr;
+      for (dr = 0; dr < SPEC.dormersRear; dr++)
+        dormerRearRound(L, GL, XGH + HW * (dr + 1) / (SPEC.dormersRear + 1), stOf('bath'));
+    }
 
     // front facade: Dining (one window, L) · front door (centered) · Living Room (one window, R) — matching pair
     winY(L, GL, 0, XGH + 4, XGH + 8.5, 3, 7, stOf('dining room'), true);              // dining window
@@ -401,8 +434,8 @@ class JarvisPanel extends HTMLElement {
     this._editingPlan = null;      // working copy for editor
     this._rot3dY = 22;             // 3D house rotation Y (near-front hero, like the approved view)
     this._house3dTheta = 35;       // JARVIS3D azimuth (deg) — approved hero angle
-    this._house3dBox = null;       // cached fixed viewBox for the current floor
-    this._house3dBoxFloor = null;  // floor the cached box was computed for
+    this._house3dBox = null;       // cached fixed viewBox for the current floor+spec
+    this._house3dBoxKey = null;    // cache key (floor + spec signature)
     this._rot3dX = -18;            // 3D house rotation X (gentle, so the gable reads as a mass)
     this._zoom3d = 1;              // 3D house zoom level
     this._zoomAuto = true;         // auto-fit house to column until user zooms
@@ -1352,17 +1385,55 @@ class JarvisPanel extends HTMLElement {
     return lit;
   }
 
+  // Home spec from config (type/specs). Only fields the user configured are set, so the
+  // model falls back to its approved default layout otherwise. Roof pitch + sensible dormer
+  // counts come from the home type unless explicitly overridden.
+  _styleDefaults(style) {
+    const T = {
+      cape_cod:  { pitch: 1.0,  dormersFront: 2, dormersRear: 1 },
+      colonial:  { pitch: 0.7,  dormersFront: 0, dormersRear: 0 },
+      ranch:     { pitch: 0.5,  dormersFront: 0, dormersRear: 0 },
+      two_story: { pitch: 0.65, dormersFront: 0, dormersRear: 0 },
+      craftsman: { pitch: 0.6,  dormersFront: 1, dormersRear: 0 },
+      modern:    { pitch: 0.12, dormersFront: 0, dormersRear: 0 },
+      townhouse: { pitch: 0.85, dormersFront: 0, dormersRear: 0 },
+      apartment: { pitch: 0.12, dormersFront: 0, dormersRear: 0 },
+      cabin:     { pitch: 1.25, dormersFront: 2, dormersRear: 1 },
+    };
+    return T[style] || T.cape_cod;
+  }
+  _houseSpec() {
+    const c = this._data().config || {};
+    const style = c.residence_style || 'cape_cod';
+    const sd = this._styleDefaults(style);
+    const num = (v) => (v === '' || v == null ? null : Number(v));
+    const fEx = num(c.dormers_front), rEx = num(c.dormers_rear);
+    const spec = {};
+    if (sd.pitch != null) spec.pitch = sd.pitch;
+    // Cape Cod with default dormers => let the model render its exact approved layout.
+    const isDefaultCape = style === 'cape_cod' && fEx == null && rEx == null;
+    if (!isDefaultCape) {
+      spec.dormersFront = fEx != null ? fEx : sd.dormersFront;
+      spec.dormersRear = rEx != null ? rEx : sd.dormersRear;
+    }
+    if (num(c.garage_bays) != null) spec.garageBays = num(c.garage_bays);
+    if (c.chimney_side) spec.chimney = c.chimney_side;
+    return spec;
+  }
+
   // Draw (or redraw) just the SVG — cheap enough to call on every drag frame.
   _renderHouse3d() {
     const mount = this.shadowRoot?.querySelector('#res-iso');
     if (!mount || typeof JARVIS3D === 'undefined') return;
     const floor = this._house3dFloor();
-    if (this._house3dBox == null || this._house3dBoxFloor !== floor) {
-      this._house3dBox = JARVIS3D.fixedBox({ floor });
-      this._house3dBoxFloor = floor;
+    const spec = this._houseSpec();
+    const key = floor + '|' + JSON.stringify(spec);
+    if (this._house3dBoxKey !== key) {
+      this._house3dBox = JARVIS3D.fixedBox({ floor, spec });
+      this._house3dBoxKey = key;
     }
     mount.innerHTML = JARVIS3D.renderSVG({
-      theta: this._house3dTheta, floor, lit: this._house3dLit(), box: this._house3dBox
+      theta: this._house3dTheta, floor, lit: this._house3dLit(), box: this._house3dBox, spec
     });
     const d = this._data();
     const occ = (d.areasGrid || []).filter(a => a.active).length;
@@ -1376,8 +1447,9 @@ class JarvisPanel extends HTMLElement {
     const areas = d.areasGrid || [];
     const addrEl = this.shadowRoot.querySelector('#res-addr');
     if (addrEl) addrEl.textContent = (d.config && d.config.floor_plan_address) || '1111 MYRTLE RD, WALNUTPORT PA';
-    const beds = areas.filter(a => a.bedroom).length || d.bedrooms || 0;
-    const baths = areas.filter(a => /bath/i.test(a.name || '')).length;
+    const cfgBeds = d.config && d.config.home_bedrooms, cfgBaths = d.config && d.config.home_bathrooms;
+    const beds = (cfgBeds != null && cfgBeds !== '') ? Number(cfgBeds) : (areas.filter(a => a.bedroom).length || d.bedrooms || 0);
+    const baths = (cfgBaths != null && cfgBaths !== '') ? Number(cfgBaths) : areas.filter(a => /bath/i.test(a.name || '')).length;
     const bbEl = this.shadowRoot.querySelector('#res-bb');
     if (bbEl) bbEl.textContent = beds + ' / ' + (baths || '—');
     const sqEl = this.shadowRoot.querySelector('#res-sqft');
@@ -1435,6 +1507,14 @@ class JarvisPanel extends HTMLElement {
     return Object.keys(styles).map(k =>
       '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + styles[k].label + '</option>'
     ).join('');
+  }
+
+  // <option> builders for the Residence/Home config selects.
+  _opts(values, current) {
+    return values.map(v => '<option value="' + v + '"' + (String(v) === String(current) ? ' selected' : '') + '>' + this._esc(v) + '</option>').join('');
+  }
+  _optsLabeled(pairs, current) {
+    return pairs.map(([v, label]) => '<option value="' + v + '"' + (String(v) === String(current) ? ' selected' : '') + '>' + this._esc(label) + '</option>').join('');
   }
 
   _wireResidenceControls() {
@@ -1802,8 +1882,8 @@ class JarvisPanel extends HTMLElement {
         <div class="floor-tabs">
           <button class="floor-tab ${this._currentFloor === 'all' ? 'active' : ''}" data-floor="all">All</button>
           <button class="floor-tab ${this._currentFloor === '1f' ? 'active' : ''}" data-floor="1f">1st Floor</button>
-          <button class="floor-tab ${this._currentFloor === '2f' ? 'active' : ''}" data-floor="2f">2nd Floor</button>
-          <button class="floor-tab ${this._currentFloor === 'bsmt' ? 'active' : ''}" data-floor="bsmt">Basement</button>
+          ${String(d.config?.home_stories ?? '1.5') !== '1' ? `<button class="floor-tab ${this._currentFloor === '2f' ? 'active' : ''}" data-floor="2f">2nd Floor</button>` : ''}
+          ${(d.config?.has_basement !== false) ? `<button class="floor-tab ${this._currentFloor === 'bsmt' ? 'active' : ''}" data-floor="bsmt">Basement</button>` : ''}
         </div>
       </div>
 
@@ -1842,6 +1922,60 @@ class JarvisPanel extends HTMLElement {
   <div class="settings-page">
 
     <div class="settings-grid">
+      <!-- RESIDENCE / HOME -->
+      <div class="panel">
+        <div class="head">
+          <span>Residence / Home</span>
+          <span class="side">3D MODEL</span>
+        </div>
+        <div class="home-cfg">
+          <div class="cfg-row">
+            <label>Home type</label>
+            <select class="cfg-field" data-cfg-key="residence_style">${this._residenceStyleOptions(d)}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Stories</label>
+            <select class="cfg-field" data-cfg-key="home_stories">${this._opts(['1','1.5','2','3'], String(d.config?.home_stories ?? '1.5'))}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Garage bays</label>
+            <select class="cfg-field" data-cfg-key="garage_bays">${this._opts(['0','1','2','3','4'], String(d.config?.garage_bays ?? '3'))}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Front dormers</label>
+            <select class="cfg-field" data-cfg-key="dormers_front">${this._opts(['0','1','2','3'], String(d.config?.dormers_front ?? '2'))}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Rear dormers</label>
+            <select class="cfg-field" data-cfg-key="dormers_rear">${this._opts(['0','1','2'], String(d.config?.dormers_rear ?? '1'))}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Chimney</label>
+            <select class="cfg-field" data-cfg-key="chimney_side">${this._optsLabeled([['right','East / right'],['left','West / left'],['none','None']], d.config?.chimney_side || 'right')}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Basement</label>
+            <button class="toggle-btn ${(d.config?.has_basement !== false) ? 'on' : 'off'}" data-cfg-key="has_basement" data-cfg-val="${(d.config?.has_basement !== false) ? 'false' : 'true'}">${(d.config?.has_basement !== false) ? 'YES' : 'NO'}</button>
+          </div>
+          <div class="cfg-row">
+            <label>Bedrooms</label>
+            <input class="cfg-field cfg-num" type="number" min="0" max="12" data-cfg-key="home_bedrooms" value="${d.config?.home_bedrooms ?? ''}" placeholder="3">
+          </div>
+          <div class="cfg-row">
+            <label>Bathrooms</label>
+            <input class="cfg-field cfg-num" type="number" min="0" max="12" step="0.5" data-cfg-key="home_bathrooms" value="${d.config?.home_bathrooms ?? ''}" placeholder="2">
+          </div>
+          <div class="cfg-row">
+            <label>Square feet</label>
+            <input class="cfg-field cfg-num" type="number" min="0" max="20000" step="50" data-cfg-key="floor_plan_sqft" value="${d.config?.floor_plan_sqft ?? ''}" placeholder="1800">
+          </div>
+          <div class="cfg-row">
+            <label>Address</label>
+            <input class="cfg-field cfg-text" type="text" data-cfg-key="floor_plan_address" value="${this._esc(d.config?.floor_plan_address || '')}" placeholder="1111 Myrtle Rd, Walnutport PA">
+          </div>
+          <div class="home-cfg-hint">Drives the Residence 3D model + property stats. Detailed room layout is edited in the floor-plan editor.</div>
+        </div>
+      </div>
       <!-- GENERAL -->
       <div class="panel">
         <div class="head">
@@ -2446,6 +2580,21 @@ class JarvisPanel extends HTMLElement {
         } catch (err) {
           this._toast(`✗ ${key} — ${err?.message || err}`, "err");
         }
+      });
+    });
+
+    // Generic config selects + number/text inputs (Residence/Home card, etc.).
+    // Saves on change; empty number fields clear the key so the model reverts to its default.
+    this.shadowRoot.querySelectorAll("select.cfg-field[data-cfg-key], input.cfg-field[data-cfg-key]").forEach(el => {
+      if (el._cfgWired) return;
+      el._cfgWired = true;
+      el.addEventListener("change", async () => {
+        const key = el.getAttribute("data-cfg-key");
+        if (!key) return;
+        let value = el.value;
+        if (el.type === "number") value = (value === "" ? null : Number(value));
+        await this._saveConfig(key, value);
+        await this._fetchAndRender();
       });
     });
 
@@ -3570,6 +3719,7 @@ class JarvisPanel extends HTMLElement {
     width: 100%;
     height: 450px;
     perspective: 1100px;
+    touch-action: pan-y;
     background:
       radial-gradient(ellipse at 50% 42%, rgba(0, 242, 254, 0.05) 0%, transparent 55%),
       radial-gradient(ellipse at 50% 40%, rgba(0, 25, 45, 0.35), #04070d 72%);
@@ -4185,6 +4335,54 @@ class JarvisPanel extends HTMLElement {
     color: var(--cyan);
     background: rgba(0, 242, 254, 0.06);
   }
+
+  /* Residence / Home config card */
+  .home-cfg { display: flex; flex-direction: column; gap: 8px; }
+  .cfg-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    transition: border-color 0.2s;
+  }
+  .cfg-row:hover { border-color: var(--cyan-dim); }
+  .cfg-row > label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+  }
+  .cfg-field {
+    grid-column: 2;
+    min-width: 140px;
+    padding: 6px 10px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--cyan);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .cfg-field:hover, .cfg-field:focus { border-color: var(--cyan); outline: none; }
+  .cfg-num { width: 92px; min-width: 0; text-align: right; cursor: text; }
+  .cfg-text { width: 100%; min-width: 0; cursor: text; letter-spacing: 0; }
+  .cfg-row:has(.cfg-text) { grid-template-columns: 1fr; gap: 5px; }
+  .cfg-row:has(.cfg-text) > label { grid-column: 1; }
+  .cfg-row:has(.cfg-text) > .cfg-text { grid-column: 1; }
+  .home-cfg-hint {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--text-faint);
+    padding: 4px 4px 0;
+  }
   .notify-select {
     grid-column: 2; grid-row: 1 / 3;
     padding: 6px 10px;
@@ -4654,6 +4852,58 @@ class JarvisPanel extends HTMLElement {
   .res-wrap-big .house3d-scene { height: 560px; }
   .h3d-roof { position: absolute; }
   .h3d-roof-gable { position: absolute; backface-visibility: hidden; }
+
+  /* ───────────────── PHONE (≤600px) ───────────────── */
+  @media (max-width: 600px) {
+    .app { padding: 8px; gap: 10px; overflow-x: hidden; }
+
+    /* top tab bar: scroll horizontally instead of overflowing; comfortable tap height */
+    .tab-bar { overflow-x: auto; flex-wrap: nowrap; padding: 0 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .tab-bar::-webkit-scrollbar { display: none; }
+    .tab { padding: 11px 13px; font-size: 10px; letter-spacing: 0.1em; white-space: nowrap; flex: 0 0 auto; }
+
+    /* masthead compact */
+    .masthead { padding: 9px 10px; gap: 8px; }
+    .brand { font-size: 13px; letter-spacing: 0.2em; }
+    .greeting { font-size: 10px; }
+    .clock .time { font-size: 16px; }
+
+    /* dominant-room hero smaller */
+    .room-name { font-size: 24px; }
+    .anchor { padding: 16px 12px; min-height: 240px; }
+
+    /* residence 3D scene shorter so the model + its controls fit one phone screen */
+    .floorplan-wrap, .res-wrap-big { min-height: 340px; }
+    .house3d-scene, .res-wrap-big .house3d-scene { height: 340px; }
+
+    /* residence overlays: compact, avoid banner/stat collision on a narrow scene */
+    .res-banner { top: 6px; left: 8px; }
+    .res-banner-t { font-size: 9px; letter-spacing: 0.1em; }
+    .res-banner-s { display: none; }
+    .res-stat { top: 6px; right: 8px; gap: 9px; }
+    .res-stat-i label { font-size: 7px; letter-spacing: 0.08em; }
+    .res-stat-i b { font-size: 11px; }
+    .res-stat-i:nth-child(3) { display: none; }   /* drop STYLE stat to save width */
+
+    /* residence controls stack full-width; floor pills wrap with bigger tap targets */
+    .res-controls { flex-direction: column; align-items: stretch; gap: 8px; }
+    .res-style { width: 100%; }
+    .res-style-sel { flex: 1 1 auto; }
+    .floor-tabs { flex-wrap: wrap; gap: 6px; }
+    .floor-tab { padding: 8px 14px; font-size: 9px; }
+
+    /* let dense settings rows shrink within the viewport instead of overflowing */
+    .model-row > *, .dbt-row > *, .ar-line2 > * { min-width: 0; }
+    .log { max-height: 300px; }
+  }
+
+  /* ───────────────── very small phones (≤380px) ───────────────── */
+  @media (max-width: 380px) {
+    .tab { padding: 10px 10px; letter-spacing: 0.05em; }
+    .brand { font-size: 12px; }
+    .floor-tab { padding: 7px 11px; }
+    .res-stat-i:nth-child(1) { display: none; }   /* keep BED/BATH + OCCUPIED only */
+  }
 </style>
     `;
   }
@@ -4665,7 +4915,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.21.0 ",
+  "%c JARVIS Panel %c v6.23.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

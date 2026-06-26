@@ -4,6 +4,47 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.23.0] — Configurable home type & specs
+The Residence 3D model is no longer hardcoded to one Cape Cod. A new **Residence / Home**
+card at the top of the Settings tab drives the model and the property stats from config.
+- **Home type** (Cape Cod, Colonial, Ranch, Two-Story, Craftsman, Modern, Townhouse,
+  Apartment, Cabin) sets the roof pitch and sensible default dormering.
+- **Specs:** garage bays (0–4 → that many doors, evenly filling the garage front), front
+  dormers (0–3), rear dormers (0–2), chimney side (east / west / none), basement (yes/no),
+  bedrooms, bathrooms, square feet, and address.
+- The model now takes a per-render **spec**: any field left at its default renders the exact
+  approved house, so existing installs are visually unchanged; configured fields flex the
+  massing (verified by render across garage-bay counts, dormer counts, chimney sides, and
+  roof pitch).
+- **Floor tabs** follow the config — the 2nd-floor tab hides for single-story homes, the
+  Basement tab hides when there's no basement.
+- **Stats** (bed/bath, sq ft, style) read the configured values, falling back to the
+  floor-plan editor / area data when unset.
+- Detailed room layout remains the floor-plan editor's job; the home card covers type +
+  massing. Full two-story wall massing (vs. the current dormered half-story) is a follow-up.
+
+_Note: the model massing is render-verified here; the Settings-card layout is CSS that can't
+be rasterized in the build sandbox (structure-verified + on-device)._
+
+## [6.22.0] — Phone-friendly panel
+Responsive layer so the panel is usable on a phone, not just desktop/tablet. Layers under
+the existing tablet (≤900px) rules; desktop is unchanged.
+- **Top tab bar** scrolls horizontally instead of overflowing when the four tabs don't fit a
+  narrow screen, with larger tap targets.
+- **Residence 3D model** scene shortens to fit a phone screen, and a **horizontal drag rotates
+  while vertical still scrolls the page** (`touch-action: pan-y`) so the model doesn't trap
+  scrolling. The banner/stat overlays compact and shed their lowest-priority items
+  (STYLE, then EST SQ FT) on the narrowest screens to avoid collisions; the floor pills wrap
+  and the home-style control goes full-width.
+- **Masthead, dominant-room hero, and logs** tighten their spacing and type; the app padding
+  shrinks and horizontal overflow is clamped.
+- **Dense settings rows** (AI models, appliance routines, doorbell training) are allowed to
+  shrink within the viewport instead of pushing horizontal scroll.
+- Two breakpoints: ≤600px (phone) and ≤380px (small phone).
+
+_Note: rendered-preview verification doesn't apply to CSS layout (no headless browser in the
+build sandbox), so this was verified by structure (audit + smoke) and on-device._
+
 ## [6.21.0] — Rotatable 3D residence model (default)
 The residence overview is now a real, drag-rotatable 3D model of the home, replacing the
 fixed cabinet-projection drawing. It is a pure-geometry axonometric projection rendered to

@@ -11,13 +11,24 @@
   var GW = 30, HW = 33, D = 24;                 // garage W, house W, depth
   var XG0 = 0, XGH = GW, XHE = GW + HW;         // garage 0..30, house 30..63
   var WALL = 9;                                 // 1st-floor wall height = main eave
-  var RISE = 11, RIDGE = WALL + RISE;           // main roof: eave 9 -> ridge 20
-  var GWALL = 9, GRISE = 5, GRIDGE = GWALL + GRISE; // garage roof: eave 9 -> ridge 14
+  var BASE_RISE = 11, GBASE_RISE = 5;           // roof rises at pitch 1.0
+  var RISE = BASE_RISE, RIDGE = WALL + RISE;    // main roof: eave 9 -> ridge 20
+  var GWALL = 9, GRISE = GBASE_RISE, GRIDGE = GWALL + GRISE; // garage roof: eave 9 -> ridge 14
   var RY = D / 2;                               // ridge centerline (depth) = 12
   var OVH = 1.2;                                // roof overhang
   var SCALE = 8.6;                              // feet -> px
   var PITCH = 30 * Math.PI / 180;               // camera elevation
   var CENTER = [(XG0 + XHE) / 2, RY, WALL * 0.5]; // rotate about model center
+
+  // ---------- per-render home spec (type/specs); fields left unset = approved default ----------
+  // garageBays, dormersFront, dormersRear: counts · chimney: 'right'|'left'|'none' · pitch: roof-rise scale
+  var SPEC = {};
+  function applySpec(s) {
+    SPEC = s || {};
+    var p = SPEC.pitch > 0 ? SPEC.pitch : 1;
+    RISE = BASE_RISE * p; RIDGE = WALL + RISE;
+    GRISE = GBASE_RISE * p; GRIDGE = GWALL + GRISE;
+  }
 
   // ---------- palette (JARVIS dark-cyan HUD) ----------
   var C = {
@@ -134,14 +145,14 @@
     if (state !== 'off' && GL) GL.push({ p: [[cx-r-1.2,yB-0.05,cz-r-1.2],[cx+r+1.2,yB-0.05,cz-r-1.2],[cx+r+1.2,yB-0.05,cz+r+1.2],[cx-r-1.2,yB-0.05,cz+r+1.2]], f: state==='dom'?C.glowDom:C.glowOn });
   }
 
-  // ---------- garage doors (3, on the garage front wall y=0) ----------
+  // ---------- garage doors (count = SPEC.garageBays, default 3; fill the garage front) ----------
   function garageDoors(L, GL, state) {
-    var dw = 7.6, gap = 1.8, z0 = 0.4, z1 = 7.4, i, x0;
-    var xs = [gap, gap*2+dw, gap*3+dw*2];
+    var bays = SPEC.garageBays > 0 ? SPEC.garageBays : 3, gap = 1.8;
+    var dw = (GW - gap * (bays + 1)) / bays, z0 = 0.4, z1 = 7.4, i, x0;
     var f = state === 'on' || state === 'dom' ? C.doorOn : C.doorOff;
     var s = state === 'on' || state === 'dom' ? C.glassOn : C.doorS;
-    for (i = 0; i < 3; i++) {
-      x0 = xs[i];
+    for (i = 0; i < bays; i++) {
+      x0 = gap + i * (dw + gap);
       F(L, [[x0,-0.06,z0],[x0+dw,-0.06,z0],[x0+dw,-0.06,z1],[x0,-0.06,z1]], f, s, 1.0, { cls: 'gdoor' });
       for (var k = 1; k < 4; k++) { var zz = z0 + (z1 - z0) * k / 4; F(L, [[x0,-0.06,zz],[x0+dw,-0.06,zz]], 'none', s, 0.45); }
       if ((state === 'on' || state === 'dom') && GL) GL.push({ p: [[x0-1.2,-0.06,z0],[x0+dw+1.2,-0.06,z0],[x0+dw+1.2,-0.06,z1+1.2],[x0-1.2,-0.06,z1+1.2]], f: C.glowOn });
@@ -180,8 +191,11 @@
     roofPlane(L, XGH - OVH, XHE + OVH, D + OVH, WALL, RY, RIDGE, C.roofDk, C.roofSdk, 0.7); // back slope
   }
 
-  function chimney(L) {
-    var x0 = XHE, x1 = XHE + 2.2, ya = 9.6, yb = 13.2, zt = RIDGE + 4;
+  function chimney(L, side) {
+    if (side === 'none') return;
+    var ya = 9.6, yb = 13.2, zt, x0, x1;
+    if (side === 'left') { x0 = XG0; x1 = XG0 - 2.2; zt = GRIDGE + 4; }   // west gable (garage end)
+    else { x0 = XHE; x1 = XHE + 2.2; zt = RIDGE + 4; }                    // default: east gable
     F(L, [[x1,ya,0],[x1,yb,0],[x1,yb,zt],[x1,ya,zt]], C.chimF, C.chimS, 0.7);      // outer
     F(L, [[x0,ya,0],[x1,ya,0],[x1,ya,zt],[x0,ya,zt]], 'rgba(8,19,29,0.97)', C.chimS, 0.6); // front side
     F(L, [[x0,yb,0],[x1,yb,0],[x1,yb,zt],[x0,yb,zt]], 'rgba(8,19,29,0.97)', C.dim, 0.5);    // back side
@@ -252,6 +266,7 @@
   // ---------- assemble a frame for given options ----------
   function build(opts) {
     opts = opts || {};
+    applySpec(opts.spec);                           // home type/specs (empty = default)
     var lit = opts.lit || {};                       // { 'master bedroom':'on'|'dom', ... }
     var floor = opts.floor || 'all';
     var stOf = function (name) { var s = lit[String(name).toLowerCase()]; return s === 'dom' ? 'dom' : s ? 'on' : 'off'; };
@@ -265,13 +280,25 @@
     }
 
     buildShell(L, GL);
-    chimney(L);
+    chimney(L, SPEC.chimney);
     garageDoors(L, GL, stOf('garage'));
 
-    // dormers
-    dormerFront(L, GL, XGH + 9, stOf("eliana's room"));
-    dormerFront(L, GL, XGH + 24, stOf('master bedroom'));
-    dormerRearRound(L, GL, XGH + 16, stOf('bath'));
+    // dormers — counts configurable; unset = the approved default layout
+    if (SPEC.dormersFront == null) {
+      dormerFront(L, GL, XGH + 9, stOf("eliana's room"));
+      dormerFront(L, GL, XGH + 24, stOf('master bedroom'));
+    } else {
+      var fKeys = ["eliana's room", 'master bedroom'], df;
+      for (df = 0; df < SPEC.dormersFront; df++)
+        dormerFront(L, GL, XGH + HW * (df + 1) / (SPEC.dormersFront + 1), stOf(fKeys[df] || fKeys[fKeys.length - 1]));
+    }
+    if (SPEC.dormersRear == null) {
+      dormerRearRound(L, GL, XGH + 16, stOf('bath'));
+    } else {
+      var dr;
+      for (dr = 0; dr < SPEC.dormersRear; dr++)
+        dormerRearRound(L, GL, XGH + HW * (dr + 1) / (SPEC.dormersRear + 1), stOf('bath'));
+    }
 
     // front facade: Dining (one window, L) · front door (centered) · Living Room (one window, R) — matching pair
     winY(L, GL, 0, XGH + 4, XGH + 8.5, 3, 7, stOf('dining room'), true);              // dining window
