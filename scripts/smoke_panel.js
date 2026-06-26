@@ -74,16 +74,25 @@ setTimeout(() => {
   el._render();
   const r = el.shadowRoot, rhtml = r.innerHTML;
   checks.push(
-    ["residence tab renders 3D scene", !!r.querySelector("#house3d-scene")],
-    ["solid house built (many faces, not flat plates)", r.querySelectorAll("#house3d .h3d-face").length >= 30],
-    ["angle preset controls present", r.querySelectorAll(".res-angles [data-angle]").length >= 4],
+    ["residence tab renders iso scene", !!r.querySelector("#house3d-scene")],
+    ["2D isometric SVG rendered", !!r.querySelector("#res-iso svg")],
+    ["solid house drawn (svg polygons)", r.querySelectorAll("#res-iso svg polygon").length >= 15],
+    ["garage renders 3 doors", r.querySelectorAll("#res-iso svg polygon.gdoor").length === 3],
+    ["occupied stat wired (n / total)", /\d+\s*\/\s*\d+/.test((r.getElementById("res-occ") || {}).textContent || "")],
     ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
     ["property data-merge banner present", !!r.querySelector(".res-banner") && /MYRTLE/.test(r.querySelector("#res-addr")?.textContent || "")],
     ["banner stats populated (sqft + bed/bath)", /\d/.test(r.querySelector("#res-sqft")?.textContent || "") && /\d/.test(r.querySelector("#res-bb")?.textContent || "")],
     ["sqft estimate sane (<= 5000)", (() => { const m = (r.querySelector("#res-sqft")?.textContent || "").replace(/[^\d]/g, ""); return m && Number(m) <= 5000; })()],
     ["style tag reflects template", /CAPE COD/.test(r.querySelector("#res-style-tag")?.textContent || "")],
-    ["leader-line callouts restored (full width)", r.querySelectorAll(".res-co").length >= 6],
-    ["dominant room callout flagged from live presence", !!r.querySelector(".res-co.dom")]
+    ["3D residence is rotatable (drag wired)", r.querySelector("#house3d-scene")?._house3dWired === true]
+  );
+
+  // ── switch to 1st-floor isolation: model should draw labeled rooms ──
+  el._currentFloor = "1f";
+  el._render();
+  checks.push(
+    ["floor isolation draws labeled rooms (1F)", el.shadowRoot.querySelectorAll("#res-iso svg text").length >= 6],
+    ["floor isolation keeps garage room", /GARAGE/.test(el.shadowRoot.querySelector("#res-iso svg")?.textContent || "")]
   );
 
   let ok = true;
