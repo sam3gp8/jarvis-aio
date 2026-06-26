@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.23.1 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.23.2 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -802,9 +802,33 @@ class JarvisPanel extends HTMLElement {
    * Patch only the fields that change frequently, without tearing down the
    * whole DOM. Called on every 5s WS refresh when shape is unchanged.
    */
+  // Keep the masthead lockdown switch + status badge in sync with the real
+  // backend state on every poll — whether engaged from the toggle or
+  // auto-engaged by the alarm arming. Runs before the settings/logs early
+  // returns below, since the masthead is shared across all tabs.
+  _patchLockdown(live) {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const active = !!(live && live.lockdown && live.lockdown.active);
+    const btn = root.getElementById("lockdown-btn");
+    if (btn) {
+      btn.classList.toggle("on", active);
+      btn.setAttribute("aria-checked", active ? "true" : "false");
+      btn.setAttribute("title", active ? "Lockdown engaged — tap to lift" : "Tap to engage lockdown");
+      const state = btn.querySelector(".ld-state");
+      if (state) state.textContent = active ? "ARMED" : "OFF";
+    }
+    const badge = root.querySelector(".status-badge");
+    if (badge) {
+      badge.classList.toggle("alert", active);
+      badge.textContent = `[ STATUS: ${active ? "LOCKDOWN" : "NOMINAL"} ]`;
+    }
+  }
+
   _patchLiveDom(live) {
     const root = this.shadowRoot;
     if (!root) return;
+    this._patchLockdown(live);
     // On settings tab, DON'T re-render automatically — it destroys
     // open dropdown menus and resets user interaction state. Settings
     // data only updates when user clicks a toggle/dropdown (which
@@ -1540,19 +1564,38 @@ class JarvisPanel extends HTMLElement {
     const scene = this.shadowRoot?.querySelector('#house3d-scene');
     if (!scene || scene._house3dWired) return;
     scene._house3dWired = true;
-    let dragging = false, lastX = 0, raf = null;
+    let dragging = false, lastX = 0, startX = 0, startY = 0, axis = null, raf = null;
     const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = null; this._renderHouse3d(); }); };
-    const xOf = (e) => (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
-    const move = (e) => { if (!dragging) return; this._house3dTheta += (xOf(e) - lastX) * 0.5; lastX = xOf(e); schedule(); };
+    const pt = (e) => (e.touches && e.touches[0] ? e.touches[0] : e);
+    const move = (e) => {
+      if (!dragging) return;
+      const p = pt(e);
+      // On touch, decide the gesture's axis once: horizontal rotates the model,
+      // vertical is a page scroll — so dragging up/down the phone never fights
+      // the model, and a sideways drag never scrolls the page mid-rotation.
+      if (axis === null) {
+        const dx = Math.abs(p.clientX - startX), dy = Math.abs(p.clientY - startY);
+        if (dx < 6 && dy < 6) return;          // too small to classify yet
+        axis = dx >= dy ? 'x' : 'y';
+        if (axis === 'y') { dragging = false; return; }  // release to the page scroller
+      }
+      if (e.cancelable) e.preventDefault();    // horizontal → keep the page from scrolling
+      this._house3dTheta += (p.clientX - lastX) * 0.5;
+      lastX = p.clientX;
+      schedule();
+    };
     const up = () => {
-      dragging = false; scene.classList.remove('dragging');
+      dragging = false; axis = null; scene.classList.remove('dragging');
       window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
       window.removeEventListener('touchmove', move); window.removeEventListener('touchend', up);
     };
     const down = (e) => {
-      dragging = true; lastX = xOf(e); scene.classList.add('dragging');
+      const p = pt(e);
+      dragging = true; axis = null; startX = lastX = p.clientX; startY = p.clientY;
+      scene.classList.add('dragging');
       window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
-      window.addEventListener('touchmove', move, { passive: true }); window.addEventListener('touchend', up);
+      window.addEventListener('touchmove', move, { passive: false });   // non-passive: rotation can block scroll
+      window.addEventListener('touchend', up);
     };
     scene.addEventListener('mousedown', (e) => { down(e); e.preventDefault(); });
     scene.addEventListener('touchstart', (e) => down(e), { passive: true });
@@ -4940,7 +4983,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.23.1 ",
+  "%c JARVIS Panel %c v6.23.2 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

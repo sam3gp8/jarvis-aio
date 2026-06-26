@@ -4,6 +4,20 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.23.2] — Lockdown reflects real state · phone rotation fixed
+Two fixes.
+- **Lockdown disconnect:** the toggle (and the `[ STATUS ]` badge) never reflected the actual
+  lockdown state. The backend *was* engaging — locking doors, closing covers — but the live-data
+  poll patches the DOM in place and never touched the masthead, so the switch snapped back to
+  off. Same reason the switch stayed off when the alarm armed and auto-engaged lockdown. The
+  masthead switch + badge now track real backend state on every poll, on every tab (manual
+  toggle and alarm-driven auto-engage alike). _(Lockdown locks/closes openings; it does not arm
+  the alarm panel — that relationship is one-way, alarm → lockdown.)_
+- **Phone rotation:** dragging the residence model on a phone scrolled the page mid-rotation
+  because the touch handler was passive with no axis detection. It now classifies the gesture
+  once — a horizontal drag rotates the model (and blocks the page scroll), a vertical drag
+  scrolls the page and never jiggles the model.
+
 ## [6.23.1] — Lockdown is now a real switch
 The masthead lockdown control was an ambiguous pill that read like a status banner — you
 couldn't tell it was interactive or which way it was set. Replaced it with a proper sliding
