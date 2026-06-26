@@ -537,6 +537,7 @@ async def ws_get_panel_data(
             "areas":          areas_list,
             "sleep_reason":   sleep_reason if sleeping else None,
             "doorbell_training": _get_doorbell_training(),
+            "doors":          _get_door_states(hass),
             "suggestions":    _get_suggestions(),
             "config": {
                 "announcements_enabled": announcements_on,
@@ -613,6 +614,59 @@ def _get_announcements_today() -> int:
         return get_activity_count_today()
     except Exception:
         return 0
+
+
+def _get_door_states(hass: HomeAssistant) -> dict:
+    """
+    Open/closed state of the home's doors, keyed to the 3D model's door slots
+    (front · garage · garage_rear · kitchen_garage · cellar). Scans door
+    binary_sensors and garage/door/gate covers, matching each to a slot by
+    entity-id / friendly-name keywords. An OPEN reading wins if several entities
+    map to one slot. Only slots with a matching entity are returned; the model
+    treats any missing slot as closed. Never raises.
+    """
+    try:
+        keys: dict[str, str] = {}
+
+        def consider(key: str, is_open: bool) -> None:
+            if not key:
+                return
+            if key not in keys or is_open:
+                keys[key] = "open" if is_open else "closed"
+
+        def classify(eid: str, name: str) -> str:
+            s = (eid + " " + (name or "")).lower()
+            if any(k in s for k in ("cellar", "bulkhead", "hatch")):
+                return "cellar"
+            if "basement" in s:
+                return "basement"
+            if "garage" in s and any(k in s for k in ("kitchen", "interior", "inside", "house", "mud")):
+                return "kitchen_garage"
+            if "kitchen" in s and "garage" in s:
+                return "kitchen_garage"
+            if "garage" in s and any(k in s for k in ("man", "side", "rear", "back", "walk", "person", "entry", "people")):
+                return "garage_rear"
+            if "garage" in s:
+                return "garage"
+            if "front" in s and "garage" not in s:
+                return "front"
+            return ""
+
+        for st in hass.states.async_all("binary_sensor"):
+            if st.attributes.get("device_class") not in ("door", "garage_door", "opening"):
+                continue
+            consider(classify(st.entity_id, st.attributes.get("friendly_name", "")),
+                     str(st.state).lower() == "on")
+
+        for st in hass.states.async_all("cover"):
+            if st.attributes.get("device_class") not in ("garage", "door", "gate"):
+                continue
+            consider(classify(st.entity_id, st.attributes.get("friendly_name", "")),
+                     str(st.state).lower() not in ("closed", "closing"))
+
+        return keys
+    except Exception:
+        return {}
 
 
 def _get_doorbell_training() -> dict:

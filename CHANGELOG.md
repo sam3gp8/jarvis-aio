@@ -4,69 +4,50 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.23.2] — Lockdown reflects real state · phone rotation fixed
-Two fixes.
-- **Lockdown disconnect:** the toggle (and the `[ STATUS ]` badge) never reflected the actual
-  lockdown state. The backend *was* engaging — locking doors, closing covers — but the live-data
-  poll patches the DOM in place and never touched the masthead, so the switch snapped back to
-  off. Same reason the switch stayed off when the alarm armed and auto-engaged lockdown. The
-  masthead switch + badge now track real backend state on every poll, on every tab (manual
-  toggle and alarm-driven auto-engage alike). _(Lockdown locks/closes openings; it does not arm
-  the alarm panel — that relationship is one-way, alarm → lockdown.)_
-- **Phone rotation:** dragging the residence model on a phone scrolled the page mid-rotation
-  because the touch handler was passive with no axis detection. It now classifies the gesture
-  once — a horizontal drag rotates the model (and blocks the page scroll), a vertical drag
-  scrolls the page and never jiggles the model.
+## [6.24.1] — Basement door
+Added the basement door at the foot of the cellar stairs. It lines up directly under the
+cellar bulkhead and appears on the basement floor view, opening and closing in step with its
+door sensor like every other door.
 
-## [6.23.1] — Lockdown is now a real switch
-The masthead lockdown control was an ambiguous pill that read like a status banner — you
-couldn't tell it was interactive or which way it was set. Replaced it with a proper sliding
-**toggle switch**: knob left + grey when off, knob right + red (glowing, pulsing) when armed,
-with a "LOCKDOWN" label and an OFF/ARMED state word. Same backend action (`jarvis/set_lockdown`),
-same `[ STATUS: NOMINAL/LOCKDOWN ]` badge as a redundant text readout. The state word hides on
-phones to keep the masthead compact; the switch position + colour still convey state there.
-Adds `role="switch"` + `aria-checked` for accessibility.
+## [6.24.0] — Your doors, live on the model
+Your doors now appear on the 3D home and light up the moment they open. JARVIS watches your
+door and garage-door sensors and shows each one's state on the model — an open door glows amber
+and swings ajar, a closed one sits flush in cyan, refreshing within a few seconds.
 
-## [6.23.0] — Configurable home type & specs
-The Residence 3D model is no longer hardcoded to one Cape Cod. A new **Residence / Home**
-card at the top of the Settings tab drives the model and the property stats from config.
-- **Home type** (Cape Cod, Colonial, Ranch, Two-Story, Craftsman, Modern, Townhouse,
-  Apartment, Cabin) sets the roof pitch and sensible default dormering.
-- **Specs:** garage bays (0–4 → that many doors, evenly filling the garage front), front
-  dormers (0–3), rear dormers (0–2), chimney side (east / west / none), basement (yes/no),
-  bedrooms, bathrooms, square feet, and address.
-- The model now takes a per-render **spec**: any field left at its default renders the exact
-  approved house, so existing installs are visually unchanged; configured fields flex the
-  massing (verified by render across garage-bay counts, dormer counts, chimney sides, and
-  roof pitch).
-- **Floor tabs** follow the config — the 2nd-floor tab hides for single-story homes, the
-  Basement tab hides when there's no basement.
-- **Stats** (bed/bath, sq ft, style) read the configured values, falling back to the
-  floor-plan editor / area data when unset.
-- Detailed room layout remains the floor-plan editor's job; the home card covers type +
-  massing. Full two-story wall massing (vs. the current dormered half-story) is a follow-up.
+The home you see is a Cape Cod — the developer's own house, included as a worked example you'd
+reshape into your own (see Settings → Residence / Home). It models a front entry, three garage
+bays, a garage rear/man-door, a cellar bulkhead under the kitchen window, and an interior
+kitchen↔garage door. Exterior doors show on the main view; interior doors show on the matching
+floor view.
 
-_Note: the model massing is render-verified here; the Settings-card layout is CSS that can't
-be rasterized in the build sandbox (structure-verified + on-device)._
+JARVIS matches your sensors to these doors by name — e.g. a sensor with "cellar" or "bulkhead"
+lands on the cellar, "garage" + "side"/"man" on the garage man-door, "front" on the entry. If a
+door never lights up, its sensor name didn't line up with one of those doors.
 
-## [6.22.0] — Phone-friendly panel
-Responsive layer so the panel is usable on a phone, not just desktop/tablet. Layers under
-the existing tablet (≤900px) rules; desktop is unchanged.
-- **Top tab bar** scrolls horizontally instead of overflowing when the four tabs don't fit a
-  narrow screen, with larger tap targets.
-- **Residence 3D model** scene shortens to fit a phone screen, and a **horizontal drag rotates
-  while vertical still scrolls the page** (`touch-action: pan-y`) so the model doesn't trap
-  scrolling. The banner/stat overlays compact and shed their lowest-priority items
-  (STYLE, then EST SQ FT) on the narrowest screens to avoid collisions; the floor pills wrap
-  and the home-style control goes full-width.
-- **Masthead, dominant-room hero, and logs** tighten their spacing and type; the app padding
-  shrinks and horizontal overflow is clamped.
-- **Dense settings rows** (AI models, appliance routines, doorbell training) are allowed to
-  shrink within the viewport instead of pushing horizontal scroll.
-- Two breakpoints: ≤600px (phone) and ≤380px (small phone).
+## [6.23.2] — Lockdown shows its real state · smoother phone rotation
+Lockdown now reflects what's actually happening. Engage it — or have your alarm arm and trigger
+it automatically — and the header switch and status both flip to ARMED and stay there. And on a
+phone, spinning the 3D home no longer drags the page with it: a sideways swipe rotates the
+model, an up/down swipe scrolls the page.
 
-_Note: rendered-preview verification doesn't apply to CSS layout (no headless browser in the
-build sandbox), so this was verified by structure (audit + smoke) and on-device._
+## [6.23.1] — Lockdown is a real switch
+The lockdown control in the header is now an unmistakable on/off switch instead of a vague
+banner. On, it slides over and glows red ("ARMED"); off, it sits grey. One glance tells you
+whether the house is locked down.
+
+## [6.23.0] — Make the model your home
+The residence model is no longer fixed to one house. From Settings → Residence / Home you can
+set it up for your own place: choose a home type (Cape Cod, Colonial, Ranch, Two-Story,
+Craftsman, Modern, Townhouse, Apartment, or Cabin) and your specs — garage bays, dormers,
+chimney side, basement, bedrooms, bathrooms, square footage, and address — and the 3D model and
+the property readout update to match. Out of the box it's a Cape Cod (the developer's own home)
+as a starting point; change the type and specs to make it yours. The floor tabs follow along,
+too — single-story homes drop the 2nd-floor tab, basement-less homes drop the basement.
+
+## [6.22.0] — JARVIS on your phone
+The whole panel now works on a phone, not just a desktop or tablet. The tab bar scrolls instead
+of running off the edge, the 3D home shrinks to fit the screen, the header and controls stack,
+and you can drag to spin the model without the page fighting you. Nothing changes on desktop.
 
 ## [6.21.0] — Rotatable 3D residence model (default)
 The residence overview is now a real, drag-rotatable 3D model of the home, replacing the

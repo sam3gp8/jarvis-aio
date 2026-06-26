@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.23.2 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.24.1 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -18,6 +18,18 @@
  * room layout, garage doors, dormers) lives at the top of this IIFE;
  * edit it for a different home. Occupancy is data-driven from HA areas.
  * =================================================================== */
+/* JARVIS Residence — 3D house core (v3 rebuild)
+ * Real dimensions from the architect's ApexSketch; labels/layout from the JARVIS editor.
+ * Pure-geometry axonometric projection rendered to SVG so it is (a) rotatable in the
+ * browser and (b) rasterizable here via cairosvg for verification. Same math both places.
+ * Works under Node (module.exports) and in the browser (window.JARVIS3D).
+ */
+/* JARVIS Residence — 3D house core (v3 rebuild)
+ * Real dimensions from the architect's ApexSketch; labels/layout from the JARVIS editor.
+ * Pure-geometry axonometric projection rendered to SVG so it is (a) rotatable in the
+ * browser and (b) rasterizable here via cairosvg for verification. Same math both places.
+ * Works under Node (module.exports) and in the browser (window.JARVIS3D).
+ */
 /* JARVIS Residence — 3D house core (v3 rebuild)
  * Real dimensions from the architect's ApexSketch; labels/layout from the JARVIS editor.
  * Pure-geometry axonometric projection rendered to SVG so it is (a) rotatable in the
@@ -65,6 +77,7 @@ const JARVIS3D = (function () {
     gableF:'rgba(18,38,56,0.6)',  gableS:'rgba(0,242,254,0.46)',
     chimF: 'rgba(13,28,42,0.97)', chimS:'rgba(0,242,254,0.42)',
     doorOff:'rgba(0,242,254,0.10)', doorOn:'rgba(0,242,254,0.30)', doorS:'rgba(0,242,254,0.6)',
+    doorOpen:'rgba(255,170,40,0.32)', doorOpenS:'rgba(255,190,72,0.95)', doorOpenGlow:'rgba(255,170,40,0.42)',
     winOff:'rgba(0,242,254,0.07)', winOn:'rgba(0,242,254,0.72)', winDom:'rgba(0,245,160,0.82)',
     glassOff:'rgba(0,242,254,0.32)', glassOn:'rgba(120,240,255,0.92)', glassDom:'rgba(150,255,210,0.95)',
     edge:'rgba(0,242,254,0.5)', dim:'rgba(0,242,254,0.26)', faint:'rgba(0,242,254,0.13)',
@@ -135,7 +148,38 @@ const JARVIS3D = (function () {
     }
   }
 
-  // ---------- a front-slope dormer (little gable popping out of the roof) ----------
+  // ---------- a door on a front/back plane (y=const). hinge 'left'|'right'; ----------
+  // state 'open' → swings out (amber + glow), else flush cyan-dim. faceOut sets the side.
+  function doorY(L, GL, y, x0, x1, z0, z1, faceOut, hinge, state) {
+    var n = faceOut, yy = y + n;
+    if (state !== 'open') {
+      F(L, [[x0,yy,z0],[x1,yy,z0],[x1,yy,z1],[x0,yy,z1]], C.doorOff, C.doorS, 0.8, { cls: 'door' });
+      return;
+    }
+    var w = x1 - x0, ang = 66 * Math.PI / 180, dir = n >= 0 ? 1 : -1;
+    var dx = w * Math.cos(ang), dy = dir * w * Math.sin(ang);
+    var hx = hinge === 'right' ? x1 : x0;
+    var fx = hinge === 'right' ? x1 - dx : x0 + dx;
+    var fy = yy + dy;
+    if (GL) GL.push({ p: [[hx,yy,z0],[fx,fy,z0],[fx,fy,z1],[hx,yy,z1]], f: C.doorOpenGlow });
+    F(L, [[x0,yy,z0],[x1,yy,z0],[x1,yy,z1],[x0,yy,z1]], 'rgba(2,8,14,0.92)', C.doorOpenS, 0.45);   // dark opening
+    F(L, [[hx,yy,z0],[fx,fy,z0],[fx,fy,z1],[hx,yy,z1]], C.doorOpen, C.doorOpenS, 0.9, { cls: 'door door-open' }); // swung leaf
+  }
+  // ---------- a slanted cellar bulkhead at the base of the rear wall ----------
+  function bulkhead(L, GL, x0, x1, state) {
+    var open = state === 'open', yTop = D, zTop = 3.0, yBot = D + 2.6, xm = (x0 + x1) / 2;
+    F(L, [[x0,yTop,0],[x0,yTop,zTop],[x0,yBot,0]], 'rgba(8,19,29,0.92)', C.dim, 0.5);   // left cheek
+    F(L, [[x1,yTop,0],[x1,yTop,zTop],[x1,yBot,0]], 'rgba(8,19,29,0.92)', C.dim, 0.5);   // right cheek
+    if (!open) {
+      F(L, [[x0,yTop,zTop],[x1,yTop,zTop],[x1,yBot,0],[x0,yBot,0]], 'rgba(11,26,38,0.95)', C.doorS, 0.8, { cls: 'door' });
+      F(L, [[xm,yTop,zTop],[xm,yBot,0]], 'none', C.doorS, 0.4);   // center seam
+    } else {
+      if (GL) GL.push({ p: [[x0,yTop,zTop],[x1,yTop,zTop],[x1,yTop,zTop+3.4],[x0,yTop,zTop+3.4]], f: C.doorOpenGlow });
+      F(L, [[x0,yTop,zTop],[x1,yTop,zTop],[x1,yBot,0],[x0,yBot,0]], 'rgba(2,8,14,0.95)', C.doorOpenS, 0.5);  // hole into ground
+      F(L, [[x0,yTop,zTop],[x1,yTop,zTop],[x1,yTop,zTop+3.4],[x0,yTop,zTop+3.4]], C.doorOpen, C.doorOpenS, 0.85, { cls: 'door door-open' }); // raised leaves
+    }
+  }
+
   function dormerFront(L, GL, cx, state) {
     var w = 6, yF = 1.6, zSill = WALL + 2.2, zHead = WALL + 6.2, zPk = WALL + 8.2, yBack = 6.2;
     var wf = 'rgba(14,30,44,0.96)', rf = 'rgba(8,19,29,0.97)', es = C.roofSdk;
@@ -172,16 +216,18 @@ const JARVIS3D = (function () {
   }
 
   // ---------- garage doors (count = SPEC.garageBays, default 3; fill the garage front) ----------
-  function garageDoors(L, GL, state) {
+  function garageDoors(L, GL, state, openState) {
     var bays = SPEC.garageBays > 0 ? SPEC.garageBays : 3, gap = 1.8;
     var dw = (GW - gap * (bays + 1)) / bays, z0 = 0.4, z1 = 7.4, i, x0;
-    var f = state === 'on' || state === 'dom' ? C.doorOn : C.doorOff;
-    var s = state === 'on' || state === 'dom' ? C.glassOn : C.doorS;
+    var open = openState === 'open', lit = state === 'on' || state === 'dom';
+    var f = open ? C.doorOpen : lit ? C.doorOn : C.doorOff;
+    var s = open ? C.doorOpenS : lit ? C.glassOn : C.doorS;
+    var cls = open ? 'gdoor door-open' : 'gdoor';
     for (i = 0; i < bays; i++) {
       x0 = gap + i * (dw + gap);
-      F(L, [[x0,-0.06,z0],[x0+dw,-0.06,z0],[x0+dw,-0.06,z1],[x0,-0.06,z1]], f, s, 1.0, { cls: 'gdoor' });
+      F(L, [[x0,-0.06,z0],[x0+dw,-0.06,z0],[x0+dw,-0.06,z1],[x0,-0.06,z1]], f, s, 1.0, { cls: cls });
       for (var k = 1; k < 4; k++) { var zz = z0 + (z1 - z0) * k / 4; F(L, [[x0,-0.06,zz],[x0+dw,-0.06,zz]], 'none', s, 0.45); }
-      if ((state === 'on' || state === 'dom') && GL) GL.push({ p: [[x0-1.2,-0.06,z0],[x0+dw+1.2,-0.06,z0],[x0+dw+1.2,-0.06,z1+1.2],[x0-1.2,-0.06,z1+1.2]], f: C.glowOn });
+      if ((open || lit) && GL) GL.push({ p: [[x0-1.2,-0.06,z0],[x0+dw+1.2,-0.06,z0],[x0+dw+1.2,-0.06,z1+1.2],[x0-1.2,-0.06,z1+1.2]], f: open ? C.doorOpenGlow : C.glowOn });
     }
   }
 
@@ -270,11 +316,39 @@ const JARVIS3D = (function () {
     if (occ) LBL.push({ x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: z1 - 0.5, st: state, dot: true });
   }
 
-  function buildRooms(floor, lit, L, LBL) {
+  // interior door on an x=const wall (shown on the floor-plan views)
+  function intDoorX(L, x, y0, y1, z0, z1, state) {
+    if (state === 'open') {
+      var w = y1 - y0, ang = 58 * Math.PI / 180;
+      var fy = y0 + w * Math.cos(ang), fx = x + w * Math.sin(ang);   // swing into the kitchen (+x)
+      F(L, [[x,y0,z0],[fx,fy,z0],[fx,fy,z1],[x,y0,z1]], C.doorOpen, C.doorOpenS, 0.8, { cls: 'door door-open' });
+    } else {
+      F(L, [[x,y0,z0],[x,y1,z0],[x,y1,z1],[x,y0,z1]], 'rgba(0,242,254,0.14)', C.doorS, 0.7, { cls: 'door' });
+    }
+  }
+  // interior door on a y=const wall (e.g. the basement door in the rear foundation wall)
+  function intDoorY(L, y, x0, x1, z0, z1, faceOut, hinge, state) {
+    var n = faceOut == null ? -0.06 : faceOut, yy = y + n;
+    if (state !== 'open') {
+      F(L, [[x0,yy,z0],[x1,yy,z0],[x1,yy,z1],[x0,yy,z1]], 'rgba(0,242,254,0.14)', C.doorS, 0.7, { cls: 'door' });
+      return;
+    }
+    var w = x1 - x0, ang = 58 * Math.PI / 180, dir = n >= 0 ? 1 : -1;
+    var dx = w * Math.cos(ang), dy = dir * w * Math.sin(ang);
+    var hx = hinge === 'right' ? x1 : x0, fx = hinge === 'right' ? x1 - dx : x0 + dx, fy = yy + dy;
+    F(L, [[hx,yy,z0],[fx,fy,z0],[fx,fy,z1],[hx,yy,z1]], C.doorOpen, C.doorOpenS, 0.8, { cls: 'door door-open' });
+  }
+
+  function buildRooms(floor, lit, doors, L, LBL) {
     var stOf = function (n) { var s = lit[String(n).toLowerCase()]; return s === 'dom' ? 'dom' : s ? 'on' : 'off'; };
+    var dOf = function (k) { return doors && doors[k] === 'open' ? 'open' : 'closed'; };
     var z = FLOOR_Z[floor] || FLOOR_Z['1f'];
     (ROOMS[floor] || []).forEach(function (r) { roomBox(L, LBL, r[0], r[1], r[2], r[3], z[0], z[1], r[4], stOf(r[5])); });
-    if (floor === 'b') BSMT_ITEMS.forEach(function (it) { LBL.push({ x: it[0], y: it[1], z: z[1] - 0.3, t: it[2], st: 'off', small: true }); });
+    if (floor === '1f') intDoorX(L, XGH, 19.5, 22.5, z[0], z[0] + 6.5, dOf('kitchen_garage')); // kitchen ↔ garage
+    if (floor === 'b') {
+      intDoorY(L, D, 33.5, 38.5, z[0] + 0.3, z[1] - 0.1, -0.06, 'left', dOf('basement'));      // basement door (foot of the cellar stairs, inline w/ the bulkhead above)
+      BSMT_ITEMS.forEach(function (it) { LBL.push({ x: it[0], y: it[1], z: z[1] - 0.3, t: it[2], st: 'off', small: true }); });
+    }
   }
 
   function buildContext(L, floor) {
@@ -294,20 +368,22 @@ const JARVIS3D = (function () {
     opts = opts || {};
     applySpec(opts.spec);                           // home type/specs (empty = default)
     var lit = opts.lit || {};                       // { 'master bedroom':'on'|'dom', ... }
+    var doors = opts.doors || {};                   // { front:'open'|'closed', garage:..., cellar:..., ... }
     var floor = opts.floor || 'all';
     var stOf = function (name) { var s = lit[String(name).toLowerCase()]; return s === 'dom' ? 'dom' : s ? 'on' : 'off'; };
+    var dOf = function (k) { return doors[k] === 'open' ? 'open' : 'closed'; };
     var L = [], GL = [], LBL = [];
 
     if (floor !== 'all') {
       // floor isolation: faint shell context + translucent labeled rooms for this level
       buildContext(L, floor);
-      buildRooms(floor, lit, L, LBL);
+      buildRooms(floor, lit, doors, L, LBL);
       return { faces: L, glow: GL, labels: LBL };
     }
 
     buildShell(L, GL);
     chimney(L, SPEC.chimney);
-    garageDoors(L, GL, stOf('garage'));
+    garageDoors(L, GL, stOf('garage'), dOf('garage'));
 
     // dormers — counts configurable; unset = the approved default layout
     if (SPEC.dormersFront == null) {
@@ -328,14 +404,16 @@ const JARVIS3D = (function () {
 
     // front facade: Dining (one window, L) · front door (centered) · Living Room (one window, R) — matching pair
     winY(L, GL, 0, XGH + 4, XGH + 8.5, 3, 7, stOf('dining room'), true);              // dining window
-    F(L, [[XGH+14.5,-0.06,0],[XGH+17.5,-0.06,0],[XGH+17.5,-0.06,7],[XGH+14.5,-0.06,7]], C.doorOff, C.doorS, 0.7); // front door (centered)
+    doorY(L, GL, 0, XGH + 14.5, XGH + 17.5, 0, 7, -0.06, 'left', dOf('front'));        // front entry (centered)
     winY(L, GL, 0, XGH + 23.5, XGH + 28, 3, 7, stOf('living room'), true);            // living-room window (matches dining)
     // right (east) gable corners: Living Rm front (SE), Guest Rm rear (NE) — flank the chimney
     winX(L, GL, XHE, 3.5, 7.5, 3, 7, stOf('living room'), true);
     winX(L, GL, XHE, 16.5, 20.5, 3, 7, stOf('guest room'), true);
-    // rear (north) facade corners: Kitchen (NW) · Guest (NE) — faceOut +Y
+    // rear (north) facade: Kitchen (NW) · Guest (NE) windows · garage man-door · cellar bulkhead
     winY(L, GL, D, XGH + 3, XGH + 9, 3, 7, stOf('kitchen'), true, 0.06);
     winY(L, GL, D, XGH + 22, XGH + 28, 3, 7, stOf('guest room'), true, 0.06);
+    doorY(L, GL, D, 25.2, 28.2, 0, 6.8, 0.06, 'right', dOf('garage_rear'));            // garage rear man-door (~3ft W of junction)
+    bulkhead(L, GL, 33.5, 38.5, dOf('cellar'));                                        // cellar door under the kitchen window
 
     return { faces: L, glow: GL, labels: LBL };
   }
@@ -1408,6 +1486,11 @@ class JarvisPanel extends HTMLElement {
     if (dom) lit[String(dom).toLowerCase()] = 'dom';
     return lit;
   }
+  // Live door open/closed state, keyed to the model's doors (from the backend).
+  _house3dDoors() {
+    const d = this._data();
+    return (d && d.doors) || {};
+  }
 
   // Home spec from config (type/specs). Only fields the user configured are set, so the
   // model falls back to its approved default layout otherwise. Roof pitch + sensible dormer
@@ -1457,7 +1540,7 @@ class JarvisPanel extends HTMLElement {
       this._house3dBoxKey = key;
     }
     mount.innerHTML = JARVIS3D.renderSVG({
-      theta: this._house3dTheta, floor, lit: this._house3dLit(), box: this._house3dBox, spec
+      theta: this._house3dTheta, floor, lit: this._house3dLit(), doors: this._house3dDoors(), box: this._house3dBox, spec
     });
     const d = this._data();
     const occ = (d.areasGrid || []).filter(a => a.active).length;
@@ -4983,7 +5066,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.23.2 ",
+  "%c JARVIS Panel %c v6.24.1 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
