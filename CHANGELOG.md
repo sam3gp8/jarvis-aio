@@ -4,25 +4,6 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.22.0] — Phone-friendly panel
-Responsive layer so the panel is usable on a phone, not just desktop/tablet. Layers under
-the existing tablet (≤900px) rules; desktop is unchanged.
-- **Top tab bar** scrolls horizontally instead of overflowing when the four tabs don't fit a
-  narrow screen, with larger tap targets.
-- **Residence 3D model** scene shortens to fit a phone screen, and a **horizontal drag rotates
-  while vertical still scrolls the page** (`touch-action: pan-y`) so the model doesn't trap
-  scrolling. The banner/stat overlays compact and shed their lowest-priority items
-  (STYLE, then EST SQ FT) on the narrowest screens to avoid collisions; the floor pills wrap
-  and the home-style control goes full-width.
-- **Masthead, dominant-room hero, and logs** tighten their spacing and type; the app padding
-  shrinks and horizontal overflow is clamped.
-- **Dense settings rows** (AI models, appliance routines, doorbell training) are allowed to
-  shrink within the viewport instead of pushing horizontal scroll.
-- Two breakpoints: ≤600px (phone) and ≤380px (small phone).
-
-_Note: rendered-preview verification doesn't apply to CSS layout (no headless browser in the
-build sandbox), so this was verified by structure (audit + smoke) and on-device._
-
 ## [6.21.0] — Rotatable 3D residence model (default)
 The residence overview is now a real, drag-rotatable 3D model of the home, replacing the
 fixed cabinet-projection drawing. It is a pure-geometry axonometric projection rendered to

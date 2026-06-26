@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.22.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.21.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -3570,7 +3570,6 @@ class JarvisPanel extends HTMLElement {
     width: 100%;
     height: 450px;
     perspective: 1100px;
-    touch-action: pan-y;
     background:
       radial-gradient(ellipse at 50% 42%, rgba(0, 242, 254, 0.05) 0%, transparent 55%),
       radial-gradient(ellipse at 50% 40%, rgba(0, 25, 45, 0.35), #04070d 72%);
@@ -4655,58 +4654,6 @@ class JarvisPanel extends HTMLElement {
   .res-wrap-big .house3d-scene { height: 560px; }
   .h3d-roof { position: absolute; }
   .h3d-roof-gable { position: absolute; backface-visibility: hidden; }
-
-  /* ───────────────── PHONE (≤600px) ───────────────── */
-  @media (max-width: 600px) {
-    .app { padding: 8px; gap: 10px; overflow-x: hidden; }
-
-    /* top tab bar: scroll horizontally instead of overflowing; comfortable tap height */
-    .tab-bar { overflow-x: auto; flex-wrap: nowrap; padding: 0 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-    .tab-bar::-webkit-scrollbar { display: none; }
-    .tab { padding: 11px 13px; font-size: 10px; letter-spacing: 0.1em; white-space: nowrap; flex: 0 0 auto; }
-
-    /* masthead compact */
-    .masthead { padding: 9px 10px; gap: 8px; }
-    .brand { font-size: 13px; letter-spacing: 0.2em; }
-    .greeting { font-size: 10px; }
-    .clock .time { font-size: 16px; }
-
-    /* dominant-room hero smaller */
-    .room-name { font-size: 24px; }
-    .anchor { padding: 16px 12px; min-height: 240px; }
-
-    /* residence 3D scene shorter so the model + its controls fit one phone screen */
-    .floorplan-wrap, .res-wrap-big { min-height: 340px; }
-    .house3d-scene, .res-wrap-big .house3d-scene { height: 340px; }
-
-    /* residence overlays: compact, avoid banner/stat collision on a narrow scene */
-    .res-banner { top: 6px; left: 8px; }
-    .res-banner-t { font-size: 9px; letter-spacing: 0.1em; }
-    .res-banner-s { display: none; }
-    .res-stat { top: 6px; right: 8px; gap: 9px; }
-    .res-stat-i label { font-size: 7px; letter-spacing: 0.08em; }
-    .res-stat-i b { font-size: 11px; }
-    .res-stat-i:nth-child(3) { display: none; }   /* drop STYLE stat to save width */
-
-    /* residence controls stack full-width; floor pills wrap with bigger tap targets */
-    .res-controls { flex-direction: column; align-items: stretch; gap: 8px; }
-    .res-style { width: 100%; }
-    .res-style-sel { flex: 1 1 auto; }
-    .floor-tabs { flex-wrap: wrap; gap: 6px; }
-    .floor-tab { padding: 8px 14px; font-size: 9px; }
-
-    /* let dense settings rows shrink within the viewport instead of overflowing */
-    .model-row > *, .dbt-row > *, .ar-line2 > * { min-width: 0; }
-    .log { max-height: 300px; }
-  }
-
-  /* ───────────────── very small phones (≤380px) ───────────────── */
-  @media (max-width: 380px) {
-    .tab { padding: 10px 10px; letter-spacing: 0.05em; }
-    .brand { font-size: 12px; }
-    .floor-tab { padding: 7px 11px; }
-    .res-stat-i:nth-child(1) { display: none; }   /* keep BED/BATH + OCCUPIED only */
-  }
 </style>
     `;
   }
@@ -4718,7 +4665,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.22.0 ",
+  "%c JARVIS Panel %c v6.21.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

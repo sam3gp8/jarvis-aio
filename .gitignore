@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Test / tooling caches (never commit)
+.pytest_cache/
+.coverage
+coverage.json
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node (jsdom smoke test installs this locally)
+node_modules/
+
+# JARVIS runtime state (never committed — lives on the HA instance)
+jarvis_config.json
+jarvis_persona.txt
+patterns.db
+*.jsonl
+reasoning_cache.json
+lockdown_state.json
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Build artifacts
+*.zip
+build/
+dist/
