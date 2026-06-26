@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.24.1 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.24.2 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -2507,7 +2507,12 @@ class JarvisPanel extends HTMLElement {
         const active = !!this._liveData?.lockdown?.active;
         ldBtn.disabled = true;
         try {
-          await this._hass.callWS({ type: "jarvis/set_lockdown", on: !active });
+          const res = await this._hass.callWS({ type: "jarvis/set_lockdown", on: !active });
+          if (res && res.lockdown) {
+            if (!this._liveData) this._liveData = {};
+            this._liveData.lockdown = res.lockdown;
+            this._patchLockdown(this._liveData);   // flip the switch on the WS result, not the next poll
+          }
           await this._fetchLiveData();
         } catch (e) {
           console.warn("JARVIS: lockdown toggle failed", e);
@@ -5066,7 +5071,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.24.1 ",
+  "%c JARVIS Panel %c v6.24.2 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

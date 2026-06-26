@@ -4,6 +4,20 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.24.2] — Lockdown that actually engages (and follows your alarm)
+Fixed the lockdown toggle for good and made it dependable. It now engages every time you flip
+it, the header switch reflects it immediately, and lockdown follows your alarm on its own — it
+arms whenever any alarm panel is armed and lifts when you disarm, and it holds that state across
+reboots and updates. (Manually flipping it off while armed still wins until you next disarm.)
+
+Why it was stuck: lockdown used to be set up deep inside the optional observer's startup, so any
+hiccup there left it silently switched off — which is exactly why the toggle did nothing while
+everything else worked. It's now its own always-on security feature, created on demand if needed,
+watching your alarm directly so arming/disarming takes effect the instant it happens instead of
+waiting on a background cycle. The add-on log also spells out each lockdown action now, so if
+anything misbehaves it's clear what happened.
+
+
 ## [6.24.1] — Basement door
 Added the basement door at the foot of the cellar stairs. It lines up directly under the
 cellar bulkhead and appears on the basement floor view, opening and closing in step with its

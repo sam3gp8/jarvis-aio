@@ -1256,6 +1256,7 @@ class _CoreState:
         self.running: bool = False
         self.task: Optional[asyncio.Task] = None
         self.unsub: Optional[object] = None
+        self.alarm_unsub: Optional[object] = None  # alarm_control_panel → lockdown sync listener
         self.ignore_mgr: Optional[IgnoreManager] = None
         self.safety_mgr: Optional[SafetyManager] = None
         self.lockdown_mgr: Optional["LockdownManager"] = None
@@ -1563,29 +1564,116 @@ def lockdown_status() -> dict:
     return {"active": False, "since": 0.0, "reason": "", "auto": False, "exempt_windows": 0}
 
 
-async def request_lockdown(on: bool, reason: str = "requested") -> bool:
+def _ensure_lockdown_mgr(hass: HomeAssistant = None) -> Optional["LockdownManager"]:
+    """
+    Return the lockdown manager, creating it on demand. Lockdown is a security
+    feature, so it must not depend on the cognitive-core loop having started
+    cleanly — if start() was interrupted (and swallowed as non-fatal), the
+    manager is created here the first time it's needed.
+    """
+    if _CORE.lockdown_mgr is None:
+        h = _CORE.hass or hass
+        if h is None:
+            return None
+        try:
+            _CORE.lockdown_mgr = LockdownManager(h, _CORE.config or {})
+            if _CORE.hass is None:
+                _CORE.hass = h
+            _LOGGER.warning("Lockdown manager created on demand (core start had not initialised it)")
+        except Exception as exc:
+            _LOGGER.error("Lockdown manager create failed: %s", exc)
+            return None
+    return _CORE.lockdown_mgr
+
+
+async def ensure_lockdown(hass: HomeAssistant, config: dict) -> None:
+    """
+    Wire lockdown up independently of the observer / cognitive loop: make sure
+    the manager exists, register an event-driven alarm→lockdown sync, and apply
+    the current alarm state immediately (so a reboot while the alarm is armed
+    re-engages lockdown). Idempotent — safe to call from setup and from start().
+    """
+    if _CORE.hass is None:
+        _CORE.hass = hass
+    if not _CORE.config:
+        _CORE.config = config or {}
+    _ensure_lockdown_mgr(hass)
+    if _CORE.alarm_unsub is None:
+        _CORE.alarm_unsub = hass.bus.async_listen("state_changed", _on_alarm_state)
+        _LOGGER.info("Lockdown alarm-sync listener registered")
+    await _sync_lockdown_to_alarm("startup")
+
+
+async def _on_alarm_state(event) -> None:
+    """React the moment any alarm_control_panel changes state."""
+    try:
+        eid = event.data.get("entity_id", "")
+        if not eid.startswith("alarm_control_panel."):
+            return
+        await _sync_lockdown_to_alarm("alarm " + eid)
+    except Exception as exc:
+        _LOGGER.debug("alarm→lockdown sync error: %s", exc)
+
+
+async def _sync_lockdown_to_alarm(reason: str) -> None:
+    """
+    Engage lockdown when any alarm is armed, lift it (if it was the alarm that
+    engaged it) when all alarms are disarmed. Honours lockdown_auto_on_arm and
+    the manual-exit suppression. Event-driven, so it does not depend on the loop.
+    """
+    mgr = _CORE.lockdown_mgr
+    if mgr is None or _CORE.hass is None:
+        return
+    if not (_CORE.config or {}).get("lockdown_auto_on_arm", True):
+        return
+    try:
+        armed = mgr._alarm_armed()
+    except Exception:
+        return
+    if not armed and mgr._auto_suppressed:
+        mgr._auto_suppressed = False
+        await mgr._persist()
+    action = None
+    if armed and not mgr.active and not mgr._auto_suppressed:
+        action = await mgr.engage("alarm armed", auto=True)
+    elif mgr.active and mgr.auto and not armed:
+        action = await mgr.disengage("alarm disarmed")
+    if action and _CORE.hass:
+        try:
+            await _emit_action(_CORE.hass, _CORE.config or {}, action, False)
+        except Exception as exc:
+            _LOGGER.debug("lockdown alarm-sync emit failed: %s", exc)
+
+
+async def request_lockdown(on: bool, reason: str = "requested", hass: HomeAssistant = None) -> bool:
     """
     Manual lockdown entry point (service / voice / panel). Engages or lifts the
-    lockdown and announces the result through the normal routing. Returns True
-    if the cognitive core was available to handle it.
+    lockdown and announces the result. Creates the manager on demand if needed,
+    so it works even if the cognitive core didn't initialise it. Returns True if
+    the request was handled.
     """
-    if not _CORE.lockdown_mgr or not _CORE.hass:
+    mgr = _ensure_lockdown_mgr(hass)
+    h = _CORE.hass or hass
+    if mgr is None or h is None:
+        _LOGGER.warning("Lockdown %s request ignored — manager/hass unavailable",
+                        "engage" if on else "lift")
         return False
-    mgr = _CORE.lockdown_mgr
     action = await (mgr.engage(reason, auto=False) if on else mgr.disengage(reason, manual=True))
+    _LOGGER.info("Lockdown %s requested (%s) → active=%s",
+                 "engage" if on else "lift", reason, mgr.active)
     if action:
         try:
             from . import sleep_detection
-            cfg = _CORE.config
+            cfg = _CORE.config or {}
             sleeping, _ = sleep_detection.is_sleeping(
-                _CORE.hass,
+                h,
                 bedroom_area_ids=cfg.get("bedroom_areas", []) or [],
                 quiet_start=cfg.get("observer_quiet_start", "22:00"),
                 quiet_end=cfg.get("observer_quiet_end", "07:00"),
             )
         except Exception:
             sleeping = False
-        await _emit_action(_CORE.hass, _CORE.config, action, sleeping)
+        await _emit_action(h, _CORE.config or {}, action, sleeping)
     return True
 
 
@@ -1810,6 +1898,13 @@ async def start(hass: HomeAssistant, config: dict) -> None:
     _CORE.autonomy_mgr = await hass.async_add_executor_job(AutonomyManager)
     _CORE.state_logger = await hass.async_add_executor_job(StateLogger)
 
+    # Lockdown alarm-sync (engage on arm / lift on disarm), event-driven and
+    # independent of the loop below; applies the current alarm state now.
+    try:
+        await ensure_lockdown(hass, config)
+    except Exception as exc:
+        _LOGGER.warning("Lockdown wiring in start() failed: %s", exc)
+
     # Restore the cognition model (per-entity rhythm) so anticipation survives
     # restarts and keeps accumulating across days.
     try:
@@ -1861,6 +1956,12 @@ async def stop() -> None:
             _CORE.unsub()
         except Exception:
             pass
+    if _CORE.alarm_unsub:
+        try:
+            _CORE.alarm_unsub()
+        except Exception:
+            pass
+        _CORE.alarm_unsub = None
     _LOGGER.info(
         "JARVIS Cognitive Core stopped — %d ticks, %d actions taken",
         _CORE.tick_count, _CORE.actions_taken,

@@ -481,6 +481,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "JARVIS Observer mode disabled. Enable via addon config → observer_enabled=true"
         )
 
+    # ── Lockdown (security) — wired independently of Observer / cognitive loop ─
+    # Lockdown is safety-critical, so it must not depend on observer being on or
+    # on the cognitive-core start completing cleanly. Set up the manager + the
+    # event-driven alarm→lockdown sync here, regardless of the above.
+    try:
+        from . import cognitive_core
+        lockdown_config = {**dict(entry.data), **dict(entry.options)}
+        await cognitive_core.ensure_lockdown(hass, lockdown_config)
+    except Exception as exc:
+        _LOGGER.warning("JARVIS lockdown wiring failed (non-fatal): %s", exc)
+
     # ── v5.4 Command Center panel ──────────────────────────────────────────
     # Register sidebar panel. Idempotent — safe if called after reload.
     try:
@@ -917,9 +928,9 @@ def _register_services(
         raw = call.data.get("state", call.data.get("enabled", "on"))
         on = raw in (True, "on", "true", "True", "engage", "lock", 1, "1")
         ok = await cognitive_core.request_lockdown(
-            on, reason=call.data.get("reason", "requested via service"))
+            on, reason=call.data.get("reason", "requested via service"), hass=hass)
         if not ok:
-            _LOGGER.warning("Lockdown service: cognitive core not running")
+            _LOGGER.warning("Lockdown service: request could not be handled (no hass)")
         else:
             _LOGGER.info("Lockdown %s via service call", "engaged" if on else "lifted")
 

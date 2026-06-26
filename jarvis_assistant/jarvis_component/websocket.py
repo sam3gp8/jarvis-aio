@@ -1096,11 +1096,14 @@ async def ws_set_lockdown(
     try:
         from . import cognitive_core
         ok = await cognitive_core.request_lockdown(
-            bool(msg["on"]), reason="requested from panel")
-        connection.send_result(msg["id"], {
-            "ok": ok, "lockdown": cognitive_core.lockdown_status(),
-        })
+            bool(msg["on"]), reason="requested from panel", hass=hass)
+        status = cognitive_core.lockdown_status()
+        if not ok:
+            _LOGGER.warning("Panel lockdown request returned not-ok (on=%s); status=%s",
+                            bool(msg["on"]), status)
+        connection.send_result(msg["id"], {"ok": ok, "lockdown": status})
     except Exception as exc:
+        _LOGGER.exception("Panel lockdown request failed: %s", exc)
         connection.send_error(msg["id"], "lockdown_failed", str(exc))
 
 
