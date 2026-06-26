@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.23.1] — Lockdown is now a real switch
+The masthead lockdown control was an ambiguous pill that read like a status banner — you
+couldn't tell it was interactive or which way it was set. Replaced it with a proper sliding
+**toggle switch**: knob left + grey when off, knob right + red (glowing, pulsing) when armed,
+with a "LOCKDOWN" label and an OFF/ARMED state word. Same backend action (`jarvis/set_lockdown`),
+same `[ STATUS: NOMINAL/LOCKDOWN ]` badge as a redundant text readout. The state word hides on
+phones to keep the masthead compact; the switch position + colour still convey state there.
+Adds `role="switch"` + `aria-checked` for accessibility.
+
 ## [6.23.0] — Configurable home type & specs
 The Residence 3D model is no longer hardcoded to one Cape Cod. A new **Residence / Home**
 card at the top of the Settings tab drives the model and the property stats from config.

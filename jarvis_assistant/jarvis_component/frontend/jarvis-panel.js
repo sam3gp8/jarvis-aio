@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.23.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.23.1 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -1761,8 +1761,12 @@ class JarvisPanel extends HTMLElement {
       <div class="time" id="clock-time">${hh}:${mm}:${ss}</div>
       <div class="date" id="clock-date">${days[now.getDay()]} · ${String(now.getDate()).padStart(2,"0")} · ${mons[now.getMonth()]} · ${now.getFullYear()}</div>
     </div>
-    <button class="lockdown-pill ${this._liveData?.lockdown?.active ? 'on' : ''}" id="lockdown-btn" title="${this._liveData?.lockdown?.active ? 'Lockdown active — tap to lift' : 'Tap to engage lockdown'}">
-      <span class="ld-dot"></span>${this._liveData?.lockdown?.active ? 'EXIT LOCKDOWN' : 'LOCKDOWN'}
+    <button class="lockdown-toggle ${this._liveData?.lockdown?.active ? 'on' : ''}" id="lockdown-btn"
+      role="switch" aria-checked="${this._liveData?.lockdown?.active ? 'true' : 'false'}" aria-label="Lockdown"
+      title="${this._liveData?.lockdown?.active ? 'Lockdown engaged — tap to lift' : 'Tap to engage lockdown'}">
+      <span class="ld-switch" aria-hidden="true"><span class="ld-knob"></span></span>
+      <span class="ld-label">LOCKDOWN</span>
+      <span class="ld-state">${this._liveData?.lockdown?.active ? 'ARMED' : 'OFF'}</span>
     </button>
   </div>
 
@@ -3362,30 +3366,50 @@ class JarvisPanel extends HTMLElement {
   }
   .brand span { color: var(--text-dim); font-weight: 400; }
 
-  .lockdown-pill {
-    display: flex; align-items: center; gap: 7px;
+  /* Lockdown toggle switch */
+  .lockdown-toggle {
+    display: inline-flex; align-items: center; gap: 8px;
     background: rgba(0,0,0,0.35);
     border: 1px solid var(--line-hot, #2a3f4a);
-    color: var(--text-dim);
-    font-family: var(--font-display);
-    font-size: 12px; letter-spacing: 0.18em;
-    padding: 6px 13px; border-radius: 999px; cursor: pointer;
-    transition: all .2s ease; white-space: nowrap;
+    padding: 5px 12px 5px 8px; border-radius: 999px; cursor: pointer;
+    transition: border-color .2s ease, box-shadow .2s ease; white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
   }
-  .lockdown-pill:hover { border-color: var(--cyan); color: var(--text); }
-  .lockdown-pill .ld-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--text-dim); transition: all .2s ease;
+  .lockdown-toggle:hover { border-color: var(--cyan); }
+  .lockdown-toggle:focus-visible { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(0,242,254,0.35); }
+  .ld-switch {
+    position: relative; flex: 0 0 auto; box-sizing: border-box;
+    width: 40px; height: 22px; border-radius: 999px;
+    background: rgba(120,150,165,0.18);
+    border: 1px solid var(--line-hot, #2a3f4a);
+    transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
   }
-  .lockdown-pill.on {
-    border-color: #ff5a5a; color: #ff9a9a;
-    box-shadow: 0 0 18px rgba(255,60,60,0.35);
+  .ld-knob {
+    position: absolute; top: 2px; left: 2px; box-sizing: border-box;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #7d97a6;
+    transition: transform .2s ease, background .2s ease, box-shadow .2s ease;
   }
-  .lockdown-pill.on .ld-dot {
-    background: #ff5a5a; box-shadow: 0 0 9px #ff5a5a;
-    animation: ldpulse 1.6s ease-in-out infinite;
+  .ld-label {
+    font-family: var(--font-display); font-size: 12px; letter-spacing: 0.16em;
+    color: var(--text-dim); transition: color .2s ease;
   }
-  @keyframes ldpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .ld-state {
+    font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+    color: var(--text-faint); transition: color .2s ease; min-width: 34px;
+  }
+  /* armed */
+  .lockdown-toggle.on { border-color: #ff5a5a; box-shadow: 0 0 18px rgba(255,60,60,0.30); }
+  .lockdown-toggle.on .ld-switch {
+    background: rgba(255,60,60,0.28); border-color: #ff6a6a;
+    box-shadow: 0 0 10px rgba(255,60,60,0.45), inset 0 0 6px rgba(255,60,60,0.35);
+  }
+  .lockdown-toggle.on .ld-knob {
+    transform: translateX(18px); background: #ff8080; box-shadow: 0 0 9px #ff5a5a;
+  }
+  .lockdown-toggle.on .ld-label { color: #ff9a9a; }
+  .lockdown-toggle.on .ld-state { color: #ff6a6a; animation: ldpulse 1.6s ease-in-out infinite; }
+  @keyframes ldpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
   .greeting {
     font-size: 15px;
@@ -4864,6 +4888,7 @@ class JarvisPanel extends HTMLElement {
 
     /* masthead compact */
     .masthead { padding: 9px 10px; gap: 8px; }
+    .ld-state { display: none; }
     .brand { font-size: 13px; letter-spacing: 0.2em; }
     .greeting { font-size: 10px; }
     .clock .time { font-size: 16px; }
@@ -4915,7 +4940,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.23.0 ",
+  "%c JARVIS Panel %c v6.23.1 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
