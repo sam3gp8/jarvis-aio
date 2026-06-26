@@ -4,7 +4,109 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.18.0] — Restore the approved solid-house 3D renderer
+## [6.21.0] — Rotatable 3D residence model (default)
+The residence overview is now a real, drag-rotatable 3D model of the home, replacing the
+fixed cabinet-projection drawing. It is a pure-geometry axonometric projection rendered to
+SVG (no build step, no CDN), so the same code rotates in the browser and rasterizes for
+release verification.
+- **Drag to rotate** to any angle; the model re-projects live.
+- **Floor isolation** (All / 1st / 2nd / Basement). The "All" view shows the exterior with
+  presence as lit windows; each floor view drops the shell and shows that level's rooms as
+  labeled translucent volumes with per-room occupancy (cyan occupied, green dominant).
+- **Built to the real house** — dimensions from the architectural plan (63′×24′ footprint,
+  garage 30×24, house 33×24, dormered ~400 sf second floor); room layout and labels from the
+  floor-plan editor. Correct gable roof, two front dormers, the round-window rear dormer
+  (upstairs bath), three-car garage, and the exterior chimney on the east gable.
+- **Occupancy is data-driven** from live HA areas matched by name, so rooms light up as people
+  move through the house.
+- **Not hard-wired to one home:** the house spec (dimensions, room list, garage doors, dormers)
+  is a single labeled default-config block at the top of the inlined `JARVIS3D` module — edit
+  it for a different house. Address still comes from config.
+- Retired the leader-line presence callouts (a rotating model can't anchor fixed leaders);
+  presence now reads directly off the lit windows and labeled rooms. Smoke test updated to
+  assert the rotatable model, the three garage doors, and floor-isolation labels.
+
+## [6.20.3] — Real-home geometry: 3-car garage + corrected room windows
+Calibrated the cabinet-projection house against the actual property photos.
+- **Three garage doors.** The left wing now renders three evenly-spaced single doors
+  (was two), matching the real garage. All three light together from the `cover.*garage*`
+  state.
+- **Front facade corrected.** The wide left window is now a single Living Room picture
+  window (two sections, no longer a stray "Kitchen" pane); front door and Dining window
+  to the right are unchanged.
+- **Corner rooms on the right gable.** The two windows flanking the end chimney now map to
+  the rooms that actually sit at that corner — Dining Room (front of the stack) and
+  **Kitchen** (behind the stack, rear-right corner side window).
+- **Projection note.** The Guest Bedroom (rear-left) and the upstairs Bath (the round
+  rear-dormer window) face the two elevations this fixed front-right angle can't show, so
+  they appear in the presence callouts rather than as lit windows. Keeping the front-right
+  view is deliberate — it's the only angle that shows the garage doors.
+- Smoke test extended to assert the garage renders exactly three doors (21 checks).
+
+## [6.20.2] — Flanking-window rooms
+The two windows either side of the end chimney now map to distinct rooms (Guest Room in
+front of the stack, a bath window behind) instead of both showing the living room.
+
+## [6.20.1] — Home corrections (chimney, garage doors, windows)
+From marked-up feedback on the render:
+- **Chimney** moved to the right gable end as a tall exterior stack (was floating mid-roof).
+- **Garage doors** redrawn so they clearly read as doors — bolder frame, panel courses, and
+  vertical seams.
+- **Windows added flanking the end chimney** (living-room windows either side of the
+  fireplace), plus the front-facade window set adjusted (Living / Kitchen / door / Dining).
+
+## [6.20.0] — Residence is now a solid home, not a diagram
+Replaced the isometric room-plate cutaway with a real, solid-massed house drawn in cabinet
+projection — walls, a gabled roof with dormers, the attached garage, a chimney, a front
+door. It reads as a *home*, and it is still a fixed SVG that cannot rotate or zoom.
+- **Presence shows as lit windows.** Occupied rooms glow cyan, the dominant room glows
+  green with a brighter halo, idle rooms stay dark — like a house at dusk with lights on
+  where people are. Garage doors light when the garage is active; basement windows light
+  for the basement.
+- **Window-to-room map:** dormers = Master Bedroom / Eliana's Room; first-floor windows =
+  Living Room / Kitchen / Guest Room; garage doors = Garage; base windows = Basement.
+- **Floor tabs focus a level** by dimming the other floors' windows.
+- Property banner, sq-ft / bed-bath / style / occupied stats, and the systems callouts
+  stay as the HUD surround. Audit clean, smoke 20/20, 170 tests passing.
+
+## [6.19.1] — Lock down the iso view
+Confirmed and hardened that the residence drawing cannot rotate or zoom: the 3D
+transform/drag/wheel methods are empty no-ops, no pointer listeners are attached, and the
+SVG is a fixed viewBox with no transform. Also removed the leftover grab cursor so the
+drawing no longer even looks draggable.
+
+## [6.19.0] — Residence is now a 2D isometric cutaway (no more fragile 3D)
+Replaced the CSS-3D house with a fixed 2D isometric SVG drawing. It renders identically
+every time — there is no rotation or zoom, so nothing can collapse to flat lines or blow
+up and scatter the way the 3D model kept doing. This is the isometric look from earlier in
+the project, re-themed to the panel's cyan and wired to live data.
+- **Always-correct cutaway.** Basement, first floor (garage with doors, kitchen, dining,
+  living room, guest room, hallway), and the dormered second floor (master bed, Eliana's
+  room) drawn as a clean Iron-Man-HUD isometric.
+- **Live presence.** Occupied rooms light up; the dominant room is brightest with a
+  pulsing node and a "◉ DOMINANT" tag; idle rooms stay dim — same data that drove the old
+  view.
+- **Floor tabs emphasise a level.** All / 1st / 2nd / Basement dim the other floors so you
+  can focus one. The property banner, sq-ft / bed-bath / style stats, and the OCCUPIED
+  count (now replacing the old ANGLE readout) sit over the drawing, with the systems
+  callouts down the sides.
+- Removed the 3D drag/zoom/angle controls and machinery entirely. Smoke test updated to
+  assert the SVG renders, the rooms draw, and the occupied count wires up. Audit clean,
+  170 tests passing.
+
+
+6.18.0 restored the right renderer but presented it badly: the auto-fit zoom blew the
+house up to its ceiling on the wide Residence tab, and the default tilt was too top-down,
+so the massing looked exploded and scattered instead of compact like the approved view.
+- **Tamed the zoom.** Auto-fit is now capped at 1.5× (was 2.4×) and targets a compact,
+  focal object — the house no longer fills the tab and overlaps itself.
+- **Near-front hero angle.** Default and Fit now sit at ~22° rotation / -18° tilt — a
+  gentle near-front view (matching the angle the approved preview was shown at) where the
+  gable roof and dormers read as a solid mass instead of a foreshortened aerial.
+- Scroll-zoom, drag-rotate, the 45/135/225/315 presets, and Fit are unchanged; Fit returns
+  you to the hero view. Audit clean, smoke 20/20, 170 tests passing.
+
+
 The 3D residence now uses the solid-walled Cape Cod renderer that was approved earlier
 in this project (the one with a real gable roof, dormers, and chimney) — not the flat
 floor-plate version that had crept in and collapsed to lines at low view angles.

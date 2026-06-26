@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.18.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.21.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -11,6 +11,373 @@
  * This session: visual port of the HTML mockup. Live clock, mock data
  * elsewhere. Real HA data wiring comes in session 2.
  */
+
+/* ===================================================================
+ * JARVIS3D — rotatable axonometric 3D residence model (SVG).
+ * Self-contained, no build/CDN. The DEFAULT HOUSE spec (dimensions,
+ * room layout, garage doors, dormers) lives at the top of this IIFE;
+ * edit it for a different home. Occupancy is data-driven from HA areas.
+ * =================================================================== */
+/* JARVIS Residence — 3D house core (v3 rebuild)
+ * Real dimensions from the architect's ApexSketch; labels/layout from the JARVIS editor.
+ * Pure-geometry axonometric projection rendered to SVG so it is (a) rotatable in the
+ * browser and (b) rasterizable here via cairosvg for verification. Same math both places.
+ * Works under Node (module.exports) and in the browser (window.JARVIS3D).
+ */
+const JARVIS3D = (function () {
+  'use strict';
+
+  // ---------- real dimensions (feet) ----------
+  var GW = 30, HW = 33, D = 24;                 // garage W, house W, depth
+  var XG0 = 0, XGH = GW, XHE = GW + HW;         // garage 0..30, house 30..63
+  var WALL = 9;                                 // 1st-floor wall height = main eave
+  var RISE = 11, RIDGE = WALL + RISE;           // main roof: eave 9 -> ridge 20
+  var GWALL = 9, GRISE = 5, GRIDGE = GWALL + GRISE; // garage roof: eave 9 -> ridge 14
+  var RY = D / 2;                               // ridge centerline (depth) = 12
+  var OVH = 1.2;                                // roof overhang
+  var SCALE = 8.6;                              // feet -> px
+  var PITCH = 30 * Math.PI / 180;               // camera elevation
+  var CENTER = [(XG0 + XHE) / 2, RY, WALL * 0.5]; // rotate about model center
+
+  // ---------- palette (JARVIS dark-cyan HUD) ----------
+  var C = {
+    wallF: 'rgba(22,46,66,0.34)', wallS: 'rgba(0,242,254,0.5)',
+    wallDk:'rgba(14,32,48,0.40)', wallSdk:'rgba(0,242,254,0.34)',
+    roofF: 'rgba(10,24,36,0.94)', roofS: 'rgba(0,206,247,0.5)',
+    roofDk:'rgba(6,17,27,0.96)',  roofSdk:'rgba(0,206,247,0.3)',
+    gableF:'rgba(18,38,56,0.6)',  gableS:'rgba(0,242,254,0.46)',
+    chimF: 'rgba(13,28,42,0.97)', chimS:'rgba(0,242,254,0.42)',
+    doorOff:'rgba(0,242,254,0.10)', doorOn:'rgba(0,242,254,0.30)', doorS:'rgba(0,242,254,0.6)',
+    winOff:'rgba(0,242,254,0.07)', winOn:'rgba(0,242,254,0.72)', winDom:'rgba(0,245,160,0.82)',
+    glassOff:'rgba(0,242,254,0.32)', glassOn:'rgba(120,240,255,0.92)', glassDom:'rgba(150,255,210,0.95)',
+    edge:'rgba(0,242,254,0.5)', dim:'rgba(0,242,254,0.26)', faint:'rgba(0,242,254,0.13)',
+    glowOn:'rgba(0,242,254,0.5)', glowDom:'rgba(0,245,160,0.55)'
+  };
+
+  // ---------- projection (turntable axonometric, orthographic) ----------
+  function rot(p, t) {
+    var x = p[0] - CENTER[0], y = p[1] - CENTER[1], z = p[2] - CENTER[2];
+    var c = Math.cos(t), s = Math.sin(t);
+    return [x * c + y * s, -x * s + y * c, z]; // rotated (rx, ry, z)
+  }
+  function project(p, thetaDeg) {
+    var r = rot(p, thetaDeg * Math.PI / 180);
+    return [r[0] * SCALE, -(r[1] * Math.sin(PITCH) + r[2] * Math.cos(PITCH)) * SCALE];
+  }
+  function faceDepth(face, thetaDeg) {
+    var t = thetaDeg * Math.PI / 180, cy = 0, cz = 0, n = face.p.length, i, r;
+    for (i = 0; i < n; i++) { r = rot(face.p[i], t); cy += r[1]; cz += r[2]; }
+    cy /= n; cz /= n;
+    return cy * Math.cos(PITCH) - cz * Math.sin(PITCH); // larger = farther from camera
+  }
+
+  // ---------- face helpers ----------
+  function F(list, pts, fill, stroke, sw, extra) {
+    var o = { p: pts, f: fill, s: stroke || C.edge, w: (sw == null ? 0.9 : sw) };
+    if (extra) for (var k in extra) o[k] = extra[k];
+    list.push(o);
+  }
+  // quad on a vertical plane y=const (a wall facing front/back)
+  function wallY(L, y, x0, x1, z0, z1, f, s, w) { F(L, [[x0,y,z0],[x1,y,z0],[x1,y,z1],[x0,y,z1]], f, s, w); }
+  // gable end on plane x=const: wall rect + triangle to ridge
+  function gableEnd(L, x, yA, yB, zWall, yPk, zPk, f, s, w) {
+    F(L, [[x,yA,0],[x,yB,0],[x,yB,zWall],[x,yPk,zPk],[x,yA,zWall]], f, s, w);
+  }
+
+  // ---------- a lit window on the front/back plane (y=const) ----------
+  function winY(L, GL, y, x0, x1, z0, z1, state, mull, faceOut, cols) {
+    var f = state === 'dom' ? C.winDom : state === 'on' ? C.winOn : C.winOff;
+    var st = state === 'dom' ? C.glassDom : state === 'on' ? C.glassOn : C.glassOff;
+    var n = faceOut == null ? -0.06 : faceOut;
+    var yy = y + n;
+    F(L, [[x0,yy,z0],[x1,yy,z0],[x1,yy,z1],[x0,yy,z1]], f, st, 0.7);
+    if (mull) {
+      F(L, [[x0,yy,(z0+z1)/2],[x1,yy,(z0+z1)/2]], 'none', st, 0.4);
+      var nc = cols || 2, k;
+      for (k = 1; k < nc; k++) { var xm = x0 + (x1 - x0) * k / nc; F(L, [[xm,yy,z0],[xm,yy,z1]], 'none', st, 0.4); }
+    }
+    if (state !== 'off' && GL) {
+      var g = state === 'dom' ? C.glowDom : C.glowOn;
+      GL.push({ p: [[x0-1.4,yy,z0-1.4],[x1+1.4,yy,z0-1.4],[x1+1.4,yy,z1+1.4],[x0-1.4,yy,z1+1.4]], f: g });
+    }
+  }
+  // window on the end plane (x=const)
+  function winX(L, GL, x, y0, y1, z0, z1, state, mull, faceOut) {
+    var f = state === 'dom' ? C.winDom : state === 'on' ? C.winOn : C.winOff;
+    var st = state === 'dom' ? C.glassDom : state === 'on' ? C.glassOn : C.glassOff;
+    var n = faceOut == null ? 0.06 : faceOut;
+    var xx = x + n;
+    F(L, [[xx,y0,z0],[xx,y1,z0],[xx,y1,z1],[xx,y0,z1]], f, st, 0.7);
+    if (mull) {
+      F(L, [[xx,y0,(z0+z1)/2],[xx,y1,(z0+z1)/2]], 'none', st, 0.4);
+      F(L, [[xx,(y0+y1)/2,z0],[xx,(y0+y1)/2,z1]], 'none', st, 0.4);
+    }
+    if (state !== 'off' && GL) {
+      var g = state === 'dom' ? C.glowDom : C.glowOn;
+      GL.push({ p: [[xx,y0-1.4,z0-1.4],[xx,y1+1.4,z0-1.4],[xx,y1+1.4,z1+1.4],[xx,y0-1.4,z1+1.4]], f: g });
+    }
+  }
+
+  // ---------- a front-slope dormer (little gable popping out of the roof) ----------
+  function dormerFront(L, GL, cx, state) {
+    var w = 6, yF = 1.6, zSill = WALL + 2.2, zHead = WALL + 6.2, zPk = WALL + 8.2, yBack = 6.2;
+    var wf = 'rgba(14,30,44,0.96)', rf = 'rgba(8,19,29,0.97)', es = C.roofSdk;
+    // side walls (triang│ following slope back into roof)
+    F(L, [[cx-w/2,yF,zSill],[cx-w/2,yF,zHead],[cx-w/2,yBack,WALL+RISE*(1-(yBack)/RY)]], wf, es, 0.55);
+    F(L, [[cx+w/2,yF,zSill],[cx+w/2,yF,zHead],[cx+w/2,yBack,WALL+RISE*(1-(yBack)/RY)]], wf, es, 0.55);
+    // little gable roof (two slopes from the dormer peak back to the main slope)
+    F(L, [[cx-w/2,yF,zHead],[cx,yF,zPk],[cx,yBack,WALL+RISE*(1-(yBack)/RY)+1.2],[cx-w/2,yBack,WALL+RISE*(1-(yBack)/RY)]], rf, es, 0.55);
+    F(L, [[cx+w/2,yF,zHead],[cx,yF,zPk],[cx,yBack,WALL+RISE*(1-(yBack)/RY)+1.2],[cx+w/2,yBack,WALL+RISE*(1-(yBack)/RY)]], rf, es, 0.55);
+    // front face (the bit that holds the window)
+    F(L, [[cx-w/2,yF,zSill],[cx+w/2,yF,zSill],[cx+w/2,yF,zHead],[cx-w/2,yF,zHead]], wf, C.wallS, 0.7);
+    F(L, [[cx-w/2,yF,zHead],[cx+w/2,yF,zHead],[cx,yF,zPk]], wf, C.wallS, 0.7);
+    // window
+    winY(L, GL, yF, cx-1.95, cx+1.95, zSill+0.4, zHead-0.4, state, true, -0.05);
+  }
+  // ---------- the rear dormer with a ROUND window (the upstairs bath) ----------
+  function dormerRearRound(L, GL, cx, state) {
+    var w = 7, yB = D - 1.6, zSill = WALL + 2.0, zHead = WALL + 6.6, zPk = WALL + 8.4, yFwd = D - 6.2;
+    var wf = 'rgba(14,30,44,0.96)', rf = 'rgba(8,19,29,0.97)', es = C.roofSdk;
+    var zSlope = function (yy) { return WALL + RISE * (1 - (D - yy) / RY); };
+    F(L, [[cx-w/2,yB,zSill],[cx-w/2,yB,zHead],[cx-w/2,yFwd,zSlope(yFwd)]], wf, es, 0.55);
+    F(L, [[cx+w/2,yB,zSill],[cx+w/2,yB,zHead],[cx+w/2,yFwd,zSlope(yFwd)]], wf, es, 0.55);
+    F(L, [[cx-w/2,yB,zHead],[cx,yB,zPk],[cx,yFwd,zSlope(yFwd)+1.2],[cx-w/2,yFwd,zSlope(yFwd)]], rf, es, 0.55);
+    F(L, [[cx+w/2,yB,zHead],[cx,yB,zPk],[cx,yFwd,zSlope(yFwd)+1.2],[cx+w/2,yFwd,zSlope(yFwd)]], rf, es, 0.55);
+    F(L, [[cx-w/2,yB,zSill],[cx+w/2,yB,zSill],[cx+w/2,yB,zHead],[cx-w/2,yB,zHead]], wf, C.wallS, 0.7);
+    F(L, [[cx-w/2,yB,zHead],[cx+w/2,yB,zHead],[cx,yB,zPk]], wf, C.wallS, 0.7);
+    // round window approximated by an octagon on the y=yB plane
+    var cz = (zSill + zHead) / 2 + 0.3, r = 1.7, pts = [], i, a;
+    var f = state === 'dom' ? C.winDom : state === 'on' ? C.winOn : C.winOff;
+    var stk = state === 'dom' ? C.glassDom : state === 'on' ? C.glassOn : C.glassOff;
+    for (i = 0; i < 8; i++) { a = Math.PI / 8 + i * Math.PI / 4; pts.push([cx + r * Math.cos(a), yB - 0.05, cz + r * Math.sin(a)]); }
+    F(L, pts, f, stk, 0.7);
+    if (state !== 'off' && GL) GL.push({ p: [[cx-r-1.2,yB-0.05,cz-r-1.2],[cx+r+1.2,yB-0.05,cz-r-1.2],[cx+r+1.2,yB-0.05,cz+r+1.2],[cx-r-1.2,yB-0.05,cz+r+1.2]], f: state==='dom'?C.glowDom:C.glowOn });
+  }
+
+  // ---------- garage doors (3, on the garage front wall y=0) ----------
+  function garageDoors(L, GL, state) {
+    var dw = 7.6, gap = 1.8, z0 = 0.4, z1 = 7.4, i, x0;
+    var xs = [gap, gap*2+dw, gap*3+dw*2];
+    var f = state === 'on' || state === 'dom' ? C.doorOn : C.doorOff;
+    var s = state === 'on' || state === 'dom' ? C.glassOn : C.doorS;
+    for (i = 0; i < 3; i++) {
+      x0 = xs[i];
+      F(L, [[x0,-0.06,z0],[x0+dw,-0.06,z0],[x0+dw,-0.06,z1],[x0,-0.06,z1]], f, s, 1.0, { cls: 'gdoor' });
+      for (var k = 1; k < 4; k++) { var zz = z0 + (z1 - z0) * k / 4; F(L, [[x0,-0.06,zz],[x0+dw,-0.06,zz]], 'none', s, 0.45); }
+      if ((state === 'on' || state === 'dom') && GL) GL.push({ p: [[x0-1.2,-0.06,z0],[x0+dw+1.2,-0.06,z0],[x0+dw+1.2,-0.06,z1+1.2],[x0-1.2,-0.06,z1+1.2]], f: C.glowOn });
+    }
+  }
+
+  // ---------- BUILD: exterior shell + roof ----------
+  // A roof slope drawn as fill strips (so a protruding dormer in front sorts correctly
+  // per-strip instead of being swallowed by one big quad) plus a single crisp outline.
+  function roofPlane(L, xL, xR, yE, zE, yR, zR, fill, stroke, sw) {
+    var N = 12, i, xa, xb;
+    for (i = 0; i < N; i++) {
+      xa = xL + (xR - xL) * i / N; xb = xL + (xR - xL) * (i + 1) / N;
+      F(L, [[xa,yE,zE],[xb,yE,zE],[xb,yR,zR],[xa,yR,zR]], fill, 'none', 0);
+    }
+    F(L, [[xL,yE,zE],[xR,yE,zE],[xR,yR,zR],[xL,yR,zR]], 'none', stroke, sw);
+  }
+
+  function buildShell(L, GL) {
+    // garage walls
+    wallY(L, 0, XG0, XGH, 0, GWALL, C.wallF, C.wallS, 0.85);            // garage front
+    wallY(L, D, XG0, XGH, 0, GWALL, C.wallDk, C.wallSdk, 0.7);          // garage back
+    gableEnd(L, XG0, 0, D, GWALL, RY, GRIDGE, C.gableF, C.gableS, 0.8); // garage left gable
+    // house walls
+    wallY(L, 0, XGH, XHE, 0, WALL, C.wallF, C.wallS, 0.85);             // house front
+    wallY(L, D, XGH, XHE, 0, WALL, C.wallDk, C.wallSdk, 0.7);           // house back
+    gableEnd(L, XHE, 0, D, WALL, RY, RIDGE, C.gableF, C.gableS, 0.85);  // house right gable (chimney end)
+    gableEnd(L, XGH, 0, D, WALL, RY, RIDGE, C.gableF, C.gableSdk || C.gableS, 0.7); // house left gable (above garage)
+
+    // garage roof (ridge ∥ house, lower)
+    F(L, [[XG0-OVH,-OVH,GWALL],[XGH,-OVH,GWALL],[XGH,RY,GRIDGE],[XG0-OVH,RY,GRIDGE]], C.roofF, C.roofS, 0.85);  // front slope
+    F(L, [[XG0-OVH,D+OVH,GWALL],[XGH,D+OVH,GWALL],[XGH,RY,GRIDGE],[XG0-OVH,RY,GRIDGE]], C.roofDk, C.roofSdk, 0.7); // back slope
+
+    // main roof (strip-split so dormers in front sort correctly)
+    roofPlane(L, XGH - OVH, XHE + OVH, -OVH, WALL, RY, RIDGE, C.roofF, C.roofS, 0.9);   // front slope
+    roofPlane(L, XGH - OVH, XHE + OVH, D + OVH, WALL, RY, RIDGE, C.roofDk, C.roofSdk, 0.7); // back slope
+  }
+
+  function chimney(L) {
+    var x0 = XHE, x1 = XHE + 2.2, ya = 9.6, yb = 13.2, zt = RIDGE + 4;
+    F(L, [[x1,ya,0],[x1,yb,0],[x1,yb,zt],[x1,ya,zt]], C.chimF, C.chimS, 0.7);      // outer
+    F(L, [[x0,ya,0],[x1,ya,0],[x1,ya,zt],[x0,ya,zt]], 'rgba(8,19,29,0.97)', C.chimS, 0.6); // front side
+    F(L, [[x0,yb,0],[x1,yb,0],[x1,yb,zt],[x0,yb,zt]], 'rgba(8,19,29,0.97)', C.dim, 0.5);    // back side
+    F(L, [[x0,ya,zt],[x1,ya,zt],[x1,yb,zt],[x0,yb,zt]], 'rgba(0,242,254,0.08)', C.chimS, 0.5); // cap
+  }
+
+  // ---------- interior rooms (labels/layout from JARVIS editor; sizes from the plan) ----------
+  // [x0, y0, w, d, label, occupancy-key]   (front y=0 .. rear y=24; garage 0..30, house 30..63)
+  var ROOMS = {
+    '1f': [
+      [0, 0, 30, 24, 'GARAGE', 'garage'],
+      [30, 0, 13, 11, 'DINING', 'dining room'],
+      [43, 0, 20, 11, 'LIVING ROOM', 'living room'],
+      [30, 13, 14, 11, 'KITCHEN', 'kitchen'],
+      [49, 13, 14, 11, 'GUEST RM', 'guest room'],
+      [44, 16.5, 5, 7.5, 'BATH', 'bath'],
+      [43, 11, 20, 2, 'HALL', 'downstairs hallway'],
+      [44, 3, 4, 8, 'STAIRS', 'stairs']
+    ],
+    '2f': [
+      [31, 2, 15, 20, "ELIANA'S", "eliana's room"],
+      [48, 2, 14, 20, 'MASTER', 'master bedroom'],
+      [44, 16, 7, 8, 'BATH', 'bath'],
+      [45, 11, 6, 5, 'U.HALL', 'upstairs hallway'],
+      [45.5, 7, 4, 4, 'STAIRS', 'stairs']
+    ],
+    'b': [
+      [30, 0, 33, 24, 'BASEMENT', 'basement']
+    ]
+  };
+  var BSMT_ITEMS = [[34, 4, 'SUMP'], [34, 9.5, 'DEHUM'], [58, 9.5, 'ENERGY'], [58, 18, 'WASHER'], [46, 12, 'STAIRS']];
+  var FLOOR_Z = { '1f': [0.4, 8.6], '2f': [9.0, 13.8], 'b': [-7, -0.6] };
+
+  function roomBox(L, LBL, x0, y0, w, d, z0, z1, name, state) {
+    var x1 = x0 + w, y1 = y0 + d, occ = state !== 'off';
+    var ff = state === 'dom' ? 'rgba(0,245,160,0.15)' : occ ? 'rgba(0,242,254,0.13)' : 'rgba(0,242,254,0.035)';
+    var ss = state === 'dom' ? 'rgba(130,255,205,0.9)' : occ ? 'rgba(0,242,254,0.62)' : 'rgba(0,242,254,0.24)';
+    var sw = occ ? 1.0 : 0.6;
+    var wf = state === 'dom' ? 'rgba(0,245,160,0.06)' : occ ? 'rgba(0,242,254,0.05)' : 'rgba(0,242,254,0.018)';
+    F(L, [[x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0]], ff, ss, sw * 0.7);            // floor
+    F(L, [[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]], wf, ss, sw * 0.5);
+    F(L, [[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]], wf, ss, sw * 0.5);
+    F(L, [[x0,y0,z0],[x0,y1,z0],[x0,y1,z1],[x0,y0,z1]], wf, ss, sw * 0.5);
+    F(L, [[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]], wf, ss, sw * 0.5);
+    LBL.push({ x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: z0 + 0.2, t: name, st: state, big: w > 14 });
+    if (occ) LBL.push({ x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: z1 - 0.5, st: state, dot: true });
+  }
+
+  function buildRooms(floor, lit, L, LBL) {
+    var stOf = function (n) { var s = lit[String(n).toLowerCase()]; return s === 'dom' ? 'dom' : s ? 'on' : 'off'; };
+    var z = FLOOR_Z[floor] || FLOOR_Z['1f'];
+    (ROOMS[floor] || []).forEach(function (r) { roomBox(L, LBL, r[0], r[1], r[2], r[3], z[0], z[1], r[4], stOf(r[5])); });
+    if (floor === 'b') BSMT_ITEMS.forEach(function (it) { LBL.push({ x: it[0], y: it[1], z: z[1] - 0.3, t: it[2], st: 'off', small: true }); });
+  }
+
+  function buildContext(L, floor) {
+    var fe = 'rgba(0,242,254,0.13)';
+    F(L, [[XG0,0,0],[XHE,0,0],[XHE,D,0],[XG0,D,0]], 'none', fe, 0.5);   // footprint
+    F(L, [[XGH,0,0],[XGH,D,0]], 'none', fe, 0.4);                       // garage/house split
+    if (floor === '2f') {
+      var rw = 'rgba(0,242,254,0.10)';
+      F(L, [[XGH,-OVH,WALL],[XHE,-OVH,WALL],[XHE,RY,RIDGE],[XGH,RY,RIDGE]], 'none', rw, 0.4);
+      F(L, [[XGH,D+OVH,WALL],[XHE,D+OVH,WALL],[XHE,RY,RIDGE],[XGH,RY,RIDGE]], 'none', rw, 0.4);
+      F(L, [[XGH,RY,RIDGE],[XHE,RY,RIDGE]], 'none', 'rgba(0,242,254,0.16)', 0.5);
+    }
+  }
+
+  // ---------- assemble a frame for given options ----------
+  function build(opts) {
+    opts = opts || {};
+    var lit = opts.lit || {};                       // { 'master bedroom':'on'|'dom', ... }
+    var floor = opts.floor || 'all';
+    var stOf = function (name) { var s = lit[String(name).toLowerCase()]; return s === 'dom' ? 'dom' : s ? 'on' : 'off'; };
+    var L = [], GL = [], LBL = [];
+
+    if (floor !== 'all') {
+      // floor isolation: faint shell context + translucent labeled rooms for this level
+      buildContext(L, floor);
+      buildRooms(floor, lit, L, LBL);
+      return { faces: L, glow: GL, labels: LBL };
+    }
+
+    buildShell(L, GL);
+    chimney(L);
+    garageDoors(L, GL, stOf('garage'));
+
+    // dormers
+    dormerFront(L, GL, XGH + 9, stOf("eliana's room"));
+    dormerFront(L, GL, XGH + 24, stOf('master bedroom'));
+    dormerRearRound(L, GL, XGH + 16, stOf('bath'));
+
+    // front facade: Dining (one window, L) · front door (centered) · Living Room (one window, R) — matching pair
+    winY(L, GL, 0, XGH + 4, XGH + 8.5, 3, 7, stOf('dining room'), true);              // dining window
+    F(L, [[XGH+14.5,-0.06,0],[XGH+17.5,-0.06,0],[XGH+17.5,-0.06,7],[XGH+14.5,-0.06,7]], C.doorOff, C.doorS, 0.7); // front door (centered)
+    winY(L, GL, 0, XGH + 23.5, XGH + 28, 3, 7, stOf('living room'), true);            // living-room window (matches dining)
+    // right (east) gable corners: Living Rm front (SE), Guest Rm rear (NE) — flank the chimney
+    winX(L, GL, XHE, 3.5, 7.5, 3, 7, stOf('living room'), true);
+    winX(L, GL, XHE, 16.5, 20.5, 3, 7, stOf('guest room'), true);
+    // rear (north) facade corners: Kitchen (NW) · Guest (NE) — faceOut +Y
+    winY(L, GL, D, XGH + 3, XGH + 9, 3, 7, stOf('kitchen'), true, 0.06);
+    winY(L, GL, D, XGH + 22, XGH + 28, 3, 7, stOf('guest room'), true, 0.06);
+
+    return { faces: L, glow: GL, labels: LBL };
+  }
+
+  // ---------- render to SVG ----------
+  function renderSVG(opts) {
+    opts = opts || {};
+    var theta = opts.theta == null ? 35 : opts.theta;
+    var built = build(opts);
+    var faces = built.faces, glow = built.glow, labels = built.labels || [];
+    // depth sort: farthest first
+    faces.sort(function (a, b) { return faceDepth(b, theta) - faceDepth(a, theta); });
+
+    // bounds
+    var mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9, all = faces.concat(glow), i, j, q;
+    for (i = 0; i < all.length; i++) for (j = 0; j < all[i].p.length; j++) {
+      q = project(all[i].p[j], theta);
+      if (q[0] < mnx) mnx = q[0]; if (q[0] > mxx) mxx = q[0];
+      if (q[1] < mny) mny = q[1]; if (q[1] > mxy) mxy = q[1];
+    }
+    var pad = 40, X0, Y0, W, H;
+    if (opts.box) { X0 = opts.box[0]; Y0 = opts.box[1]; W = opts.box[2]; H = opts.box[3]; }
+    else { X0 = mnx - pad; Y0 = mny - pad; W = (mxx - mnx) + 2 * pad; H = (mxy - mny) + 2 * pad; }
+    var vb = X0.toFixed(1) + ' ' + Y0.toFixed(1) + ' ' + W.toFixed(1) + ' ' + H.toFixed(1);
+    var pp = function (pts) { return pts.map(function (p) { var s = project(p, theta); return s[0].toFixed(1) + ',' + s[1].toFixed(1); }).join(' '); };
+
+    var body = '';
+    body += '<defs><filter id="g3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>'
+         + '<radialGradient id="bg3" cx="50%" cy="40%" r="65%"><stop offset="0%" stop-color="rgba(0,60,90,0.20)"/><stop offset="100%" stop-color="rgba(0,0,0,0)"/></radialGradient>'
+         + '<radialGradient id="sh3" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(0,0,0,0.55)"/><stop offset="100%" stop-color="rgba(0,0,0,0)"/></radialGradient></defs>';
+    body += '<rect x="' + X0.toFixed(1) + '" y="' + Y0.toFixed(1) + '" width="' + W.toFixed(1) + '" height="' + H.toFixed(1) + '" fill="url(#bg3)"/>';
+    // ground shadow
+    var gc = project([CENTER[0], CENTER[1], 0], theta);
+    body += '<ellipse cx="' + gc[0].toFixed(1) + '" cy="' + (mxy + pad * 0.2).toFixed(1) + '" rx="' + ((mxx - mnx) * 0.42).toFixed(1) + '" ry="20" fill="url(#sh3)"/>';
+    // glow
+    for (i = 0; i < glow.length; i++) body += '<polygon points="' + pp(glow[i].p) + '" fill="' + glow[i].f + '" filter="url(#g3)"/>';
+    // faces
+    for (i = 0; i < faces.length; i++) {
+      var fc = faces[i], closed = fc.f !== 'none';
+      body += '<poly' + (closed ? 'gon' : 'line') + ' points="' + pp(fc.p) + '"' + (fc.cls ? ' class="' + fc.cls + '"' : '')
+            + ' fill="' + (closed ? fc.f : 'none') + '" stroke="' + fc.s + '" stroke-width="' + fc.w + '" stroke-linejoin="round" stroke-linecap="round"/>';
+    }
+    // room labels + occupancy pulses (upright, drawn on top)
+    for (i = 0; i < labels.length; i++) {
+      var lb = labels[i], sp = project([lb.x, lb.y, lb.z], theta);
+      if (lb.dot) {
+        body += '<circle cx="' + sp[0].toFixed(1) + '" cy="' + sp[1].toFixed(1) + '" r="2.4" fill="' + (lb.st === 'dom' ? '#7dffcd' : '#7af0ff') + '">'
+              + '<animate attributeName="opacity" values="0.35;1;0.35" dur="2s" repeatCount="indefinite"/></circle>';
+      } else {
+        var tc = lb.st === 'dom' ? '#9effd0' : lb.st === 'on' ? '#7af0ff' : 'rgba(120,200,225,0.5)';
+        var fs = lb.small ? 6 : (lb.big ? 9 : 7.5);
+        body += '<text x="' + sp[0].toFixed(1) + '" y="' + sp[1].toFixed(1) + '" text-anchor="middle" dominant-baseline="middle"'
+              + ' font-family="JetBrains Mono, ui-monospace, monospace" font-size="' + fs + '" font-weight="600" letter-spacing="0.8"'
+              + ' paint-order="stroke" stroke="#04080c" stroke-width="0.8" stroke-linejoin="round" fill="' + tc + '">' + lb.t + '</text>';
+      }
+    }
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + W.toFixed(0) + '" height="' + H.toFixed(0) + '" viewBox="' + vb + '">' + body + '</svg>';
+  }
+
+  // ---------- a stable viewBox covering the model across all rotations ----------
+  function fixedBox(opts) {
+    var b = build(opts || {}), all = b.faces.concat(b.glow);
+    var mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9, t, i, j, q;
+    for (t = 0; t < 360; t += 15)
+      for (i = 0; i < all.length; i++) for (j = 0; j < all[i].p.length; j++) {
+        q = project(all[i].p[j], t);
+        if (q[0] < mnx) mnx = q[0]; if (q[0] > mxx) mxx = q[0];
+        if (q[1] < mny) mny = q[1]; if (q[1] > mxy) mxy = q[1];
+      }
+    var pad = 46;
+    return [mnx - pad, mny - pad, (mxx - mnx) + 2 * pad, (mxy - mny) + 2 * pad];
+  }
+
+  return { build: build, renderSVG: renderSVG, fixedBox: fixedBox, project: project, dims: { GW: GW, HW: HW, D: D, WALL: WALL, RIDGE: RIDGE } };
+})();
 
 class JarvisPanel extends HTMLElement {
   constructor() {
@@ -32,8 +399,11 @@ class JarvisPanel extends HTMLElement {
     this._editorFloor = "1f";      // floor plan editor tab
     this._dragState = null;        // floor plan drag state
     this._editingPlan = null;      // working copy for editor
-    this._rot3dY = 45;             // 3D house rotation Y
-    this._rot3dX = -28;            // 3D house rotation X
+    this._rot3dY = 22;             // 3D house rotation Y (near-front hero, like the approved view)
+    this._house3dTheta = 35;       // JARVIS3D azimuth (deg) — approved hero angle
+    this._house3dBox = null;       // cached fixed viewBox for the current floor
+    this._house3dBoxFloor = null;  // floor the cached box was computed for
+    this._rot3dX = -18;            // 3D house rotation X (gentle, so the gable reads as a mass)
     this._zoom3d = 1;              // 3D house zoom level
     this._zoomAuto = true;         // auto-fit house to column until user zooms
     this._pendingRender = false;   // owed full render deferred during editing
@@ -959,194 +1329,46 @@ class JarvisPanel extends HTMLElement {
   }
 
   _build3DHouse() {
-    const scene = this.shadowRoot?.querySelector('#house3d-scene');
-    const el = this.shadowRoot?.querySelector('#house3d');
-    if (!scene || !el) return;
-    const d = this._data();
-    const areaMap = {};
-    (d.areasGrid || []).forEach(a => { areaMap[String(a.name).toLowerCase()] = a.active; });
-    const domName = String((d.dominantRoom && d.dominantRoom.name) || '').toLowerCase();
-    const isOcc = (n) => !!areaMap[String(n).toLowerCase()];
-    const isDom = (n) => String(n).toLowerCase() === domName && domName !== '';
-    const fl = this._currentFloor || 'all';
-    const styleKey = this._residenceStyle();
-    const rs = this._resStyles()[styleKey] || this._resStyles().cape_cod;
-
-    // Appraisal dims (feet * scale). Ridge runs along X; front = +Z.
-    const P = 3;
-    const GW = 30 * P, GD = 24 * P, HW = 33 * P, HD = 24 * P, TW = GW + HW, TD = HD;
-    const WH1 = 28, WH2 = 22, WHB = 16, PITCH = 36;
-    el.innerHTML = '';
-    const self = this;
-
-    // Auto-fit the house to the (full-width) scene unless the user wheel-zoomed.
-    if (this._zoomAuto !== false) {
-      const sw = scene.clientWidth || 900;
-      const proj = (TW + TD) * 0.62;
-      this._zoom3d = Math.max(0.7, Math.min(2.4, (sw * 0.5) / proj));
-    }
-
-    const F = (p, x, y, z, w, h, a, b, c, bg, bd) => {
-      const e = document.createElement('div');
-      e.className = 'h3d-face';
-      e.style.cssText = 'width:' + w + 'px;height:' + h + 'px;background:' + bg
-        + ';border:.5px solid ' + (bd || 'rgba(0,242,254,.15)')
-        + ';transform:translate3d(' + (x - w / 2) + 'px,' + (y - h / 2) + 'px,' + z + 'px)'
-        + ' rotateX(' + a + 'deg) rotateY(' + b + 'deg) rotateZ(' + c + 'deg)';
-      p.appendChild(e); return e;
-    };
-
-    const room = (ox, oz, w, dd, h, by, nm, oc, dom) => {
-      const x = ox - TW / 2 + w / 2, z = oz - TD / 2 + dd / 2;
-      const al = dom ? .20 : (oc ? .14 : .03);
-      const bc = dom ? 'rgba(130,235,255,.85)' : (oc ? 'rgba(0,242,254,.55)' : 'rgba(0,242,254,.12)');
-      const fc = 'rgba(0,242,254,' + al + ')';
-      const g = document.createElement('div');
-      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + x + 'px,' + by + 'px,' + z + 'px)';
-      if (oc || dom) g.className = dom ? 'h3d-glow-dom' : 'h3d-glow';
-      F(g, 0, 0, dd / 2, w, h, 0, 0, 0, fc, bc);
-      F(g, 0, 0, -dd / 2, w, h, 0, 0, 0, fc, bc);
-      F(g, -w / 2, 0, 0, dd, h, 0, 90, 0, fc, bc);
-      F(g, w / 2, 0, 0, dd, h, 0, 90, 0, fc, bc);
-      F(g, 0, h / 2, 0, w, dd, 90, 0, 0, 'rgba(0,242,254,' + (dom ? .26 : (oc ? .16 : .012)) + ')', bc);
-      const l = document.createElement('div'); l.className = 'h3d-label';
-      l.style.cssText = 'width:' + w + 'px;color:' + (oc ? 'rgba(0,242,254,.95)' : 'rgba(0,242,254,.4)')
-        + ';transform:translate3d(' + (-w / 2) + 'px,' + (h / 2 - 1) + 'px,0) rotateX(90deg);font-size:' + (w > 45 ? '7px' : '5px');
-      l.textContent = nm; g.appendChild(l);
-      if (oc) {
-        const dt = document.createElement('div');
-        dt.className = 'h3d-occ-dot' + (dom ? ' h3d-occ-dot-dom' : '');
-        dt.style.cssText = 'transform:translate3d(-3px,' + (h / 2 - 1) + 'px,0) rotateX(90deg)';
-        g.appendChild(dt);
-      }
-      el.appendChild(g);
-    };
-
-    const gableRoof = () => {
-      const cx = GW + HW / 2 - TW / 2, rw = HW + 8, rd = HD + 8;
-      const sLen = (rd / 2) / Math.cos(PITCH * Math.PI / 180);
-      const g = document.createElement('div');
-      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + (-WH1 - WH2 - 2) + 'px,0)';
-      const rc = 'rgba(8,20,30,.82)', rsk = 'rgba(0,150,190,.3)';
-      F(g, 0, sLen / 2, 0, rw, sLen, PITCH, 0, 0, rc, rsk);   // front slope
-      F(g, 0, sLen / 2, 0, rw, sLen, -PITCH, 0, 0, rc, rsk);  // back slope
-      F(g, -rw / 2 - 1, sLen * .35, 0, 3, sLen * .5, 0, 0, 0, 'rgba(0,242,254,.025)', rsk); // gable ends
-      F(g, rw / 2 + 1, sLen * .35, 0, 3, sLen * .5, 0, 0, 0, 'rgba(0,242,254,.025)', rsk);
-      F(g, 0, -1, 0, rw + 2, 4, 90, 0, 0, 'rgba(0,120,160,.18)', rsk); // ridge cap
-      el.appendChild(g);
-    };
-
-    const flatRoof = () => {
-      const cx = GW + HW / 2 - TW / 2, rw = HW + 8, rd = HD + 8;
-      const g = document.createElement('div');
-      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + (-WH1 - WH2 - 2) + 'px,0)';
-      const rsk = 'rgba(0,150,190,.3)';
-      F(g, 0, 0, 0, rw, rd, 90, 0, 0, 'rgba(8,20,30,.7)', rsk);
-      F(g, 0, -3, rd / 2, rw, 6, 0, 0, 0, 'rgba(0,242,254,.03)', rsk);   // parapet lips
-      F(g, 0, -3, -rd / 2, rw, 6, 0, 0, 0, 'rgba(0,242,254,.03)', rsk);
-      F(g, -rw / 2, -3, 0, rd, 6, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);
-      F(g, rw / 2, -3, 0, rd, 6, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);
-      el.appendChild(g);
-    };
-
-    const dormer = (cx, faceDir) => {
-      const dw = 22, dd = 18, dh = 18;
-      const dormZ = faceDir * (HD / 2 * 0.4);
-      const dormY = -WH1 - WH2 + 8;
-      const rsk = 'rgba(0,150,190,.3)', rc = 'rgba(8,20,30,.78)';
-      const g = document.createElement('div');
-      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + dormY + 'px,' + dormZ + 'px)';
-      F(g, 0, 0, faceDir * dd / 2, dw, dh, 0, 0, 0, 'rgba(0,242,254,.045)', rsk);   // front wall
-      F(g, -dw / 2, 0, 0, dd, dh, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);            // side walls
-      F(g, dw / 2, 0, 0, dd, dh, 0, 90, 0, 'rgba(0,242,254,.03)', rsk);
-      F(g, 0, -1, faceDir * (dd / 2 + .5), dw * .5, dh * .42, 0, 0, 0, 'rgba(0,242,254,.12)', 'rgba(0,242,254,.35)'); // window
-      // Gable cap via compound rotation (rotateX 90 folds flat, rotateZ tilts the slope).
-      const sW = dw * 0.55, sL = dd + 3, roofY = -(dh / 2) - 2;
-      F(g, -dw * 0.22, roofY, 0, sL, sW, 90, 0, -25, rc, rsk);
-      F(g, dw * 0.22, roofY, 0, sL, sW, 90, 0, 25, rc, rsk);
-      el.appendChild(g);
-    };
-
-    const chimney = () => {
-      const cx = GW + 31 * P - TW / 2, cz = 2 * P;
-      const g = document.createElement('div');
-      g.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + cx + 'px,' + (-WH1 - WH2 - 20) + 'px,' + cz + 'px)';
-      const cc = 'rgba(0,242,254,.04)', cs = 'rgba(0,242,254,.2)';
-      F(g, 0, 0, 4.5, 9, 28, 0, 0, 0, cc, cs); F(g, 0, 0, -4.5, 9, 28, 0, 0, 0, cc, cs);
-      F(g, 4.5, 0, 0, 9, 28, 0, 90, 0, cc, cs); F(g, -4.5, 0, 0, 9, 28, 0, 90, 0, cc, cs);
-      F(g, 0, -14, 0, 9, 9, 90, 0, 0, 'rgba(0,242,254,.05)', cs);
-      el.appendChild(g);
-    };
-
-    const garageDoors = () => {
-      const gcx = GW / 2 - TW / 2, doorW = GW * 0.27, doorH = WH1 * 0.72, frontZ = GD / 2 + 0.3;
-      let covers = [];
-      try {
-        covers = Object.keys((self._hass && self._hass.states) || {})
-          .filter(e => e.startsWith('cover.'))
-          .map(id => ({ id, st: self._hass.states[id] }))
-          .filter(c => String((c.st && c.st.attributes && c.st.attributes.friendly_name) || c.id).toLowerCase().includes('garage') || c.id.toLowerCase().includes('garage'));
-      } catch (_) {}
-      [-1, 0, 1].forEach((i, idx) => {
-        const cov = covers[idx];
-        const isOpen = cov ? cov.st.state === 'open' : false;
-        const e = document.createElement('div'); e.className = 'h3d-face';
-        const doorX = gcx + i * GW * 0.31 - doorW / 2;
-        const dc = isOpen ? 'rgba(0,245,160,.07)' : 'rgba(0,242,254,.03)';
-        const db = isOpen ? 'rgba(0,245,160,.3)' : 'rgba(0,242,254,.14)';
-        if (isOpen) {
-          e.style.cssText = 'width:' + doorW + 'px;height:' + doorH + 'px;background:' + dc + ';border:1px solid ' + db
-            + ';transform:translate3d(' + doorX + 'px,' + (-WH1 / 2 + 2) + 'px,' + frontZ + 'px) rotateX(-80deg);transform-origin:center top';
-        } else {
-          e.style.cssText = 'width:' + doorW + 'px;height:' + doorH + 'px;background:' + dc + ';border:1px solid ' + db
-            + ';border-radius:2px 2px 0 0;transform:translate3d(' + doorX + 'px,' + (WH1 / 2 - doorH / 2) + 'px,' + frontZ + 'px)';
-        }
-        [.25, .5, .75].forEach(f => {
-          const ln = document.createElement('div');
-          ln.style.cssText = 'position:absolute;left:5%;width:90%;height:1px;top:' + Math.round(f * 100) + '%;background:' + (isOpen ? 'rgba(0,245,160,.12)' : 'rgba(0,242,254,.07)');
-          e.appendChild(ln);
-        });
-        el.appendChild(e);
-      });
-    };
-
-    // ── BUILD ──
-    if (fl === 'all' || fl === 'bsmt')
-      room(GW, 0, HW, HD, WHB, WH1 + 10, 'Basement', isOcc('Basement'), isDom('Basement'));
-
-    if (fl === 'all' || fl === '1f') {
-      room(0, 0, GW, GD, WH1, 0, 'Garage', isOcc('Garage'), isDom('Garage'));
-      room(GW, 0, 12 * P, 12 * P, WH1, 0, 'Kitchen', isOcc('Kitchen'), isDom('Kitchen'));
-      room(GW, 12 * P, 12 * P, 12 * P, WH1, 0, 'Dining', isOcc('Dining Room'), isDom('Dining Room'));
-      room(GW + 12 * P, 0, 5 * P, 5 * P, WH1, 0, 'Bath', false, false);
-      room(GW + 17 * P, 0, 16 * P, 12 * P, WH1, 0, 'Guest Rm', isOcc('Guest Room'), isDom('Guest Room'));
-      room(GW + 12 * P, 5 * P, 21 * P, 12 * P, WH1, 0, 'Living Rm', isOcc('Living Room'), isDom('Living Room'));
-      room(GW, 17 * P, 33 * P, 4 * P, WH1, 0, 'Hallway', isOcc('Downstairs Hallway'), isDom('Downstairs Hallway'));
-      garageDoors();
-      const gr = document.createElement('div');
-      gr.style.cssText = 'position:absolute;transform-style:preserve-3d;transform:translate3d(' + (GW / 2 - TW / 2) + 'px,' + (-WH1 - 2) + 'px,0)';
-      F(gr, 0, 0, 0, GW + 3, GD + 3, 90, 0, 0, 'rgba(8,20,30,.55)', 'rgba(0,150,190,.18)');
-      el.appendChild(gr);
-    }
-
-    if (fl === 'all' || fl === '2f') {
-      room(GW + 2, 2 * P, 12 * P, 10 * P, WH2, -WH2, "Eliana's Rm", isOcc("Eliana's Room"), isDom("Eliana's Room"));
-      room(GW + 14 * P, 3 * P, 7 * P, 8 * P, WH2, -WH2, 'Bath 2F', false, false);
-      room(GW + 21 * P, 2 * P, 12 * P, 10 * P, WH2, -WH2, 'Master Bed', isOcc('Master Bedroom'), isDom('Master Bedroom'));
-      room(GW + 14 * P, 11 * P, 7 * P, 6 * P, WH2, -WH2, 'Hall', false, false);
-      if (rs.roof === 'flat') {
-        flatRoof();
-      } else {
-        gableRoof();
-        dormer(GW + 8 * P - TW / 2, 1);
-        dormer(GW + 27 * P - TW / 2, 1);
-        dormer(GW + 18 * P - TW / 2, -1);
-        chimney();
-      }
-    }
-
-    this._update3DTransform();
+    const mount = this.shadowRoot?.querySelector('#res-iso');
+    if (!mount) return;
+    this._renderHouse3d();
     this._buildResidenceAnnotations();
+    this._wire3DDrag();
+  }
+
+  // Panel floor key -> model floor key ('bsmt' is 'b' in the model).
+  _house3dFloor() {
+    const f = this._currentFloor || 'all';
+    return f === 'bsmt' ? 'b' : f;
+  }
+
+  // Live presence -> per-room lit state for the model.
+  _house3dLit() {
+    const d = this._data();
+    const lit = {};
+    (d.areasGrid || []).forEach(a => { if (a.active) lit[String(a.name).toLowerCase()] = 'on'; });
+    const dom = d.dominantRoom && d.dominantRoom.name;
+    if (dom) lit[String(dom).toLowerCase()] = 'dom';
+    return lit;
+  }
+
+  // Draw (or redraw) just the SVG — cheap enough to call on every drag frame.
+  _renderHouse3d() {
+    const mount = this.shadowRoot?.querySelector('#res-iso');
+    if (!mount || typeof JARVIS3D === 'undefined') return;
+    const floor = this._house3dFloor();
+    if (this._house3dBox == null || this._house3dBoxFloor !== floor) {
+      this._house3dBox = JARVIS3D.fixedBox({ floor });
+      this._house3dBoxFloor = floor;
+    }
+    mount.innerHTML = JARVIS3D.renderSVG({
+      theta: this._house3dTheta, floor, lit: this._house3dLit(), box: this._house3dBox
+    });
+    const d = this._data();
+    const occ = (d.areasGrid || []).filter(a => a.active).length;
+    const tot = (d.areasGrid || []).length || 14;
+    const occEl = this.shadowRoot.getElementById('res-occ');
+    if (occEl) occEl.textContent = occ + ' / ' + tot;
   }
 
   _buildResidenceAnnotations() {
@@ -1179,36 +1401,11 @@ class JarvisPanel extends HTMLElement {
       styleTag.textContent = (rs && rs.label) ? rs.label.toUpperCase() : '—';
     }
 
-    // Leader-line callouts — the residence has full width on its own tab now,
-    // so the annotations sit in the margins like the concept render.
+    // Leader-line callouts retired: the rotatable 3D model can't anchor fixed leader
+    // lines, and presence now reads directly off lit windows (all view) and labeled
+    // rooms (floor views). Clear any stale callouts.
     const co = this.shadowRoot.querySelector('#res-callouts');
-    if (!co) return;
-    const calloutHTML = (side, top, title, lines, cls) =>
-      '<div class="res-co ' + side + ' ' + (cls || '') + '" style="top:' + top + '%;">' +
-        '<div class="res-co-label"><div class="res-co-t">' + this._esc(title) + '</div>' +
-          lines.map(l => '<div class="res-co-l">' + this._esc(l) + '</div>').join('') +
-        '</div><div class="res-co-line"></div><div class="res-co-dot"></div></div>';
-    const domName = d.dominantRoom && d.dominantRoom.name;
-    const pick = [];
-    if (domName) { const dm = areas.find(a => a.name === domName); if (dm) pick.push(dm); }
-    areas.filter(a => a.active).forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
-    areas.forEach(a => { if (!pick.includes(a) && pick.length < 4) pick.push(a); });
-    const slots = [15, 37, 59, 81];
-    const rooms = pick.slice(0, 4).map((a, i) => {
-      const caps = (a.caps || []).map(c => String(c).toUpperCase()).join(' · ') || 'NO SENSORS';
-      const status = a.active ? (a.name === domName ? '● DOMINANT' : '● OCCUPIED') : '○ CLEAR';
-      const cls = a.active ? (a.name === domName ? 'dom' : 'occ') : '';
-      return calloutHTML('left', slots[i], (a.name || '').toUpperCase(), [status, caps], cls);
-    });
-    const satState = (d.satellites && d.satellites.state) || '—';
-    const systems = [
-      ['HVAC SYSTEM',     ['CLIMATE ZONES', 'PRESENCE-LINKED'], ''],
-      ['ELECTRICAL',      ['MAIN + SUB PANELS', 'LOAD MONITOR'], ''],
-      ['PLUMBING STACKS', ['SUPPLY + WASTE', 'FREEZE WATCH'], ''],
-      ['NETWORK MESH',    ['SATELLITES ' + satState, 'WYOMING VOICE'], 'occ'],
-    ];
-    const sys = systems.map((s, i) => calloutHTML('right', slots[i], s[0], s[1], s[2]));
-    co.innerHTML = rooms.join('') + sys.join('');
+    if (co) co.innerHTML = '';
   }
 
   // Home-style templates: the massing/roof shell that floors + rooms populate.
@@ -1254,63 +1451,31 @@ class JarvisPanel extends HTMLElement {
         try { await this._saveConfig('residence_style', val); } catch (_) {}
       });
     }
-    // Angle preset + fit buttons — quick way back to a good view.
-    this.shadowRoot.querySelectorAll('.res-angles [data-angle]').forEach(btn => {
-      if (btn._wired) return;
-      btn._wired = true;
-      btn.addEventListener('click', () => {
-        const v = btn.getAttribute('data-angle');
-        if (v === 'fit') {
-          this._rot3dY = 45; this._rot3dX = -28; this._zoomAuto = true;
-          this._build3DHouse();
-        } else {
-          this._rot3dY = parseInt(v, 10);
-          this._update3DTransform();
-        }
-      });
-    });
   }
 
-  _update3DTransform() {
-    var el = this.shadowRoot?.querySelector('#house3d');
-    var hud = this.shadowRoot?.querySelector('#house3d-angle');
-    if (!el) return;
-    var z = this._zoom3d || 1;
-    var ry = this._rot3dY || 45;
-    var rx = this._rot3dX || -28;
-    el.style.transform = 'translate(-50%,-50%) scale3d(' + z + ',' + z + ',' + z + ')'
-      + ' rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
-    if (hud) hud.textContent = Math.round(((ry % 360) + 360) % 360) + '°';
-  }
+  _update3DTransform() { /* 2D isometric — no transform to apply */ }
+
 
   _wire3DDrag() {
-    var scene = this.shadowRoot?.querySelector('#house3d-scene');
-    if (!scene) return;
-    var dragging = false, lastX = 0;
-    var self = this;
-    scene.addEventListener('mousedown', function(e) { dragging = true; lastX = e.clientX; scene.style.cursor = 'grabbing'; });
-    scene.addEventListener('mousemove', function(e) {
-      if (!dragging) return;
-      self._rot3dY = (self._rot3dY || 45) + (e.clientX - lastX) * 0.4;
-      lastX = e.clientX;
-      self._update3DTransform();
-    });
-    document.addEventListener('mouseup', function() { dragging = false; if (scene) scene.style.cursor = 'grab'; });
-    scene.addEventListener('touchstart', function(e) { dragging = true; lastX = e.touches[0].clientX; }, {passive: true});
-    scene.addEventListener('touchmove', function(e) {
-      if (!dragging) return;
-      self._rot3dY = (self._rot3dY || 45) + (e.touches[0].clientX - lastX) * 0.4;
-      lastX = e.touches[0].clientX;
-      self._update3DTransform();
-    }, {passive: true});
-    scene.addEventListener('touchend', function() { dragging = false; });
-    scene.addEventListener('wheel', function(e) {
-      e.preventDefault();
-      var z = self._zoom3d || 1;
-      self._zoomAuto = false;  // user took manual control of zoom
-      self._zoom3d = Math.max(0.4, Math.min(3, z + (e.deltaY > 0 ? -0.08 : 0.08)));
-      self._update3DTransform();
-    }, {passive: false});
+    const scene = this.shadowRoot?.querySelector('#house3d-scene');
+    if (!scene || scene._house3dWired) return;
+    scene._house3dWired = true;
+    let dragging = false, lastX = 0, raf = null;
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = null; this._renderHouse3d(); }); };
+    const xOf = (e) => (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
+    const move = (e) => { if (!dragging) return; this._house3dTheta += (xOf(e) - lastX) * 0.5; lastX = xOf(e); schedule(); };
+    const up = () => {
+      dragging = false; scene.classList.remove('dragging');
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchmove', move); window.removeEventListener('touchend', up);
+    };
+    const down = (e) => {
+      dragging = true; lastX = xOf(e); scene.classList.add('dragging');
+      window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+      window.addEventListener('touchmove', move, { passive: true }); window.addEventListener('touchend', up);
+    };
+    scene.addEventListener('mousedown', (e) => { down(e); e.preventDefault(); });
+    scene.addEventListener('touchstart', (e) => down(e), { passive: true });
   }
 
   _renderFloorPlanEditor(d) {
@@ -1640,18 +1805,11 @@ class JarvisPanel extends HTMLElement {
           <button class="floor-tab ${this._currentFloor === '2f' ? 'active' : ''}" data-floor="2f">2nd Floor</button>
           <button class="floor-tab ${this._currentFloor === 'bsmt' ? 'active' : ''}" data-floor="bsmt">Basement</button>
         </div>
-        <div class="res-angles">
-          <button class="floor-tab" data-angle="45">45°</button>
-          <button class="floor-tab" data-angle="135">135°</button>
-          <button class="floor-tab" data-angle="225">225°</button>
-          <button class="floor-tab" data-angle="315">315°</button>
-          <button class="floor-tab" data-angle="fit" title="reset zoom + angle">⤢ Fit</button>
-        </div>
       </div>
 
       <div class="floorplan-wrap res-wrap-big" id="floorplan-wrap">
-        <div class="house3d-scene" id="house3d-scene">
-          <div class="house3d" id="house3d"></div>
+        <div class="house3d-scene iso-scene" id="house3d-scene">
+          <div class="res-iso" id="res-iso"></div>
           <div class="res-callouts" id="res-callouts"></div>
           <div class="res-banner">
             <div class="res-banner-t">PROPERTY · <span id="res-addr">1111 MYRTLE RD</span></div>
@@ -1661,7 +1819,7 @@ class JarvisPanel extends HTMLElement {
             <div class="res-stat-i"><label>EST SQ FT</label><b id="res-sqft">—</b></div>
             <div class="res-stat-i"><label>BED / BATH</label><b id="res-bb">—</b></div>
             <div class="res-stat-i"><label>STYLE</label><b id="res-style-tag">—</b></div>
-            <div class="res-stat-i"><label>ANGLE</label><b id="house3d-angle">45°</b></div>
+            <div class="res-stat-i"><label>OCCUPIED</label><b id="res-occ">—</b></div>
           </div>
         </div>
       </div>
@@ -3450,6 +3608,18 @@ class JarvisPanel extends HTMLElement {
     top: 52%;
     transform-style: preserve-3d;
   }
+  .res-iso {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px 14px;
+  }
+  .res-iso svg { width: 100%; height: 100%; display: block; }
+  /* 2D isometric: drop the 3D perspective grid/radar so it doesn't clash with the SVG */
+  .iso-scene::before, .iso-scene::after { display: none; }
+  .iso-scene, .iso-scene:active { cursor: default; }
   .h3d-face {
     position: absolute;
     backface-visibility: visible;
@@ -4495,7 +4665,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.18.0 ",
+  "%c JARVIS Panel %c v6.21.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

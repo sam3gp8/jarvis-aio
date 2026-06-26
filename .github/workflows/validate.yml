@@ -1,0 +1,40 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  hassfest:
+    name: Hassfest (integration manifest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hassfest validation
+        uses: home-assistant/actions/hassfest@master
+        with:
+          path: "./jarvis_assistant"
+
+  addon-lint:
+    name: Add-on lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint add-on config
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: "./jarvis_assistant"
+
+  python:
+    name: Python syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile all integration modules
+        run: |
+          python -m compileall -q jarvis_assistant/jarvis_component
