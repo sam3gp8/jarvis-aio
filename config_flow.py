@@ -1,10 +1,11 @@
 """
-JARVIS Config Flow — v5.9.00.
+JARVIS Config Flow.
 
-Simplified: the addon is the primary config source. This flow:
-  1. Auto-imports from /config/jarvis/config.json (addon writes it)
-  2. Falls back to manual API key entry if no config file exists
-  3. Options flow redirects to the JARVIS panel (Settings tab)
+HACS integration: the config flow is the primary setup path.
+  1. Manual entry of a cloud API key OR a local LLM endpoint (the common case).
+  2. If migrating from the legacy add-on, auto-imports an existing
+     /config/jarvis/config.json so nothing is re-entered.
+  3. Options flow redirects to the JARVIS panel (Settings tab).
 
 All runtime configuration is managed via the JARVIS panel and
 persisted by jarvis_config.py. The HA config entry is just the
@@ -104,10 +105,10 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
             }),
             errors=errors,
             description_placeholders={
-                "note": "The JARVIS addon normally configures this automatically. "
-                        "Provide a cloud API key, OR leave it blank and enter a local "
-                        "LLM URL (e.g. http://homeassistant.local:11434/v1) to run "
-                        "Ollama with no cloud account.",
+                "note": "Enter a cloud API key (e.g. Groq), OR leave it blank and "
+                        "enter a local LLM URL (e.g. http://homeassistant.local:11434/v1) "
+                        "to run Ollama with no cloud account. Everything else is "
+                        "configured later in the JARVIS panel → Settings.",
             },
         )
 
