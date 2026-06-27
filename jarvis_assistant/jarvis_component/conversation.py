@@ -716,6 +716,18 @@ class JarvisAgent(conversation.ConversationEntity):
         except Exception as exc:
             _LOGGER.debug("Memory store/retrieve: %s", exc)
 
+        # v6.25.0: Inject curated knowledge — durable facts/preferences JARVIS
+        # knows (distinct from the transcript recall above), scored against the
+        # current message so the most relevant facts lead.
+        try:
+            from . import knowledge
+            kn_block = await self.hass.async_add_executor_job(
+                lambda: knowledge.prompt_block(user_input.text))
+            if kn_block:
+                persona = persona + "\n\n" + kn_block
+        except Exception as exc:
+            _LOGGER.debug("Knowledge inject: %s", exc)
+
         hass_api = await self._get_hass_api(user_input) if self._use_hass_api() else None
 
         cast_routed = False  # tracks whether Cast speaker is handling TTS

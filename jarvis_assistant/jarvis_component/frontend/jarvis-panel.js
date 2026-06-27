@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.24.3 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.26.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -505,6 +505,8 @@ class JarvisPanel extends HTMLElement {
     this._liveDataErr = null;    // last fetch error (for status display)
     this._activityData = null;   // populated by _fetchActivityLog()
     this._currentTab = "dashboard"; // "dashboard" or "settings"
+    this._knowledge = { facts: [], stats: {} }; // curated memory tab state
+    this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
     this._currentFloor = "all";     // floor plan tab — 3D default shows all
     this._editorFloor = "1f";      // floor plan editor tab
@@ -661,7 +663,8 @@ class JarvisPanel extends HTMLElement {
       // while the user is on the settings or logs tab; defer until they return.
       const structuralChange = !prev ||
         prev.areas?.length !== result.areas?.length;
-      const interacting = this._currentTab === "settings" || this._currentTab === "logs";
+      const interacting = this._currentTab === "settings" || this._currentTab === "logs"
+        || this._currentTab === "memory";
       if (structuralChange && !interacting) {
         this._render();
       } else {
@@ -764,6 +767,100 @@ class JarvisPanel extends HTMLElement {
   }
 
   // ─── Data (mock for session 1; live HA hookup session 2) ────────────────
+
+  async _fetchKnowledge() {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({ type: "jarvis/get_knowledge" });
+      this._knowledge = { facts: res?.facts || [], stats: res?.stats || {} };
+    } catch (err) {
+      this._knowledge = { facts: [], stats: {}, error: String(err) };
+    }
+    this._knowledgeLoaded = true;
+    this._renderKnowledgeList();
+  }
+
+  _renderKnowledgeList() {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const list = root.getElementById("memory-list");
+    if (!list) return;
+    const esc = (s) => String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const facts = this._knowledge?.facts || [];
+    const count = root.getElementById("mem-count");
+    if (count) count.textContent = facts.length + (facts.length === 1 ? " FACT" : " FACTS");
+    if (this._knowledge?.error) {
+      list.innerHTML = `<div class="mem-empty">Couldn't load memory — ${esc(this._knowledge.error)}</div>`;
+      return;
+    }
+    if (!facts.length) {
+      list.innerHTML = this._knowledgeLoaded
+        ? `<div class="mem-empty">Nothing yet. Say "remember that…" to JARVIS, or teach it above.</div>`
+        : `<div class="mem-empty">Loading…</div>`;
+      return;
+    }
+    const groups = {};
+    facts.forEach(f => { (groups[f.subject] = groups[f.subject] || []).push(f); });
+    const labels = { household: "HOUSEHOLD", primary: "ABOUT ME" };
+    const order = Object.keys(groups).sort(
+      (a, b) => (a === "household" ? -1 : b === "household" ? 1 : a.localeCompare(b)));
+    list.innerHTML = order.map(subj => {
+      const items = groups[subj].map(f => {
+        const soft = (f.source !== "stated" || (f.confidence ?? 1) < 0.9);
+        const hedge = soft
+          ? `<span class="mem-hedge" title="${esc(f.source)} · ${Math.round((f.confidence ?? 1) * 100)}% sure">~</span>`
+          : "";
+        const exp = f.expires_at ? `<span class="mem-exp" title="expires">⌛</span>` : "";
+        return `<div class="mem-fact" data-id="${f.id}">
+          <div class="mem-kv"><span class="mem-key">${esc(f.key)}</span><span class="mem-val">${esc(f.value)}${hedge}${exp}</span></div>
+          <button class="mem-forget" data-id="${f.id}" title="Forget this" aria-label="Forget">✕</button>
+        </div>`;
+      }).join("");
+      return `<div class="mem-group"><div class="mem-group-head">${labels[subj] || esc(subj)}</div>${items}</div>`;
+    }).join("");
+    list.querySelectorAll(".mem-forget").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const id = parseInt(e.currentTarget.getAttribute("data-id"), 10);
+        if (!isNaN(id)) this._forgetKnowledge(id);
+      });
+    });
+  }
+
+  async _teachKnowledge() {
+    const root = this.shadowRoot;
+    if (!root || !this._hass) return;
+    const keyEl = root.getElementById("mem-key");
+    const valEl = root.getElementById("mem-val");
+    const subjEl = root.getElementById("mem-subject");
+    const key = (keyEl?.value || "").trim();
+    const value = (valEl?.value || "").trim();
+    const subject = subjEl?.value || "household";
+    if (!key || !value) return;
+    try {
+      const res = await this._hass.callWS({
+        type: "jarvis/add_knowledge", key, value, subject,
+        kind: subject === "primary" ? "preference" : "fact",
+      });
+      this._knowledge = { facts: res?.facts || [], stats: this._knowledge.stats };
+      if (keyEl) keyEl.value = "";
+      if (valEl) valEl.value = "";
+      if (keyEl) keyEl.focus();
+    } catch (err) { /* keep inputs; nothing intrusive */ }
+    this._knowledgeLoaded = true;
+    this._renderKnowledgeList();
+  }
+
+  async _forgetKnowledge(id) {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({ type: "jarvis/forget_knowledge", id });
+      this._knowledge = { facts: res?.facts || [], stats: this._knowledge.stats };
+    } catch (err) { /* leave list as-is on error */ }
+    this._renderKnowledgeList();
+  }
+
+  // ─── greeting/data helpers ──────────────────────────────────────────────
 
   _greeting() {
     const h = new Date().getHours();
@@ -1902,6 +1999,7 @@ class JarvisPanel extends HTMLElement {
     <button class="tab ${this._currentTab === 'residence' ? 'active' : ''}" data-tab="residence">Residence</button>
     <button class="tab ${this._currentTab === 'settings' ? 'active' : ''}" data-tab="settings">Settings</button>
     <button class="tab ${this._currentTab === 'logs' ? 'active' : ''}" data-tab="logs">Logs</button>
+    <button class="tab ${this._currentTab === 'memory' ? 'active' : ''}" data-tab="memory">Memory</button>
   </div>
 
   ${this._currentTab === 'dashboard' ? `
@@ -2476,6 +2574,29 @@ class JarvisPanel extends HTMLElement {
   </div>
   ` : ''}
 
+  ${this._currentTab === 'memory' ? `
+  <!-- ═══ MEMORY TAB ═══ -->
+  <div class="mem-tab">
+    <div class="panel">
+      <div class="head">
+        <span>What JARVIS Knows</span>
+        <span class="side" id="mem-count">— FACTS</span>
+      </div>
+      <div class="mem-sub">Durable facts &amp; preferences JARVIS recalls in conversation. Teach it something, or forget anything with ✕.</div>
+      <div class="mem-teach">
+        <input id="mem-key" class="mem-input" placeholder="what  (e.g. trash day)" autocomplete="off" />
+        <input id="mem-val" class="mem-input" placeholder="is  (e.g. Tuesday)" autocomplete="off" />
+        <select id="mem-subject" class="mem-input mem-select">
+          <option value="household">Household</option>
+          <option value="primary">About me</option>
+        </select>
+        <button id="mem-add" class="mem-btn">TEACH</button>
+      </div>
+      <div id="memory-list" class="mem-list"><div class="mem-empty">Loading…</div></div>
+    </div>
+  </div>
+  ` : ''}
+
   <!-- FOOTER -->
   <div class="footer">
     <div>NODE: <span class="hl">HOMEASSISTANT.LOCAL</span></div>
@@ -2530,9 +2651,24 @@ class JarvisPanel extends HTMLElement {
           this._currentTab = newTab;
           this._render();
           if (newTab === "logs") this._fetchDebugLog();
+          if (newTab === "memory") this._fetchKnowledge();
         }
       });
     });
+
+    // Memory tab: teach a new fact
+    const memAdd = this.shadowRoot.querySelector("#mem-add");
+    if (memAdd) {
+      memAdd.addEventListener("click", () => this._teachKnowledge());
+      ["mem-key", "mem-val"].forEach(id => {
+        const el = this.shadowRoot.getElementById(id);
+        if (el) el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); this._teachKnowledge(); }
+        });
+      });
+      // first paint of the tab renders whatever we already have, then refresh
+      this._renderKnowledgeList();
+    }
 
     // Log filter buttons
     this.shadowRoot.querySelectorAll(".log-filter").forEach(btn => {
@@ -5060,6 +5196,90 @@ class JarvisPanel extends HTMLElement {
     .floor-tab { padding: 7px 11px; }
     .res-stat-i:nth-child(1) { display: none; }   /* keep BED/BATH + OCCUPIED only */
   }
+  /* ── Memory tab ───────────────────────────────────────────────── */
+  .mem-tab { padding: 4px 0 16px; }
+  .mem-sub {
+    color: var(--text-dim); font-size: 12px; line-height: 1.5;
+    margin: 2px 2px 14px; font-family: var(--font-body);
+  }
+  .mem-teach {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 16px;
+  }
+  .mem-input {
+    flex: 1 1 160px; min-width: 0;
+    padding: 9px 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font-body); font-size: 13px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .mem-input::placeholder { color: var(--text-faint); }
+  .mem-input:focus {
+    outline: none; border-color: var(--cyan);
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.12);
+  }
+  .mem-select { flex: 0 0 130px; cursor: pointer; }
+  .mem-btn {
+    flex: 0 0 auto;
+    padding: 9px 18px;
+    border: 1px solid var(--cyan);
+    border-radius: var(--radius);
+    background: rgba(0, 242, 254, 0.1);
+    color: var(--cyan);
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .mem-btn:hover {
+    background: rgba(0, 242, 254, 0.2);
+    box-shadow: 0 0 12px rgba(0, 242, 254, 0.25);
+  }
+  .mem-list { display: flex; flex-direction: column; gap: 14px; }
+  .mem-empty {
+    color: var(--text-dim); font-size: 13px; text-align: center;
+    padding: 28px 12px; font-family: var(--font-body);
+  }
+  .mem-group { display: flex; flex-direction: column; gap: 2px; }
+  .mem-group-head {
+    color: var(--cyan-dim); font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 0.18em;
+    padding: 2px 2px 6px; border-bottom: 1px solid var(--line);
+    margin-bottom: 6px;
+  }
+  .mem-fact {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border: 1px solid var(--line);
+    border-left: 2px solid var(--cyan-dim);
+    border-radius: var(--radius);
+    background: var(--cyan-faint);
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .mem-fact:hover { border-color: var(--line-hot); background: rgba(0, 242, 254, 0.06); }
+  .mem-kv { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .mem-key {
+    color: var(--text-dim); font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .mem-val {
+    color: var(--text); font-family: var(--font-body); font-size: 14px;
+    word-break: break-word;
+  }
+  .mem-hedge { color: var(--amber); margin-left: 6px; font-weight: 600; cursor: help; }
+  .mem-exp { margin-left: 6px; opacity: 0.6; cursor: help; }
+  .mem-forget {
+    flex: 0 0 auto; width: 26px; height: 26px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: transparent; color: var(--text-faint);
+    font-size: 13px; line-height: 1; cursor: pointer;
+    transition: all 0.18s;
+  }
+  .mem-forget:hover {
+    border-color: var(--red); color: var(--red);
+    background: rgba(255, 77, 109, 0.1);
+  }
+
 </style>
     `;
   }
@@ -5071,7 +5291,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.24.3 ",
+  "%c JARVIS Panel %c v6.26.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

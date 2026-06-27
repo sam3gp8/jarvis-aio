@@ -37,6 +37,7 @@ MIN_DAYS = 7           # Don't analyze until we have this much data
 MIN_OCCURRENCES = 5    # Pattern must repeat this many times
 CONFIDENCE_THRESHOLD = 0.65  # Minimum to create a suggestion
 ANALYSIS_INTERVAL = 21600    # 6 hours between analyses
+KNOWLEDGE_FACT_CONFIDENCE = 0.75  # routines/commands above this also become observed facts
 
 
 def set_thresholds(min_occurrences: int | None = None,
@@ -135,11 +136,17 @@ class PatternAnalyzer:
                 if stored:
                     new_suggestions += 1
 
+        # Promote the most reliable routines/commands into the curated knowledge
+        # store as *observed* facts, so they surface in the Memory tab (marked ~)
+        # and inject into conversation. Sequences/presence stay as automations only.
+        promoted = await hass.async_add_executor_job(
+            self._promote_to_knowledge, patterns)
+
         if patterns:
             _LOGGER.info(
-                "Pattern analysis: %d patterns found, %d new suggestions "
-                "(threshold=%.0f%%)",
-                len(patterns), new_suggestions,
+                "Pattern analysis: %d patterns found, %d new suggestions, "
+                "%d facts learned (threshold=%.0f%%)",
+                len(patterns), new_suggestions, promoted,
                 CONFIDENCE_THRESHOLD * 100,
             )
 
@@ -251,8 +258,8 @@ class PatternAnalyzer:
                     COUNT(*) as cnt
                 FROM state_changes a
                 JOIN state_changes b ON
-                    b.timestamp > a.timestamp AND
-                    b.timestamp <= datetime(a.timestamp, '+10 minutes') AND
+                    datetime(b.timestamp) > datetime(a.timestamp) AND
+                    datetime(b.timestamp) <= datetime(a.timestamp, '+10 minutes') AND
                     a.entity_id != b.entity_id AND
                     a.domain = b.domain
                 WHERE a.timestamp > datetime('now', '-30 days')
@@ -336,6 +343,62 @@ class PatternAnalyzer:
             ))
 
         return patterns
+
+    def _entity_label(self, entity_id: str) -> str:
+        """Readable label from an entity_id (no friendly name available here)."""
+        name = entity_id.split(".", 1)[1] if "." in entity_id else entity_id
+        return name.replace("_", " ").strip()
+
+    def _fact_for(self, pattern: "DetectedPattern"):
+        """
+        Map a detected pattern to an observed knowledge fact, or None if it's not
+        the kind of thing worth stating as butler-knowledge. Returns
+        (subject, kind, key, value). Deterministic so re-analysis upserts in place.
+        """
+        if pattern.pattern_type == "time_routine" and pattern.entity_ids:
+            label = self._entity_label(pattern.entity_ids[0])
+            state = str(pattern.details.get("state", "")).strip()
+            hour = pattern.details.get("hour")
+            if hour is None or not label:
+                return None
+            when = f"around {hour:02d}:00 most days"
+            if state in ("on", "off"):
+                return ("household", "fact", f"{label} turns {state}", when)
+            return ("household", "fact", f"{label} set to {state}", when)
+        if pattern.pattern_type == "repeated_command":
+            text = str(pattern.details.get("command", "")).strip()
+            hour = pattern.details.get("hour")
+            if not text or hour is None:
+                return None
+            return ("household", "fact", f'asks "{text[:60]}"',
+                    f"usually around {hour:02d}:00")
+        return None
+
+    def _promote_to_knowledge(self, patterns: list) -> int:
+        """Write the most reliable routines/commands as observed facts. SYNC."""
+        try:
+            from . import knowledge
+        except Exception:
+            return 0
+        written = 0
+        for p in patterns:
+            if p.confidence < KNOWLEDGE_FACT_CONFIDENCE:
+                continue
+            mapped = self._fact_for(p)
+            if not mapped:
+                continue
+            subject, kind, key, value = mapped
+            try:
+                stored = knowledge.remember(
+                    key, value, subject=subject, kind=kind, source="observed",
+                    confidence=round(float(p.confidence), 3), salience=0.8,
+                    respect_stated=True,
+                )
+                if stored:
+                    written += 1
+            except Exception as exc:
+                _LOGGER.debug("knowledge promote failed for %r: %s", key, exc)
+        return written
 
     def _store_suggestion(self, pattern: DetectedPattern) -> bool:
         """Store a pattern as a suggestion in the DB. Returns True if new."""

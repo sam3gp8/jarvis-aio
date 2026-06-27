@@ -51,6 +51,9 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get_activity_log)
         websocket_api.async_register_command(hass, ws_update_config)
         websocket_api.async_register_command(hass, ws_set_lockdown)
+        websocket_api.async_register_command(hass, ws_get_knowledge)
+        websocket_api.async_register_command(hass, ws_add_knowledge)
+        websocket_api.async_register_command(hass, ws_forget_knowledge)
         websocket_api.async_register_command(hass, ws_reload_appliances)
         websocket_api.async_register_command(hass, ws_search_memory)
         websocket_api.async_register_command(hass, ws_get_debug_log)
@@ -539,6 +542,7 @@ async def ws_get_panel_data(
             "doorbell_training": _get_doorbell_training(),
             "doors":          _get_door_states(hass),
             "lockdown":       _get_lockdown_status(),
+            "knowledge":      _get_knowledge_stats(),
             "suggestions":    _get_suggestions(),
             "config": {
                 "announcements_enabled": announcements_on,
@@ -735,6 +739,15 @@ def _get_lockdown_status() -> dict:
         return cognitive_core.lockdown_status()
     except Exception:
         return {"active": False, "since": 0.0, "reason": "", "auto": False, "exempt_windows": 0}
+
+
+def _get_knowledge_stats() -> dict:
+    """Curated-knowledge summary (counts) for the panel."""
+    try:
+        from . import knowledge
+        return knowledge.stats()
+    except Exception:
+        return {"total": 0, "by_kind": {}, "by_subject": {}}
 
 
 def _get_appliance_status() -> dict:
@@ -1106,6 +1119,81 @@ async def ws_set_lockdown(
     except Exception as exc:
         _LOGGER.exception("Panel lockdown request failed: %s", exc)
         connection.send_error(msg["id"], "lockdown_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/get_knowledge",
+    vol.Optional("subject"): str,
+})
+@websocket_api.async_response
+async def ws_get_knowledge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the curated facts JARVIS knows, for the Memory panel."""
+    try:
+        from . import knowledge
+        subject = msg.get("subject")
+        facts = await hass.async_add_executor_job(lambda: knowledge.all_facts(subject=subject))
+        kstats = await hass.async_add_executor_job(knowledge.stats)
+        connection.send_result(msg["id"], {"facts": facts, "stats": kstats})
+    except Exception as exc:
+        _LOGGER.exception("get_knowledge failed: %s", exc)
+        connection.send_error(msg["id"], "knowledge_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/add_knowledge",
+    vol.Required("key"): str,
+    vol.Required("value"): str,
+    vol.Optional("subject"): str,
+    vol.Optional("kind"): str,
+})
+@websocket_api.async_response
+async def ws_add_knowledge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Teach JARVIS a fact from the Memory panel."""
+    try:
+        from . import knowledge
+        f = await hass.async_add_executor_job(
+            lambda: knowledge.remember(
+                msg["key"], msg["value"],
+                subject=msg.get("subject", knowledge.DEFAULT_SUBJECT),
+                kind=msg.get("kind", "fact"), source="stated"))
+        facts = await hass.async_add_executor_job(knowledge.all_facts)
+        connection.send_result(msg["id"], {"ok": bool(f), "facts": facts})
+    except Exception as exc:
+        _LOGGER.exception("add_knowledge failed: %s", exc)
+        connection.send_error(msg["id"], "add_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/forget_knowledge",
+    vol.Optional("id"): int,
+    vol.Optional("subject"): str,
+    vol.Optional("key"): str,
+})
+@websocket_api.async_response
+async def ws_forget_knowledge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Forget a fact (by id, or subject+key) from the Memory panel."""
+    try:
+        from . import knowledge
+        fid = msg.get("id")
+        removed = await hass.async_add_executor_job(
+            lambda: knowledge.forget(fact_id=fid, subject=msg.get("subject"), key=msg.get("key")))
+        facts = await hass.async_add_executor_job(knowledge.all_facts)
+        connection.send_result(msg["id"], {"removed": removed, "facts": facts})
+    except Exception as exc:
+        _LOGGER.exception("forget_knowledge failed: %s", exc)
+        connection.send_error(msg["id"], "forget_failed", str(exc))
 
 
 @websocket_api.websocket_command({

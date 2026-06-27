@@ -4,6 +4,49 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.26.0] — JARVIS learns your routines on its own
+The pattern engine that watches how you use the house now does two new things
+with what it sees.
+
+First, the strongest routines it spots become things JARVIS simply *knows* —
+they show up in the Memory tab on their own, marked with a "~" so you can tell
+what it figured out by watching versus what you told it directly. So after a
+week or two you might open Memory and find "porch light turns on → around 18:00
+most days," or "asks 'goodnight' → usually around 23:00," with no effort on your
+part. Anything you've stated yourself always wins and won't be overwritten by a
+guess, and you can forget any of these with the ✕ like any other fact.
+
+Second, a fix: JARVIS can now actually notice when one thing reliably follows
+another — "the kitchen light comes on right after the hallway light" — and offer
+to automate it. That detection had been silently failing; it works now, so the
+"shall I automate this?" suggestions will be richer.
+
+As before, suggested automations still wait for your yes/no — nothing is created
+behind your back.
+
+## [6.25.0] — JARVIS remembers
+JARVIS can now hold on to durable facts and preferences — the kind of thing a
+real butler just knows about your household — and bring them up naturally in
+conversation. Tell it "remember that trash is Tuesday," or "remember I run cold
+at night," and it keeps that. Ask later and it answers from what it knows; it
+also quietly factors these in whenever it talks to you.
+
+There's a new **Memory** tab to see and curate everything JARVIS knows:
+
+  • Each fact is listed plainly — "trash day → Tuesday" — grouped into things
+    about the household and things about you.
+  • Teach it something on the spot with the box at the top, no voice needed.
+  • Forget anything with the ✕ — this is your control over what it retains.
+  • Facts it picked up by observation rather than being told are marked with a
+    small "~", so you can see at a glance what it's sure of versus inferring.
+  • Facts can be made to expire on their own — handy for the ephemeral ("the
+    sitter comes at 3 today") so they don't linger as stale knowledge.
+
+This sits alongside the conversation memory JARVIS already had (which recalls the
+gist of past chats); the new layer is curated knowledge you can read and edit
+directly, and it's the foundation the per-person and goal-planning features to
+come will build on.
+
 ## [6.24.3] — Lockdown holds, and handles open doors the way you'd expect
 Lockdown now stays put. The earlier "it flips on then flips back" was the header
 not being told the real lockdown state on its regular refresh — it is now, so the
