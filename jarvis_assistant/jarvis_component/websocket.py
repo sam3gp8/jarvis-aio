@@ -538,6 +538,7 @@ async def ws_get_panel_data(
             "sleep_reason":   sleep_reason if sleeping else None,
             "doorbell_training": _get_doorbell_training(),
             "doors":          _get_door_states(hass),
+            "lockdown":       _get_lockdown_status(),
             "suggestions":    _get_suggestions(),
             "config": {
                 "announcements_enabled": announcements_on,

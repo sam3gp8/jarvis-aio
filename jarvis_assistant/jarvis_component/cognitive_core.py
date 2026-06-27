@@ -47,6 +47,7 @@ ALARM_ARMED_STATES = {
 }
 LOCKDOWN_DOOR_COVER_CLASSES = {"door", "garage", "garage_door"}
 LOCKDOWN_BREACH_COOLDOWN = 120  # seconds between repeat breach announcements
+LOCKDOWN_SECURE_VERIFY_DELAY = 25  # seconds to wait before confirming a close actually took (slow covers)
 LOCKDOWN_STATE_PATH = "/config/jarvis/lockdown_state.json"  # survives reboots/reloads
 FREEZE_WARN_TEMP_F = 35  # outdoor temp (°F) that triggers pipe concern
 FREEZE_CRITICAL_TEMP_F = 20  # act immediately
@@ -487,8 +488,9 @@ class LockdownManager:
         self.since = 0.0
         self.reason = ""
         self.auto = False                 # engaged by the alarm (auto-lift on disarm)
-        self.exempt_windows: set = set()   # windows open at engage / adopted as intentional
-        self._window_alerted: set = set()  # windows already warned about this lockdown
+        self.exempt_windows: set = set()   # openings open at engage / adopted as intentional (doors + windows)
+        self._secured_by_us: set = set()   # entities JARVIS closed/locked this lockdown (reopen ⇒ intentional)
+        self._alerted: set = set()         # entities already alerted about this lockdown
         self._last_breach_alert = 0.0
         # When the user manually lifts lockdown while the alarm is still armed,
         # this suppresses auto re-engage until the alarm is disarmed and re-armed
@@ -575,15 +577,58 @@ class LockdownManager:
                 return True
         return False
 
-    def _open_windows(self) -> set:
+    # ── opening / secure-state model (doors + windows + locks) ──────────────
+    _DOOR_WINDOW_BS = ("door", "window", "garage_door", "opening")
+    _CLOSEABLE_COVERS = {"door", "garage", "garage_door", "window", "gate"}
+
+    def _open_openings(self) -> set:
+        """Every door/window currently open right now (sensors + covers)."""
         out = set()
         for st in self.hass.states.async_all("binary_sensor"):
-            if st.attributes.get("device_class") == "window" and st.state == "on":
+            if st.attributes.get("device_class") in self._DOOR_WINDOW_BS and st.state == "on":
                 out.add(st.entity_id)
         for st in self.hass.states.async_all("cover"):
-            if st.attributes.get("device_class") == "window" and st.state == "open":
+            if st.attributes.get("device_class") in self._CLOSEABLE_COVERS and st.state in ("open", "opening"):
                 out.add(st.entity_id)
         return out
+
+    def _is_relevant(self, dom: str, dc) -> bool:
+        if dom == "lock":
+            return True
+        if dom == "cover":
+            return dc in self._CLOSEABLE_COVERS
+        if dom == "binary_sensor":
+            return dc in self._DOOR_WINDOW_BS
+        return False
+
+    def _is_secure(self, dom: str, state) -> bool:
+        s = str(state).lower()
+        if dom == "lock":
+            return s == "locked"
+        if dom == "cover":
+            return s in ("closed", "closing")
+        if dom == "binary_sensor":
+            return s in ("off", "closed", "false")     # off ⇒ closed/secure
+        return True
+
+    def _can_secure(self, dom: str, dc) -> bool:
+        """Can JARVIS actually close/lock this? A bare contact sensor cannot."""
+        if dom == "lock":
+            return True
+        if dom == "cover":
+            return dc in self._CLOSEABLE_COVERS
+        return False
+
+    async def _secure_entity(self, eid: str, dom: str) -> bool:
+        try:
+            if dom == "lock":
+                await self.hass.services.async_call("lock", "lock", {"entity_id": eid}, blocking=True)
+            else:
+                await self.hass.services.async_call("cover", "close_cover", {"entity_id": eid}, blocking=True)
+            return True
+        except Exception as exc:
+            _LOGGER.warning("Lockdown: secure %s failed: %s", eid, exc)
+            return False
 
     async def _lock_all(self) -> list:
         locked = []
@@ -600,22 +645,6 @@ class LockdownManager:
                     _LOGGER.warning("Lockdown: failed to lock %s: %s", eid, exc)
         return locked
 
-    async def _close_doors(self) -> list:
-        closed = []
-        for st in self.hass.states.async_all("cover"):
-            dc = st.attributes.get("device_class")
-            if st.state == "open" and dc in LOCKDOWN_DOOR_COVER_CLASSES:
-                eid = st.entity_id
-                fname = st.attributes.get("friendly_name", eid)
-                try:
-                    await self.hass.services.async_call(
-                        "cover", "close_cover", {"entity_id": eid}, blocking=True)
-                    closed.append(fname)
-                    _LOGGER.info("Lockdown: closed %s", eid)
-                except Exception as exc:
-                    _LOGGER.warning("Lockdown: failed to close %s: %s", eid, exc)
-        return closed
-
     async def engage(self, reason: str, auto: bool = False) -> Optional[dict]:
         if self.active:
             return None
@@ -623,25 +652,23 @@ class LockdownManager:
         self.since = time.time()
         self.reason = reason
         self.auto = auto
-        self.exempt_windows = self._open_windows()   # leave these as-is
-        self._window_alerted = set()
+        # Snapshot everything already open NOW (doors + windows) — these were
+        # left open knowingly, so they're ignored for the duration. We do NOT
+        # force them shut; lockdown only reacts to things that change afterwards.
+        self.exempt_windows = self._open_openings()
+        self._secured_by_us = set()
+        self._alerted = set()
         self._last_breach_alert = 0.0
         honorific = self.config.get("honorific", "sir")
-        locked = await self._lock_all()
-        closed = await self._close_doors()
-        parts = []
-        if locked:
-            parts.append(f"locked {', '.join(locked)}")
-        if closed:
-            parts.append(f"closed {', '.join(closed)}")
-        secured = (" — " + " and ".join(parts) + ".") if parts else " — all doors already secure."
+        locked = await self._lock_all()       # lock closed-but-unlocked doors
+        secured = (f" — locked {', '.join(locked)}.") if locked else " — everything already locked."
         ignored = ""
         if self.exempt_windows:
             n = len(self.exempt_windows)
-            ignored = f" {n} window{'s' if n != 1 else ''} already open will be left as-is."
+            ignored = f" {n} opening{'s' if n != 1 else ''} already open will be left as-is."
         _LOGGER.warning(
-            "Lockdown ENGAGED (%s): locked=%s closed=%s exempt_windows=%d",
-            reason, locked, closed, len(self.exempt_windows))
+            "Lockdown ENGAGED (%s): locked=%s exempt(open-now)=%d",
+            reason, locked, len(self.exempt_windows))
         await self._persist()
         return {
             "type": "lockdown_engaged",
@@ -661,7 +688,8 @@ class LockdownManager:
         self.reason = ""
         self.auto = False
         self.exempt_windows = set()
-        self._window_alerted = set()
+        self._secured_by_us = set()
+        self._alerted = set()
         honorific = self.config.get("honorific", "sir")
         _LOGGER.warning("Lockdown DISENGAGED (%s, manual=%s, auto_suppressed=%s)",
                         reason, manual, self._auto_suppressed)
@@ -673,20 +701,94 @@ class LockdownManager:
             "auto_act": True,
         }
 
-    async def tick(self) -> list[dict]:
-        """Drive auto engage/disengage from the alarm, then enforce while active.
-
-        Enforcement (re-securing breaches and breach alerts) only runs when NO
-        ONE is home — the away/intrusion posture. While someone is home, an
-        armed lockdown is passive: it secured the house on engage, but it won't
-        nag about (or fight) intentional activity like a window opened to sleep.
+    async def handle_state_change(self, eid: str, old, new) -> Optional[dict]:
         """
+        A door/window/lock changed while lockdown is active. Policy:
+          • ignore anything already open at engage (the exempt baseline);
+          • only react to a secure→unsecure transition;
+          • if JARVIS can close/lock it, do so — and if it doesn't take, alert;
+          • if it can't be closed (a bare contact sensor), assume it was opened
+            intentionally and leave it (no nagging);
+          • if something JARVIS closed gets reopened, the user means it — adopt it
+            and say so once.
+        Returns an alert action to announce, or None.
+        """
+        if not self.active or eid in self.exempt_windows:
+            return None
+        dom = eid.split(".", 1)[0]
+        dc = new.attributes.get("device_class")
+        if not self._is_relevant(dom, dc):
+            return None
+        if self._is_secure(dom, new.state):
+            return None
+        if old is not None and not self._is_secure(dom, old.state):
+            return None  # was already unsecure — not a fresh transition
+        name = new.attributes.get("friendly_name", eid)
+        honorific = self.config.get("honorific", "sir")
+
+        if not self._can_secure(dom, dc):
+            # Nothing JARVIS can do about a contact sensor → assume intentional.
+            self.exempt_windows.add(eid)
+            await self._persist()
+            _LOGGER.info("Lockdown: %s opened (not controllable) — treating as intentional", eid)
+            return None
+
+        if eid in self._secured_by_us:
+            # We shut it once and it's open again → the user wants it open.
+            self._secured_by_us.discard(eid)
+            self.exempt_windows.add(eid)
+            await self._persist()
+            if eid in self._alerted:
+                return None
+            self._alerted.add(eid)
+            return {
+                "type": "lockdown_breach", "urgency": "high", "auto_act": True,
+                "message": f"{honorific.title()}, {name} reopened after I secured it — I'll leave it open.",
+            }
+
+        _LOGGER.warning("Lockdown: securing %s after it opened", eid)
+        ok = await self._secure_entity(eid, dom)
+        if ok:
+            self._secured_by_us.add(eid)
+            # Confirm it actually shut (slow covers report late) and alert if not.
+            self.hass.async_create_task(self._verify_secured(eid, dom, name))
+            return None
+        if eid in self._alerted:
+            return None
+        self._alerted.add(eid)
+        return {
+            "type": "lockdown_breach", "urgency": "critical", "auto_act": True,
+            "message": f"{honorific.title()}, {name} opened during lockdown and I couldn't secure it.",
+        }
+
+    async def _verify_secured(self, eid: str, dom: str, name: str) -> None:
+        """After trying to close/lock something, make sure it actually took."""
+        try:
+            await asyncio.sleep(LOCKDOWN_SECURE_VERIFY_DELAY)
+            if not self.active or eid in self.exempt_windows:
+                return
+            st = self.hass.states.get(eid)
+            if st is None or self._is_secure(dom, st.state):
+                return  # secure now — nothing to report
+            if eid in self._alerted:
+                return
+            self._alerted.add(eid)
+            honorific = self.config.get("honorific", "sir")
+            await _emit_action(self.hass, self.config, {
+                "type": "lockdown_breach", "urgency": "critical", "auto_act": True,
+                "message": f"{honorific.title()}, I tried to secure {name} during lockdown but it's still open.",
+            }, False)
+        except Exception as exc:
+            _LOGGER.debug("lockdown secure-verify error: %s", exc)
+
+    async def tick(self) -> list[dict]:
+        """Alarm-driven auto engage/disengage. Breach enforcement is event-driven
+        (handle_state_change), so it isn't repeated here."""
         actions = []
         armed = self._alarm_armed()
         auto_on_arm = self.config.get("lockdown_auto_on_arm", True)
 
-        # Clear a manual-exit suppression once the alarm is no longer armed, so
-        # the next arming engages lockdown normally again.
+        # Clear a manual-exit suppression once the alarm is disarmed again.
         if not armed and self._auto_suppressed:
             self._auto_suppressed = False
             await self._persist()
@@ -699,56 +801,6 @@ class LockdownManager:
             a = await self.disengage("alarm disarmed")
             if a:
                 actions.append(a)
-
-        if not self.active:
-            return actions
-
-        # Passive while someone is home — secured on engage, but no re-securing
-        # and no breach nagging (open windows / activity are intentional).
-        if self._anyone_home():
-            return actions
-
-        honorific = self.config.get("honorific", "sir")
-        now = time.time()
-
-        # Re-secure breaches: anything unlocked or any door reopened during lockdown
-        relocked = await self._lock_all()
-        reclosed = await self._close_doors()
-        if (relocked or reclosed) and (now - self._last_breach_alert) > LOCKDOWN_BREACH_COOLDOWN:
-            self._last_breach_alert = now
-            parts = []
-            if relocked:
-                parts.append(f"re-locked {', '.join(relocked)}")
-            if reclosed:
-                parts.append(f"re-closed {', '.join(reclosed)}")
-            actions.append({
-                "type": "lockdown_breach",
-                "urgency": "critical",
-                "message": (f"{honorific.title()}, a secured entry point was opened during "
-                            f"lockdown — {' and '.join(parts)}."),
-                "auto_act": True,
-            })
-
-        # New windows opened since engage (not pre-existing) — warn once each,
-        # then adopt as the intentional baseline so they never nag again this
-        # session (prevents repeats from sensor flap or re-engage).
-        open_now = self._open_windows()
-        new_windows = open_now - self.exempt_windows
-        if new_windows:
-            names = []
-            for eid in sorted(new_windows):
-                st = self.hass.states.get(eid)
-                names.append(st.attributes.get("friendly_name", eid) if st else eid)
-            self.exempt_windows |= new_windows
-            await self._persist()
-            actions.append({
-                "type": "lockdown_breach",
-                "urgency": "critical",
-                "message": (f"{honorific.title()}, a window was opened during lockdown: "
-                            f"{', '.join(names)}. I can't close it remotely."),
-                "auto_act": True,
-            })
-
         return actions
 
 
@@ -1599,20 +1651,31 @@ async def ensure_lockdown(hass: HomeAssistant, config: dict) -> None:
         _CORE.config = config or {}
     _ensure_lockdown_mgr(hass)
     if _CORE.alarm_unsub is None:
-        _CORE.alarm_unsub = hass.bus.async_listen("state_changed", _on_alarm_state)
-        _LOGGER.info("Lockdown alarm-sync listener registered")
+        _CORE.alarm_unsub = hass.bus.async_listen("state_changed", _on_lockdown_state)
+        _LOGGER.info("Lockdown listener registered (alarm sync + breach enforcement)")
     await _sync_lockdown_to_alarm("startup")
 
 
-async def _on_alarm_state(event) -> None:
-    """React the moment any alarm_control_panel changes state."""
+async def _on_lockdown_state(event) -> None:
+    """One listener for everything lockdown cares about: alarm arm/disarm sync,
+    plus securing doors/windows/locks that go unsecure while lockdown is active."""
     try:
         eid = event.data.get("entity_id", "")
-        if not eid.startswith("alarm_control_panel."):
+        dom = eid.split(".", 1)[0]
+        if dom == "alarm_control_panel":
+            await _sync_lockdown_to_alarm("alarm " + eid)
             return
-        await _sync_lockdown_to_alarm("alarm " + eid)
+        mgr = _CORE.lockdown_mgr
+        if mgr is None or not mgr.active or dom not in ("binary_sensor", "cover", "lock"):
+            return
+        new = event.data.get("new_state")
+        if new is None:
+            return
+        action = await mgr.handle_state_change(eid, event.data.get("old_state"), new)
+        if action and _CORE.hass:
+            await _emit_action(_CORE.hass, _CORE.config or {}, action, False)
     except Exception as exc:
-        _LOGGER.debug("alarm→lockdown sync error: %s", exc)
+        _LOGGER.debug("lockdown state handler error: %s", exc)
 
 
 async def _sync_lockdown_to_alarm(reason: str) -> None:

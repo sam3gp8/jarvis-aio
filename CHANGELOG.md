@@ -4,6 +4,28 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.24.3] — Lockdown holds, and handles open doors the way you'd expect
+Lockdown now stays put. The earlier "it flips on then flips back" was the header
+not being told the real lockdown state on its regular refresh — it is now, so the
+switch reflects exactly what the house is doing and holds there.
+
+Lockdown is also smarter about doors and windows. Anything already open when you
+engage is treated as deliberate and left alone — no fighting you over a window you
+opened on purpose. From then on it watches for things that were shut and then open:
+
+  • if it's something JARVIS can close or lock (a smart garage door, a smart lock),
+    it secures it — and if that doesn't actually take, it alerts you;
+  • if it's something JARVIS can't operate (a plain open/closed sensor with no
+    motor or lock behind it), it assumes you meant to open it and leaves it be;
+  • if JARVIS closes something and you open it right back, it takes the hint, leaves
+    it open, and tells you once.
+
+Worth knowing: because un-closeable openings are now assumed intentional, a window
+JARVIS can't physically close that opens mid-lockdown is left alone rather than
+alerted — your call, as requested. Auto-arm-with-the-alarm and surviving reboots
+from the last update are unchanged.
+
+
 ## [6.24.2] — Lockdown that actually engages (and follows your alarm)
 Fixed the lockdown toggle for good and made it dependable. It now engages every time you flip
 it, the header switch reflects it immediately, and lockdown follows your alarm on its own — it
