@@ -4,6 +4,25 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.29.1] — the Configure dialog actually configures now
+If you opened **Settings → Devices & Services → JARVIS → Configure** and got a
+step that showed a heading but no fields — just a Submit button — that's fixed.
+The Configure dialog is a proper four-step setup (Core, Routing, Observer,
+Identity) with real controls, pre-filled with your current values:
+
+  • **Core** — what JARVIS calls you, its directive/personality preset (or a
+    custom directive), the conversation model, and whether it can control the home.
+  • **Routing** — your bedroom areas, a broadcast speaker group, and a phone
+    notify service.
+  • **Observer** — turn proactive awareness on, with its Gemini vision key, the
+    model tiers, and quiet hours.
+  • **Identity** — per-person recognition: on/off, the confidence threshold, and
+    the voice-fingerprint tier (the one that needs a GPU).
+
+This is in addition to the in-app JARVIS panel, which still holds the full set of
+settings. (The empty dialog was leftover skeleton steps from an earlier build;
+the fields had never been wired in.)
+
 ## [6.29.0] — JARVIS knows who it's talking to
 Until now JARVIS treated everyone the same — it remembered facts and learned
 routines, but couldn't tell who was speaking. It can now figure out *who* it's

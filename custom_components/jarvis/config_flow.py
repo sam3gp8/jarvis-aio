@@ -5,7 +5,8 @@ HACS integration: the config flow is the primary setup path.
   1. Manual entry of a cloud API key OR a local LLM endpoint (the common case).
   2. If migrating from the legacy add-on, auto-imports an existing
      /config/jarvis/config.json so nothing is re-entered.
-  3. Options flow redirects to the JARVIS panel (Settings tab).
+  3. Options flow: a 4-step Configure dialog (Core, Routing, Observer, Identity)
+     for the common settings — the full set still lives in the JARVIS panel.
 
 All runtime configuration is managed via the JARVIS panel and
 persisted by jarvis_config.py. The HA config entry is just the
@@ -22,13 +23,34 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_API_KEY,
     CONF_HONORIFIC,
     CONF_MODEL,
+    CONF_DIRECTIVE,
+    CONF_DIRECTIVE_PRESET,
+    CONF_USE_HASS_API,
+    CONF_BEDROOM_AREAS,
+    CONF_BROADCAST_GROUP,
+    CONF_NOTIFY_SERVICE,
+    CONF_OBSERVER_ENABLED,
+    CONF_GEMINI_API_KEY,
+    CONF_CLASSIFIER_MODEL,
+    CONF_REASONING_MODEL,
+    CONF_REVIEW_MODEL,
+    CONF_OBSERVER_QUIET_START,
+    CONF_OBSERVER_QUIET_END,
     DEFAULT_HONORIFIC,
     DEFAULT_MODEL,
+    DEFAULT_DIRECTIVE_PRESET,
+    DEFAULT_CLASSIFIER_MODEL,
+    DEFAULT_REASONING_MODEL,
+    DEFAULT_REVIEW_MODEL,
+    DEFAULT_OBSERVER_QUIET_START,
+    DEFAULT_OBSERVER_QUIET_END,
+    DIRECTIVE_PRESETS,
     DOMAIN,
 )
 
@@ -159,25 +181,125 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class JarvisOptionsFlow(OptionsFlow):
     """
-    Options flow — redirects to the JARVIS panel.
-    All configuration is managed via the panel Settings tab.
+    Full options flow — JARVIS is configurable from Settings → Devices &
+    Services → JARVIS → Configure (in addition to the in-app panel). Steps:
+      1. Core      — persona/honorific, directive, conversation model, home control
+      2. Routing   — bedroom areas, broadcast group, phone notify service
+      3. Observer  — proactive awareness (Gemini key + model tiers + quiet hours)
+      4. Identity  — per-person recognition (voice-fingerprint tier is GPU-only)
+    Collected values are written straight into jarvis_config (the runtime source
+    of truth the panel and modules read) and persisted as entry options, which
+    triggers a reload so they take effect immediately.
     """
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._entry = config_entry
+        self._data: dict[str, Any] = {}
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None,
-    ) -> dict:
+    def _cur(self, key: str, default: Any = None) -> Any:
+        """Current value: runtime config first, then entry options/data."""
+        try:
+            from . import jarvis_config
+            val = jarvis_config.get(key, None)
+            if val not in (None, ""):
+                return val
+        except Exception:
+            pass
+        return self._entry.options.get(key, self._entry.data.get(key, default))
+
+    def _sv(self, key: str, default: Any = None) -> dict:
+        """suggested_value wrapper to pre-fill a field with its current value."""
+        return {"suggested_value": self._cur(key, default)}
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> dict:
+        """Step 1 — Core."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=self._entry.options)
+            self._data.update(user_input)
+            return await self.async_step_routing()
+        schema = vol.Schema({
+            vol.Optional(CONF_HONORIFIC, description=self._sv(CONF_HONORIFIC, DEFAULT_HONORIFIC)):
+                selector.TextSelector(),
+            vol.Optional(CONF_DIRECTIVE_PRESET,
+                         description=self._sv(CONF_DIRECTIVE_PRESET, DEFAULT_DIRECTIVE_PRESET)):
+                selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=list(DIRECTIVE_PRESETS.keys()),
+                    mode=selector.SelectSelectorMode.DROPDOWN)),
+            vol.Optional(CONF_DIRECTIVE, description=self._sv(CONF_DIRECTIVE, "")):
+                selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            vol.Optional(CONF_MODEL, description=self._sv(CONF_MODEL, DEFAULT_MODEL)):
+                selector.TextSelector(),
+            vol.Optional(CONF_USE_HASS_API, description=self._sv(CONF_USE_HASS_API, True)):
+                selector.BooleanSelector(),
+        })
+        return self.async_show_form(step_id="init", data_schema=schema)
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema({}),
-            description_placeholders={
-                "message": "All JARVIS settings are managed in the JARVIS panel. "
-                           "Go to the JARVIS sidebar → Settings tab to configure "
-                           "satellites, speakers, observer, floor plan, and more.",
-            },
-        )
+    async def async_step_routing(self, user_input: dict[str, Any] | None = None) -> dict:
+        """Step 2 — Routing."""
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_observer()
+        schema = vol.Schema({
+            vol.Optional(CONF_BEDROOM_AREAS, description=self._sv(CONF_BEDROOM_AREAS, [])):
+                selector.AreaSelector(selector.AreaSelectorConfig(multiple=True)),
+            vol.Optional(CONF_BROADCAST_GROUP, description=self._sv(CONF_BROADCAST_GROUP, "")):
+                selector.EntitySelector(selector.EntitySelectorConfig(domain="media_player")),
+            vol.Optional(CONF_NOTIFY_SERVICE, description=self._sv(CONF_NOTIFY_SERVICE, "")):
+                selector.TextSelector(),
+        })
+        return self.async_show_form(step_id="routing", data_schema=schema)
+
+    async def async_step_observer(self, user_input: dict[str, Any] | None = None) -> dict:
+        """Step 3 — Observer."""
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_identity()
+        schema = vol.Schema({
+            vol.Optional(CONF_OBSERVER_ENABLED, description=self._sv(CONF_OBSERVER_ENABLED, False)):
+                selector.BooleanSelector(),
+            vol.Optional(CONF_GEMINI_API_KEY, description=self._sv(CONF_GEMINI_API_KEY, "")):
+                selector.TextSelector(selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.PASSWORD)),
+            vol.Optional(CONF_CLASSIFIER_MODEL,
+                         description=self._sv(CONF_CLASSIFIER_MODEL, DEFAULT_CLASSIFIER_MODEL)):
+                selector.TextSelector(),
+            vol.Optional(CONF_REASONING_MODEL,
+                         description=self._sv(CONF_REASONING_MODEL, DEFAULT_REASONING_MODEL)):
+                selector.TextSelector(),
+            vol.Optional(CONF_REVIEW_MODEL,
+                         description=self._sv(CONF_REVIEW_MODEL, DEFAULT_REVIEW_MODEL)):
+                selector.TextSelector(),
+            vol.Optional(CONF_OBSERVER_QUIET_START,
+                         description=self._sv(CONF_OBSERVER_QUIET_START, DEFAULT_OBSERVER_QUIET_START)):
+                selector.TextSelector(),
+            vol.Optional(CONF_OBSERVER_QUIET_END,
+                         description=self._sv(CONF_OBSERVER_QUIET_END, DEFAULT_OBSERVER_QUIET_END)):
+                selector.TextSelector(),
+        })
+        return self.async_show_form(step_id="observer", data_schema=schema)
+
+    async def async_step_identity(self, user_input: dict[str, Any] | None = None) -> dict:
+        """Step 4 — Identity (per-person recognition; voice tier needs a GPU)."""
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self._save()
+        schema = vol.Schema({
+            vol.Optional("identity_enabled", description=self._sv("identity_enabled", True)):
+                selector.BooleanSelector(),
+            vol.Optional("identity_voice_fingerprint",
+                         description=self._sv("identity_voice_fingerprint", False)):
+                selector.BooleanSelector(),
+            vol.Optional("identity_min_confidence",
+                         description=self._sv("identity_min_confidence", 0.45)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.0, max=1.0, step=0.05, mode=selector.NumberSelectorMode.SLIDER)),
+        })
+        return self.async_show_form(step_id="identity", data_schema=schema)
+
+    async def _save(self) -> dict:
+        """Persist all collected values to the runtime config + entry options."""
+        try:
+            from . import jarvis_config
+            await self.hass.async_add_executor_job(jarvis_config.set_many, dict(self._data))
+        except Exception as exc:
+            _LOGGER.warning("JARVIS options: jarvis_config write failed: %s", exc)
+        return self.async_create_entry(title="", data={**self._entry.options, **self._data})
