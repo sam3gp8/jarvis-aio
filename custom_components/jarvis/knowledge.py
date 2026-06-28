@@ -236,23 +236,29 @@ def purge_expired(now: Optional[float] = None) -> int:
 
 # ── read ─────────────────────────────────────────────────────────────────────
 
-def _live_rows(conn: sqlite3.Connection, subject: Optional[str], now: float) -> list:
+def _live_rows(conn: sqlite3.Connection, subject: Optional[str], now: float,
+               subjects: Optional[list] = None) -> list:
     sql = "SELECT * FROM facts WHERE (expires_at IS NULL OR expires_at >= ?)"
     params: list = [now]
-    if subject is not None:
+    if subjects is not None:
+        placeholders = ",".join("?" for _ in subjects) or "''"
+        sql += f" AND subject IN ({placeholders})"
+        params.extend(subjects)
+    elif subject is not None:
         sql += " AND subject = ?"
         params.append(subject)
     return conn.execute(sql, params).fetchall()
 
 
-def all_facts(subject: Optional[str] = None, now: Optional[float] = None) -> list[dict]:
+def all_facts(subject: Optional[str] = None, now: Optional[float] = None,
+               subjects: Optional[list] = None) -> list[dict]:
     """All non-expired facts (optionally for one subject), newest first. SYNC."""
     now = now if now is not None else time.time()
     conn = _connect()
     if conn is None:
         return []
     try:
-        rows = _live_rows(conn, subject, now)
+        rows = _live_rows(conn, subject, now, subjects)
         facts = [_row_to_fact(r) for r in rows]
         facts.sort(key=lambda f: f["updated_at"], reverse=True)
         return facts
@@ -270,6 +276,7 @@ def recall(
     k: int = 5,
     now: Optional[float] = None,
     touch: bool = True,
+    subjects: Optional[list] = None,
 ) -> list[dict]:
     """
     Retrieve the k most relevant facts. Scored by query-term overlap (key+value),
@@ -282,7 +289,7 @@ def recall(
     if conn is None:
         return []
     try:
-        rows = _live_rows(conn, subject, now)
+        rows = _live_rows(conn, subject, now, subjects)
         if not rows:
             return []
         q_tokens = _tokens(query)
@@ -321,14 +328,15 @@ _SUBJECT_LABEL = {"household": "Household", "primary": "About the primary reside
 
 
 def prompt_block(query: str = "", *, subject: Optional[str] = None,
-                 limit: int = 12, now: Optional[float] = None) -> str:
+                 limit: int = 12, now: Optional[float] = None,
+                 subjects: Optional[list] = None) -> str:
     """
     A compact "what you know" block for the system prompt. If a query is given,
     the most relevant facts; otherwise the most salient. Returns "" when empty so
     callers can concatenate unconditionally.
     """
-    facts = (recall(query, subject=subject, k=limit, now=now, touch=False)
-             if query else all_facts(subject=subject, now=now)[:limit])
+    facts = (recall(query, subject=subject, k=limit, now=now, touch=False, subjects=subjects)
+             if query else all_facts(subject=subject, now=now, subjects=subjects)[:limit])
     if not facts:
         return ""
     by_subject: dict = {}

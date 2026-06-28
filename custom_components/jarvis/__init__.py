@@ -511,6 +511,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.warning("JARVIS proactive-audio setup failed (non-fatal): %s", exc)
 
+    # ── v6.28 In-process bootstrap ─────────────────────────────────────────
+    # Re-homes the old add-on's voice-stack setup (Piper/Whisper/openWakeWord
+    # install, JARVIS voice download, Assist pipeline) into the integration.
+    # No-ops cleanly off-Supervisor; runs once per version as a background task.
+    try:
+        from . import bootstrap
+        bootstrap.schedule_bootstrap(hass)
+    except Exception as exc:
+        _LOGGER.warning("JARVIS bootstrap scheduling failed (non-fatal): %s", exc)
+
     _LOGGER.info("JARVIS online. Good day, %s. Routines available: %s",
                  honorific, ", ".join(list_routines()))
     return True

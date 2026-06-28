@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.27.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.29.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -817,7 +817,8 @@ class JarvisPanel extends HTMLElement {
           <button class="mem-forget" data-id="${f.id}" title="Forget this" aria-label="Forget">✕</button>
         </div>`;
       }).join("");
-      return `<div class="mem-group"><div class="mem-group-head">${labels[subj] || esc(subj)}</div>${items}</div>`;
+      const label = labels[subj] || esc(subj.replace(/_/g, " ").toUpperCase());
+      return `<div class="mem-group"><div class="mem-group-head">${label}</div>${items}</div>`;
     }).join("");
     list.querySelectorAll(".mem-forget").forEach(btn => {
       btn.addEventListener("click", (e) => {
@@ -5291,7 +5292,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.27.0 ",
+  "%c JARVIS Panel %c v6.29.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
