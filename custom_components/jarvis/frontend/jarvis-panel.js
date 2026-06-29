@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.29.1 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.30.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -1736,6 +1736,62 @@ class JarvisPanel extends HTMLElement {
         try { await this._saveConfig('residence_style', val); } catch (_) {}
       });
     }
+    // Door slot → entity mapping selects (explicit overrides auto-detect).
+    this._doorSlots().forEach(([slot]) => {
+      const ds = this.shadowRoot.getElementById('door-map-' + slot);
+      if (ds && !ds._wired) {
+        ds._wired = true;
+        ds.addEventListener('change', async () => {
+          const cfg = (this._liveData && this._liveData.config) || {};
+          const map = Object.assign({}, cfg.door_mapping || {});
+          if (ds.value) map[slot] = ds.value; else delete map[slot];
+          if (this._liveData && this._liveData.config) this._liveData.config.door_mapping = map;
+          this._build3DHouse();
+          this._toast('◉ Door mapping updated', 'ok');
+          try { await this._saveConfig('door_mapping', JSON.stringify(map)); } catch (_) {}
+        });
+      }
+    });
+  }
+
+  // Residence model door slots → friendly labels.
+  _doorSlots() {
+    return [
+      ['front', 'Front Door'],
+      ['garage', 'Garage Door'],
+      ['garage_rear', 'Garage Side / Rear'],
+      ['kitchen_garage', 'Kitchen ↔ Garage'],
+      ['cellar', 'Cellar / Bulkhead'],
+      ['basement', 'Basement'],
+    ];
+  }
+
+  // Door-like entities for the mapping dropdowns (covers, locks, door sensors).
+  _doorEntityOptions(selected) {
+    const states = this._hass?.states || {};
+    const cands = [];
+    Object.keys(states).forEach(eid => {
+      const dom = eid.split('.')[0];
+      const dc = (states[eid].attributes && states[eid].attributes.device_class) || '';
+      const ok = dom === 'cover' || dom === 'lock' ||
+        (dom === 'binary_sensor' && (['door', 'garage_door', 'opening'].includes(dc) || /door|garage|gate|cellar|bulkhead|hatch/i.test(eid)));
+      if (ok) cands.push(eid);
+    });
+    cands.sort();
+    if (selected && !cands.includes(selected)) cands.unshift(selected);
+    const opts = cands.map(eid => {
+      const fn = (states[eid].attributes && states[eid].attributes.friendly_name) || eid;
+      return `<option value="${this._esc(eid)}"${eid === selected ? ' selected' : ''}>${this._esc(fn)}</option>`;
+    }).join('');
+    return `<option value=""${selected ? '' : ' selected'}>— auto-detect —</option>` + opts;
+  }
+
+  _renderDoorMapping(d) {
+    const map = (d.config && d.config.door_mapping) || {};
+    const rows = this._doorSlots().map(([slot, label]) =>
+      `<div class="door-map-row"><label>${label}</label><select class="door-map-sel" id="door-map-${slot}" data-slot="${slot}">${this._doorEntityOptions(map[slot] || '')}</select></div>`
+    ).join('');
+    return `<div class="door-map"><div class="door-map-head">DOORS · map to your entities <span class="door-map-hint">(blank = auto-detect by name)</span></div><div class="door-map-grid">${rows}</div></div>`;
   }
 
   _update3DTransform() { /* 2D isometric — no transform to apply */ }
@@ -2142,6 +2198,8 @@ class JarvisPanel extends HTMLElement {
           ${this._domGauges(d.dominantRoom)}
         </div>
       </div>
+
+      ${this._renderDoorMapping(d)}
     </div>
   </div>
   ` : ''}
@@ -5140,6 +5198,18 @@ class JarvisPanel extends HTMLElement {
     border-radius: var(--radius); outline: none; cursor: pointer;
   }
   .res-style-sel:hover { border-color: var(--line-hot); }
+  .door-map { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .door-map-head { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; color: var(--text-dim); margin-bottom: 10px; }
+  .door-map-hint { color: var(--line-hot); letter-spacing: 0.08em; }
+  .door-map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 16px; }
+  .door-map-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .door-map-row > label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--text-dim); white-space: nowrap; }
+  .door-map-sel {
+    background: var(--bg); color: var(--cyan); border: 1px solid var(--line);
+    font-family: var(--font-mono); font-size: 10px; padding: 5px 9px;
+    border-radius: var(--radius); outline: none; cursor: pointer; flex: 1 1 auto; min-width: 0;
+  }
+  .door-map-sel:hover { border-color: var(--line-hot); }
   .res-wrap-big { min-height: 560px; }
   .res-wrap-big .house3d-scene { height: 560px; }
   .h3d-roof { position: absolute; }
@@ -5292,7 +5362,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.29.1 ",
+  "%c JARVIS Panel %c v6.30.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

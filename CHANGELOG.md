@@ -4,6 +4,35 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.30.0] — the Residence doors reflect reality now
+The 3D house shows your doors open and closed live, but it had to *guess* which
+of your entities was the garage, the front door, the cellar, and so on — purely
+from their names. If your garage door's entity didn't happen to contain the word
+"garage", or was exposed without a device class (common), it never showed as
+open. That guessing is why the door states felt unreliable.
+
+Two fixes:
+
+  • **You can now map doors explicitly.** A new section on the Residence tab lets
+    you point each door slot — Front, Garage, Garage Side/Rear, Kitchen↔Garage,
+    Cellar, Basement — at the exact entity in your home (a cover, a door/contact
+    sensor, or a lock). Mapped doors are read directly, with no guessing, so they
+    always match. Leave a slot blank to keep auto-detection.
+  • **Auto-detection is smarter.** Garage doors exposed as a cover with no device
+    class are now recognized by name, while window coverings (shades, blinds) are
+    excluded so they're never mistaken for doors.
+
+So your garage door — and the rest — will track correctly: map it once and it's
+certain, or rely on the improved auto-detection.
+
+## [6.29.2] — the Residence tab saves your settings now
+Changing anything on the **Residence** tab — home style, number of floors,
+whether there's a basement, dormers, garage bays, chimney side, square footage,
+bed/bath counts — was silently failing with an error, because the backend was
+rejecting those settings as "not writable from the panel." Only the room layout
+and background-image editor actually saved. Every Residence control now persists
+correctly, so you can describe your home and have the 3D model match it.
+
 ## [6.29.1] — the Configure dialog actually configures now
 If you opened **Settings → Devices & Services → JARVIS → Configure** and got a
 step that showed a heading but no fields — just a Submit button — that's fixed.
