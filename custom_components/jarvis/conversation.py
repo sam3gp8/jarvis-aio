@@ -716,6 +716,23 @@ class JarvisAgent(conversation.ConversationEntity):
         except Exception as exc:
             _LOGGER.debug("Memory store/retrieve: %s", exc)
 
+        # v6.25.0: Inject curated knowledge — durable facts/preferences JARVIS
+        # knows (distinct from the transcript recall above), scored against the
+        # current message so the most relevant facts lead.
+        # v6.29.0: scope to *this* person + household so one resident's private
+        # facts don't leak into another's context.
+        try:
+            from . import knowledge, identity
+            ident = identity.resolve(
+                self.hass, device_id=getattr(user_input, "device_id", None))
+            subjects = [identity.subject_for(ident), "household"]
+            kn_block = await self.hass.async_add_executor_job(
+                lambda: knowledge.prompt_block(user_input.text, subjects=subjects))
+            if kn_block:
+                persona = persona + "\n\n" + kn_block
+        except Exception as exc:
+            _LOGGER.debug("Knowledge inject: %s", exc)
+
         hass_api = await self._get_hass_api(user_input) if self._use_hass_api() else None
 
         cast_routed = False  # tracks whether Cast speaker is handling TTS
@@ -873,13 +890,17 @@ class JarvisAgent(conversation.ConversationEntity):
             _record_dedup_response(user_input.text, response_text)
 
             # v5.8.03: Log command for cognitive core pattern learning
+            # v6.29.0: attribute to the resolved person so per-person command
+            # patterns are real (falls back to "unknown" when not confident).
             try:
-                from . import cognitive_core
+                from . import cognitive_core, identity
                 handler = "local" if local_result and local_result.handled else "agent"
+                who = identity.resolve(
+                    self.hass, device_id=getattr(user_input, "device_id", None)).person
                 cognitive_core.log_command(
                     text=user_input.text,
                     handled_by=handler,
-                    person="unknown",  # TODO: resolve from device_id
+                    person=who,
                 )
             except Exception:
                 pass

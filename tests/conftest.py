@@ -95,7 +95,7 @@ _install_ha_stubs()
 
 # ── 2. Synthetic package + stubs for the I/O siblings ─────────────────────────
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMP = ROOT / "jarvis_assistant" / "jarvis_component"
+COMP = ROOT / "custom_components" / "jarvis"
 
 if "jc" not in sys.modules:
     _pkg = types.ModuleType("jc")

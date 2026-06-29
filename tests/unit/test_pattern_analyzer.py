@@ -1,0 +1,155 @@
+"""Tests for the pattern analyzer (v6.26.0) — detectors + knowledge promotion."""
+import sqlite3
+from datetime import datetime, timedelta
+
+import pytest
+
+_SCHEMA = """
+CREATE TABLE state_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL, entity_id TEXT NOT NULL, domain TEXT NOT NULL,
+    old_state TEXT, new_state TEXT NOT NULL, area_id TEXT,
+    hour INTEGER, day_of_week INTEGER, triggered_by TEXT DEFAULT 'system'
+);
+CREATE TABLE commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, text TEXT NOT NULL,
+    handled_by TEXT DEFAULT 'agent', entity_ids TEXT DEFAULT '[]',
+    person TEXT DEFAULT 'unknown', hour INTEGER, day_of_week INTEGER
+);
+"""
+
+
+@pytest.fixture
+def analyzer(load):
+    return load("pattern_analyzer")
+
+
+@pytest.fixture
+def knowledge(load):
+    return load("knowledge")
+
+
+def _conn(path):
+    conn = sqlite3.connect(str(path))
+    conn.executescript(_SCHEMA)
+    conn.commit()
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _ts(days_ago, hour, minute=0):
+    dt = (datetime.now() - timedelta(days=days_ago)).replace(
+        hour=hour, minute=minute, second=0, microsecond=0)
+    return dt.isoformat(), dt.weekday()
+
+
+def _add_state(conn, entity_id, new_state, days_ago, hour, minute=0):
+    ts, dow = _ts(days_ago, hour, minute)
+    domain = entity_id.split(".", 1)[0]
+    conn.execute(
+        "INSERT INTO state_changes (timestamp, entity_id, domain, old_state, "
+        "new_state, area_id, hour, day_of_week) VALUES (?,?,?,?,?,?,?,?)",
+        (ts, entity_id, domain, "off", new_state, "", hour, dow))
+
+
+def _add_command(conn, text, days_ago, hour):
+    ts, dow = _ts(days_ago, hour)
+    conn.execute(
+        "INSERT INTO commands (timestamp, text, hour, day_of_week) VALUES (?,?,?,?)",
+        (ts, text, hour, dow))
+
+
+def test_time_routine_detected(analyzer, tmp_path):
+    conn = _conn(tmp_path / "p.db")
+    for d in range(1, 9):  # 8 distinct recent days, porch light on at 18:00
+        _add_state(conn, "light.porch_test", "on", d, 18)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    found = pa._find_time_routines(conn)
+    match = [p for p in found if p.entity_ids == ["light.porch_test"]]
+    assert match and match[0].details["hour"] == 18
+    assert match[0].pattern_type == "time_routine"
+
+
+def test_repeated_command_detected(analyzer, tmp_path):
+    conn = _conn(tmp_path / "p.db")
+    for d in range(1, 7):
+        _add_command(conn, "goodnight", d, 23)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    found = pa._find_repeated_commands(conn)
+    assert any(p.details.get("command") == "goodnight" for p in found)
+
+
+def test_sequence_detected(analyzer, tmp_path):
+    conn = _conn(tmp_path / "p.db")
+    for d in range(1, 7):  # a turns on, b follows 2 min later, same domain
+        _add_state(conn, "light.a_test", "on", d, 18, 0)
+        _add_state(conn, "light.b_test", "on", d, 18, 2)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    found = pa._find_sequence_patterns(conn)
+    assert any(set(p.entity_ids) == {"light.a_test", "light.b_test"} for p in found)
+
+
+def test_should_analyze_gates_on_min_days(analyzer, tmp_path):
+    db = tmp_path / "p.db"
+    conn = _conn(db)
+    for d in range(0, 2):  # only ~2 days of data
+        _add_state(conn, "light.x", "on", d, 18)
+    conn.commit()
+    conn.close()
+    pa = analyzer.PatternAnalyzer()
+    pa._db = str(db)
+    assert pa.should_analyze() is False  # < MIN_DAYS
+
+
+# ── knowledge promotion ──────────────────────────────────────────────────────
+
+def _pattern(analyzer, conf, hour=18, state="on", entity="light.porch_test"):
+    return analyzer.DetectedPattern(
+        pattern_type="time_routine", description="x", entity_ids=[entity],
+        confidence=conf, occurrences=8, details={"hour": hour, "state": state})
+
+
+def test_promote_writes_observed_fact(analyzer, knowledge, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge, "DB_PATH", str(tmp_path / "k.db"))
+    pa = analyzer.PatternAnalyzer()
+    written = pa._promote_to_knowledge([_pattern(analyzer, 0.9)])
+    assert written == 1
+    facts = knowledge.all_facts()
+    assert len(facts) == 1
+    assert facts[0]["source"] == "observed"
+    assert "18:00" in facts[0]["value"]
+
+
+def test_low_confidence_not_promoted(analyzer, knowledge, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge, "DB_PATH", str(tmp_path / "k.db"))
+    pa = analyzer.PatternAnalyzer()
+    assert pa._promote_to_knowledge([_pattern(analyzer, 0.5)]) == 0
+    assert knowledge.all_facts() == []
+
+
+def test_promote_respects_stated_fact(analyzer, knowledge, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge, "DB_PATH", str(tmp_path / "k.db"))
+    pa = analyzer.PatternAnalyzer()
+    p = _pattern(analyzer, 0.9)
+    subject, kind, key, _value = pa._fact_for(p)
+    # user stated something at this key first
+    knowledge.remember(key, "I handle this myself", subject=subject, source="stated")
+    pa._promote_to_knowledge([p])
+    facts = knowledge.all_facts()
+    assert len(facts) == 1
+    assert facts[0]["value"] == "I handle this myself"   # not clobbered
+    assert facts[0]["source"] == "stated"
+
+
+def test_respect_stated_allows_observed_update(analyzer, knowledge, tmp_path, monkeypatch):
+    # an observed fact CAN be refreshed by re-observation (only stated is protected)
+    monkeypatch.setattr(knowledge, "DB_PATH", str(tmp_path / "k.db"))
+    pa = analyzer.PatternAnalyzer()
+    pa._promote_to_knowledge([_pattern(analyzer, 0.8, hour=18)])
+    pa._promote_to_knowledge([_pattern(analyzer, 0.9, hour=19)])  # time shifted
+    facts = knowledge.all_facts()
+    assert len(facts) == 1                # upserted in place, not duplicated
+    assert "19:00" in facts[0]["value"]   # refreshed

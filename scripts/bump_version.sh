@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bump the JARVIS version everywhere it appears.
+# Bump the JARVIS version everywhere it appears (HACS integration layout).
 # Usage: ./scripts/bump_version.sh 6.3.3
 set -euo pipefail
 
@@ -14,8 +14,8 @@ if ! [[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADDON="$ROOT/jarvis_assistant"
-COMP="$ADDON/jarvis_component"
+COMP="$ROOT/custom_components/jarvis"
+PANEL="$COMP/frontend/jarvis-panel.js"
 
 # Current version from the integration manifest (source of truth).
 OLD="$(python3 -c "import json;print(json.load(open('$COMP/manifest.json'))['version'])")"
@@ -25,24 +25,15 @@ if [[ "$OLD" == "$NEW" ]]; then
 fi
 echo "Bumping $OLD → $NEW"
 
-# Plain X.Y.Z occurrences (manifest, config, build args, Dockerfile).
-sed -i "s/\b${OLD//./\\.}\b/${NEW}/g" \
-  "$COMP/manifest.json" \
-  "$ADDON/config.yaml" \
-  "$ADDON/build.yaml" \
-  "$ADDON/Dockerfile"
+# Plain X.Y.Z in the manifest.
+sed -i "s/\b${OLD//./\\.}\b/${NEW}/g" "$COMP/manifest.json"
 
-# vX.Y.Z occurrences (run.sh banner + dashboard footer).
-sed -i "s/v${OLD//./\\.}\b/v${NEW}/g" \
-  "$ADDON/run.sh" \
-  "$COMP/frontend/jarvis-panel.js"
+# vX.Y.Z in the dashboard footer/masthead.
+sed -i "s/v${OLD//./\\.}\b/v${NEW}/g" "$PANEL"
 
 echo "Updated:"
 echo "  manifest.json   -> $(python3 -c "import json;print(json.load(open('$COMP/manifest.json'))['version'])")"
-echo "  config.yaml     -> $(grep -m1 '^version:' "$ADDON/config.yaml")"
-echo "  build.yaml      -> $(grep -m1 'JARVIS_VERSION' "$ADDON/build.yaml")"
-echo "  Dockerfile      -> $(grep -m1 'JARVIS_VERSION' "$ADDON/Dockerfile")"
-echo "  run.sh          -> $(grep -om1 "v${NEW}" "$ADDON/run.sh" | head -1 || echo '(check manually)')"
-echo "  jarvis-panel.js -> $(grep -om1 "v${NEW}" "$COMP/frontend/jarvis-panel.js" | head -1 || echo '(check manually)')"
+echo "  jarvis-panel.js -> $(grep -om1 "v${NEW}" "$PANEL" | head -1 || echo '(check manually)')"
 echo
 echo "Next: review CHANGELOG.md, then  git commit -am 'Release v$NEW' && git tag v$NEW && git push --tags"
+echo "(HACS publishes from the git tag/release — no add-on build.)"

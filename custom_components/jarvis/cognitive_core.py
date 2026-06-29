@@ -469,6 +469,52 @@ class SafetyManager:
 
 # ── Lockdown (v5.9.36) ──────────────────────────────────────────────────────
 
+def _join_names(names: list) -> str:
+    """Natural-language join: [a] -> 'a', [a,b] -> 'a and b', [a,b,c] -> 'a, b, and c'."""
+    names = list(names)
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{', '.join(names[:-1])}, and {names[-1]}"
+
+
+def build_lockdown_message(honorific: str, locked: list, open_names: list) -> str:
+    """
+    Compose the lockdown-engaged announcement. Pure (no I/O) so it's unit-tested.
+
+    An open door is the one thing that matters during a lockdown, so open
+    openings are *named* and framed as the gap to close — never a footnote to
+    shrug at ("left as-is"). The four cases are kept distinct so the message is
+    never self-contradictory (e.g. claiming the home is secure while a door is
+    open, or announcing "engaged" as if it acted when nothing needed locking).
+    """
+    h = (honorific or "sir").title()
+
+    def describe(names: list) -> str:
+        if len(names) == 1:
+            return (f"{names[0]} is open and I can't secure it remotely — "
+                    f"you'll want to close it")
+        if len(names) <= 3:
+            return (f"{_join_names(names)} are open and I can't secure them "
+                    f"remotely — you'll want to close them")
+        return (f"{len(names)} openings are open and I can't secure them "
+                f"remotely — you'll want to close them")
+
+    if locked and open_names:
+        return (f"{h}, lockdown engaged. I locked {_join_names(locked)}, "
+                f"but {describe(open_names)}.")
+    if locked:
+        return (f"{h}, lockdown engaged — I locked {_join_names(locked)}. "
+                f"The home is secure.")
+    if open_names:
+        return (f"{h}, lockdown engaged. Everything was already locked, "
+                f"but {describe(open_names)}.")
+    return f"{h}, lockdown engaged — the home was already fully secured."
+
+
 class LockdownManager:
     """
     Formal lockdown state — engaged when the alarm is armed or on explicit
@@ -630,6 +676,11 @@ class LockdownManager:
             _LOGGER.warning("Lockdown: secure %s failed: %s", eid, exc)
             return False
 
+    def _friendly(self, eid: str) -> str:
+        """Friendly name for an entity (falls back to its id)."""
+        st = self.hass.states.get(eid)
+        return ((st.attributes.get("friendly_name") if st else None) or eid)
+
     async def _lock_all(self) -> list:
         locked = []
         for st in self.hass.states.async_all("lock"):
@@ -661,19 +712,19 @@ class LockdownManager:
         self._last_breach_alert = 0.0
         honorific = self.config.get("honorific", "sir")
         locked = await self._lock_all()       # lock closed-but-unlocked doors
-        secured = (f" — locked {', '.join(locked)}.") if locked else " — everything already locked."
-        ignored = ""
-        if self.exempt_windows:
-            n = len(self.exempt_windows)
-            ignored = f" {n} opening{'s' if n != 1 else ''} already open will be left as-is."
+        # Openings open right now can't be secured remotely (a bare contact
+        # sensor has no actuator, and we deliberately don't force covers shut).
+        # Name them so the user knows exactly what's exposed.
+        open_names = sorted(self._friendly(eid) for eid in self.exempt_windows)
+        message = build_lockdown_message(honorific, locked, open_names)
         _LOGGER.warning(
-            "Lockdown ENGAGED (%s): locked=%s exempt(open-now)=%d",
+            "Lockdown ENGAGED (%s): locked=%s open-now=%d",
             reason, locked, len(self.exempt_windows))
         await self._persist()
         return {
             "type": "lockdown_engaged",
             "urgency": "high",
-            "message": f"{honorific.title()}, lockdown engaged{secured}{ignored}",
+            "message": message,
             "auto_act": True,
         }
 

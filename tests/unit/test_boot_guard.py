@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-COMP = pathlib.Path(__file__).resolve().parents[2] / "jarvis_assistant" / "jarvis_component"
+COMP = pathlib.Path(__file__).resolve().parents[2] / "custom_components" / "jarvis"
 
 
 def _load_standalone(name: str, relpath: str):

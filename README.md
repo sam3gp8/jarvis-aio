@@ -6,8 +6,8 @@
 
 An autonomous AI butler for Home Assistant — voice, vision, and a reasoning core that learns your home and watches over it.
 
-[![Add-on Repository](https://img.shields.io/badge/Home%20Assistant-Add--on-41BDF5?logo=home-assistant&logoColor=white)](https://github.com/sam3gp8/jarvis-aio)
-[![Version](https://img.shields.io/badge/version-6.3.2-00d9ff)](https://github.com/sam3gp8/jarvis-aio/releases)
+[![HACS Integration](https://img.shields.io/badge/HACS-Integration-41BDF5?logo=home-assistant&logoColor=white)](https://github.com/sam3gp8/jarvis-aio)
+[![Release](https://img.shields.io/github/v/release/sam3gp8/jarvis-aio?color=00d9ff)](https://github.com/sam3gp8/jarvis-aio/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/sam3gp8)
 
@@ -15,7 +15,7 @@ An autonomous AI butler for Home Assistant — voice, vision, and a reasoning co
 
 ---
 
-JARVIS turns Home Assistant into a proactive household intelligence. It speaks in a custom voice, sees through your cameras, reasons about what's worth telling you, and quietly learns the rhythms of your home over weeks and months. It runs as a single Home Assistant **add-on** that installs and configures everything for you — no terminal, no manual integration setup.
+JARVIS turns Home Assistant into a proactive household intelligence. It speaks in a custom voice, sees through your cameras, reasons about what's worth telling you, and quietly learns the rhythms of your home over weeks and months. It installs as a Home Assistant **custom integration** via HACS and runs entirely inside Home Assistant — no separate container.
 
 The guiding principle is **suggest, don't act** until you grant otherwise: JARVIS starts conservative, surfaces what it notices, and expands its autonomy only as you allow.
 
@@ -35,32 +35,30 @@ The guiding principle is **suggest, don't act** until you grant otherwise: JARVI
 
 ## Requirements
 
-- **Home Assistant OS** (Supervisor required — this is an add-on).
+- **Home Assistant** with [HACS](https://hacs.xyz) installed. HA OS / Supervised is recommended — the optional voice-stack auto-setup (Piper / Whisper / openWakeWord) uses the Supervisor; on HA Container/Core you'd add those yourself.
 - At least one **LLM API key** (Groq has a generous free tier and is the recommended starting point).
 - *Optional but recommended:* a Gemini API key for camera/vision reasoning, Nest cameras + doorbell, Frigate NVR, ESP32-S3 voice satellites, and a Piper TTS voice.
 - *On the horizon:* a local GPU server running Ollama, for fully local inference — JARVIS is already wired for it.
 
 ## Installation
 
-**1. Add this repository to Home Assistant.**
+**1. Add this repository to HACS.**
 
-Go to **Settings → Add-ons → Add-on Store → ⋮ (top right) → Repositories**, and add:
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=sam3gp8&repository=jarvis-aio&category=Integration)
+
+Click the badge above, or do it manually — in **HACS → ⋮ (top right) → Custom repositories**, add the URL below with category **Integration**:
 
 ```
 https://github.com/sam3gp8/jarvis-aio
 ```
 
-Or click:
+**2. Install "JARVIS AI Assistant"** from HACS, then restart Home Assistant.
 
-[![Open your Home Assistant instance and show the add add-on repository dialog.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsam3gp8%2Fjarvis-aio)
+**3. Add the integration.** Go to **Settings → Devices & Services → Add Integration → JARVIS**. Enter a cloud API key (e.g. Groq), *or* leave it blank and enter a local LLM URL (e.g. `http://homeassistant.local:11434/v1`) to run Ollama with no cloud account. JARVIS registers its conversation agent and appears in the sidebar.
 
-**2. Install the JARVIS AI Assistant add-on** from the store list that appears.
+**4. Set up voice (optional).** Install the **Piper**, **Whisper**, and **openWakeWord** add-ons and create an Assist pipeline with JARVIS as the conversation agent. *(Zero-touch auto-setup of the voice stack — the job the old add-on did — is being re-homed into the integration; until then, set the pipeline up via Settings → Voice Assistants.)*
 
-**3. Configure it.** Open the add-on's **Configuration** tab and at minimum set your `groq_api_key` and an `honorific` (what JARVIS calls you). Everything else has sensible defaults.
-
-**4. Press Start.** The add-on installs the integration into Home Assistant, registers the conversation agent, and sets up the voice pipeline automatically. When it finishes, JARVIS appears in the sidebar.
-
-**5. Fine-tune (optional).** Advanced routing, observer mode, camera watching, and the AI-model-per-role assignments are configured from the JARVIS panel and from **Settings → Devices & Services → JARVIS → Configure**, where you get proper area and entity pickers.
+**5. Fine-tune (optional).** Advanced routing, observer mode, camera watching, and the AI-model-per-role assignments are all configured from the JARVIS panel → **Settings**.
 
 > **Hard-refresh after updates.** The dashboard JavaScript is cached aggressively — after upgrading, refresh with `Ctrl+Shift+R` so the new panel loads.
 
@@ -78,7 +76,7 @@ Or click:
 
 ## Architecture
 
-JARVIS is an **all-in-one add-on**: the add-on container bootstraps a bundled Home Assistant custom integration (domain `jarvis`, 43 Python modules) into `/config/custom_components/jarvis/`, wires up the conversation agent and voice pipeline, and serves the custom dashboard panel. State and learned behavior persist under `/config/jarvis/` (a SQLite `patterns.db`, the reasoning cache, the doorbell-training dataset, and lockdown state) so JARVIS keeps getting smarter across restarts.
+JARVIS is a **Home Assistant custom integration** (domain `jarvis`, ~47 Python modules) installed via HACS into `custom_components/jarvis/`. It runs in-process: it registers the conversation agent and voice pipeline and serves the custom dashboard panel directly. State and learned behavior persist under `/config/jarvis/` (a SQLite `patterns.db`, the curated `knowledge.db`, the reasoning cache, the doorbell-training dataset, and lockdown state) so JARVIS keeps getting smarter across restarts.
 
 The reasoning pipeline is layered for resilience and cost: local templates → learned cache → (cloud, or soon a local model) → the **Local Mind** offline brain as the floor beneath everything. A connectivity breaker guards cloud calls, and every local decision logs its reasoning chain to the dashboard's log view.
 

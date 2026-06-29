@@ -498,3 +498,78 @@ process_intent:
       required: false
       selector:
         text:
+
+remember:
+  name: Remember
+  description: "Teach JARVIS a durable fact or preference it will recall in conversation (e.g. 'trash day' = 'Tuesday'). Stored in the curated knowledge store and shown in the Memory panel."
+  fields:
+    key:
+      name: What
+      description: "The thing to remember (e.g. 'trash day', 'garage code')."
+      required: true
+      example: "trash day"
+      selector:
+        text:
+    value:
+      name: Is
+      description: "Its value (e.g. 'Tuesday')."
+      required: true
+      example: "Tuesday"
+      selector:
+        text:
+    subject:
+      name: About
+      description: "Whose knowledge this is — the household, or the primary resident."
+      required: false
+      example: "household"
+      selector:
+        select:
+          options:
+            - "household"
+            - "primary"
+    kind:
+      name: Kind
+      description: "Optional category."
+      required: false
+      selector:
+        select:
+          options:
+            - "fact"
+            - "preference"
+            - "event"
+            - "profile"
+    ttl_seconds:
+      name: Expires after (seconds)
+      description: "Optional. If set, the fact is forgotten automatically after this many seconds (e.g. an ephemeral 'pickup is 3pm today')."
+      required: false
+      example: 86400
+      selector:
+        number:
+          min: 0
+          max: 31536000
+          mode: box
+
+forget:
+  name: Forget
+  description: "Forget a stored fact — by id, or by key (optionally scoped to a subject)."
+  fields:
+    id:
+      name: Fact ID
+      description: "The numeric id of the fact to forget."
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    key:
+      name: Key
+      description: "The fact's key (e.g. 'trash day'). Used when no id is given."
+      required: false
+      selector:
+        text:
+    subject:
+      name: Subject
+      description: "Optional. Scope the key match to a subject (household / primary)."
+      required: false
+      selector:
+        text:

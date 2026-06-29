@@ -13,7 +13,7 @@ const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const COMPONENT = path.resolve(__dirname, "..", "jarvis_assistant", "jarvis_component", "frontend", "jarvis-panel.js");
+const COMPONENT = path.resolve(__dirname, "..", "custom_components", "jarvis", "frontend", "jarvis-panel.js");
 const dom = new JSDOM("<!DOCTYPE html><body></body>", { url: "http://localhost/", pretendToBeVisual: true });
 const { window } = dom;
 global.window = window; global.document = window.document;

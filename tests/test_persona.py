@@ -6,7 +6,7 @@ import importlib.util
 import os
 
 _COMP = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..", "jarvis_assistant", "jarvis_component"))
+    os.path.dirname(__file__), "..", "custom_components", "jarvis"))
 
 
 def _load():

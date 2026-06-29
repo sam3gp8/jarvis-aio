@@ -511,6 +511,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.warning("JARVIS proactive-audio setup failed (non-fatal): %s", exc)
 
+    # ── v6.28 In-process bootstrap ─────────────────────────────────────────
+    # Re-homes the old add-on's voice-stack setup (Piper/Whisper/openWakeWord
+    # install, JARVIS voice download, Assist pipeline) into the integration.
+    # No-ops cleanly off-Supervisor; runs once per version as a background task.
+    try:
+        from . import bootstrap
+        bootstrap.schedule_bootstrap(hass)
+    except Exception as exc:
+        _LOGGER.warning("JARVIS bootstrap scheduling failed (non-fatal): %s", exc)
+
     _LOGGER.info("JARVIS online. Good day, %s. Routines available: %s",
                  honorific, ", ".join(list_routines()))
     return True
@@ -935,6 +945,48 @@ def _register_services(
             _LOGGER.info("Lockdown %s via service call", "engaged" if on else "lifted")
 
     hass.services.async_register(DOMAIN, "lockdown", _lockdown)
+
+    async def _remember(call: ServiceCall) -> None:
+        """Teach JARVIS a durable fact or preference (knowledge store)."""
+        from . import knowledge
+        key = str(call.data.get("key", "")).strip()
+        value = str(call.data.get("value", "")).strip()
+        if not key or not value:
+            _LOGGER.warning("jarvis.remember: 'key' and 'value' are required")
+            return
+        subject = str(call.data.get("subject", knowledge.DEFAULT_SUBJECT)).strip() \
+            or knowledge.DEFAULT_SUBJECT
+        kind = str(call.data.get("kind", "fact"))
+        ttl = call.data.get("ttl_seconds")
+        try:
+            ttl = float(ttl) if ttl not in (None, "") else None
+        except (TypeError, ValueError):
+            ttl = None
+        f = await hass.async_add_executor_job(
+            lambda: knowledge.remember(key, value, subject=subject, kind=kind,
+                                       source="stated", ttl_seconds=ttl))
+        if f:
+            _LOGGER.info("jarvis.remember: stored %s/%s", subject, key)
+        else:
+            _LOGGER.warning("jarvis.remember: store failed for %s/%s", subject, key)
+
+    hass.services.async_register(DOMAIN, "remember", _remember)
+
+    async def _forget(call: ServiceCall) -> None:
+        """Forget a stored fact by id, or by key (with optional subject)."""
+        from . import knowledge
+        fid = call.data.get("id")
+        key = call.data.get("key")
+        subject = call.data.get("subject")
+        try:
+            fid = int(fid) if fid not in (None, "") else None
+        except (TypeError, ValueError):
+            fid = None
+        removed = await hass.async_add_executor_job(
+            lambda: knowledge.forget(fact_id=fid, subject=subject, key=key))
+        _LOGGER.info("jarvis.forget: removed %d fact(s)", removed)
+
+    hass.services.async_register(DOMAIN, "forget", _forget)
 
     async def _observer_stop(call: ServiceCall) -> None:
         """Stop the observer."""

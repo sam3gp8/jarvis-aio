@@ -51,6 +51,9 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get_activity_log)
         websocket_api.async_register_command(hass, ws_update_config)
         websocket_api.async_register_command(hass, ws_set_lockdown)
+        websocket_api.async_register_command(hass, ws_get_knowledge)
+        websocket_api.async_register_command(hass, ws_add_knowledge)
+        websocket_api.async_register_command(hass, ws_forget_knowledge)
         websocket_api.async_register_command(hass, ws_reload_appliances)
         websocket_api.async_register_command(hass, ws_search_memory)
         websocket_api.async_register_command(hass, ws_get_debug_log)
@@ -539,6 +542,7 @@ async def ws_get_panel_data(
             "doorbell_training": _get_doorbell_training(),
             "doors":          _get_door_states(hass),
             "lockdown":       _get_lockdown_status(),
+            "knowledge":      _get_knowledge_stats(),
             "suggestions":    _get_suggestions(),
             "config": {
                 "announcements_enabled": announcements_on,
@@ -570,6 +574,7 @@ async def ws_get_panel_data(
                 "announcement_speakers": _get_runtime_json(hass, entry, "announcement_speakers", []),
                 "floor_plan_rooms": _get_runtime_json(hass, entry, "floor_plan_rooms", {}),
                 "floor_plan_bg": _get_runtime_json(hass, entry, "floor_plan_bg", {}),
+                "door_mapping": _get_runtime_json(hass, entry, "door_mapping", {}),
                 "floor_plan_address": _get_runtime_str(hass, entry, "floor_plan_address", ""),
                 # AI model selection (provider + model per role) — for the
                 # Settings "AI Models" section's live-fetched dropdowns.
@@ -617,55 +622,24 @@ def _get_announcements_today() -> int:
         return 0
 
 
+def _door_entity_open(state_obj) -> bool:
+    """Back-compat shim — door open logic now lives in door_state.py."""
+    from . import door_state
+    return door_state.entity_is_open(state_obj)
+
+
 def _get_door_states(hass: HomeAssistant) -> dict:
     """
-    Open/closed state of the home's doors, keyed to the 3D model's door slots
-    (front · garage · garage_rear · kitchen_garage · cellar). Scans door
-    binary_sensors and garage/door/gate covers, matching each to a slot by
-    entity-id / friendly-name keywords. An OPEN reading wins if several entities
-    map to one slot. Only slots with a matching entity are returned; the model
-    treats any missing slot as closed. Never raises.
+    Open/closed state of the home's doors for the Residence 3D model. Reads the
+    explicit ``door_mapping`` (slot -> entity_id) the user set on the Residence
+    tab, then delegates to door_state.get_door_states which honours it and
+    auto-detects the rest. Never raises.
     """
     try:
-        keys: dict[str, str] = {}
-
-        def consider(key: str, is_open: bool) -> None:
-            if not key:
-                return
-            if key not in keys or is_open:
-                keys[key] = "open" if is_open else "closed"
-
-        def classify(eid: str, name: str) -> str:
-            s = (eid + " " + (name or "")).lower()
-            if any(k in s for k in ("cellar", "bulkhead", "hatch")):
-                return "cellar"
-            if "basement" in s:
-                return "basement"
-            if "garage" in s and any(k in s for k in ("kitchen", "interior", "inside", "house", "mud")):
-                return "kitchen_garage"
-            if "kitchen" in s and "garage" in s:
-                return "kitchen_garage"
-            if "garage" in s and any(k in s for k in ("man", "side", "rear", "back", "walk", "person", "entry", "people")):
-                return "garage_rear"
-            if "garage" in s:
-                return "garage"
-            if "front" in s and "garage" not in s:
-                return "front"
-            return ""
-
-        for st in hass.states.async_all("binary_sensor"):
-            if st.attributes.get("device_class") not in ("door", "garage_door", "opening"):
-                continue
-            consider(classify(st.entity_id, st.attributes.get("friendly_name", "")),
-                     str(st.state).lower() == "on")
-
-        for st in hass.states.async_all("cover"):
-            if st.attributes.get("device_class") not in ("garage", "door", "gate"):
-                continue
-            consider(classify(st.entity_id, st.attributes.get("friendly_name", "")),
-                     str(st.state).lower() not in ("closed", "closing"))
-
-        return keys
+        from . import door_state
+        entry = _get_entry(hass)
+        mapping = _get_runtime_json(hass, entry, "door_mapping", {}) or {}
+        return door_state.get_door_states(hass, mapping)
     except Exception:
         return {}
 
@@ -735,6 +709,15 @@ def _get_lockdown_status() -> dict:
         return cognitive_core.lockdown_status()
     except Exception:
         return {"active": False, "since": 0.0, "reason": "", "auto": False, "exempt_windows": 0}
+
+
+def _get_knowledge_stats() -> dict:
+    """Curated-knowledge summary (counts) for the panel."""
+    try:
+        from . import knowledge
+        return knowledge.stats()
+    except Exception:
+        return {"total": 0, "by_kind": {}, "by_subject": {}}
 
 
 def _get_appliance_status() -> dict:
@@ -903,6 +886,18 @@ PANEL_WRITABLE_KEYS = {
     "floor_plan_rooms",          # JSON: floor plan room positions per floor
     "floor_plan_bg",             # JSON: base64 background images per floor
     "floor_plan_address",        # string: address for OSM map overlay
+    # Residence model (the 3D house on the Residence tab)
+    "residence_style",           # str: home style template (cape_cod, ranch, …)
+    "floor_plan_sqft",           # str/int: estimated square footage
+    "home_stories",              # str: number of stories (controls floor tabs)
+    "has_basement",              # bool: whether to show the basement floor
+    "dormers_front",             # int: front dormer count override
+    "dormers_rear",              # int: rear dormer count override
+    "garage_bays",               # int: garage bay count
+    "chimney_side",              # str: chimney placement (left/right)
+    "home_bedrooms",             # int: bedroom count (Residence stats)
+    "home_bathrooms",            # int: bathroom count (Residence stats)
+    "door_mapping",              # JSON: {model door slot -> entity_id}
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
     "model",
@@ -1106,6 +1101,81 @@ async def ws_set_lockdown(
     except Exception as exc:
         _LOGGER.exception("Panel lockdown request failed: %s", exc)
         connection.send_error(msg["id"], "lockdown_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/get_knowledge",
+    vol.Optional("subject"): str,
+})
+@websocket_api.async_response
+async def ws_get_knowledge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the curated facts JARVIS knows, for the Memory panel."""
+    try:
+        from . import knowledge
+        subject = msg.get("subject")
+        facts = await hass.async_add_executor_job(lambda: knowledge.all_facts(subject=subject))
+        kstats = await hass.async_add_executor_job(knowledge.stats)
+        connection.send_result(msg["id"], {"facts": facts, "stats": kstats})
+    except Exception as exc:
+        _LOGGER.exception("get_knowledge failed: %s", exc)
+        connection.send_error(msg["id"], "knowledge_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/add_knowledge",
+    vol.Required("key"): str,
+    vol.Required("value"): str,
+    vol.Optional("subject"): str,
+    vol.Optional("kind"): str,
+})
+@websocket_api.async_response
+async def ws_add_knowledge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Teach JARVIS a fact from the Memory panel."""
+    try:
+        from . import knowledge
+        f = await hass.async_add_executor_job(
+            lambda: knowledge.remember(
+                msg["key"], msg["value"],
+                subject=msg.get("subject", knowledge.DEFAULT_SUBJECT),
+                kind=msg.get("kind", "fact"), source="stated"))
+        facts = await hass.async_add_executor_job(knowledge.all_facts)
+        connection.send_result(msg["id"], {"ok": bool(f), "facts": facts})
+    except Exception as exc:
+        _LOGGER.exception("add_knowledge failed: %s", exc)
+        connection.send_error(msg["id"], "add_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/forget_knowledge",
+    vol.Optional("id"): int,
+    vol.Optional("subject"): str,
+    vol.Optional("key"): str,
+})
+@websocket_api.async_response
+async def ws_forget_knowledge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Forget a fact (by id, or subject+key) from the Memory panel."""
+    try:
+        from . import knowledge
+        fid = msg.get("id")
+        removed = await hass.async_add_executor_job(
+            lambda: knowledge.forget(fact_id=fid, subject=msg.get("subject"), key=msg.get("key")))
+        facts = await hass.async_add_executor_job(knowledge.all_facts)
+        connection.send_result(msg["id"], {"removed": removed, "facts": facts})
+    except Exception as exc:
+        _LOGGER.exception("forget_knowledge failed: %s", exc)
+        connection.send_error(msg["id"], "forget_failed", str(exc))
 
 
 @websocket_api.websocket_command({

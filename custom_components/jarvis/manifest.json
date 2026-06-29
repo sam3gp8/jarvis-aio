@@ -1,12 +1,14 @@
 {
   "domain": "jarvis",
   "name": "JARVIS AI Assistant",
-  "version": "6.24.3",
+  "version": "6.30.1",
   "config_flow": true,
   "documentation": "https://github.com/sam3gp8/jarvis-aio",
   "issue_tracker": "https://github.com/sam3gp8/jarvis-aio/issues",
   "requirements": [
-    "groq>=0.9.0"
+    "groq>=0.9.0",
+    "openai>=1.0.0",
+    "anthropic>=0.39.0"
   ],
   "dependencies": [
     "http",

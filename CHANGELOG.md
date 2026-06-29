@@ -4,6 +4,176 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.30.1] — lockdown tells you what's actually open
+The lockdown announcement could come out nonsensical — "everything already
+locked. 1 opening already open will be left as-is" — which made it sound like
+JARVIS did nothing and was shrugging off the one door that was actually open.
+During a lockdown an open door is the thing that matters, so the message now
+names it and tells you to deal with it: e.g. "Sir, lockdown engaged. Everything
+was already locked, but the Garage Door is open and I can't secure it remotely —
+you'll want to close it." When nothing needs locking and nothing is open, it
+simply says the home was already fully secured, instead of announcing a non-event.
+
+## [6.30.0] — the Residence doors reflect reality now
+The 3D house shows your doors open and closed live, but it had to *guess* which
+of your entities was the garage, the front door, the cellar, and so on — purely
+from their names. If your garage door's entity didn't happen to contain the word
+"garage", or was exposed without a device class (common), it never showed as
+open. That guessing is why the door states felt unreliable.
+
+Two fixes:
+
+  • **You can now map doors explicitly.** A new section on the Residence tab lets
+    you point each door slot — Front, Garage, Garage Side/Rear, Kitchen↔Garage,
+    Cellar, Basement — at the exact entity in your home (a cover, a door/contact
+    sensor, or a lock). Mapped doors are read directly, with no guessing, so they
+    always match. Leave a slot blank to keep auto-detection.
+  • **Auto-detection is smarter.** Garage doors exposed as a cover with no device
+    class are now recognized by name, while window coverings (shades, blinds) are
+    excluded so they're never mistaken for doors.
+
+So your garage door — and the rest — will track correctly: map it once and it's
+certain, or rely on the improved auto-detection.
+
+## [6.29.2] — the Residence tab saves your settings now
+Changing anything on the **Residence** tab — home style, number of floors,
+whether there's a basement, dormers, garage bays, chimney side, square footage,
+bed/bath counts — was silently failing with an error, because the backend was
+rejecting those settings as "not writable from the panel." Only the room layout
+and background-image editor actually saved. Every Residence control now persists
+correctly, so you can describe your home and have the 3D model match it.
+
+## [6.29.1] — the Configure dialog actually configures now
+If you opened **Settings → Devices & Services → JARVIS → Configure** and got a
+step that showed a heading but no fields — just a Submit button — that's fixed.
+The Configure dialog is a proper four-step setup (Core, Routing, Observer,
+Identity) with real controls, pre-filled with your current values:
+
+  • **Core** — what JARVIS calls you, its directive/personality preset (or a
+    custom directive), the conversation model, and whether it can control the home.
+  • **Routing** — your bedroom areas, a broadcast speaker group, and a phone
+    notify service.
+  • **Observer** — turn proactive awareness on, with its Gemini vision key, the
+    model tiers, and quiet hours.
+  • **Identity** — per-person recognition: on/off, the confidence threshold, and
+    the voice-fingerprint tier (the one that needs a GPU).
+
+This is in addition to the in-app JARVIS panel, which still holds the full set of
+settings. (The empty dialog was leftover skeleton steps from an earlier build;
+the fields had never been wired in.)
+
+## [6.29.0] — JARVIS knows who it's talking to
+Until now JARVIS treated everyone the same — it remembered facts and learned
+routines, but couldn't tell who was speaking. It can now figure out *who* it's
+talking to and tailor itself to that person: your preferences surface for you,
+your spoken "remember that I…" is filed under you (not shared), and the routines
+it learns get attributed to the right person instead of a generic "someone."
+One resident's private facts no longer leak into another's conversations.
+
+**It works without any special hardware.** JARVIS figures out who you are from
+signals your home already has, in tiers:
+
+  • **Who's home** — if you're the only person home, that's almost certainly who
+    it's talking to. (Just Home Assistant person tracking — nothing to set up.)
+  • **Recent face** — if a camera recognized someone moments ago, that's a strong
+    clue. (Uses your existing Frigate/DoubleTake setup, which runs on the camera
+    side — no GPU on your Home Assistant box.)
+  • **Voice** *(optional, needs a GPU)* — recognizing people by their voice is the
+    most direct signal, but it needs local AI horsepower, so it's **off by
+    default**. When your GPU server is online you can switch it on; until then,
+    the two tiers above give a non-power-user a fully working setup with zero
+    configuration.
+
+JARVIS only commits to a person when it's reasonably sure — when the signals are
+ambiguous (say, two people home and no camera match), it stays neutral rather
+than guessing wrong. The whole feature can be turned off, and the confidence
+threshold tuned, in config.
+
+## [6.28.0] — zero-touch voice setup is back
+The convenience the old add-on gave you — automatically installing the voice
+stack and setting up JARVIS's voice — now lives inside the integration, so the
+HACS install gets it too. After you add JARVIS, on Home Assistant OS / Supervised
+it quietly does the legwork in the background: installs the Piper, Whisper, and
+openWakeWord add-ons if they're missing, downloads the JARVIS voice, restarts
+Piper to pick it up, reconnects Wyoming, and builds an Assist pipeline with
+JARVIS as the conversation agent. You don't have to touch any of it.
+
+It's careful about it: the setup runs once per version (not on every restart),
+never re-installs things you already have, and if any step can't complete it
+just tells you the one manual step to finish in Settings → Voice Assistants
+rather than failing. On Home Assistant Container/Core (no Supervisor) it cleanly
+does nothing — there are no add-ons to install there — and you set up voice the
+normal way. Power users can turn the whole thing off with `auto_bootstrap: false`.
+
+With this, the move to a HACS integration is complete: install JARVIS and
+everything — conversation, vision, the cognitive core, memory, the dashboard,
+and now voice — comes up on its own.
+
+## [6.27.0] — JARVIS is now a HACS integration
+JARVIS installs through **HACS** now, as an ordinary Home Assistant integration —
+no separate add-on. It runs entirely inside Home Assistant, so there's no extra
+container to manage, and updates come through HACS like any other integration.
+
+To install: add this repository to HACS as a custom **Integration**, install
+"JARVIS AI Assistant," restart, then add it under Settings → Devices & Services
+and enter your API key (or a local LLM URL). Everything else is still configured
+from the JARVIS panel.
+
+If you were running the old add-on: your data is safe. Everything under
+`/config/jarvis/` — learned patterns, the new knowledge store, your persona, and
+your settings — stays on disk, and JARVIS automatically imports your existing
+configuration on first start, so nothing is re-entered.
+
+One thing is still in flight: the add-on used to auto-install the voice stack
+(Piper, Whisper, openWakeWord), download the JARVIS voice, and build the Assist
+pipeline for you. That convenience is being re-homed into the integration. Until
+it lands, set the voice pipeline up once via Settings → Voice Assistants with
+JARVIS as the conversation agent. Everything else — conversation, vision, the
+cognitive core, the dashboard, memory — works immediately on install.
+
+## [6.26.0] — JARVIS learns your routines on its own
+The pattern engine that watches how you use the house now does two new things
+with what it sees.
+
+First, the strongest routines it spots become things JARVIS simply *knows* —
+they show up in the Memory tab on their own, marked with a "~" so you can tell
+what it figured out by watching versus what you told it directly. So after a
+week or two you might open Memory and find "porch light turns on → around 18:00
+most days," or "asks 'goodnight' → usually around 23:00," with no effort on your
+part. Anything you've stated yourself always wins and won't be overwritten by a
+guess, and you can forget any of these with the ✕ like any other fact.
+
+Second, a fix: JARVIS can now actually notice when one thing reliably follows
+another — "the kitchen light comes on right after the hallway light" — and offer
+to automate it. That detection had been silently failing; it works now, so the
+"shall I automate this?" suggestions will be richer.
+
+As before, suggested automations still wait for your yes/no — nothing is created
+behind your back.
+
+## [6.25.0] — JARVIS remembers
+JARVIS can now hold on to durable facts and preferences — the kind of thing a
+real butler just knows about your household — and bring them up naturally in
+conversation. Tell it "remember that trash is Tuesday," or "remember I run cold
+at night," and it keeps that. Ask later and it answers from what it knows; it
+also quietly factors these in whenever it talks to you.
+
+There's a new **Memory** tab to see and curate everything JARVIS knows:
+
+  • Each fact is listed plainly — "trash day → Tuesday" — grouped into things
+    about the household and things about you.
+  • Teach it something on the spot with the box at the top, no voice needed.
+  • Forget anything with the ✕ — this is your control over what it retains.
+  • Facts it picked up by observation rather than being told are marked with a
+    small "~", so you can see at a glance what it's sure of versus inferring.
+  • Facts can be made to expire on their own — handy for the ephemeral ("the
+    sitter comes at 3 today") so they don't linger as stale knowledge.
+
+This sits alongside the conversation memory JARVIS already had (which recalls the
+gist of past chats); the new layer is curated knowledge you can read and edit
+directly, and it's the foundation the per-person and goal-planning features to
+come will build on.
+
 ## [6.24.3] — Lockdown holds, and handles open doors the way you'd expect
 Lockdown now stays put. The earlier "it flips on then flips back" was the header
 not being told the real lockdown state on its regular refresh — it is now, so the

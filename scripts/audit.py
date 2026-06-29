@@ -14,7 +14,7 @@ Two checks that the old ast.parse gate missed:
      and stale exports — failures that are invisible to per-file syntax checks.
 
 Run from anywhere:  python3 scripts/audit.py [component_dir]
-Default component dir: jarvis_assistant/jarvis_component
+Default component dir: custom_components/jarvis
 Exit code 0 = clean, 1 = problems found.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _component_dir() -> pathlib.Path:
     if len(sys.argv) > 1:
         return pathlib.Path(sys.argv[1])
     here = pathlib.Path(__file__).resolve().parent
-    return here.parent / "jarvis_assistant" / "jarvis_component"
+    return here.parent / "custom_components" / "jarvis"
 
 
 def _modules(root: pathlib.Path) -> list[pathlib.Path]:

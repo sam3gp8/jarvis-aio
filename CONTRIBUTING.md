@@ -6,24 +6,21 @@ layout, the development workflow, and the release process.
 ## Repository layout
 
 ```
-jarvis-aio/                         repo root (Home Assistant add-on repository)
-├── repository.json                 add-on repository descriptor
+jarvis-aio/                         repo root (HACS integration repository)
+├── hacs.json                        HACS metadata
 ├── README.md  CHANGELOG.md  LICENSE
+├── icon.png  logo.png               branding (for home-assistant/brands)
 ├── .github/                         funding, issue templates, CI
 ├── scripts/bump_version.sh          one-command version bump
-└── jarvis_assistant/                the add-on (slug: jarvis_assistant)
-    ├── config.yaml  build.yaml      add-on manifest + build matrix
-    ├── Dockerfile   run.sh          container + zero-touch bootstrap
-    ├── bootstrap.py
-    ├── icon.png  logo.png
-    └── jarvis_component/            the bundled custom integration (domain: jarvis)
-        ├── manifest.json
-        ├── __init__.py + 42 modules
-        └── frontend/jarvis-panel.js the dashboard
+│   └── legacy_addon_bootstrap.py    reference for the in-progress in-integration bootstrap
+└── custom_components/jarvis/        the integration (domain: jarvis)
+    ├── manifest.json
+    ├── __init__.py + 47 modules
+    └── frontend/jarvis-panel.js     the dashboard
 ```
 
-The add-on container copies `jarvis_component/` into `/config/custom_components/jarvis/`
-at startup. The integration is what actually runs inside Home Assistant.
+HACS installs `custom_components/jarvis/` into Home Assistant. The integration
+runs in-process; the config flow (or a migrated legacy config) sets it up.
 
 ## Code standard
 
@@ -41,7 +38,7 @@ This project holds to senior+ engineering output:
 
 ```bash
 # Python syntax across all integration modules
-cd jarvis_assistant/jarvis_component
+cd custom_components/jarvis
 for f in *.py; do python3 -c "import ast; ast.parse(open('$f').read())" || echo "FAIL $f"; done
 
 # Dashboard JavaScript parses

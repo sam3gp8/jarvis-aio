@@ -18,10 +18,10 @@ Dimensions, room layout, garage doors, and dormers live in the labeled config bl
 the **top of `house3d_core.js`** (`GW/HW/D`, `ROOMS`, `dormerFront/dormerRearRound`
 positions, `garageDoors`). Edit those for a different home; the roof/dormer/garage
 generator and the by-name occupancy wiring stay the same. The property address comes
-from add-on config (`floor_plan_address`), not from this module.
+from JARVIS config (`floor_plan_address`), not from this module.
 
 ## IMPORTANT — this is inlined into the panel
-The add-on is **no-build / no-CDN**, so the shipped copy of this model is **inlined**
+The integration is **no-build / no-CDN**, so the shipped copy of this model is **inlined**
 into `../jarvis-panel.js` as a top-level `const JARVIS3D = (function () { … })();` block.
 When you change the model:
 1. Edit `house3d_core.js` here and verify with the viewer / `render3d.js`.
@@ -35,6 +35,6 @@ When you change the model:
 Browsers may block `file://` script loads. Serve the folder instead:
 
 ```
-cd jarvis_assistant/jarvis_component/frontend/dev
+cd custom_components/jarvis/frontend/dev
 python3 -m http.server 8099   # then open http://localhost:8099/jarvis_house3d.html
 ```

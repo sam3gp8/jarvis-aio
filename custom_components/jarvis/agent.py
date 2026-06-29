@@ -913,6 +913,26 @@ async def _exec_remember(hass: HomeAssistant, args: dict) -> str:
     data[key][name] = value
     await hass.async_add_executor_job(_save_learned, data)
 
+    # v6.25.0: mirror preferences & routines into the curated knowledge store, so
+    # spoken "remember that …" shows up in the Memory panel and injects into
+    # future prompts. Aliases stay in the learned-entity map only.
+    # v6.29.0: attribute preferences to the resolved person (household for routines).
+    if key in ("preference", "routine"):
+        try:
+            from . import knowledge
+            if key == "preference":
+                from . import identity
+                k_subject = identity.resolve_subject(hass)  # this person, or "primary"
+                k_kind = "preference"
+            else:
+                k_subject = knowledge.DEFAULT_SUBJECT
+                k_kind = "fact"
+            await hass.async_add_executor_job(
+                lambda: knowledge.remember(name, value, subject=k_subject,
+                                           kind=k_kind, source="stated"))
+        except Exception as exc:
+            _LOGGER.debug("knowledge mirror failed: %s", exc)
+
     _LOGGER.info("JARVIS learned: %s['%s'] = '%s'", key, name, value)
     return json.dumps({
         "success": True,
