@@ -481,19 +481,27 @@ def _join_names(names: list) -> str:
     return f"{', '.join(names[:-1])}, and {names[-1]}"
 
 
-def build_lockdown_message(honorific: str, locked: list, open_names: list) -> str:
+def build_lockdown_message(honorific: str, locked: list, closed: list,
+                           open_names: list) -> str:
     """
     Compose the lockdown-engaged announcement. Pure (no I/O) so it's unit-tested.
 
-    An open door is the one thing that matters during a lockdown, so open
-    openings are *named* and framed as the gap to close — never a footnote to
-    shrug at ("left as-is"). The four cases are kept distinct so the message is
-    never self-contradictory (e.g. claiming the home is secure while a door is
-    open, or announcing "engaged" as if it acted when nothing needed locking).
+    Three outcomes are reported distinctly: locks JARVIS locked, closeable
+    openings it closed (garage doors / motorized covers), and openings it can't
+    secure remotely (bare window contacts) — those are named and framed as the
+    gap to close by hand, never a footnote. The message never claims the home is
+    secure while something is open, and never announces a non-event.
     """
     h = (honorific or "sir").title()
 
-    def describe(names: list) -> str:
+    actions = []
+    if locked:
+        actions.append(f"locked {_join_names(locked)}")
+    if closed:
+        actions.append(f"closed {_join_names(closed)}")
+    did = _join_names(actions)   # "locked X and closed Y", or "locked X", or ""
+
+    def gap(names: list) -> str:
         if len(names) == 1:
             return (f"{names[0]} is open and I can't secure it remotely — "
                     f"you'll want to close it")
@@ -503,15 +511,13 @@ def build_lockdown_message(honorific: str, locked: list, open_names: list) -> st
         return (f"{len(names)} openings are open and I can't secure them "
                 f"remotely — you'll want to close them")
 
-    if locked and open_names:
-        return (f"{h}, lockdown engaged. I locked {_join_names(locked)}, "
-                f"but {describe(open_names)}.")
-    if locked:
-        return (f"{h}, lockdown engaged — I locked {_join_names(locked)}. "
-                f"The home is secure.")
+    if did and open_names:
+        return f"{h}, lockdown engaged — I {did}, but {gap(open_names)}."
+    if did:
+        return f"{h}, lockdown engaged — I {did}. The home is secure."
     if open_names:
-        return (f"{h}, lockdown engaged. Everything was already locked, "
-                f"but {describe(open_names)}.")
+        return (f"{h}, lockdown engaged. Everything was already secured, "
+                f"but {gap(open_names)}.")
     return f"{h}, lockdown engaged — the home was already fully secured."
 
 
@@ -696,31 +702,56 @@ class LockdownManager:
                     _LOGGER.warning("Lockdown: failed to lock %s: %s", eid, exc)
         return locked
 
-    async def engage(self, reason: str, auto: bool = False) -> Optional[dict]:
+    async def engage(self, reason: str, auto: bool = False,
+                     announce: bool = True) -> Optional[dict]:
         if self.active:
             return None
         self.active = True
         self.since = time.time()
         self.reason = reason
         self.auto = auto
-        # Snapshot everything already open NOW (doors + windows) — these were
-        # left open knowingly, so they're ignored for the duration. We do NOT
-        # force them shut; lockdown only reacts to things that change afterwards.
-        self.exempt_windows = self._open_openings()
         self._secured_by_us = set()
         self._alerted = set()
         self._last_breach_alert = 0.0
         honorific = self.config.get("honorific", "sir")
-        locked = await self._lock_all()       # lock closed-but-unlocked doors
-        # Openings open right now can't be secured remotely (a bare contact
-        # sensor has no actuator, and we deliberately don't force covers shut).
-        # Name them so the user knows exactly what's exposed.
-        open_names = sorted(self._friendly(eid) for eid in self.exempt_windows)
-        message = build_lockdown_message(honorific, locked, open_names)
+
+        # 1) Lock every closed-but-unlocked lock.
+        locked = await self._lock_all()
+
+        # 2) Close every open *closeable* opening (garage doors / motorized
+        #    covers). These have safety sensors, so an obstruction simply fails
+        #    the close — the verify step catches that and surfaces it. Bare
+        #    contacts (windows) have no actuator and can't be closed.
+        closed: list = []
+        uncloseable: set = set()
+        for eid in self._open_openings():
+            dom = eid.split(".", 1)[0]
+            st = self.hass.states.get(eid)
+            dc = st.attributes.get("device_class") if st else None
+            if self._can_secure(dom, dc):
+                name = self._friendly(eid)
+                if await self._secure_entity(eid, dom):
+                    closed.append(name)
+                    self._secured_by_us.add(eid)
+                    self.hass.async_create_task(self._verify_secured(eid, dom, name))
+                else:
+                    uncloseable.add(eid)   # the close call failed outright
+            else:
+                uncloseable.add(eid)
+
+        # 3) What we can't secure is left as-is and adopted as intentional — the
+        #    user is alerted once here and not nagged afterwards (no action means
+        #    they meant to leave it open).
+        self.exempt_windows = uncloseable
+        open_names = sorted(self._friendly(eid) for eid in uncloseable)
+
+        message = build_lockdown_message(honorific, locked, closed, open_names)
         _LOGGER.warning(
-            "Lockdown ENGAGED (%s): locked=%s open-now=%d",
-            reason, locked, len(self.exempt_windows))
+            "Lockdown ENGAGED (%s): locked=%s closed=%s left-open=%d announce=%s",
+            reason, locked, closed, len(uncloseable), announce)
         await self._persist()
+        if not announce:
+            return None
         return {
             "type": "lockdown_engaged",
             "urgency": "high",
@@ -1704,7 +1735,11 @@ async def ensure_lockdown(hass: HomeAssistant, config: dict) -> None:
     if _CORE.alarm_unsub is None:
         _CORE.alarm_unsub = hass.bus.async_listen("state_changed", _on_lockdown_state)
         _LOGGER.info("Lockdown listener registered (alarm sync + breach enforcement)")
-    await _sync_lockdown_to_alarm("startup")
+    # Startup: adopt the current alarm state silently. Re-announcing "lockdown
+    # engaged" on every reboot/reload (when nothing actually changed) was the
+    # source of the repeated notifications — a fresh arm is announced via the
+    # event path below, not here.
+    await _sync_lockdown_to_alarm("startup", announce=False)
 
 
 async def _on_lockdown_state(event) -> None:
@@ -1714,7 +1749,13 @@ async def _on_lockdown_state(event) -> None:
         eid = event.data.get("entity_id", "")
         dom = eid.split(".", 1)[0]
         if dom == "alarm_control_panel":
-            await _sync_lockdown_to_alarm("alarm " + eid)
+            old = event.data.get("old_state")
+            # A real arm is disarmed→armed. Entity initialisation on startup
+            # (None / unknown / unavailable → armed) is NOT a fresh arm — adopt
+            # it silently so reboots don't re-announce.
+            genuine = bool(old) and str(getattr(old, "state", "")).lower() not in (
+                "unknown", "unavailable", "none", "")
+            await _sync_lockdown_to_alarm("alarm " + eid, announce=genuine)
             return
         mgr = _CORE.lockdown_mgr
         if mgr is None or not mgr.active or dom not in ("binary_sensor", "cover", "lock"):
@@ -1729,11 +1770,12 @@ async def _on_lockdown_state(event) -> None:
         _LOGGER.debug("lockdown state handler error: %s", exc)
 
 
-async def _sync_lockdown_to_alarm(reason: str) -> None:
+async def _sync_lockdown_to_alarm(reason: str, announce: bool = True) -> None:
     """
     Engage lockdown when any alarm is armed, lift it (if it was the alarm that
     engaged it) when all alarms are disarmed. Honours lockdown_auto_on_arm and
     the manual-exit suppression. Event-driven, so it does not depend on the loop.
+    `announce=False` adopts an already-armed state silently (startup / reboot).
     """
     mgr = _CORE.lockdown_mgr
     if mgr is None or _CORE.hass is None:
@@ -1749,7 +1791,7 @@ async def _sync_lockdown_to_alarm(reason: str) -> None:
         await mgr._persist()
     action = None
     if armed and not mgr.active and not mgr._auto_suppressed:
-        action = await mgr.engage("alarm armed", auto=True)
+        action = await mgr.engage("alarm armed", auto=True, announce=announce)
     elif mgr.active and mgr.auto and not armed:
         action = await mgr.disengage("alarm disarmed")
     if action and _CORE.hass:

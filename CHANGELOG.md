@@ -4,6 +4,28 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.31.0] — lockdown closes what it can, and stops repeating itself
+Two things, both from real use:
+
+**It stops nagging.** Lockdown was re-announcing "lockdown engaged" on every
+restart and reload — so during a day of tinkering you'd get the same alert over
+and over. Now an already-armed alarm is adopted silently on startup; the
+announcement only fires when the alarm actually arms (or you engage it yourself).
+And anything it can't secure is mentioned once, never on a loop.
+
+**It actually secures what it can.** On engage, lockdown now:
+  • locks every motorized lock that's unlocked;
+  • **closes motorized openings** — garage doors and powered covers. These have
+    safety sensors, so if something's in the way the close just fails (and you're
+    told it couldn't close), rather than forcing shut on a car or person;
+  • for openings it can't close remotely — a plain window contact with no motor —
+    it alerts you once so you can close it by hand, then treats it as
+    intentionally open and leaves it alone.
+
+So a typical engage now reads like "Sir, lockdown engaged — I locked the front
+door and closed the Garage Door, but Sam's Window 1 is open and I can't secure it
+remotely — you'll want to close it," and you hear it once, not every few minutes.
+
 ## [6.30.1] — lockdown tells you what's actually open
 The lockdown announcement could come out nonsensical — "everything already
 locked. 1 opening already open will be left as-is" — which made it sound like
