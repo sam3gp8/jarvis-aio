@@ -61,6 +61,13 @@ STALE_LIGHT_MINUTES = 90         # light on this long in an empty room → flag
 HIGH_TEMP_AWAY_F = 78            # cooling running while away → efficiency flag
 LOW_TEMP_AWAY_F = 62             # heating running while away → efficiency flag
 
+# ── Intrusion investigation (v6.33.0) ───────────────────────────────────────
+# One alert, then investigate silently until it's a confirmed intrusion or
+# confirmed benign — never a stream of "motion detected" repeats.
+INTRUSION_SPREAD_ZONES = 2       # motion in this many zones ⇒ someone moving through
+INTRUSION_CLEAR_QUIET_SECS = 180 # motion quiet this long ⇒ nothing of note
+INTRUSION_MAX_INVESTIGATE_SECS = 600  # one zone this long, no spread ⇒ benign
+
 # ── Graduated autonomy (v5.9.07) ────────────────────────────────────────────
 # A suggestion that the user approves repeatedly earns the right to auto-apply.
 AUTONOMY_TRUST_THRESHOLD = 3     # approvals of same pattern → auto-execute tier
@@ -212,6 +219,7 @@ class SafetyManager:
         self._last_freeze_alert = 0.0
         self._last_lockdown_check = 0.0
         self._last_intrusion_alert = 0.0
+        self._investigation = None   # active intrusion investigation, or None
         self._freeze_warned = False
 
     async def tick(self, sleeping: bool, anyone_home: bool) -> list[dict]:
@@ -228,7 +236,7 @@ class SafetyManager:
         # Only when residents are CONFIDENTLY away (tracked away / armed-away) or
         # asleep — never on the mere absence of occupancy, which falsely fires when
         # someone is home but untracked.
-        if self._residents_away() or sleeping:
+        if self._residents_away() or sleeping or self._investigation is not None:
             intrusion = await self._check_intrusion(anyone_home, sleeping)
             if intrusion:
                 actions.append(intrusion)
@@ -326,102 +334,154 @@ class SafetyManager:
                 return st.attributes.get("friendly_name", st.entity_id)
         return None
 
-    async def _check_intrusion(self, anyone_home: bool,
-                                sleeping: bool) -> Optional[dict]:
-        """Check for unauthorized entry when away or asleep."""
-        now = time.time()
-        if (now - self._last_intrusion_alert) < 300:  # 5min cooldown
-            return None
+    def _motion_key(self, eid: str) -> str:
+        """A stable 'zone' key for a motion sensor — its area if resolvable,
+        else the entity id. Distinct zones ⇒ movement across the home."""
+        try:
+            from homeassistant.helpers import (
+                entity_registry as er, device_registry as dr,
+            )
+            ent = er.async_get(self.hass).async_get(eid)
+            if ent:
+                area = ent.area_id
+                if not area and ent.device_id:
+                    dev = dr.async_get(self.hass).async_get(ent.device_id)
+                    area = dev.area_id if dev else None
+                if area:
+                    return area
+        except Exception:
+            pass
+        return eid
 
-        honorific = self.config.get("honorific", "sir")
-
-        # Check for motion in non-bedroom areas during sleep
-        # or ANY motion when nobody's home
+    def _qualifying_motion(self, sleeping: bool) -> list:
+        """Active indoor motion sensors worth considering — skips outdoor
+        sensors and (while asleep) bedroom sensors. Returns [(entity_id, name)]."""
+        out = []
+        bedroom_areas = self.config.get("bedroom_areas", []) if sleeping else []
         for state in self.hass.states.async_all("binary_sensor"):
-            dc = state.attributes.get("device_class", "")
-            if dc not in ("motion", "occupancy", "presence"):
+            if state.attributes.get("device_class", "") not in ("motion", "occupancy", "presence"):
                 continue
             if state.state != "on":
                 continue
-
-            eid = state.entity_id.lower()
-            fname = (state.attributes.get("friendly_name") or "").lower()
-
-            # Skip outdoor sensors
-            if any(kw in eid or kw in fname for kw in
-                   ("outdoor", "outside", "backyard", "front_yard",
-                    "driveway", "porch")):
+            eid = state.entity_id
+            fname = (state.attributes.get("friendly_name") or "")
+            if any(kw in eid.lower() or kw in fname.lower() for kw in
+                   ("outdoor", "outside", "backyard", "front_yard", "driveway", "porch")):
                 continue
+            if sleeping and bedroom_areas and self._motion_key(eid) in bedroom_areas:
+                continue
+            out.append((eid, fname or eid))
+        return out
 
-            # Skip bedroom sensors during sleep (that's expected)
-            if sleeping:
-                bedroom_areas = self.config.get("bedroom_areas", [])
-                # Check if this sensor is in a bedroom area
-                is_bedroom = False
-                try:
-                    from homeassistant.helpers import (
-                        entity_registry as er, device_registry as dr,
-                        area_registry as areg,
-                    )
-                    ent_reg = er.async_get(self.hass)
-                    dev_reg = dr.async_get(self.hass)
-                    entry = ent_reg.async_get(state.entity_id)
-                    if entry:
-                        area_id = entry.area_id
-                        if not area_id and entry.device_id:
-                            device = dev_reg.async_get(entry.device_id)
-                            area_id = device.area_id if device else None
-                        if area_id and area_id in bedroom_areas:
-                            is_bedroom = True
-                except Exception:
-                    pass
-                if is_bedroom:
-                    continue
+    def _person_on_camera(self) -> bool:
+        """Best-effort: a camera reports a person right now (e.g. Frigate's
+        binary_sensor.<cam>_person). A strong intrusion confirmation."""
+        for st in self.hass.states.async_all("binary_sensor"):
+            if st.state != "on":
+                continue
+            low = (st.entity_id + " " + (st.attributes.get("friendly_name") or "")).lower()
+            if "person" in low and st.attributes.get("device_class") in (
+                    "occupancy", "motion", "presence", None):
+                return True
+        return False
 
-            away = self._residents_away()
-            if away:
-                # Motion alone when nobody's home is usually benign — pets, a
-                # robot vacuum, HVAC-moved blinds, sunlight on a PIR. Only treat
-                # it as an intrusion when something is actually wrong: the alarm
-                # is armed, or an entry point (door/window) is open. Set
-                # intrusion_require_corroboration=false to alert on bare motion.
-                armed = breach = None
-                if self.config.get("intrusion_require_corroboration", True):
-                    armed = self._alarm_armed()
-                    breach = self._entry_open()
-                    if not (armed or breach):
-                        continue
-                self._last_intrusion_alert = now
-                where = state.attributes.get('friendly_name', state.entity_id)
-                if breach:
-                    msg = (f"{honorific.title()}, motion at {where} with {breach} "
-                           f"open while no one is home. Investigating.")
-                elif armed:
-                    msg = (f"{honorific.title()}, motion at {where} while the alarm "
-                           f"is armed and no one is home. Investigating.")
-                else:
-                    msg = (f"{honorific.title()}, motion detected at {where} "
-                           f"while no one is home. Investigating.")
-                return {
-                    "type": "intrusion_away",
-                    "urgency": "critical",
-                    "message": msg,
-                    "auto_act": True,
-                    "entity_id": state.entity_id,
-                }
-            elif sleeping:
-                self._last_intrusion_alert = now
-                where = state.attributes.get('friendly_name', state.entity_id)
-                msg = (f"{honorific.title()}, motion detected at {where} "
-                       f"while the household is asleep. Investigating.")
-                return {
-                    "type": "intrusion_sleep",
-                    "urgency": "high",
-                    "message": msg,
-                    "auto_act": True,
-                    "entity_id": state.entity_id,
-                }
+    async def _check_intrusion(self, anyone_home: bool,
+                                sleeping: bool) -> Optional[dict]:
+        """Detect unauthorized entry when away or asleep. Fires ONE alert, then
+        investigates silently until it's a confirmed intrusion (escalated to the
+        whole house + every device) or confirmed benign."""
+        now = time.time()
+        away = self._residents_away()
 
+        # Mid-investigation: keep watching, escalate at most once, stay quiet
+        # otherwise. This is what stops the stream of repeat "motion" alerts.
+        if self._investigation is not None:
+            return self._investigate_step(now, away, sleeping)
+
+        if (now - self._last_intrusion_alert) < 300:
+            return None
+
+        motion = self._qualifying_motion(sleeping)
+        if not motion:
+            return None
+        eid, where = motion[0]
+        honorific = self.config.get("honorific", "sir")
+
+        if away:
+            armed = breach = None
+            if self.config.get("intrusion_require_corroboration", True):
+                armed = self._alarm_armed()
+                breach = self._entry_open()
+                if not (armed or breach):
+                    return None
+            # ONE alert, then investigate. An intentionally-open window is still
+            # a valid entry point — alert once and watch, rather than ignore it
+            # or nag about it.
+            self._last_intrusion_alert = now
+            self._investigation = {
+                "start": now, "last_motion": now,
+                "zones": {self._motion_key(eid)}, "escalated": False,
+            }
+            ctx = (f" ({breach} open)" if breach else
+                   " (alarm armed)" if armed else "")
+            msg = (f"{honorific.title()}, motion at {where} while no one is "
+                   f"home{ctx}. Investigating — I'll alert the house and every "
+                   f"device if it's a real intrusion.")
+            return {
+                "type": "intrusion_investigating", "urgency": "high",
+                "message": msg, "auto_act": True, "entity_id": eid,
+            }
+
+        if sleeping:
+            self._last_intrusion_alert = now
+            msg = (f"{honorific.title()}, motion detected at {where} "
+                   f"while the household is asleep. Investigating.")
+            return {
+                "type": "intrusion_sleep", "urgency": "high",
+                "message": msg, "auto_act": True, "entity_id": eid,
+            }
+
+        return None
+
+    def _investigate_step(self, now: float, away: bool,
+                          sleeping: bool) -> Optional[dict]:
+        """One tick of an active investigation: confirm, clear, or keep watching
+        silently. Returns an escalation action only on confirmation (once)."""
+        inv = self._investigation
+
+        # Residents came home / no longer away → stand down.
+        if not away:
+            self._investigation = None
+            return None
+
+        active = {self._motion_key(eid) for eid, _ in self._qualifying_motion(sleeping)}
+        if active:
+            inv["last_motion"] = now
+            inv["zones"] |= active
+
+        spread_needed = self.config.get("intrusion_spread_zones", INTRUSION_SPREAD_ZONES)
+        confirmed = (len(inv["zones"]) >= spread_needed) or self._person_on_camera()
+
+        if not inv["escalated"] and confirmed:
+            inv["escalated"] = True
+            honorific = self.config.get("honorific", "sir")
+            reason = ("someone is moving through the house"
+                      if len(inv["zones"]) >= spread_needed
+                      else "a person is on camera")
+            msg = (f"{honorific.title()}, intrusion confirmed — {reason} while no "
+                   f"one is home. Alerting the house and every device.")
+            return {
+                "type": "intrusion_confirmed", "urgency": "critical",
+                "message": msg, "auto_act": True, "notify_all": True,
+            }
+
+        quiet_for = now - inv["last_motion"]
+        elapsed = now - inv["start"]
+        if not inv["escalated"] and (quiet_for > INTRUSION_CLEAR_QUIET_SECS
+                                     or elapsed > INTRUSION_MAX_INVESTIGATE_SECS):
+            self._investigation = None            # nothing of note
+        elif inv["escalated"] and quiet_for > INTRUSION_CLEAR_QUIET_SECS:
+            self._investigation = None            # situation settled
         return None
 
     async def _nighttime_lockdown(self) -> list[dict]:
@@ -1657,6 +1717,7 @@ async def _emit_action(hass, config, action, sleeping):
     message = action.get("message", "")
     urgency = action.get("urgency", "medium")
     action_type = action.get("type", "unknown")
+    notify_all = bool(action.get("notify_all", False))
 
     _LOGGER.info(
         "Cognitive action [%s] urgency=%s: %s",
@@ -1682,7 +1743,10 @@ async def _emit_action(hass, config, action, sleeping):
 
         if (sleeping or in_quiet) and urgency != "critical":
             # Push to phone only (no spoken announcement)
-            await _push_notification(hass, config, message, action_type)
+            if notify_all:
+                await _notify_all_devices(hass, config, message, action_type)
+            else:
+                await _push_notification(hass, config, message, action_type)
         else:
             # Get announcement speakers from config
             ann_speakers = None
@@ -1721,9 +1785,12 @@ async def _emit_action(hass, config, action, sleeping):
                         context="sentinel",
                     )
 
-            # Also push critical alerts to phone
+            # Also push critical/high alerts to phones
             if urgency in ("critical", "high"):
-                await _push_notification(hass, config, message, action_type)
+                if notify_all:
+                    await _notify_all_devices(hass, config, message, action_type)
+                else:
+                    await _push_notification(hass, config, message, action_type)
 
     except Exception as exc:
         _LOGGER.warning("Cognitive: action routing failed: %s", exc)
@@ -1886,6 +1953,8 @@ async def _push_notification(hass, config, message, action_type):
         titles = {
             "freeze_critical": "JARVIS — Freeze Warning",
             "freeze_warning": "JARVIS — Temperature Alert",
+            "intrusion_investigating": "JARVIS — Security Alert",
+            "intrusion_confirmed": "JARVIS — INTRUSION",
             "intrusion_away": "JARVIS — Security Alert",
             "intrusion_sleep": "JARVIS — Motion Detected",
             "lockdown": "JARVIS — House Secured",
@@ -1897,6 +1966,53 @@ async def _push_notification(hass, config, message, action_type):
         )
     except Exception as exc:
         _LOGGER.debug("Cognitive: push notification failed: %s", exc)
+
+
+async def _notify_all_devices(hass, config, message, action_type):
+    """Push to EVERY connected device — every `notify.mobile_app_*` service the
+    HA companion app registered — plus a persistent notification for confirmed
+    intrusions. Falls back to the single configured service if no per-device
+    services exist."""
+    titles = {
+        "freeze_critical": "JARVIS — Freeze Warning",
+        "freeze_warning": "JARVIS — Temperature Alert",
+        "intrusion_investigating": "JARVIS — Security Alert",
+        "intrusion_confirmed": "JARVIS — INTRUSION",
+        "intrusion_away": "JARVIS — Security Alert",
+        "intrusion_sleep": "JARVIS — Motion Detected",
+        "lockdown": "JARVIS — House Secured",
+    }
+    title = titles.get(action_type, "JARVIS")
+    sent = 0
+    try:
+        services = hass.services.async_services().get("notify", {})
+        for name in list(services):
+            if not name.startswith("mobile_app_"):
+                continue
+            try:
+                await hass.services.async_call(
+                    "notify", name, {"message": message, "title": title},
+                    blocking=False)
+                sent += 1
+            except Exception as exc:
+                _LOGGER.debug("notify.%s failed: %s", name, exc)
+    except Exception as exc:
+        _LOGGER.debug("Cognitive: enumerate notify services failed: %s", exc)
+
+    # Fall back to the configured single service if nothing device-specific fired.
+    if sent == 0:
+        await _push_notification(hass, config, message, action_type)
+
+    # Always-visible catch-all for a confirmed intrusion.
+    if action_type == "intrusion_confirmed":
+        try:
+            await hass.services.async_call(
+                "persistent_notification", "create",
+                {"message": message, "title": title,
+                 "notification_id": "jarvis_intrusion"},
+                blocking=False)
+        except Exception:
+            pass
 
 
 async def _execute_action_data(hass, action_data: dict) -> bool:

@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.32.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.33.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -5363,7 +5363,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.32.0 ",
+  "%c JARVIS Panel %c v6.33.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

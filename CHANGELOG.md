@@ -4,6 +4,29 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.33.0] — one alert, then JARVIS investigates and escalates
+Motion while no one's home no longer turns into a stream of repeat alerts. Now
+JARVIS alerts **once** and then investigates quietly:
+
+  • A window or door left open on purpose is still a valid way in, so motion near
+    it gets the one alert — JARVIS doesn't ignore it, and doesn't nag about it.
+  • After that single alert it watches silently, tracking whether the motion
+    stays put (a pet, a blind, one sensor) or **spreads through the house** the
+    way a person moving room to room would — and it also watches your cameras for
+    a person. It keeps investigating for as long as it takes to decide.
+  • If it's **nothing** — motion settles, stays in one spot — it quietly stands
+    down. No second alert.
+  • If it **confirms an intrusion** — motion across multiple rooms, or a person
+    on camera — it escalates hard: it announces out loud to the whole house
+    **regardless of the time of day**, and pushes to **every device** connected
+    to your home, not just one phone. A persistent notification is left too.
+
+If residents come home mid-investigation, JARVIS stands down on its own.
+
+You can tune it: `intrusion_spread_zones` (how many rooms of motion means
+"someone's moving through", default 2), or turn the whole corroboration
+requirement off with `intrusion_require_corroboration: false`.
+
 ## [6.32.0] — doors show open, quieter motion alerts, tuned for Ollama
 Three things:
 

@@ -37,9 +37,9 @@ async def test_untracked_resident_motion_is_not_intrusion(safety, fake_hass):
     assert _intrusions(actions) == []
 
 
-async def test_tracked_away_motion_with_open_door_fires_critical(safety, fake_hass):
-    # v6.32.0: motion when away only alerts when something is actually wrong.
-    # Here an entry point is open, corroborating a real entry.
+async def test_tracked_away_motion_with_open_door_alerts_once(safety, fake_hass):
+    # v6.33.0: corroborated motion when away fires ONE "investigating" alert,
+    # then investigates silently (escalation only on confirmation).
     fake_hass.states.set("person.sam", "not_home")
     fake_hass.states.set("device_tracker.sam_phone", "not_home")
     fake_hass.states.set("binary_sensor.front_door", "on", device_class="door")
@@ -47,8 +47,8 @@ async def test_tracked_away_motion_with_open_door_fires_critical(safety, fake_ha
     actions = await _tick(safety, fake_hass, anyone_home=False)
     intr = _intrusions(actions)
     assert len(intr) == 1
-    assert intr[0]["type"] == "intrusion_away"
-    assert intr[0]["urgency"] == "critical"
+    assert intr[0]["type"] == "intrusion_investigating"
+    assert intr[0]["urgency"] == "high"
 
 
 async def test_bare_motion_away_without_corroboration_is_suppressed(safety, fake_hass):

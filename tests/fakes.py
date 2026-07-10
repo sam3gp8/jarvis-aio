@@ -51,11 +51,19 @@ class FakeStates:
 class _Services:
     def __init__(self, sink: list):
         self._sink = sink
+        self._registered: dict = {}   # domain -> {service_name: None}
 
     async def async_call(self, domain, service, data=None, blocking=False, **kwargs):
         # Record the intent instead of executing it, so tests can assert
         # "JARVIS tried to lock the door" without touching real devices.
         self._sink.append((domain, service, dict(data or {})))
+
+    def register(self, domain: str, service: str) -> None:
+        """Test helper: register a service so async_services() lists it."""
+        self._registered.setdefault(domain, {})[service] = None
+
+    def async_services(self) -> dict:
+        return self._registered
 
 
 class _Bus:
@@ -82,10 +90,11 @@ class FakeHass:
         self._tasks: list = []
         self.bus = _Bus()
         self.config = types.SimpleNamespace(time_zone="America/New_York")
+        self._services = _Services(self.service_calls)
 
     @property
     def services(self):
-        return _Services(self.service_calls)
+        return self._services
 
     async def async_add_executor_job(self, func, *args):
         # The caller awaits this; running synchronously is deterministic and
