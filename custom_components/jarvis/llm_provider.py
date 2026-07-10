@@ -154,6 +154,9 @@ class OpenAIProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        extra = self._extra_body()
+        if extra:
+            kwargs["extra_body"] = extra
         resp = self._client.chat.completions.create(**kwargs)
         choice = resp.choices[0]
         tool_calls = []
@@ -172,6 +175,10 @@ class OpenAIProvider(LLMProvider):
             "raw": choice.message,
         }
 
+    def _extra_body(self) -> dict:
+        """Provider-specific request extras. Empty for vanilla OpenAI."""
+        return {}
+
     def supports_vision(self) -> bool:
         # Modern OpenAI models all support vision; Ollama varies by model;
         # most Gemini models are multimodal; LLaVA supports vision locally
@@ -180,6 +187,45 @@ class OpenAIProvider(LLMProvider):
             "gemini-2", "gemini-3", "gemini-flash", "gemini-pro",
         )
         return any(v in self.model.lower() for v in vision_models)
+
+
+# ─── Ollama (local, self-hosted) ─────────────────────────────────────────────
+# Tuning for local inference: keep the model resident so we don't pay the
+# load-into-VRAM cost on every call; raise the context window well above
+# Ollama's 2048 default (JARVIS's system prompt + knowledge + history need the
+# room, and a too-small window silently truncates); and allow a generous
+# timeout since the first token can lag while a cold model loads.
+OLLAMA_KEEP_ALIVE = "30m"
+OLLAMA_NUM_CTX = 8192
+OLLAMA_TIMEOUT = 120.0  # seconds
+
+
+class OllamaProvider(OpenAIProvider):
+    """Ollama via its OpenAI-compatible API, tuned for local/self-hosted use."""
+    name = "ollama"
+
+    def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
+        super().__init__(api_key or "ollama", model, self._normalize_url(base_url))
+        # Local generation (and cold model loads) can outlast the default HTTP
+        # timeout — give it room so a slow first token isn't a hard failure.
+        try:
+            self._client = self._client.with_options(timeout=OLLAMA_TIMEOUT)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _normalize_url(base_url: Optional[str]) -> Optional[str]:
+        # Accept a bare host:port and append Ollama's OpenAI-compatible path
+        # (…:11434 → …:11434/v1) so the endpoint is correct either way.
+        if base_url and base_url.rstrip("/").endswith(":11434"):
+            return base_url.rstrip("/") + "/v1"
+        return base_url
+
+    def _extra_body(self) -> dict:
+        # keep_alive + num_ctx are Ollama extensions passed through the
+        # OpenAI-compatible endpoint; harmless no-ops on non-Ollama backends,
+        # but only OllamaProvider sends them.
+        return {"keep_alive": OLLAMA_KEEP_ALIVE, "options": {"num_ctx": OLLAMA_NUM_CTX}}
 
 
 # ─── Anthropic ───────────────────────────────────────────────────────────────
@@ -303,7 +349,7 @@ class AnthropicProvider(LLMProvider):
 PROVIDERS = {
     "groq":      GroqProvider,
     "openai":    OpenAIProvider,
-    "ollama":    OpenAIProvider,    # Ollama exposes an OpenAI-compatible API
+    "ollama":    OllamaProvider,    # Ollama's OpenAI-compatible API, tuned local
     "gemini":    OpenAIProvider,    # Gemini exposes an OpenAI-compatible API
     "custom":    OpenAIProvider,    # Any OpenAI-compatible endpoint
     "anthropic": AnthropicProvider,

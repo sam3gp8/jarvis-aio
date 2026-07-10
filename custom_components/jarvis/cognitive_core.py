@@ -307,6 +307,25 @@ class SafetyManager:
 
         return None
 
+    def _alarm_armed(self) -> bool:
+        for st in self.hass.states.async_all("alarm_control_panel"):
+            if st.state in ALARM_ARMED_STATES:
+                return True
+        return False
+
+    def _entry_open(self) -> Optional[str]:
+        """An exterior door/window currently open — corroborates real entry.
+        Returns its friendly name if one is open, else None."""
+        for st in self.hass.states.async_all("binary_sensor"):
+            if (st.attributes.get("device_class") in ("door", "window", "garage_door", "opening")
+                    and st.state == "on"):
+                return st.attributes.get("friendly_name", st.entity_id)
+        for st in self.hass.states.async_all("cover"):
+            if (st.attributes.get("device_class") in ("door", "garage", "garage_door", "gate")
+                    and st.state in ("open", "opening")):
+                return st.attributes.get("friendly_name", st.entity_id)
+        return None
+
     async def _check_intrusion(self, anyone_home: bool,
                                 sleeping: bool) -> Optional[dict]:
         """Check for unauthorized entry when away or asleep."""
@@ -360,20 +379,44 @@ class SafetyManager:
                     continue
 
             away = self._residents_away()
-            if away or sleeping:
+            if away:
+                # Motion alone when nobody's home is usually benign — pets, a
+                # robot vacuum, HVAC-moved blinds, sunlight on a PIR. Only treat
+                # it as an intrusion when something is actually wrong: the alarm
+                # is armed, or an entry point (door/window) is open. Set
+                # intrusion_require_corroboration=false to alert on bare motion.
+                armed = breach = None
+                if self.config.get("intrusion_require_corroboration", True):
+                    armed = self._alarm_armed()
+                    breach = self._entry_open()
+                    if not (armed or breach):
+                        continue
                 self._last_intrusion_alert = now
                 where = state.attributes.get('friendly_name', state.entity_id)
-                if away:
+                if breach:
+                    msg = (f"{honorific.title()}, motion at {where} with {breach} "
+                           f"open while no one is home. Investigating.")
+                elif armed:
+                    msg = (f"{honorific.title()}, motion at {where} while the alarm "
+                           f"is armed and no one is home. Investigating.")
+                else:
                     msg = (f"{honorific.title()}, motion detected at {where} "
                            f"while no one is home. Investigating.")
-                    urg = "critical"
-                else:  # asleep, motion outside the bedrooms
-                    msg = (f"{honorific.title()}, motion detected at {where} "
-                           f"while the household is asleep. Investigating.")
-                    urg = "high"
                 return {
-                    "type": "intrusion_away" if away else "intrusion_sleep",
-                    "urgency": urg,
+                    "type": "intrusion_away",
+                    "urgency": "critical",
+                    "message": msg,
+                    "auto_act": True,
+                    "entity_id": state.entity_id,
+                }
+            elif sleeping:
+                self._last_intrusion_alert = now
+                where = state.attributes.get('friendly_name', state.entity_id)
+                msg = (f"{honorific.title()}, motion detected at {where} "
+                       f"while the household is asleep. Investigating.")
+                return {
+                    "type": "intrusion_sleep",
+                    "urgency": "high",
                     "message": msg,
                     "auto_act": True,
                     "entity_id": state.entity_id,

@@ -4,6 +4,28 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.32.0] — doors show open, quieter motion alerts, tuned for Ollama
+Three things:
+
+**Doors now actually show open on the Residence tab.** The house model was
+never receiving live door state — the panel was quietly dropping it before it
+reached the 3D view, so garage doors (and every other door) always drew closed
+no matter what. Fixed at the source; open doors now render open, and combined
+with the door-mapping added earlier you can make them match your home exactly.
+
+**Motion alerts only fire when something's actually wrong.** When no one's home,
+plain motion — a pet, a robot vacuum, blinds moving in the airflow, sun on a
+sensor — no longer sets off an intrusion alert. JARVIS now only alerts on motion
+while away when it's corroborated: the alarm is armed, or a door/window is open
+(a real entry). If you'd rather be alerted on any motion, set
+`intrusion_require_corroboration: false`.
+
+**Optimized for a local Ollama server.** If you point JARVIS at Ollama, it now
+keeps the model loaded between requests (no reload lag), uses a much larger
+context window than Ollama's small default (so long prompts aren't silently
+truncated), and allows a generous timeout for cold-start model loads. Point it
+at your Ollama endpoint and it'll run local without the first-token stalls.
+
 ## [6.31.0] — lockdown closes what it can, and stops repeating itself
 Two things, both from real use:
 
