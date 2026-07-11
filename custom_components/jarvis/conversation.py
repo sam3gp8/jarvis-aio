@@ -893,15 +893,19 @@ class JarvisAgent(conversation.ConversationEntity):
             # v6.29.0: attribute to the resolved person so per-person command
             # patterns are real (falls back to "unknown" when not confident).
             try:
-                from . import cognitive_core, identity
+                from . import cognitive_core, identity, voice_recognition
                 handler = "local" if local_result and local_result.handled else "agent"
-                who = identity.resolve(
-                    self.hass, device_id=getattr(user_input, "device_id", None)).person
+                dev = getattr(user_input, "device_id", None)
+                who = identity.resolve(self.hass, device_id=dev).person
                 cognitive_core.log_command(
                     text=user_input.text,
                     handled_by=handler,
                     person=who,
                 )
+                # Voice learns over time: if we know who this is from other
+                # signals but the voice service doesn't yet, flag an enrollment
+                # opportunity so the pending sample can be labelled automatically.
+                voice_recognition.maybe_fire_enrollment(self.hass, dev)
             except Exception:
                 pass
 

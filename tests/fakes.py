@@ -67,8 +67,14 @@ class _Services:
 
 
 class _Bus:
+    def __init__(self):
+        self.fired: list = []   # (event_type, data) recorded for assertions
+
     def async_listen(self, *args, **kwargs):
         return lambda: None  # returns an unsubscribe callable, like HA
+
+    def async_fire(self, event_type, event_data=None, **kwargs):
+        self.fired.append((event_type, dict(event_data or {})))
 
 
 class FakeHass:

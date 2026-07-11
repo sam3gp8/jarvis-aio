@@ -4,6 +4,29 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.34.0] — JARVIS knows your voice
+JARVIS can now tell who it's talking to by **voice**, and learn people's voices
+over time from ordinary conversation — the strongest signal yet for its
+per-person features.
+
+It works by consuming a dedicated speaker-recognition service rather than running
+a voice model itself (that keeps Home Assistant light and your GPU free for the
+LLM). Point it at a service like **VoiceBM** or **speaker-recognition** — anything
+that publishes "who's speaking" to Home Assistant as an entity — and JARVIS folds
+voice into its existing identity picture alongside who's home and who's on camera.
+When the voice is certain it's used; when it isn't, JARVIS falls back gracefully.
+
+**Learning over time is hands-free.** The service does the enrolling, but JARVIS
+supplies the missing piece — the *name*. When it already knows who's speaking
+(you're the only one home, or a camera just recognized your face) but the voice
+service hasn't learned that voice yet, JARVIS flags it so the sample can be
+enrolled under the right person automatically. Voice profiles build themselves
+from normal conversation, no sit-down training session.
+
+Set it up in Configure → Identity: enable the voice tier and give it your
+service's speaker entity (e.g. `binary_sensor.*_voice`). A full setup guide,
+including the auto-enrollment automation, ships alongside this release.
+
 ## [6.33.0] — one alert, then JARVIS investigates and escalates
 Motion while no one's home no longer turns into a stream of repeat alerts. Now
 JARVIS alerts **once** and then investigates quietly:

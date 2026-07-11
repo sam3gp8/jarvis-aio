@@ -521,6 +521,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.warning("JARVIS bootstrap scheduling failed (non-fatal): %s", exc)
 
+    # ── v6.34 Voice recognition ────────────────────────────────────────────
+    # Plug an external speaker-recognition service (VoiceBM, speaker-recognition,
+    # etc.) into the identity resolver's voice tier. No-op until enabled + a
+    # source entity is configured.
+    try:
+        from . import voice_recognition
+        voice_recognition.register(hass)
+    except Exception as exc:
+        _LOGGER.warning("JARVIS voice recognition registration failed (non-fatal): %s", exc)
+
     _LOGGER.info("JARVIS online. Good day, %s. Routines available: %s",
                  honorific, ", ".join(list_routines()))
     return True
