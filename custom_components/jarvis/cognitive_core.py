@@ -67,6 +67,7 @@ LOW_TEMP_AWAY_F = 62             # heating running while away → efficiency fla
 INTRUSION_SPREAD_ZONES = 2       # motion in this many zones ⇒ someone moving through
 INTRUSION_CLEAR_QUIET_SECS = 180 # motion quiet this long ⇒ nothing of note
 INTRUSION_MAX_INVESTIGATE_SECS = 600  # one zone this long, no spread ⇒ benign
+INTRUSION_SUSTAINED_SECS = 60    # multi-zone motion sustained this long (no breach location) ⇒ real
 
 # ── Graduated autonomy (v5.9.07) ────────────────────────────────────────────
 # A suggestion that the user approves repeatedly earns the right to auto-apply.
@@ -321,18 +322,34 @@ class SafetyManager:
                 return True
         return False
 
-    def _entry_open(self) -> Optional[str]:
-        """An exterior door/window currently open — corroborates real entry.
-        Returns its friendly name if one is open, else None."""
+    def _friendly(self, eid: Optional[str]) -> Optional[str]:
+        if not eid:
+            return None
+        st = self.hass.states.get(eid)
+        return ((st.attributes.get("friendly_name") if st else None) or eid)
+
+    def _open_entry(self) -> Optional[str]:
+        """The entity_id of an exterior door/window that's currently open — the
+        breach point a real entry would come through. None if all are shut."""
         for st in self.hass.states.async_all("binary_sensor"):
             if (st.attributes.get("device_class") in ("door", "window", "garage_door", "opening")
                     and st.state == "on"):
-                return st.attributes.get("friendly_name", st.entity_id)
+                return st.entity_id
         for st in self.hass.states.async_all("cover"):
             if (st.attributes.get("device_class") in ("door", "garage", "garage_door", "gate")
                     and st.state in ("open", "opening")):
-                return st.attributes.get("friendly_name", st.entity_id)
+                return st.entity_id
         return None
+
+    def _breach_area(self, entry_eid: Optional[str]) -> Optional[str]:
+        """The HA area of the breach entity — where the intruder would enter."""
+        if not entry_eid:
+            return None
+        try:
+            from . import audio_routing
+            return audio_routing.entity_area(self.hass, entry_eid)
+        except Exception:
+            return None
 
     def _motion_key(self, eid: str) -> str:
         """A stable 'zone' key for a motion sensor — its area if resolvable,
@@ -408,25 +425,43 @@ class SafetyManager:
         honorific = self.config.get("honorific", "sir")
 
         if away:
-            armed = breach = None
+            armed = False
+            entry = None
             if self.config.get("intrusion_require_corroboration", True):
                 armed = self._alarm_armed()
-                breach = self._entry_open()
-                if not (armed or breach):
+                entry = self._open_entry()
+                if not (armed or entry):
                     return None
+            breach_name = self._friendly(entry) if entry else None
+            breach_area = self._breach_area(entry)
+            # Anchor the search at the breach: the intruder enters there, so the
+            # breach room and the rooms adjacent to it are where a real entry
+            # first shows up. Motion elsewhere is still investigated, but not
+            # concluded to be an intrusion on its own — that discernment is what
+            # avoids false alarms.
+            connected = {breach_area} if breach_area else set()
+            try:
+                from . import residence_graph
+                connected |= residence_graph.adjacent_areas(
+                    self.hass, self.config, breach_area)
+            except Exception:
+                pass
+            connected.discard(None)
             # ONE alert, then investigate. An intentionally-open window is still
-            # a valid entry point — alert once and watch, rather than ignore it
-            # or nag about it.
+            # a valid entry point — alert once and watch, rather than ignore it.
             self._last_intrusion_alert = now
+            start_zone = self._motion_key(eid)
             self._investigation = {
                 "start": now, "last_motion": now,
-                "zones": {self._motion_key(eid)}, "escalated": False,
+                "zones": {start_zone}, "path": [start_zone], "escalated": False,
+                "breach_area": breach_area, "breach_name": breach_name,
+                "connected": connected,
             }
-            ctx = (f" ({breach} open)" if breach else
+            ctx = (f" ({breach_name} open)" if breach_name else
                    " (alarm armed)" if armed else "")
             msg = (f"{honorific.title()}, motion at {where} while no one is "
-                   f"home{ctx}. Investigating — I'll alert the house and every "
-                   f"device if it's a real intrusion.")
+                   f"home{ctx}. Investigating from the point of entry — I'll alert "
+                   f"the house and every device only if it's a real intrusion.")
             return {
                 "type": "intrusion_investigating", "urgency": "high",
                 "message": msg, "auto_act": True, "entity_id": eid,
@@ -446,7 +481,10 @@ class SafetyManager:
     def _investigate_step(self, now: float, away: bool,
                           sleeping: bool) -> Optional[dict]:
         """One tick of an active investigation: confirm, clear, or keep watching
-        silently. Returns an escalation action only on confirmation (once)."""
+        silently. Escalates only when activity forms a coherent route from the
+        breach point (or a camera confirms a person). Motion unrelated to the
+        entry is watched, not concluded — that discernment avoids false alarms.
+        Returns an escalation action only on confirmation (once)."""
         inv = self._investigation
 
         # Residents came home / no longer away → stand down.
@@ -457,19 +495,36 @@ class SafetyManager:
         active = {self._motion_key(eid) for eid, _ in self._qualifying_motion(sleeping)}
         if active:
             inv["last_motion"] = now
+            for z in active:
+                if z not in inv["zones"]:
+                    inv["path"].append(z)         # record the route, in order
             inv["zones"] |= active
 
         spread_needed = self.config.get("intrusion_spread_zones", INTRUSION_SPREAD_ZONES)
-        confirmed = (len(inv["zones"]) >= spread_needed) or self._person_on_camera()
+        connected = inv.get("connected") or set()
+        near_breach = bool(inv["zones"] & connected)
+        spread = len(inv["zones"]) >= spread_needed
+        sustained = bool(active) and (now - inv["start"]) >= INTRUSION_SUSTAINED_SECS
+        camera = self._person_on_camera()
+
+        if camera:
+            confirmed, reason = True, "a person is on camera"
+        elif inv.get("breach_area"):
+            # Entry point known: require the activity to reach it or an adjacent
+            # room AND to be moving through — a genuine intrusion route.
+            confirmed = spread and near_breach
+            reason = "someone is moving through the house from the point of entry"
+        else:
+            # No location on the breach — be conservative: sustained multi-room
+            # movement, not a momentary blip.
+            confirmed = spread and sustained
+            reason = "sustained movement through the house while no one is home"
 
         if not inv["escalated"] and confirmed:
             inv["escalated"] = True
             honorific = self.config.get("honorific", "sir")
-            reason = ("someone is moving through the house"
-                      if len(inv["zones"]) >= spread_needed
-                      else "a person is on camera")
-            msg = (f"{honorific.title()}, intrusion confirmed — {reason} while no "
-                   f"one is home. Alerting the house and every device.")
+            msg = (f"{honorific.title()}, intrusion confirmed — {reason}. "
+                   f"Alerting the house and every device.")
             return {
                 "type": "intrusion_confirmed", "urgency": "critical",
                 "message": msg, "auto_act": True, "notify_all": True,
@@ -1799,6 +1854,24 @@ async def _emit_action(hass, config, action, sleeping):
 def is_lockdown() -> bool:
     """True if a formal lockdown is currently active."""
     return bool(_CORE.lockdown_mgr and _CORE.lockdown_mgr.active)
+
+
+def intrusion_status() -> dict:
+    """Snapshot of any active intrusion investigation, for the panel — where the
+    search started (the breach) and which rooms activity has reached, so the
+    Residence view can show the intruder's route."""
+    mgr = _CORE.safety_mgr
+    inv = getattr(mgr, "_investigation", None) if mgr else None
+    if not inv:
+        return {"active": False, "confirmed": False}
+    return {
+        "active": True,
+        "confirmed": bool(inv.get("escalated")),
+        "breach_area": inv.get("breach_area"),
+        "breach_name": inv.get("breach_name"),
+        "path": list(inv.get("path", [])),
+        "zones": sorted(str(z) for z in inv.get("zones", set())),
+    }
 
 
 def lockdown_status() -> dict:

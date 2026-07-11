@@ -542,7 +542,7 @@ async def ws_get_panel_data(
             "doorbell_training": _get_doorbell_training(),
             "doors":          _get_door_states(hass),
             "lockdown":       _get_lockdown_status(),
-            "knowledge":      _get_knowledge_stats(),
+            "intrusion":      _get_intrusion_status(),            "knowledge":      _get_knowledge_stats(),
             "suggestions":    _get_suggestions(),
             "config": {
                 "announcements_enabled": announcements_on,
@@ -709,6 +709,15 @@ def _get_lockdown_status() -> dict:
         return cognitive_core.lockdown_status()
     except Exception:
         return {"active": False, "since": 0.0, "reason": "", "auto": False, "exempt_windows": 0}
+
+
+def _get_intrusion_status() -> dict:
+    """Active intrusion investigation (breach point + route) for the panel."""
+    try:
+        from . import cognitive_core
+        return cognitive_core.intrusion_status()
+    except Exception:
+        return {"active": False, "confirmed": False}
 
 
 def _get_knowledge_stats() -> dict:

@@ -4,6 +4,29 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.35.0] — intrusion checks start at the door and follow the route
+JARVIS now reasons about *where* activity is before crying wolf. When motion
+happens while no one's home, it anchors the search at the **point of entry** —
+the room with the open window or door — and only concludes there's an intruder
+when activity forms a plausible route from there: motion at the breach, then into
+the room next to it, and onward, the way a person actually moving through a house
+looks. A camera spotting a person still confirms immediately.
+
+Crucially, motion that has *nothing* to do with the open entry — a blip in a far
+room while the open window is elsewhere, with no activity near it — no longer
+trips a full intrusion alert. JARVIS keeps watching it (as you asked — it still
+investigates activity anywhere), but it won't conclude an intrusion from
+unrelated motion. That's what eliminates the occasional false alarm.
+
+To follow the route it uses your **Residence floor plan** to know which rooms are
+next to which. If a breach room has no motion sensor, or the layout isn't mapped,
+it falls back to requiring sustained movement through several rooms rather than a
+momentary two-sensor blip. Either way the bar for "intrusion" is higher and
+better-reasoned.
+
+The investigation now also reports the breach point and the route it's tracking,
+so the Residence view can show where an intruder is and where they've been.
+
 ## [6.34.0] — JARVIS knows your voice
 JARVIS can now tell who it's talking to by **voice**, and learn people's voices
 over time from ordinary conversation — the strongest signal yet for its

@@ -51,19 +51,76 @@ async def test_one_alert_then_silent_investigation(safety, fake_hass, clock):
     assert safety._investigation is not None      # still watching
 
 
-async def test_spread_confirms_intrusion_and_notifies_all(safety, fake_hass, clock):
+def _areas(safety, monkeypatch, mapping, breach, adjacent, load):
+    """Give sensors areas and set the breach + its adjacent rooms."""
+    monkeypatch.setattr(safety, "_motion_key", lambda eid: mapping.get(eid, eid))
+    monkeypatch.setattr(safety, "_breach_area", lambda e: breach)
+    rg = load("residence_graph")
+    monkeypatch.setattr(rg, "adjacent_areas", lambda h, c, a: set(adjacent))
+
+
+async def test_route_from_breach_confirms_and_notifies_all(safety, fake_hass, clock, monkeypatch, load):
+    # Breach in the living room; hall is adjacent. Motion at the entry then into
+    # the adjacent room = a real intrusion route.
+    _areas(safety, monkeypatch,
+           {"binary_sensor.living_motion": "living", "binary_sensor.hall_motion": "hall"},
+           breach="living", adjacent={"hall"}, load=load)
     _away(fake_hass)
-    _motion(fake_hass, "binary_sensor.living_motion")
-    await _intr(safety, fake_hass)                 # investigating
+    _motion(fake_hass, "binary_sensor.living_motion")   # at the breach
+    await _intr(safety, fake_hass)
     clock["now"] += 20
-    _motion(fake_hass, "binary_sensor.hall_motion")   # a SECOND zone
+    _motion(fake_hass, "binary_sensor.hall_motion")      # moved to adjacent room
     conf = await _intr(safety, fake_hass)
     assert len(conf) == 1
     assert conf[0]["type"] == "intrusion_confirmed"
-    assert conf[0]["urgency"] == "critical"
     assert conf[0]["notify_all"] is True
+
+
+async def test_motion_far_from_breach_does_not_confirm(safety, fake_hass, clock, monkeypatch, load):
+    # Two zones of motion, but neither is the breach room or adjacent to it —
+    # exactly the pattern behind a false alarm. JARVIS keeps watching, doesn't
+    # conclude an intrusion.
+    _areas(safety, monkeypatch,
+           {"binary_sensor.attic_motion": "attic", "binary_sensor.study_motion": "study"},
+           breach="garage", adjacent={"kitchen"}, load=load)
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.attic_motion")
+    await _intr(safety, fake_hass)
     clock["now"] += 20
-    assert await _intr(safety, fake_hass) == []    # does not re-escalate
+    _motion(fake_hass, "binary_sensor.study_motion")     # 2 zones, both far from breach
+    assert await _intr(safety, fake_hass) == []           # not concluded
+    assert safety._investigation is not None               # still investigating
+
+
+async def test_no_breach_location_requires_sustained(safety, fake_hass, clock, monkeypatch):
+    # When the breach has no known room, escalation needs sustained movement, not
+    # a momentary two-zone blip.
+    monkeypatch.setattr(safety, "_breach_area", lambda e: None)
+    monkeypatch.setattr(safety, "_motion_key", lambda eid: eid)
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.living_motion")
+    await _intr(safety, fake_hass)
+    clock["now"] += 20
+    _motion(fake_hass, "binary_sensor.hall_motion")
+    assert await _intr(safety, fake_hass) == []            # 20s < sustained window
+    clock["now"] += 50                                     # now sustained (>60s)
+    _motion(fake_hass, "binary_sensor.hall_motion")
+    conf = await _intr(safety, fake_hass)
+    assert conf and conf[0]["type"] == "intrusion_confirmed"
+
+
+async def test_status_exposes_breach_and_route(safety, fake_hass, clock, monkeypatch, load, cc):
+    _areas(safety, monkeypatch,
+           {"binary_sensor.living_motion": "living"}, breach="living",
+           adjacent=set(), load=load)
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.living_motion")
+    await _intr(safety, fake_hass)
+    cc._CORE.safety_mgr = safety
+    status = cc.intrusion_status()
+    assert status["active"] is True
+    assert status["breach_area"] == "living"
+    assert "living" in status["path"]
 
 
 async def test_camera_person_leads_to_confirmation(safety, fake_hass, clock):
