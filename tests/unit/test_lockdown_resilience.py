@@ -118,15 +118,19 @@ async def test_new_open_contact_sensor_is_assumed_intentional(cognitive_core, fa
     assert "binary_sensor.kitchen_window" in mgr.exempt_windows
 
 
-async def test_open_at_engage_is_ignored(cognitive_core, fake_hass):
+async def test_uncloseable_open_at_engage_is_ignored(cognitive_core, fake_hass):
+    # A bare window contact open at engage can't be closed remotely, so it's left
+    # as-is and not fought afterwards. (Closeable covers like garage doors ARE
+    # closed on engage — see test_lockdown_engage.)
     _reset(cognitive_core)
-    fake_hass.states.set("cover.garage_door", "open", device_class="garage")  # already open
+    fake_hass.states.set("binary_sensor.window", "on", device_class="window")  # already open
     mgr = await _engage(cognitive_core, fake_hass)
-    assert "cover.garage_door" in mgr.exempt_windows
+    fake_hass.close_pending()
+    assert "binary_sensor.window" in mgr.exempt_windows
     fake_hass.service_calls.clear()
-    old = FakeState("cover.garage_door", "open", {"device_class": "garage"})
-    new = FakeState("cover.garage_door", "open", {"device_class": "garage"})
-    action = await mgr.handle_state_change("cover.garage_door", old, new)
+    old = FakeState("binary_sensor.window", "on", {"device_class": "window"})
+    new = FakeState("binary_sensor.window", "on", {"device_class": "window"})
+    action = await mgr.handle_state_change("binary_sensor.window", old, new)
     assert action is None
     assert fake_hass.service_calls == []           # never fought
 
