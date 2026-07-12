@@ -1164,7 +1164,7 @@ async def ws_add_knowledge(
 
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/forget_knowledge",
-    vol.Optional("id"): int,
+    vol.Optional("fact_id"): int,
     vol.Optional("subject"): str,
     vol.Optional("key"): str,
 })
@@ -1174,10 +1174,15 @@ async def ws_forget_knowledge(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Forget a fact (by id, or subject+key) from the Memory panel."""
+    """Forget a fact (by fact_id, or subject+key) from the Memory panel.
+
+    NOTE: the fact id is carried as ``fact_id``, not ``id`` — ``id`` is reserved
+    by the HA WebSocket protocol for the message sequence number (the frontend
+    overwrites any ``id`` we send), so using it here silently deleted nothing.
+    """
     try:
         from . import knowledge
-        fid = msg.get("id")
+        fid = msg.get("fact_id")
         removed = await hass.async_add_executor_job(
             lambda: knowledge.forget(fact_id=fid, subject=msg.get("subject"), key=msg.get("key")))
         facts = await hass.async_add_executor_job(knowledge.all_facts)

@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.36.2] — the Memory forget button works now
+Removing a memory with the ✕ on the Memory tab did nothing. The panel was sending
+the fact's id in a field named `id`, but Home Assistant's WebSocket layer reserves
+`id` for its own message numbering and overwrites it — so the request arrived
+asking to forget the wrong thing, and nothing was deleted. The id now travels in
+its own field, so ✕ removes the memory as expected (and the list updates
+immediately). Added a guard so no future panel action can trip over the same
+reserved field.
+
 ## [6.36.1] — spoken replies fall back to your real speakers
 Following on from 6.36.0: if your voice satellite can't play audio itself — a
 mic-only board (Waveshare with the speaker DAC off), or one in a room with no
