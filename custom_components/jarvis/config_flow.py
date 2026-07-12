@@ -288,6 +288,12 @@ class JarvisOptionsFlow(OptionsFlow):
             vol.Optional("identity_voice_fingerprint",
                          description=self._sv("identity_voice_fingerprint", False)):
                 selector.BooleanSelector(),
+            vol.Optional("voice_recognition_source",
+                         description=self._sv("voice_recognition_source", "")):
+                selector.TextSelector(),
+            vol.Optional("voice_recognition_auto_enroll",
+                         description=self._sv("voice_recognition_auto_enroll", True)):
+                selector.BooleanSelector(),
             vol.Optional("identity_min_confidence",
                          description=self._sv("identity_min_confidence", 0.45)):
                 selector.NumberSelector(selector.NumberSelectorConfig(

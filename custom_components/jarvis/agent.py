@@ -457,6 +457,46 @@ JARVIS_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "root_cause",
+            "description": (
+                "Investigate WHY something happened — root cause analysis. Given "
+                "an entity, JARVIS examines its own state history, recent "
+                "voice/text commands, and its own actions to build a timeline "
+                "and rank likely causes: a recorded trigger, an upstream device "
+                "going offline, a person's request, a JARVIS action, a recurring "
+                "schedule/automation, or related activity in the same room. Use "
+                "whenever the user asks 'why did X happen', 'what caused …', "
+                "'who turned …', or wants an incident explained. If you only "
+                "have a device's spoken name, resolve it to an entity_id with "
+                "search_entities first."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {
+                        "type": "string",
+                        "description": "The entity to investigate, e.g. light.kitchen",
+                    },
+                    "event_time": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO timestamp of the event (e.g. "
+                            "'2026-07-12 03:00:00'). Omit to analyze the most "
+                            "recent change."
+                        ),
+                    },
+                    "window_minutes": {
+                        "type": "number",
+                        "description": "How far back to look for causes (default 30).",
+                    },
+                },
+                "required": ["entity_id"],
+            },
+        },
+    },
 ]
 
 
@@ -1041,6 +1081,42 @@ async def _exec_dismiss_suggestion(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_root_cause(hass: HomeAssistant, args: dict) -> str:
+    """Root-cause analysis: gather evidence in an executor, return a compact
+    findings block the model can narrate from."""
+    from . import rca
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "root_cause needs an entity_id (resolve names with search_entities first)."
+    event_time = (args.get("event_time") or "").strip() or None
+    try:
+        window = int(float(args.get("window_minutes") or 30) * 60)
+    except (TypeError, ValueError):
+        window = rca.DEFAULT_WINDOW_SECS
+    result = await hass.async_add_executor_job(
+        lambda: rca.analyze(entity_id, event_time, window))
+
+    ev = result.get("event") or {}
+    lines = [f"Root cause analysis for {entity_id}:"]
+    if ev.get("timestamp"):
+        lines.append(f"Event: {ev.get('old_state')} → {ev.get('new_state')} "
+                     f"at {ev['timestamp']}"
+                     + (f" (area {ev['area_id']})" if ev.get("area_id") else ""))
+    lines.append(f"Verdict: {result.get('summary', '')}")
+    cands = result.get("candidates") or []
+    if cands:
+        lines.append("Ranked causes:")
+        for i, c in enumerate(cands, 1):
+            lines.append(f"  {i}. [{int(c['confidence'] * 100)}%] "
+                         f"{c['cause']} — {c['evidence']}")
+    tl = result.get("timeline") or []
+    if tl:
+        lines.append("Timeline (most recent last):")
+        for item in tl[-12:]:
+            lines.append(f"  {item['t']} [{item['src']}] {item['text']}")
+    return "\n".join(lines)
+
+
 # ── Tool dispatcher ─────────────────────────────────────────────────────────
 
 _TOOL_MAP = {
@@ -1061,6 +1137,7 @@ _TOOL_MAP = {
     "review_suggestions":  _exec_review_suggestions,
     "approve_suggestion":  _exec_approve_suggestion,
     "dismiss_suggestion":  _exec_dismiss_suggestion,
+    "root_cause":          _exec_root_cause,
 }
 
 

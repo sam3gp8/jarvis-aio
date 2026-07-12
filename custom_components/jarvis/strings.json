@@ -1,69 +1,71 @@
 {
- "config": {
-  "step": {
-   "user": {
-    "title": "JARVIS Setup",
-    "description": "{note}",
-    "data": {
-     "api_key": "Cloud LLM API key (e.g. Groq)",
-     "llm_base_url": "Local LLM URL (e.g. http://homeassistant.local:11434/v1)",
-     "model": "Conversation model",
-     "honorific": "Address me as"
+  "config": {
+    "step": {
+      "user": {
+        "title": "JARVIS Setup",
+        "description": "{note}",
+        "data": {
+          "api_key": "Cloud LLM API key (e.g. Groq)",
+          "llm_base_url": "Local LLM URL (e.g. http://homeassistant.local:11434/v1)",
+          "model": "Conversation model",
+          "honorific": "Address me as"
+        }
+      }
+    },
+    "error": {
+      "need_llm": "Enter either a cloud API key or a local LLM URL."
+    },
+    "abort": {
+      "already_configured": "JARVIS is already configured.",
+      "import_failed": "Found a JARVIS config but no usable LLM (no API key and no local endpoint)."
     }
-   }
   },
-  "error": {
-   "need_llm": "Enter either a cloud API key or a local LLM URL."
-  },
-  "abort": {
-   "already_configured": "JARVIS is already configured.",
-   "import_failed": "Found a JARVIS config but no usable LLM (no API key and no local endpoint)."
+  "options": {
+    "step": {
+      "init": {
+        "title": "JARVIS — Core",
+        "description": "Step 1 of 4: persona, directive, and conversation model.",
+        "data": {
+          "honorific": "Address me as",
+          "directive_preset": "Directive preset",
+          "directive": "Custom directive (optional, overrides preset)",
+          "model": "Conversation model",
+          "use_hass_api": "Enable home control (lights, climate, locks, etc.)"
+        }
+      },
+      "routing": {
+        "title": "JARVIS — Routing",
+        "description": "Step 2 of 4: bedroom areas (for sleep detection), broadcast media_player group, and your phone notify service.",
+        "data": {
+          "bedroom_areas": "Bedroom areas (for sleep detection during quiet hours)",
+          "broadcast_group": "Broadcast speaker group (typically your home Cast group)",
+          "notify_service": "Phone notify service (e.g. notify.mobile_app_yourphone)"
+        }
+      },
+      "observer": {
+        "title": "JARVIS — Observer Mode",
+        "description": "Step 3 of 4: proactive awareness. Requires a Gemini API key.",
+        "data": {
+          "observer_enabled": "Enable observer mode",
+          "gemini_api_key": "Gemini API key",
+          "classifier_model": "Classifier model (Tier 1 — cheap)",
+          "reasoning_model": "Reasoning model (Tier 2 — main)",
+          "review_model": "Review model (Tier 3 — periodic)",
+          "observer_quiet_start": "Quiet hours start (HH:MM)",
+          "observer_quiet_end": "Quiet hours end (HH:MM)"
+        }
+      },
+      "identity": {
+        "title": "JARVIS — Identity",
+        "description": "Step 4 of 4: per-person recognition. Works without special hardware; voice fingerprinting needs a local GPU and is off by default.",
+        "data": {
+          "identity_enabled": "Recognize who's speaking",
+          "identity_voice_fingerprint": "Voice fingerprinting (requires a local GPU)",
+          "identity_min_confidence": "Minimum confidence before committing to a person",
+          "voice_recognition_source": "Voice recognition source (entity from a speaker-recognition service, e.g. binary_sensor.*_voice)",
+          "voice_recognition_auto_enroll": "Auto-flag voices to enroll as people speak"
+        }
+      }
+    }
   }
- },
- "options": {
-  "step": {
-   "init": {
-    "title": "JARVIS — Core",
-    "description": "Step 1 of 4: persona, directive, and conversation model.",
-    "data": {
-     "honorific": "Address me as",
-     "directive_preset": "Directive preset",
-     "directive": "Custom directive (optional, overrides preset)",
-     "model": "Conversation model",
-     "use_hass_api": "Enable home control (lights, climate, locks, etc.)"
-    }
-   },
-   "routing": {
-    "title": "JARVIS — Routing",
-    "description": "Step 2 of 4: bedroom areas (for sleep detection), broadcast media_player group, and your phone notify service.",
-    "data": {
-     "bedroom_areas": "Bedroom areas (for sleep detection during quiet hours)",
-     "broadcast_group": "Broadcast speaker group (typically your home Cast group)",
-     "notify_service": "Phone notify service (e.g. notify.mobile_app_yourphone)"
-    }
-   },
-   "observer": {
-    "title": "JARVIS — Observer Mode",
-    "description": "Step 3 of 4: proactive awareness. Requires a Gemini API key.",
-    "data": {
-     "observer_enabled": "Enable observer mode",
-     "gemini_api_key": "Gemini API key",
-     "classifier_model": "Classifier model (Tier 1 — cheap)",
-     "reasoning_model": "Reasoning model (Tier 2 — main)",
-     "review_model": "Review model (Tier 3 — periodic)",
-     "observer_quiet_start": "Quiet hours start (HH:MM)",
-     "observer_quiet_end": "Quiet hours end (HH:MM)"
-    }
-   },
-   "identity": {
-    "title": "JARVIS — Identity",
-    "description": "Step 4 of 4: per-person recognition. Works without special hardware; voice fingerprinting needs a local GPU and is off by default.",
-    "data": {
-     "identity_enabled": "Recognize who's speaking",
-     "identity_voice_fingerprint": "Voice fingerprinting (requires a local GPU)",
-     "identity_min_confidence": "Minimum confidence before committing to a person"
-    }
-   }
-  }
- }
 }

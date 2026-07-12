@@ -54,6 +54,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get_knowledge)
         websocket_api.async_register_command(hass, ws_add_knowledge)
         websocket_api.async_register_command(hass, ws_forget_knowledge)
+        websocket_api.async_register_command(hass, ws_root_cause)
         websocket_api.async_register_command(hass, ws_reload_appliances)
         websocket_api.async_register_command(hass, ws_search_memory)
         websocket_api.async_register_command(hass, ws_get_debug_log)
@@ -542,7 +543,7 @@ async def ws_get_panel_data(
             "doorbell_training": _get_doorbell_training(),
             "doors":          _get_door_states(hass),
             "lockdown":       _get_lockdown_status(),
-            "knowledge":      _get_knowledge_stats(),
+            "intrusion":      _get_intrusion_status(),            "knowledge":      _get_knowledge_stats(),
             "suggestions":    _get_suggestions(),
             "config": {
                 "announcements_enabled": announcements_on,
@@ -709,6 +710,15 @@ def _get_lockdown_status() -> dict:
         return cognitive_core.lockdown_status()
     except Exception:
         return {"active": False, "since": 0.0, "reason": "", "auto": False, "exempt_windows": 0}
+
+
+def _get_intrusion_status() -> dict:
+    """Active intrusion investigation (breach point + route) for the panel."""
+    try:
+        from . import cognitive_core
+        return cognitive_core.intrusion_status()
+    except Exception:
+        return {"active": False, "confirmed": False}
 
 
 def _get_knowledge_stats() -> dict:
@@ -1155,7 +1165,7 @@ async def ws_add_knowledge(
 
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/forget_knowledge",
-    vol.Optional("id"): int,
+    vol.Optional("fact_id"): int,
     vol.Optional("subject"): str,
     vol.Optional("key"): str,
 })
@@ -1165,10 +1175,15 @@ async def ws_forget_knowledge(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Forget a fact (by id, or subject+key) from the Memory panel."""
+    """Forget a fact (by fact_id, or subject+key) from the Memory panel.
+
+    NOTE: the fact id is carried as ``fact_id``, not ``id`` — ``id`` is reserved
+    by the HA WebSocket protocol for the message sequence number (the frontend
+    overwrites any ``id`` we send), so using it here silently deleted nothing.
+    """
     try:
         from . import knowledge
-        fid = msg.get("id")
+        fid = msg.get("fact_id")
         removed = await hass.async_add_executor_job(
             lambda: knowledge.forget(fact_id=fid, subject=msg.get("subject"), key=msg.get("key")))
         facts = await hass.async_add_executor_job(knowledge.all_facts)
@@ -1176,6 +1191,34 @@ async def ws_forget_knowledge(
     except Exception as exc:
         _LOGGER.exception("forget_knowledge failed: %s", exc)
         connection.send_error(msg["id"], "forget_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/root_cause",
+    vol.Required("entity_id"): str,
+    vol.Optional("event_time"): str,
+    vol.Optional("window_secs"): int,
+})
+@websocket_api.async_response
+async def ws_root_cause(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Root cause analysis for an entity's (latest or specified) change —
+    the same engine the conversational 'why did …' tool uses, structured for
+    the panel."""
+    try:
+        from . import rca
+        result = await hass.async_add_executor_job(
+            lambda: rca.analyze(
+                msg["entity_id"],
+                msg.get("event_time"),
+                int(msg.get("window_secs") or rca.DEFAULT_WINDOW_SECS)))
+        connection.send_result(msg["id"], result)
+    except Exception as exc:
+        _LOGGER.exception("root_cause failed: %s", exc)
+        connection.send_error(msg["id"], "root_cause_failed", str(exc))
 
 
 @websocket_api.websocket_command({

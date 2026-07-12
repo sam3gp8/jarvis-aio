@@ -102,7 +102,7 @@ async def test_step_observer_renders_fields(config_flow, fake_hass):
 
 async def test_step_identity_renders_fields(config_flow, fake_hass):
     res = await _flow(config_flow, fake_hass).async_step_identity(None)
-    assert len(res["data_schema"].schema) == 3   # enabled, voice-fp, min-confidence
+    assert len(res["data_schema"].schema) == 5   # enabled, voice-fp, source, auto-enroll, min-confidence
 
 
 async def test_no_step_is_an_empty_stub(config_flow, fake_hass):

@@ -644,7 +644,12 @@ class JarvisAgent(conversation.ConversationEntity):
         # Uses mmWave / occupancy sensors to determine if anyone is in the
         # satellite's area. If the area is NOT occupied, suppress this
         # pipeline so only the satellite in the user's actual room answers.
-        if device_id:
+        # v6.36.0: OFF by default. It silences the satellite you're speaking
+        # to whenever that room's presence sensor hasn't registered you yet (or
+        # is flaky), which reads as "voice stopped working". The multi-wake
+        # dedup above already stops several satellites answering at once, so the
+        # gate is opt-in for homes with reliable per-room presence.
+        if device_id and self._opt("presence_gate", False):
             try:
                 from .audio_routing import entity_area, is_area_occupied
                 from homeassistant.helpers import (
@@ -893,15 +898,19 @@ class JarvisAgent(conversation.ConversationEntity):
             # v6.29.0: attribute to the resolved person so per-person command
             # patterns are real (falls back to "unknown" when not confident).
             try:
-                from . import cognitive_core, identity
+                from . import cognitive_core, identity, voice_recognition
                 handler = "local" if local_result and local_result.handled else "agent"
-                who = identity.resolve(
-                    self.hass, device_id=getattr(user_input, "device_id", None)).person
+                dev = getattr(user_input, "device_id", None)
+                who = identity.resolve(self.hass, device_id=dev).person
                 cognitive_core.log_command(
                     text=user_input.text,
                     handled_by=handler,
                     person=who,
                 )
+                # Voice learns over time: if we know who this is from other
+                # signals but the voice service doesn't yet, flag an enrollment
+                # opportunity so the pending sample can be labelled automatically.
+                voice_recognition.maybe_fire_enrollment(self.hass, dev)
             except Exception:
                 pass
 
@@ -933,11 +942,31 @@ class JarvisAgent(conversation.ConversationEntity):
                         device_id=device_id_route,
                         satellite_pairings=sat_pairings,
                     )
+                    # A mic-only satellite (e.g. Waveshare with the DAC off), or
+                    # one whose room has no real speaker, resolves to itself and
+                    # can't play the reply. Fall back to the configured
+                    # reply/broadcast speakers — the same ones proactive audio
+                    # (the briefing) already uses successfully — so the reply is
+                    # heard instead of lost.
+                    if not speaker or speaker.startswith("assist_satellite."):
+                        for cand in self._speakers(device_id_route):
+                            if cand.startswith("assist_satellite."):
+                                continue
+                            st = self.hass.states.get(cand)
+                            if st is not None and st.state not in ("unavailable", "unknown"):
+                                _LOGGER.info(
+                                    "JARVIS reply: satellite can't speak, using "
+                                    "configured reply speaker %s", cand)
+                                speaker = cand
+                                break
                     if speaker and not speaker.startswith("assist_satellite."):
                         tts_ent = resolve_tts_entity(
                             self.hass, self._opt("tts_engine", "auto"),
                         )
-                        if tts_ent:
+                        sp = self.hass.states.get(speaker)
+                        sp_reachable = sp is not None and sp.state not in (
+                            "unavailable", "unknown")
+                        if tts_ent and sp_reachable:
                             _LOGGER.info(
                                 "JARVIS reply → Cast: tts=%s speaker=%s",
                                 tts_ent, speaker,
@@ -950,6 +979,13 @@ class JarvisAgent(conversation.ConversationEntity):
                                 )
                             )
                             cast_routed = True
+                        elif not sp_reachable:
+                            # The reply speaker is offline — do NOT silence the
+                            # satellite, or the reply is lost entirely. Let the
+                            # satellite speak instead.
+                            _LOGGER.warning(
+                                "JARVIS reply: Cast speaker %s is unavailable — "
+                                "the satellite will speak the reply instead", speaker)
                         else:
                             _LOGGER.warning("JARVIS reply: no TTS entity found")
                     else:

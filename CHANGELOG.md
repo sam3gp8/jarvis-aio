@@ -4,6 +4,196 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.37.0] — ask JARVIS *why* something happened
+JARVIS can now perform root cause analysis. Ask it things like "why did the
+kitchen lights turn off?", "what caused the heat to kick on at 3am?", or "who
+unlocked the front door?" — and instead of just reporting the state, it
+investigates: it pulls its own state history, recent voice/text commands, and
+its own actions from around the event, builds a timeline, and ranks the likely
+causes with confidence:
+
+  • a **recorded trigger** — when the change was captured with its cause attached
+  • an **upstream failure** — a related device or hub going unavailable moments
+    before (the classic "everything on that hub dropped" cascade)
+  • a **person's request** — someone asked for it by voice or text, and who
+  • a **JARVIS action** — it did it itself (lockdown, a routine, an announcement)
+  • a **recurring schedule** — the same change happens at this hour most days,
+    pointing at a Home Assistant automation
+  • **related room activity** — something else changed in the same room just
+    before
+
+When the evidence is thin it says so honestly rather than inventing a story.
+Everything runs locally over history JARVIS already keeps — no cloud calls to
+analyze — and the answer comes back as a spoken-style explanation with the
+timeline behind it. It's also available to the dashboard for an entity-by-entity
+"why" view.
+
+## [6.36.2] — the Memory forget button works now
+Removing a memory with the ✕ on the Memory tab did nothing. The panel was sending
+the fact's id in a field named `id`, but Home Assistant's WebSocket layer reserves
+`id` for its own message numbering and overwrites it — so the request arrived
+asking to forget the wrong thing, and nothing was deleted. The id now travels in
+its own field, so ✕ removes the memory as expected (and the list updates
+immediately). Added a guard so no future panel action can trip over the same
+reserved field.
+
+## [6.36.1] — spoken replies fall back to your real speakers
+Following on from 6.36.0: if your voice satellite can't play audio itself — a
+mic-only board (Waveshare with the speaker DAC off), or one in a room with no
+real speaker — a spoken reply had nowhere to go and was silently lost, even
+though proactive announcements (the briefing) played fine on your chosen
+speakers. Now, when a reply would land on a satellite that can't speak, JARVIS
+routes it to the same reply/broadcast speakers the briefing already uses. So if
+the briefing is audible, replies will be too.
+
+(You can still pin a specific speaker per satellite under Settings → satellite
+pairings for room-accurate replies; the fallback only kicks in when there's no
+usable speaker otherwise.)
+
+## [6.36.0] — voice replies come back reliably
+If JARVIS answered typed questions but went silent over voice, this is the fix.
+Two of JARVIS's own reply-routing safeguards could swallow a spoken reply while
+leaving text untouched (text never goes through them):
+
+  • **Room-presence gating is now off by default.** JARVIS used to check the
+    satellite's room for occupancy and stay silent there if a sensor said the
+    room was empty — meant to keep only the right room answering. But if the
+    room's mmWave/occupancy sensor hadn't registered you yet (or was flaky), it
+    silenced the very satellite you were talking to. The multi-satellite dedup
+    already prevents several speakers answering at once, so this gate is now
+    opt-in (`presence_gate: true`) for homes with rock-solid per-room presence.
+  • **A dead reply speaker no longer eats the reply.** When you have a reply/Cast
+    speaker configured, JARVIS silences the satellite and speaks through that
+    speaker instead — but it was doing so even when the speaker was offline,
+    losing the reply entirely. Now it only hands off to a reply speaker that's
+    actually reachable; otherwise the satellite speaks.
+
+Net effect: the satellite you spoke to answers, unless you've deliberately set up
+room-targeted or Cast-speaker replies and those are healthy.
+
+## [6.35.0] — intrusion checks start at the door and follow the route
+JARVIS now reasons about *where* activity is before crying wolf. When motion
+happens while no one's home, it anchors the search at the **point of entry** —
+the room with the open window or door — and only concludes there's an intruder
+when activity forms a plausible route from there: motion at the breach, then into
+the room next to it, and onward, the way a person actually moving through a house
+looks. A camera spotting a person still confirms immediately.
+
+Crucially, motion that has *nothing* to do with the open entry — a blip in a far
+room while the open window is elsewhere, with no activity near it — no longer
+trips a full intrusion alert. JARVIS keeps watching it (as you asked — it still
+investigates activity anywhere), but it won't conclude an intrusion from
+unrelated motion. That's what eliminates the occasional false alarm.
+
+To follow the route it uses your **Residence floor plan** to know which rooms are
+next to which. If a breach room has no motion sensor, or the layout isn't mapped,
+it falls back to requiring sustained movement through several rooms rather than a
+momentary two-sensor blip. Either way the bar for "intrusion" is higher and
+better-reasoned.
+
+The investigation now also reports the breach point and the route it's tracking,
+so the Residence view can show where an intruder is and where they've been.
+
+## [6.34.0] — JARVIS knows your voice
+JARVIS can now tell who it's talking to by **voice**, and learn people's voices
+over time from ordinary conversation — the strongest signal yet for its
+per-person features.
+
+It works by consuming a dedicated speaker-recognition service rather than running
+a voice model itself (that keeps Home Assistant light and your GPU free for the
+LLM). Point it at a service like **VoiceBM** or **speaker-recognition** — anything
+that publishes "who's speaking" to Home Assistant as an entity — and JARVIS folds
+voice into its existing identity picture alongside who's home and who's on camera.
+When the voice is certain it's used; when it isn't, JARVIS falls back gracefully.
+
+**Learning over time is hands-free.** The service does the enrolling, but JARVIS
+supplies the missing piece — the *name*. When it already knows who's speaking
+(you're the only one home, or a camera just recognized your face) but the voice
+service hasn't learned that voice yet, JARVIS flags it so the sample can be
+enrolled under the right person automatically. Voice profiles build themselves
+from normal conversation, no sit-down training session.
+
+Set it up in Configure → Identity: enable the voice tier and give it your
+service's speaker entity (e.g. `binary_sensor.*_voice`). A full setup guide,
+including the auto-enrollment automation, ships alongside this release.
+
+## [6.33.0] — one alert, then JARVIS investigates and escalates
+Motion while no one's home no longer turns into a stream of repeat alerts. Now
+JARVIS alerts **once** and then investigates quietly:
+
+  • A window or door left open on purpose is still a valid way in, so motion near
+    it gets the one alert — JARVIS doesn't ignore it, and doesn't nag about it.
+  • After that single alert it watches silently, tracking whether the motion
+    stays put (a pet, a blind, one sensor) or **spreads through the house** the
+    way a person moving room to room would — and it also watches your cameras for
+    a person. It keeps investigating for as long as it takes to decide.
+  • If it's **nothing** — motion settles, stays in one spot — it quietly stands
+    down. No second alert.
+  • If it **confirms an intrusion** — motion across multiple rooms, or a person
+    on camera — it escalates hard: it announces out loud to the whole house
+    **regardless of the time of day**, and pushes to **every device** connected
+    to your home, not just one phone. A persistent notification is left too.
+
+If residents come home mid-investigation, JARVIS stands down on its own.
+
+You can tune it: `intrusion_spread_zones` (how many rooms of motion means
+"someone's moving through", default 2), or turn the whole corroboration
+requirement off with `intrusion_require_corroboration: false`.
+
+## [6.32.0] — doors show open, quieter motion alerts, tuned for Ollama
+Three things:
+
+**Doors now actually show open on the Residence tab.** The house model was
+never receiving live door state — the panel was quietly dropping it before it
+reached the 3D view, so garage doors (and every other door) always drew closed
+no matter what. Fixed at the source; open doors now render open, and combined
+with the door-mapping added earlier you can make them match your home exactly.
+
+**Motion alerts only fire when something's actually wrong.** When no one's home,
+plain motion — a pet, a robot vacuum, blinds moving in the airflow, sun on a
+sensor — no longer sets off an intrusion alert. JARVIS now only alerts on motion
+while away when it's corroborated: the alarm is armed, or a door/window is open
+(a real entry). If you'd rather be alerted on any motion, set
+`intrusion_require_corroboration: false`.
+
+**Optimized for a local Ollama server.** If you point JARVIS at Ollama, it now
+keeps the model loaded between requests (no reload lag), uses a much larger
+context window than Ollama's small default (so long prompts aren't silently
+truncated), and allows a generous timeout for cold-start model loads. Point it
+at your Ollama endpoint and it'll run local without the first-token stalls.
+
+## [6.31.0] — lockdown closes what it can, and stops repeating itself
+Two things, both from real use:
+
+**It stops nagging.** Lockdown was re-announcing "lockdown engaged" on every
+restart and reload — so during a day of tinkering you'd get the same alert over
+and over. Now an already-armed alarm is adopted silently on startup; the
+announcement only fires when the alarm actually arms (or you engage it yourself).
+And anything it can't secure is mentioned once, never on a loop.
+
+**It actually secures what it can.** On engage, lockdown now:
+  • locks every motorized lock that's unlocked;
+  • **closes motorized openings** — garage doors and powered covers. These have
+    safety sensors, so if something's in the way the close just fails (and you're
+    told it couldn't close), rather than forcing shut on a car or person;
+  • for openings it can't close remotely — a plain window contact with no motor —
+    it alerts you once so you can close it by hand, then treats it as
+    intentionally open and leaves it alone.
+
+So a typical engage now reads like "Sir, lockdown engaged — I locked the front
+door and closed the Garage Door, but Sam's Window 1 is open and I can't secure it
+remotely — you'll want to close it," and you hear it once, not every few minutes.
+
+## [6.30.1] — lockdown tells you what's actually open
+The lockdown announcement could come out nonsensical — "everything already
+locked. 1 opening already open will be left as-is" — which made it sound like
+JARVIS did nothing and was shrugging off the one door that was actually open.
+During a lockdown an open door is the thing that matters, so the message now
+names it and tells you to deal with it: e.g. "Sir, lockdown engaged. Everything
+was already locked, but the Garage Door is open and I can't secure it remotely —
+you'll want to close it." When nothing needs locking and nothing is open, it
+simply says the home was already fully secured, instead of announcing a non-event.
+
 ## [6.30.0] — the Residence doors reflect reality now
 The 3D house shows your doors open and closed live, but it had to *guess* which
 of your entities was the garage, the front door, the cellar, and so on — purely
