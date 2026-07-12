@@ -1,7 +1,7 @@
 {
   "domain": "jarvis",
   "name": "JARVIS AI Assistant",
-  "version": "6.35.0",
+  "version": "6.36.1",
   "config_flow": true,
   "documentation": "https://github.com/sam3gp8/jarvis-aio",
   "issue_tracker": "https://github.com/sam3gp8/jarvis-aio/issues",

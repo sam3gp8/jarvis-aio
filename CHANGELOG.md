@@ -4,6 +4,40 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.36.1] — spoken replies fall back to your real speakers
+Following on from 6.36.0: if your voice satellite can't play audio itself — a
+mic-only board (Waveshare with the speaker DAC off), or one in a room with no
+real speaker — a spoken reply had nowhere to go and was silently lost, even
+though proactive announcements (the briefing) played fine on your chosen
+speakers. Now, when a reply would land on a satellite that can't speak, JARVIS
+routes it to the same reply/broadcast speakers the briefing already uses. So if
+the briefing is audible, replies will be too.
+
+(You can still pin a specific speaker per satellite under Settings → satellite
+pairings for room-accurate replies; the fallback only kicks in when there's no
+usable speaker otherwise.)
+
+## [6.36.0] — voice replies come back reliably
+If JARVIS answered typed questions but went silent over voice, this is the fix.
+Two of JARVIS's own reply-routing safeguards could swallow a spoken reply while
+leaving text untouched (text never goes through them):
+
+  • **Room-presence gating is now off by default.** JARVIS used to check the
+    satellite's room for occupancy and stay silent there if a sensor said the
+    room was empty — meant to keep only the right room answering. But if the
+    room's mmWave/occupancy sensor hadn't registered you yet (or was flaky), it
+    silenced the very satellite you were talking to. The multi-satellite dedup
+    already prevents several speakers answering at once, so this gate is now
+    opt-in (`presence_gate: true`) for homes with rock-solid per-room presence.
+  • **A dead reply speaker no longer eats the reply.** When you have a reply/Cast
+    speaker configured, JARVIS silences the satellite and speaks through that
+    speaker instead — but it was doing so even when the speaker was offline,
+    losing the reply entirely. Now it only hands off to a reply speaker that's
+    actually reachable; otherwise the satellite speaks.
+
+Net effect: the satellite you spoke to answers, unless you've deliberately set up
+room-targeted or Cast-speaker replies and those are healthy.
+
 ## [6.35.0] — intrusion checks start at the door and follow the route
 JARVIS now reasons about *where* activity is before crying wolf. When motion
 happens while no one's home, it anchors the search at the **point of entry** —
