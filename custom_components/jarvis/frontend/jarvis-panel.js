@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.45.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.45.1 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -508,7 +508,7 @@ class JarvisPanel extends HTMLElement {
     this._knowledge = { facts: [], stats: {} }; // curated memory tab state
     this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
-    this._logSearch = "";          // log text search (v6.45.0)
+    this._logSearch = "";          // log text search (v6.45.1)
     this._lastLogSearch = null;
     this._activitySearch = "";     // dashboard activity feed search (v6.43.x)
     this._currentFloor = "all";     // floor plan tab — 3D default shows all
@@ -534,16 +534,16 @@ class JarvisPanel extends HTMLElement {
     this._camStillTimer = null;
     this._camSubs = [];
     this._lastCamKey = "";         // entity|token of the attached stream
-    // Real-time entity subscriptions (v6.45.0) — a native state_changed feed
+    // Real-time entity subscriptions (v6.45.1) — a native state_changed feed
     // that triggers a fast, throttled refresh instead of waiting on the poll.
     this._stateSubs = [];
     this._lastRealtimeFetch = 0;
     this._realtimeTrailing = null;
-    // Sparklines (v6.45.0) — slow-polled separately from live data since
+    // Sparklines (v6.45.1) — slow-polled separately from live data since
     // recorder history queries are heavier than the rest of the payload.
     this._sparklines = {};
     this._sparklineInterval = null;
-    // Area drill-down (v6.45.0) — id of the area currently expanded, or null.
+    // Area drill-down (v6.45.1) — id of the area currently expanded, or null.
     this._expandedArea = null;
   }
 
@@ -1079,7 +1079,7 @@ class JarvisPanel extends HTMLElement {
         : [{ ts: "--:--", urgency: "low", tag: "SYSTEM", msg: "No activity yet. Enable announcements or observer to see events here." }],
       config: live.config || {},
       doors: live.doors || {},
-      // v6.45.0: goals card. Also fixes suggestions, which _data() never
+      // v6.45.1: goals card. Also fixes suggestions, which _data() never
       // carried through from the raw payload — _renderSuggestions(d) has
       // been reading undefined since it was added.
       suggestions: live.suggestions || [],
@@ -2271,7 +2271,7 @@ class JarvisPanel extends HTMLElement {
              <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
            </button>`
         : '';
-      // v6.45.0: temp/humidity readout + sparkline, when the area has a sensor.
+      // v6.45.1: temp/humidity readout + sparkline, when the area has a sensor.
       const spark = this._sparklines?.[a.id] || {};
       const tempSpark = spark.temp ? this._sparklineSvg(spark.temp, 'var(--cyan-dim)') : '';
       const humSpark = spark.humidity ? this._sparklineSvg(spark.humidity, 'var(--green)') : '';
@@ -4823,7 +4823,7 @@ class JarvisPanel extends HTMLElement {
   .h3d-lamp.static { cursor: default; }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
-  /* AREA READINGS + SPARKLINES (v6.45.0) */
+  /* AREA READINGS + SPARKLINES (v6.45.1) */
   .area-readings { display: flex; gap: 10px; flex-wrap: wrap; }
   .area-reading {
     display: inline-flex; align-items: center; gap: 5px;
@@ -4831,7 +4831,7 @@ class JarvisPanel extends HTMLElement {
   }
   .spark { width: 44px; height: 14px; flex-shrink: 0; opacity: 0.85; }
 
-  /* AREA DETAIL DRILL-DOWN (v6.45.0) */
+  /* AREA DETAIL DRILL-DOWN (v6.45.1) */
   .area-detail-overlay {
     position: fixed; inset: 0; z-index: 40;
     background: rgba(2, 6, 10, 0.75);
@@ -5893,7 +5893,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.45.0 ",
+  "%c JARVIS Panel %c v6.45.1 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

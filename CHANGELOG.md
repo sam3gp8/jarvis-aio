@@ -4,6 +4,17 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.45.1] — JARVIS gets its face back
+The integration now ships its brand icon at
+`custom_components/jarvis/brand/` (icon.png 256×256 + icon@2x.png 512×512,
+web-optimized). Since Home Assistant 2026.3, custom integrations serve
+brand images directly from this folder through the local brands proxy —
+taking priority over the CDN, no home-assistant/brands submission needed.
+This is also now HACS's required form for brand assets, so it checks a
+default-store submission box at the same time. Users on HA older than
+2026.3 still see no icon until/unless a brands-repo PR is made; that's
+optional now, not blocking.
+
 ## [6.45.0] — the add-on era is officially over
 The last roadmap item from the great cutover: removing the machinery that
 existed to bridge the old add-on and the integration. None of it had a
