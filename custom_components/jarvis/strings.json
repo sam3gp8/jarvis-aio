@@ -6,7 +6,7 @@
         "description": "{note}",
         "data": {
           "api_key": "Cloud LLM API key (e.g. Groq)",
-          "llm_base_url": "Local LLM URL (e.g. http://homeassistant.local:11434/v1)",
+          "llm_base_url": "Local LLM base URL — for Ollama use host homeassistant.local, port 11434, path /v1",
           "model": "Conversation model",
           "honorific": "Address me as"
         }

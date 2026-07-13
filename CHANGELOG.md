@@ -4,6 +4,22 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.45.2] — hassfest gets its way
+The 6.45.1 push tripped hassfest on four counts, all now fixed:
+
+  • `assist_pipeline` (used by the voice bootstrap's pipeline creation) and
+    `recorder` (used by the sparkline history fetch since 6.43) are now
+    declared in `after_dependencies` — both are opportunistic uses that
+    hassfest rightly wants on the record.
+  • The `llm_base_url` field description in `strings.json` and
+    `translations/en.json` contained a literal example URL, which the
+    translations validator forbids. Reworded to convey the same Ollama
+    default (host/port/path) without a URL.
+
+Also reordered manifest.json keys to hassfest's canonical form (domain,
+name, then alphabetical) — currently only a preference, but the Cove
+project got bitten by it once and it costs nothing to be ahead of it.
+
 ## [6.45.1] — JARVIS gets its face back
 The integration now ships its brand icon at
 `custom_components/jarvis/brand/` (icon.png 256×256 + icon@2x.png 512×512,
