@@ -1,17 +1,14 @@
 """
-JARVIS — Centralized Configuration (v5.8.04).
+JARVIS — Centralized Configuration.
 
-Single source of truth for all JARVIS settings. Replaces the three-way
-split between addon config, integration entry options, and runtime_config.
+Single source of truth for all JARVIS settings.
 
 Config file: /config/jarvis/config.json
 
-Lifecycle:
-  1. Addon boot → run.sh calls bootstrap → writes addon options to config.json
-  2. Integration loads → reads config.json
-  3. Panel changes → writes to config.json + in-memory cache
-  4. Restart → config.json persists, in-memory reloads from it
-  5. Addon config tab changes → addon restart → bootstrap re-writes config.json
+Lifecycle (v6.45.0 — config-entry-only, no add-on):
+  1. Integration loads → reads config.json
+  2. Panel / Configure-dialog changes → written to config.json + in-memory cache
+  3. Restart → config.json persists, in-memory reloads from it
 
 All modules should import and use `get()` and `set()` from this module
 instead of reading from entry.options or hass.data directly.
@@ -20,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import Any, Optional
@@ -28,7 +24,6 @@ from typing import Any, Optional
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_PATH = Path("/config/jarvis/config.json")
-_OLD_CONFIG_PATH = Path("/config/jarvis_config.json")  # v5.8.03 and earlier
 _lock = threading.Lock()
 _cache: dict = {}
 _loaded = False
@@ -39,7 +34,7 @@ def _ensure_dir():
 
 
 def load() -> dict:
-    """Load config from disk into cache. Migrates from old path if needed."""
+    """Load config from disk into cache."""
     global _cache, _loaded
     _ensure_dir()
     with _lock:
@@ -48,18 +43,6 @@ def load() -> dict:
                 with open(CONFIG_PATH) as f:
                     _cache = json.load(f)
                 _loaded = True
-            elif _OLD_CONFIG_PATH.exists():
-                # Migrate from old location
-                with open(_OLD_CONFIG_PATH) as f:
-                    _cache = json.load(f)
-                _loaded = True
-                _LOGGER.info("JARVIS config: migrated from %s", _OLD_CONFIG_PATH)
-                # Save to new location
-                try:
-                    with open(CONFIG_PATH, "w") as f:
-                        json.dump(_cache, f, indent=2)
-                except Exception:
-                    pass
             else:
                 _cache = {}
                 _loaded = True

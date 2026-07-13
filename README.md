@@ -56,7 +56,7 @@ https://github.com/sam3gp8/jarvis-aio
 
 **3. Add the integration.** Go to **Settings → Devices & Services → Add Integration → JARVIS**. Enter a cloud API key (e.g. Groq), *or* leave it blank and enter a local LLM URL (e.g. `http://homeassistant.local:11434/v1`) to run Ollama with no cloud account. JARVIS registers its conversation agent and appears in the sidebar.
 
-**4. Set up voice (optional).** Install the **Piper**, **Whisper**, and **openWakeWord** add-ons and create an Assist pipeline with JARVIS as the conversation agent. *(Zero-touch auto-setup of the voice stack — the job the old add-on did — is being re-homed into the integration; until then, set the pipeline up via Settings → Voice Assistants.)*
+**4. Set up voice (optional).** On Home Assistant OS / Supervised, JARVIS bootstraps the voice stack itself on first run — it installs and starts the **Piper**, **Whisper**, and **openWakeWord** add-ons, downloads the JARVIS voice, and creates an Assist pipeline with JARVIS as the conversation agent. On Container/Core installs (no Supervisor), install those pieces yourself and create the pipeline via Settings → Voice Assistants.
 
 **5. Fine-tune (optional).** Advanced routing, observer mode, camera watching, and the AI-model-per-role assignments are all configured from the JARVIS panel → **Settings**.
 

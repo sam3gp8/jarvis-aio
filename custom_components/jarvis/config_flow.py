@@ -3,8 +3,9 @@ JARVIS Config Flow.
 
 HACS integration: the config flow is the primary setup path.
   1. Manual entry of a cloud API key OR a local LLM endpoint (the common case).
-  2. If migrating from the legacy add-on, auto-imports an existing
-     /config/jarvis/config.json so nothing is re-entered.
+  2. If /config/jarvis/config.json already exists (a previous install — the
+     panel's runtime config survives integration removal), auto-imports it so
+     a re-install is zero-touch.
   3. Options flow: a 4-step Configure dialog (Core, Routing, Observer, Identity)
      for the common settings — the full set still lives in the JARVIS panel.
 
@@ -56,29 +57,27 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Config file locations (new and legacy)
-_CONFIG_PATHS = [
-    "/config/jarvis/config.json",
-    "/config/jarvis_config.json",
-]
+# The panel's runtime config — survives integration removal, so a re-install
+# can pick everything back up without re-entry. (v6.45.0: the legacy add-on
+# path /config/jarvis_config.json is no longer read.)
+_RUNTIME_CONFIG_PATH = "/config/jarvis/config.json"
 
 
 def _find_config() -> dict | None:
-    """Find and read JARVIS config from known paths."""
-    for path in _CONFIG_PATHS:
-        try:
-            if os.path.exists(path):
-                with open(path) as f:
-                    data = json.load(f)
-                if data.get(CONF_API_KEY) or data.get("groq_api_key"):
-                    return data
-        except Exception:
-            pass
+    """Read an existing runtime config, if one with a usable LLM exists."""
+    try:
+        if os.path.exists(_RUNTIME_CONFIG_PATH):
+            with open(_RUNTIME_CONFIG_PATH) as f:
+                data = json.load(f)
+            if data.get(CONF_API_KEY) or data.get("groq_api_key"):
+                return data
+    except Exception:
+        pass
     return None
 
 
 class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle JARVIS config flow — auto-imports from addon config."""
+    """Handle JARVIS config flow — auto-imports an existing runtime config."""
 
     VERSION = 1
 
@@ -89,7 +88,7 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
         UI-driven setup. Tries auto-import first; falls back to
         manual API key entry only if no config file exists.
         """
-        # Try auto-import from addon config
+        # Try auto-import from an existing runtime config (re-install case)
         cfg = await self.hass.async_add_executor_job(_find_config)
         if cfg:
             return await self.async_step_import(cfg)
@@ -137,7 +136,7 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_import(
         self, import_data: dict[str, Any],
     ) -> dict:
-        """Auto-import from addon config file."""
+        """Create the entry from an existing runtime config (re-install)."""
         api_key = (
             import_data.get(CONF_API_KEY)
             or import_data.get("groq_api_key", "")
@@ -157,7 +156,7 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
             updates={CONF_API_KEY: api_key}
         )
 
-        _LOGGER.info("JARVIS: auto-configuring from addon config (provider=%s%s)",
+        _LOGGER.info("JARVIS: auto-configuring from existing runtime config (provider=%s%s)",
                      provider, ", local" if (not api_key and local_ok) else "")
         return self.async_create_entry(
             title="JARVIS",

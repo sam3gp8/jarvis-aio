@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import logging
-import json
-import os
 from datetime import timedelta
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
@@ -53,151 +51,20 @@ from .proactive_audio import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["conversation"]
-CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
+# Config-entry only (v6.45.0): warns users who still have `jarvis:` in YAML.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-
-def _maybe_trigger_import(hass: HomeAssistant) -> None:
-    """
-    Check for jarvis_config.json and kick off the import flow if needed.
-    Idempotent — safe to call more than once.
-    """
-    config_file = hass.config.path("jarvis_config.json")
-    if not os.path.exists(config_file):
-        return
-    if hass.config_entries.async_entries(DOMAIN):
-        _LOGGER.debug("JARVIS: config entry already exists — skipping auto-import")
-        return
-
-    _LOGGER.info("JARVIS: found jarvis_config.json — starting import flow")
-    hass.async_create_task(
-        hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": SOURCE_IMPORT},
-            data={},
-        )
-    )
-
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """
-    Called once on HA startup IF our domain appears in configuration.yaml.
-    If jarvis_config.json exists and no entry is registered, kick off the
-    import flow.
-    """
-    _maybe_trigger_import(hass)
-    return True
-
-
-async def async_setup_post_start(hass: HomeAssistant) -> None:
-    """
-    Fallback: also trigger the import flow AFTER HA startup completes.
-    This covers the common case where the user has NOT added `jarvis:` to
-    their configuration.yaml — without this, async_setup never fires for
-    custom integrations, so a config-file-based install would silently do
-    nothing. Called from async_setup_entry's first run OR from a startup
-    listener registered during module import.
-    """
-    _maybe_trigger_import(hass)
+# v6.45.0: the legacy add-on machinery is gone. Setup is config-entry only
+# (HACS → Add Integration), the conversation agent registers via PLATFORMS,
+# and /config/jarvis/config.json is the runtime store owned by the panel —
+# nothing external writes it. The old jarvis_config.json import trigger,
+# async_setup/async_setup_post_start hooks, and the ADDON_OWNED_KEYS
+# reconcile block were all paths for an add-on that no longer exists.
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up JARVIS from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-
-    # ── Reconcile addon-owned keys from jarvis_config.json ──────────────────
-    # The addon writes jarvis_config.json on every start. Keys listed in
-    # ADDON_OWNED_KEYS are considered "addon-controlled" — toggling them in
-    # addon config must take effect on next restart.
-    #
-    # How it works:
-    #   1. Hash the current addon config's addon-owned keys.
-    #   2. Compare against the hash we stored last reconcile.
-    #   3. If the hash DIFFERS, the user changed addon config since last run.
-    #      Push new values into BOTH entry.data AND entry.options (options
-    #      wins at runtime, so we must overwrite it or the Configure dialog
-    #      value will keep winning forever).
-    #   4. If the hash MATCHES, the user hasn't touched addon config since
-    #      last run — their Configure-dialog options win, don't touch them.
-    #
-    # This gives: addon-config toggle is authoritative when changed; user's
-    # Configure-dialog choices persist when addon config is stable.
-    ADDON_OWNED_KEYS = (
-        "observer_enabled",
-        "announcements_enabled",      # v5.4.7 master kill switch
-        "sentinel_enabled",           # v5.4.7 per-subsystem toggle
-        "groq_api_key",               # fallback field name (some installs)
-        CONF_API_KEY,                 # v5.9.26: addon writes the groq key as "api_key"
-        "gemini_api_key",
-        "classifier_provider",
-        "classifier_model",
-        "reasoning_provider",
-        "reasoning_model",
-        "review_provider",
-        "review_model",
-        "observer_quiet_start",
-        "observer_quiet_end",
-        "classifier_rate_limit",
-        "cognition_enabled",
-        "cognition_threshold",
-    )
-    try:
-        config_file = hass.config.path("jarvis_config.json")
-        if os.path.exists(config_file):
-            def _read_json(path: str) -> dict:
-                with open(path) as f:
-                    return json.load(f)
-            addon_cfg = await hass.async_add_executor_job(_read_json, config_file)
-
-            # Build a stable hash of just the addon-owned slice
-            import hashlib
-            addon_slice = {k: addon_cfg.get(k) for k in ADDON_OWNED_KEYS}
-            addon_hash = hashlib.sha256(
-                json.dumps(addon_slice, sort_keys=True).encode()
-            ).hexdigest()[:16]
-
-            prev_hash = entry.data.get("addon_config_hash")
-            if addon_hash != prev_hash:
-                # Addon config changed since last reconcile — push authoritatively
-                new_data = dict(entry.data)
-                new_options = dict(entry.options)
-                changed = []
-                for k in ADDON_OWNED_KEYS:
-                    if k in addon_cfg:
-                        old_val = new_options.get(k, new_data.get(k))
-                        if addon_cfg[k] != old_val:
-                            # Never log secret values.
-                            if "key" in k:
-                                changed.append(f"{k}: (changed)")
-                            else:
-                                changed.append(f"{k}: {old_val}→{addon_cfg[k]}")
-                        new_data[k] = addon_cfg[k]
-                        new_options[k] = addon_cfg[k]
-                # The addon stores the primary LLM key as `groq_api_key`, but the
-                # conversation agent reads it as `api_key` (CONF_API_KEY). Map it
-                # so rotating the key in addon config actually reaches the agent
-                # on the next reload (previously it never did → stale 401s).
-                gk = (addon_cfg.get("groq_api_key") or "").strip()
-                if gk and gk != (new_data.get(CONF_API_KEY) or ""):
-                    changed.append("api_key: (synced from groq_api_key)")
-                    new_data[CONF_API_KEY] = gk
-                    new_options[CONF_API_KEY] = gk
-                new_data["addon_config_hash"] = addon_hash
-                hass.config_entries.async_update_entry(
-                    entry, data=new_data, options=new_options,
-                )
-                if changed:
-                    _LOGGER.warning(
-                        "JARVIS: addon config changed — applied to entry: %s",
-                        "; ".join(changed),
-                    )
-                else:
-                    _LOGGER.info(
-                        "JARVIS: addon config hash updated (first reconcile or schema change)"
-                    )
-            else:
-                _LOGGER.debug("JARVIS: addon config unchanged, preserving user options")
-    except Exception as exc:
-        _LOGGER.debug("JARVIS: addon config reconcile failed (non-fatal): %s", exc)
 
     # ── Run config migrations if entry is from an older schema ──────────────
     current_version = entry.data.get("schema_version", 1)

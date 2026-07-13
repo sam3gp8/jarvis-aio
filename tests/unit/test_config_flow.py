@@ -78,6 +78,32 @@ def config_flow(load):
     return load("config_flow")
 
 
+# ── v6.45.0: legacy add-on split removed ─────────────────────────────────────
+
+def test_find_config_reads_runtime_path_only(config_flow, tmp_path, monkeypatch):
+    """Auto-import reads /config/jarvis/config.json (the panel's runtime
+    store, for zero-touch re-installs). The legacy add-on path is gone."""
+    assert not hasattr(config_flow, "_CONFIG_PATHS")   # legacy list removed
+    runtime = tmp_path / "config.json"
+    runtime.write_text('{"api_key": "gsk_test", "model": "llama"}')
+    monkeypatch.setattr(config_flow, "_RUNTIME_CONFIG_PATH", str(runtime))
+    cfg = config_flow._find_config()
+    assert cfg and cfg["api_key"] == "gsk_test"
+
+
+def test_find_config_requires_usable_llm(config_flow, tmp_path, monkeypatch):
+    runtime = tmp_path / "config.json"
+    runtime.write_text('{"honorific": "sir"}')        # no key, no local URL
+    monkeypatch.setattr(config_flow, "_RUNTIME_CONFIG_PATH", str(runtime))
+    assert config_flow._find_config() is None
+
+
+def test_find_config_missing_file_is_none(config_flow, tmp_path, monkeypatch):
+    monkeypatch.setattr(config_flow, "_RUNTIME_CONFIG_PATH",
+                        str(tmp_path / "nope.json"))
+    assert config_flow._find_config() is None
+
+
 def _flow(config_flow, fake_hass):
     flow = config_flow.JarvisOptionsFlow(_Entry())
     flow.hass = fake_hass

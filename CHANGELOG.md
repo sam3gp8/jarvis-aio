@@ -4,6 +4,34 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.45.0] — the add-on era is officially over
+The last roadmap item from the great cutover: removing the machinery that
+existed to bridge the old add-on and the integration. None of it had a
+living counterpart anymore — the add-on that wrote `jarvis_config.json` is
+gone, its orchestration long since re-homed into the in-process voice
+bootstrap.
+
+Removed:
+  • The ~95-line "addon-owned keys" reconcile block that ran on every
+    setup, hashing a config file nothing writes. Worse than dead weight: a
+    stale leftover file could have shadowed Configure-dialog choices after
+    any future change to the key list.
+  • The `jarvis_config.json` import triggers (`async_setup`,
+    `async_setup_post_start`) — the latter had no callers at all.
+  • The v5.8.03 old-path migration in `jarvis_config.py`.
+  • The legacy path from the config flow's auto-import.
+
+Kept, deliberately: the auto-import itself. `/config/jarvis/config.json`
+is the panel's runtime store and survives integration removal, so deleting
+and re-adding JARVIS picks all your settings back up with zero re-entry —
+that was never an add-on feature, just a good one.
+
+JARVIS is now cleanly config-entry-only: users who still have `jarvis:` in
+configuration.yaml get a proper warning, the conversation agent registers
+through the platform as it always did, and setup has exactly one path.
+Also updated the README's voice-setup note, which still described the
+in-process bootstrap as a future plan.
+
 ## [6.44.0] — activity feed search (and the feed is actually live now)
 The Command Center's Activity Feed gets the same treatment the Logs tab got
 in 6.43: a search box that filters events by message or tag as you type,
