@@ -4,7 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.40.0] — give JARVIS an outcome, not just an order
+## [6.41.0] — commands know who; now state changes do too
+Since v6.29, every voice command has been tagged with the resolved person —
+but that signal went nowhere. The pattern analyzer only ever learned
+household-wide habits, and a `person_patterns` table has sat in the schema
+since the goal planner shipped, unused.
+
+State changes now carry a person too — stamped cheaply, sole-occupant only,
+by the same listener that logs them for pattern learning (the full face/voice
+resolver is too costly to run on every light flip; that's reserved for the
+much lower-volume conversation path). When one person accounts for the clear
+majority of an entity's routine, or a repeated command, JARVIS now says so:
+"turns on around 7:00 most days when Sam is home" instead of a blanket
+household statement — and attributes the learned fact to *that person's*
+knowledge subject, not the household's. Mixed or ambiguous patterns behave
+exactly as before.
+
+`person_patterns` finally has a writer: person-owned routines land there,
+independent of the household suggestions/automations flow, ready for a
+per-person Routines card whenever UI work resumes.
+
+This is data-layer only — no new UI this round. Next up: surfacing it.
 JARVIS now has a goal planner: hand it an *outcome* and it will keep working
 toward it — across minutes, hours, or days — until it's achieved, impossible, or
 you call it off.

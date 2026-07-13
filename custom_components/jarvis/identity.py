@@ -200,3 +200,24 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
 def resolve_subject(hass: HomeAssistant, **kwargs) -> str:
     """Convenience: resolve and return the knowledge subject id directly."""
     return subject_for(resolve(hass, **kwargs))
+
+
+def quick_person(hass: HomeAssistant) -> str:
+    """
+    Cheap presence-only identity for high-volume callers (e.g. the
+    state-change listener, which fires far more often than commands and
+    can't afford face/voice tier lookups per event). Sole-occupant only —
+    no face, no voice, no confidence math. Multiple people home, or nobody
+    home, or the identity system disabled ⇒ UNKNOWN, same as resolve()
+    would land on anyway once ambiguity kicks in.
+    """
+    if not bool(_cfg("identity_enabled", True)):
+        return UNKNOWN
+    try:
+        home = _home_people(hass)
+    except Exception:
+        return UNKNOWN
+    # Raw display name, matching resolve().person's format — commands.person
+    # is stored the same way (via conversation.py), so the analyzer can
+    # correlate state_changes.person and commands.person directly.
+    return home[0] if len(home) == 1 else UNKNOWN

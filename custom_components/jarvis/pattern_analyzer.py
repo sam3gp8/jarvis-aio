@@ -38,6 +38,8 @@ MIN_OCCURRENCES = 5    # Pattern must repeat this many times
 CONFIDENCE_THRESHOLD = 0.65  # Minimum to create a suggestion
 ANALYSIS_INTERVAL = 21600    # 6 hours between analyses
 KNOWLEDGE_FACT_CONFIDENCE = 0.75  # routines/commands above this also become observed facts
+PERSON_DOMINANCE_RATIO = 0.8      # a person must account for this share of a
+                                   # pattern's occurrences to own it, vs. household
 
 
 def set_thresholds(min_occurrences: int | None = None,
@@ -129,24 +131,34 @@ class PatternAnalyzer:
 
         # Store high-confidence patterns as suggestions
         new_suggestions = 0
+        new_person_patterns = 0
         for p in patterns:
             if p.confidence >= CONFIDENCE_THRESHOLD:
                 stored = await hass.async_add_executor_job(
                     self._store_suggestion, p)
                 if stored:
                     new_suggestions += 1
+                # v6.41.0: patterns confidently owned by one person also land
+                # in person_patterns — the dedicated per-person routine store
+                # (independent of the household suggestions/automations flow).
+                if p.details.get("person"):
+                    if await hass.async_add_executor_job(
+                            self._store_person_pattern, p):
+                        new_person_patterns += 1
 
         # Promote the most reliable routines/commands into the curated knowledge
         # store as *observed* facts, so they surface in the Memory tab (marked ~)
         # and inject into conversation. Sequences/presence stay as automations only.
+        # v6.41.0: a pattern confidently owned by one person is attributed to
+        # that person's knowledge subject rather than "household".
         promoted = await hass.async_add_executor_job(
             self._promote_to_knowledge, patterns)
 
         if patterns:
             _LOGGER.info(
                 "Pattern analysis: %d patterns found, %d new suggestions, "
-                "%d facts learned (threshold=%.0f%%)",
-                len(patterns), new_suggestions, promoted,
+                "%d facts learned, %d person routines (threshold=%.0f%%)",
+                len(patterns), new_suggestions, promoted, new_person_patterns,
                 CONFIDENCE_THRESHOLD * 100,
             )
 
@@ -185,7 +197,17 @@ class PatternAnalyzer:
             confidence = min(1.0, consistency * (count / MIN_OCCURRENCES) * 0.5)
 
             time_str = f"{hour:02d}:00"
-            if state in ("on", "off"):
+            details = {"hour": hour, "state": state, "consistency": round(consistency, 2)}
+
+            # v6.41.0: a single sole-occupant person can own this routine
+            # outright; otherwise it stays household-wide, unchanged.
+            person = self._dominant_person(conn, "state_changes", entity=entity,
+                                            state=state, hour=hour)
+            if person:
+                details["person"] = person
+                desc = (f"{entity} turns {state} around {time_str} most days "
+                        f"when {person} is home ({count} times in 30 days)")
+            elif state in ("on", "off"):
                 desc = f"{entity} turns {state} around {time_str} most days ({count} times in 30 days)"
             else:
                 desc = f"{entity} changes to '{state}' around {time_str} ({count} times in 30 days)"
@@ -196,7 +218,7 @@ class PatternAnalyzer:
                 entity_ids=[entity],
                 confidence=confidence,
                 occurrences=count,
-                details={"hour": hour, "state": state, "consistency": round(consistency, 2)},
+                details=details,
             ))
 
         return patterns[:20]  # Cap at 20
@@ -228,17 +250,23 @@ class PatternAnalyzer:
             ).fetchone()[0]
 
             confidence = min(1.0, (count / total_same_cmd) * 0.8 + 0.2)
+            details = {"command": text, "hour": hour}
+
+            person = self._dominant_person(conn, "commands", text=text, hour=hour)
+            if person:
+                details["person"] = person
+                desc = (f"{person} says '{text}' around {hour:02d}:00 regularly "
+                        f"({count} times)")
+            else:
+                desc = f"'{text}' is said around {hour:02d}:00 regularly ({count} times)"
 
             patterns.append(DetectedPattern(
                 pattern_type="repeated_command",
-                description=(
-                    f"'{text}' is said around {hour:02d}:00 regularly "
-                    f"({count} times)"
-                ),
+                description=desc,
                 entity_ids=[],
                 confidence=confidence,
                 occurrences=count,
-                details={"command": text, "hour": hour},
+                details=details,
             ))
 
         return patterns
@@ -344,6 +372,46 @@ class PatternAnalyzer:
 
         return patterns
 
+    def _dominant_person(self, conn: sqlite3.Connection, table: str, *,
+                         hour: int, entity: str | None = None,
+                         state: str | None = None,
+                         text: str | None = None) -> Optional[str]:
+        """
+        If one known person accounts for most of a pattern's occurrences,
+        return them; else None, meaning the pattern stays household-wide.
+        `table` is "state_changes" (match on entity+state+hour) or
+        "commands" (match on text+hour). Defensive: an unmigrated DB
+        missing the `person` column just falls back to household (None).
+        """
+        try:
+            if table == "state_changes":
+                rows = conn.execute("""
+                    SELECT person, COUNT(*) as cnt FROM state_changes
+                    WHERE entity_id = ? AND new_state = ? AND hour = ?
+                        AND timestamp > datetime('now', '-30 days')
+                    GROUP BY person ORDER BY cnt DESC
+                """, (entity, state, hour)).fetchall()
+            else:
+                rows = conn.execute("""
+                    SELECT person, COUNT(*) as cnt FROM commands
+                    WHERE text = ? AND hour = ?
+                        AND timestamp > datetime('now', '-30 days')
+                    GROUP BY person ORDER BY cnt DESC
+                """, (text, hour)).fetchall()
+        except Exception:
+            return None
+
+        if not rows:
+            return None
+        total = sum(r["cnt"] for r in rows)
+        top = rows[0]
+        if not top["person"] or top["person"] == "unknown" or total <= 0:
+            return None
+        if (top["cnt"] / total >= PERSON_DOMINANCE_RATIO
+                and top["cnt"] >= MIN_OCCURRENCES):
+            return top["person"]
+        return None
+
     def _entity_label(self, entity_id: str) -> str:
         """Readable label from an entity_id (no friendly name available here)."""
         name = entity_id.split(".", 1)[1] if "." in entity_id else entity_id
@@ -362,17 +430,34 @@ class PatternAnalyzer:
             if hour is None or not label:
                 return None
             when = f"around {hour:02d}:00 most days"
+            subject = self._subject_for_pattern(pattern)
             if state in ("on", "off"):
-                return ("household", "fact", f"{label} turns {state}", when)
-            return ("household", "fact", f"{label} set to {state}", when)
+                return (subject, "fact", f"{label} turns {state}", when)
+            return (subject, "fact", f"{label} set to {state}", when)
         if pattern.pattern_type == "repeated_command":
             text = str(pattern.details.get("command", "")).strip()
             hour = pattern.details.get("hour")
             if not text or hour is None:
                 return None
-            return ("household", "fact", f'asks "{text[:60]}"',
+            subject = self._subject_for_pattern(pattern)
+            return (subject, "fact", f'asks "{text[:60]}"',
                     f"usually around {hour:02d}:00")
         return None
+
+    def _subject_for_pattern(self, pattern: "DetectedPattern") -> str:
+        """
+        The knowledge subject to attribute a promoted fact to: a specific
+        person's subject when the pattern is confidently theirs alone
+        (v6.41.0), else "household" — identical to pre-6.41 behavior.
+        """
+        person = pattern.details.get("person")
+        if not person:
+            return "household"
+        try:
+            from . import identity
+            return identity.normalize(person)
+        except Exception:
+            return "household"
 
     def _promote_to_knowledge(self, patterns: list) -> int:
         """Write the most reliable routines/commands as observed facts. SYNC."""
@@ -399,6 +484,75 @@ class PatternAnalyzer:
             except Exception as exc:
                 _LOGGER.debug("knowledge promote failed for %r: %s", key, exc)
         return written
+
+    def _store_person_pattern(self, pattern: DetectedPattern) -> bool:
+        """
+        Upsert a person-owned pattern into person_patterns — the dedicated
+        per-person routine store (separate from the household suggestions/
+        knowledge flow) that a future Routines panel card reads from.
+        Deterministic key (person, pattern_type, description) so
+        re-analysis refreshes in place rather than duplicating.
+        """
+        person = pattern.details.get("person")
+        if not person:
+            return False
+        try:
+            from . import identity
+            person = identity.normalize(person)
+        except Exception:
+            pass
+        try:
+            conn = sqlite3.connect(self._db)
+            existing = conn.execute(
+                "SELECT id FROM person_patterns "
+                "WHERE person = ? AND pattern_type = ? AND description = ?",
+                (person, pattern.pattern_type, pattern.description),
+            ).fetchone()
+            now_iso = datetime.now().isoformat()
+            if existing:
+                conn.execute(
+                    "UPDATE person_patterns SET confidence = ?, occurrences = ?, "
+                    "last_seen = ?, data = ? WHERE id = ?",
+                    (pattern.confidence, pattern.occurrences, now_iso,
+                     json.dumps(pattern.details), existing[0]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO person_patterns "
+                    "(person, pattern_type, description, data, confidence, "
+                    "last_seen, occurrences) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (person, pattern.pattern_type, pattern.description,
+                     json.dumps(pattern.details), pattern.confidence,
+                     now_iso, pattern.occurrences),
+                )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            _LOGGER.debug("person_patterns store failed: %s", exc)
+            return False
+
+    def get_person_patterns(self, person: Optional[str] = None) -> list[dict]:
+        """Read stored per-person routines, optionally filtered to one
+        person (matched on the already-normalized id, e.g. 'sam')."""
+        conn = self._connect()
+        if not conn:
+            return []
+        try:
+            if person:
+                rows = conn.execute(
+                    "SELECT * FROM person_patterns WHERE person = ? "
+                    "ORDER BY confidence DESC", (person,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM person_patterns ORDER BY person, confidence DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
 
     def _store_suggestion(self, pattern: DetectedPattern) -> bool:
         """Store a pattern as a suggestion in the DB. Returns True if new."""

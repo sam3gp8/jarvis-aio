@@ -133,3 +133,33 @@ def test_subject_for_known_and_unknown(identity, cfg, sigs, fake_hass):
     ident = identity.resolve(fake_hass)
     assert identity.subject_for(ident) == "sam_smith"
     assert identity.subject_for(identity.Identification()) == "primary"
+
+
+# ── quick_person: cheap sole-occupant lookup (v6.41.0) ───────────────────────
+
+def test_quick_person_sole_occupant(identity, cfg, sigs, fake_hass):
+    sigs["home"] = ["Sam"]
+    assert identity.quick_person(fake_hass) == "Sam"
+
+
+def test_quick_person_multiple_home_is_unknown(identity, cfg, sigs, fake_hass):
+    sigs["home"] = ["Sam", "Alex"]
+    assert identity.quick_person(fake_hass) == "unknown"
+
+
+def test_quick_person_nobody_home_is_unknown(identity, cfg, sigs, fake_hass):
+    assert identity.quick_person(fake_hass) == "unknown"
+
+
+def test_quick_person_ignores_face_and_voice(identity, cfg, sigs, fake_hass):
+    # quick_person is presence-only by design — a face vote for a second
+    # person must not disambiguate the way the full resolve() would.
+    sigs["home"] = ["Sam", "Alex"]
+    _face(sigs, "camera.office", "Alex", confidence=0.95, age_seconds=3)
+    assert identity.quick_person(fake_hass) == "unknown"
+
+
+def test_quick_person_disabled_is_unknown(identity, cfg, sigs, fake_hass):
+    cfg["identity_enabled"] = False
+    sigs["home"] = ["Sam"]
+    assert identity.quick_person(fake_hass) == "unknown"

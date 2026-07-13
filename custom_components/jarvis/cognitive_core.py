@@ -1419,7 +1419,8 @@ class StateLogger:
                         area_id TEXT,
                         hour INTEGER,
                         day_of_week INTEGER,
-                        triggered_by TEXT DEFAULT 'system'
+                        triggered_by TEXT DEFAULT 'system',
+                        person TEXT DEFAULT 'unknown'
                     );
                     CREATE INDEX IF NOT EXISTS idx_sc_entity
                         ON state_changes(entity_id);
@@ -1466,12 +1467,28 @@ class StateLogger:
                     CREATE INDEX IF NOT EXISTS idx_pp_person
                         ON person_patterns(person);
                 """)
+                # v6.41.0: state_changes predates the person column — the
+                # CREATE TABLE IF NOT EXISTS above only helps fresh DBs.
+                # Existing installs need an explicit migration.
+                cols = {row[1] for row in
+                        conn.execute("PRAGMA table_info(state_changes)")}
+                if "person" not in cols:
+                    conn.execute(
+                        "ALTER TABLE state_changes "
+                        "ADD COLUMN person TEXT DEFAULT 'unknown'")
+                    conn.commit()
+                    _LOGGER.info("Pattern DB: migrated state_changes.person")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_sc_person "
+                    "ON state_changes(person)")
+                conn.commit()
         except Exception as exc:
             _LOGGER.warning("Pattern DB init failed: %s", exc)
 
     def log_state_change(self, entity_id: str, old_state: str,
                           new_state: str, area_id: str = "",
-                          triggered_by: str = "system"):
+                          triggered_by: str = "system",
+                          person: str = "unknown"):
         """Record a state change for pattern analysis."""
         import sqlite3
         # Skip noisy domains
@@ -1490,11 +1507,11 @@ class StateLogger:
                 conn.execute(
                     "INSERT INTO state_changes "
                     "(timestamp, entity_id, domain, old_state, new_state, "
-                    "area_id, hour, day_of_week, triggered_by) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "area_id, hour, day_of_week, triggered_by, person) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (now.isoformat(), entity_id, domain, old_state,
                      new_state, area_id, now.hour, now.weekday(),
-                     triggered_by),
+                     triggered_by, person),
                 )
         except Exception:
             pass
@@ -1615,10 +1632,19 @@ def _on_state_changed(event: Event) -> None:
     except Exception:
         pass
 
-    # Log for pattern learning
+    # Log for pattern learning. v6.41.0: stamp the sole-occupant person when
+    # unambiguous (cheap presence check — the full face/voice resolver is
+    # too costly to run on every state event; commands already get that
+    # treatment on the much lower-volume conversation path).
     if _CORE.state_logger:
+        person = "unknown"
+        try:
+            from . import identity
+            person = identity.quick_person(_CORE.hass)
+        except Exception:
+            pass
         _CORE.state_logger.log_state_change(
-            entity_id, old_val, new_val, area_id,
+            entity_id, old_val, new_val, area_id, person=person,
         )
 
 
