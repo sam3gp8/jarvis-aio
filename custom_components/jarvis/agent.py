@@ -18,6 +18,7 @@ dead-simple commands (complexity < 40). Everything else comes here.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -497,6 +498,70 @@ JARVIS_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_followup",
+            "description": (
+                "Schedule YOURSELF a follow-up: an instruction you will execute "
+                "later, autonomously, with full tool access. Use it to close "
+                "loops across time — verify an action took hold ('check the "
+                "garage door actually closed'), re-check after a change has had "
+                "time to work ('confirm the living room reached 72F'), or handle "
+                "deferred requests ('remind sir the oven is on in 45 minutes'). "
+                "Write the instruction to your future self: imperative and "
+                "self-contained, since you won't have this conversation's "
+                "context. The result is announced when it runs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delay_minutes": {
+                        "type": "number",
+                        "description": "How many minutes from now to run it.",
+                    },
+                    "instruction": {
+                        "type": "string",
+                        "description": (
+                            "The self-contained instruction to execute later, "
+                            "e.g. 'Check cover.garage_door is closed; if not, "
+                            "close it and report.'"
+                        ),
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Optional extra context to carry along.",
+                    },
+                },
+                "required": ["delay_minutes", "instruction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_followups",
+            "description": (
+                "List or cancel your pending self-scheduled follow-ups. Use "
+                "when the user asks what you have queued, or to call one off."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "cancel"],
+                        "description": "What to do.",
+                    },
+                    "followup_id": {
+                        "type": "integer",
+                        "description": "The follow-up to cancel (from list).",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 
@@ -548,6 +613,15 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
 
         # Get updated state
         new_state = hass.states.get(entity_id)
+
+        # v6.38: verify-after-act — for deterministic targets (on/off, lock,
+        # open/close), confirm the device actually got there in the background;
+        # retry once; log honestly if it still didn't. Silent when it worked.
+        if action in action_map and action in _EXPECTED_STATES:
+            v_dom, v_svc = action_map[action]
+            hass.async_create_task(
+                _verify_control(hass, entity_id, action, v_dom, v_svc, svc_data))
+
         return json.dumps({
             "success": True,
             "entity_id": entity_id,
@@ -1117,6 +1191,108 @@ async def _exec_root_cause(hass: HomeAssistant, args: dict) -> str:
     return "\n".join(lines)
 
 
+async def _exec_schedule_followup(hass: HomeAssistant, args: dict) -> str:
+    """The agent queues work for its future self."""
+    from . import followups
+    res = await hass.async_add_executor_job(
+        lambda: followups.schedule(
+            args.get("instruction", ""),
+            args.get("delay_minutes", 5),
+            context=args.get("context", "") or ""))
+    if "error" in res:
+        return f"Couldn't schedule that follow-up: {res['error']}"
+    return (f"Follow-up #{res['id']} scheduled for {res['due_ts']}: "
+            f"\"{res['instruction']}\". I'll run it then and report back.")
+
+
+async def _exec_manage_followups(hass: HomeAssistant, args: dict) -> str:
+    from . import followups
+    action = (args.get("action") or "list").lower()
+    if action == "cancel":
+        fid = args.get("followup_id")
+        if fid is None:
+            return "Which follow-up? Give me its id (use list first)."
+        ok = await hass.async_add_executor_job(
+            lambda: followups.cancel(int(fid)))
+        return (f"Follow-up #{fid} cancelled." if ok
+                else f"No pending follow-up #{fid} found.")
+    rows = await hass.async_add_executor_job(followups.pending)
+    if not rows:
+        return "No follow-ups pending."
+    lines = ["Pending follow-ups:"]
+    for r in rows:
+        lines.append(f"  #{r['id']} due {r['due_ts']}: {r['instruction'][:120]}")
+    return "\n".join(lines)
+
+
+# ── Verify-after-act (v6.38) ─────────────────────────────────────────────────
+# Fire-and-forget control is not agentic: after a deterministic action, JARVIS
+# checks the device actually reached the target, retries once if it didn't, and
+# logs honestly if it still hasn't. Silent on success; visible on failure.
+
+VERIFY_DELAY_SECS = 4.0
+_VERIFY_SLEEP = asyncio.sleep    # module-level seam so tests can fast-forward
+
+# action -> acceptable end states (transitional states get one extra wait)
+_EXPECTED_STATES = {
+    "turn_on":  ("on",),
+    "turn_off": ("off",),
+    "lock":     ("locked",),
+    "unlock":   ("unlocked",),
+    "open":     ("open",),
+    "close":    ("closed",),
+}
+_TRANSITIONAL = ("opening", "closing", "locking", "unlocking")
+
+
+def _state_ok(hass: HomeAssistant, entity_id: str, expected: tuple) -> Optional[bool]:
+    st = hass.states.get(entity_id)
+    if st is None:
+        return None
+    s = str(st.state).lower()
+    if s in _TRANSITIONAL:
+        return None            # still moving — check again
+    return s in expected
+
+
+async def _verify_control(hass: HomeAssistant, entity_id: str, action: str,
+                          svc_domain: str, svc_name: str, svc_data: dict) -> None:
+    """Confirm a control action landed; one retry; honest report on failure."""
+    expected = _EXPECTED_STATES.get(action)
+    if not expected:
+        return
+    try:
+        await _VERIFY_SLEEP(VERIFY_DELAY_SECS)
+        ok = _state_ok(hass, entity_id, expected)
+        if ok is None:                       # transitional / unknown — grace period
+            await _VERIFY_SLEEP(VERIFY_DELAY_SECS)
+            ok = _state_ok(hass, entity_id, expected)
+        if ok:
+            return                           # first-try success stays silent
+        _LOGGER.info("verify: %s not %s after %s — retrying once",
+                     entity_id, "/".join(expected), action)
+        await hass.services.async_call(svc_domain, svc_name, dict(svc_data),
+                                       blocking=True)
+        await _VERIFY_SLEEP(VERIFY_DELAY_SECS)
+        ok = _state_ok(hass, entity_id, expected)
+        from . import database
+        if ok:
+            database.save_activity(
+                entity_id=entity_id, category="verify", urgency="low",
+                message=f"{entity_id} needed a second attempt to {action} — "
+                        f"succeeded on retry.", source="agent")
+        else:
+            st = hass.states.get(entity_id)
+            database.save_activity(
+                entity_id=entity_id, category="verify", urgency="medium",
+                message=f"{entity_id} did not respond to {action} "
+                        f"(state: {st.state if st else 'unknown'}) even after a "
+                        f"retry — it may be jammed, obstructed, or offline.",
+                source="agent")
+    except Exception as exc:
+        _LOGGER.debug("verify_control failed for %s: %s", entity_id, exc)
+
+
 # ── Tool dispatcher ─────────────────────────────────────────────────────────
 
 _TOOL_MAP = {
@@ -1138,6 +1314,8 @@ _TOOL_MAP = {
     "approve_suggestion":  _exec_approve_suggestion,
     "dismiss_suggestion":  _exec_dismiss_suggestion,
     "root_cause":          _exec_root_cause,
+    "schedule_followup":   _exec_schedule_followup,
+    "manage_followups":    _exec_manage_followups,
 }
 
 

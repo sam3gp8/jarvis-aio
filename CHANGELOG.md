@@ -4,6 +4,31 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.38.0] — JARVIS closes its own loops
+Two upgrades that make JARVIS genuinely agentic — acting across time and
+confirming its own work — instead of only reacting turn by turn:
+
+**It schedules its own follow-ups.** JARVIS can now queue work for its future
+self and run it autonomously: "close the garage" can become *close it, then
+check in five minutes that it actually shut*; adjusting the thermostat can come
+with *confirm the room reached temperature in half an hour*; "remind me the
+oven's on in 45 minutes" just works. When a follow-up comes due, JARVIS runs it
+with its full toolset — checking states, acting if needed — and reports the
+outcome out loud through the normal announcement channel (so quiet hours still
+apply). Ask "what do you have queued?" to review or cancel them.
+
+**It verifies what it was asked to do.** Every deterministic action — on/off,
+lock/unlock, open/close — is now checked a few seconds later. If the device
+didn't reach the target, JARVIS retries once; if it *still* didn't, that shows
+up honestly in the activity log ("the garage door did not respond to close even
+after a retry — it may be jammed, obstructed, or offline") instead of the
+command silently going nowhere. Successes stay silent; only trouble surfaces.
+
+Both build on everything JARVIS already learned this cycle: follow-ups announce
+through the same routing as its other proactive speech, failures land in the
+same activity log the root-cause analyzer reads, and the graduated-trust
+autonomy model keeps the user in charge of what runs silently.
+
 ## [6.37.0] — ask JARVIS *why* something happened
 JARVIS can now perform root cause analysis. Ask it things like "why did the
 kitchen lights turn off?", "what caused the heat to kick on at 3am?", or "who

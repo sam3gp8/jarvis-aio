@@ -1761,9 +1761,53 @@ async def _tick():
     except Exception as exc:
         _LOGGER.debug("Cognition anticipation tick error: %s", exc)
 
+    # v6.38: Execute the agent's self-scheduled follow-ups. The agent queued
+    # these itself ("check the garage actually closed in 5 minutes") — running
+    # them back through its own brain closes the loop across time. Results join
+    # the normal action flow so quiet hours / urgency routing apply.
+    try:
+        from . import followups as _fu
+        actions.extend(await _fu.async_process_due(
+            hass, config, runner=_make_followup_runner(hass, config)))
+    except Exception as exc:
+        _LOGGER.debug("Follow-up tick error: %s", exc)
+
     # Process actions
     for action in actions:
         await _emit_action(hass, config, action, sleeping)
+
+
+def _make_followup_runner(hass, config):
+    """A headless agent invocation for self-scheduled follow-ups: same brain,
+    same tools, no user turn. The persona tells the model it queued this work
+    itself, so replies read as JARVIS reporting back, not answering a question."""
+    async def _run(instruction: str, context: str) -> str:
+        from .agent import run_agent
+        try:
+            from .const import CONF_MODEL, DEFAULT_MODEL
+            model = config.get(CONF_MODEL, DEFAULT_MODEL)
+        except Exception:
+            model = config.get("model", "")
+        honorific = config.get("honorific", "sir")
+        persona = (
+            f"You are JARVIS. You scheduled this follow-up yourself earlier and "
+            f"it is now due. Carry it out with your tools (check states, act if "
+            f"needed, verify), then report the outcome to {honorific} in one or "
+            f"two spoken-style sentences. If everything is fine, say so briefly."
+            + (f"\nContext you saved with it: {context}" if context else "")
+        )
+        return await run_agent(
+            hass,
+            messages=[{"role": "user", "content": instruction}],
+            persona=persona,
+            provider_name=config.get("llm_provider", "groq"),
+            api_key=config.get("api_key", ""),
+            model=model,
+            base_url=config.get("llm_base_url") or None,
+            temperature=0.4,
+            config=config,
+        )
+    return _run
 
 
 async def _emit_action(hass, config, action, sleeping):
