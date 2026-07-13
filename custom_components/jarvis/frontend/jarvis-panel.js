@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.43.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.44.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -508,8 +508,9 @@ class JarvisPanel extends HTMLElement {
     this._knowledge = { facts: [], stats: {} }; // curated memory tab state
     this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
-    this._logSearch = "";          // log text search (v6.43.0)
+    this._logSearch = "";          // log text search (v6.44.0)
     this._lastLogSearch = null;
+    this._activitySearch = "";     // dashboard activity feed search (v6.43.x)
     this._currentFloor = "all";     // floor plan tab — 3D default shows all
     this._editorFloor = "1f";      // floor plan editor tab
     this._dragState = null;        // floor plan drag state
@@ -533,16 +534,16 @@ class JarvisPanel extends HTMLElement {
     this._camStillTimer = null;
     this._camSubs = [];
     this._lastCamKey = "";         // entity|token of the attached stream
-    // Real-time entity subscriptions (v6.43.0) — a native state_changed feed
+    // Real-time entity subscriptions (v6.44.0) — a native state_changed feed
     // that triggers a fast, throttled refresh instead of waiting on the poll.
     this._stateSubs = [];
     this._lastRealtimeFetch = 0;
     this._realtimeTrailing = null;
-    // Sparklines (v6.43.0) — slow-polled separately from live data since
+    // Sparklines (v6.44.0) — slow-polled separately from live data since
     // recorder history queries are heavier than the rest of the payload.
     this._sparklines = {};
     this._sparklineInterval = null;
-    // Area drill-down (v6.43.0) — id of the area currently expanded, or null.
+    // Area drill-down (v6.44.0) — id of the area currently expanded, or null.
     this._expandedArea = null;
   }
 
@@ -1078,7 +1079,7 @@ class JarvisPanel extends HTMLElement {
         : [{ ts: "--:--", urgency: "low", tag: "SYSTEM", msg: "No activity yet. Enable announcements or observer to see events here." }],
       config: live.config || {},
       doors: live.doors || {},
-      // v6.43.0: goals card. Also fixes suggestions, which _data() never
+      // v6.44.0: goals card. Also fixes suggestions, which _data() never
       // carried through from the raw payload — _renderSuggestions(d) has
       // been reading undefined since it was added.
       suggestions: live.suggestions || [],
@@ -1175,6 +1176,11 @@ class JarvisPanel extends HTMLElement {
       if (!a) return;
       el.classList.toggle("active", !!a.active);
     });
+
+    // Activity feed — rebuild rows in place (v6.43.x: previously the feed
+    // only refreshed on a full structural re-render, so it silently went
+    // stale). Respects the active search filter; the input keeps focus.
+    this._updateActivityFeed();
 
     // Floor plan — rebuild 3D with updated presence data (residence tab)
     if (this._currentTab === 'residence') {
@@ -1451,6 +1457,41 @@ class JarvisPanel extends HTMLElement {
     return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
       <polyline points="${pts}" fill="none" stroke="${colorVar}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>`;
+  }
+
+  _evtRowHtml(e) {
+    return `
+      <div class="evt ${this._esc(e.urgency || '')}">
+        <div class="ts">${this._esc(e.ts || '')}</div>
+        <div class="msg"><b>${this._esc(e.tag || '')}</b> · ${this._esc(e.msg || '')}</div>
+      </div>`;
+  }
+
+  _activityFiltered() {
+    const entries = (this._activityData && this._activityData.length > 0)
+      ? this._activityData
+      : [{ ts: "--:--", urgency: "low", tag: "SYSTEM", msg: "No activity yet. Enable announcements or observer to see events here." }];
+    const q = (this._activitySearch || '').trim().toLowerCase();
+    if (!q) return { rows: entries, total: entries.length };
+    return {
+      rows: entries.filter(e =>
+        (e.msg || '').toLowerCase().includes(q) ||
+        (e.tag || '').toLowerCase().includes(q)),
+      total: entries.length,
+    };
+  }
+
+  _updateActivityFeed() {
+    // Rebuilds ONLY the feed rows + count — the search input keeps focus.
+    const feed = this.shadowRoot?.getElementById('activity-feed');
+    if (!feed) return;
+    const { rows, total } = this._activityFiltered();
+    const q = (this._activitySearch || '').trim();
+    feed.innerHTML = rows.length
+      ? rows.map(e => this._evtRowHtml(e)).join('')
+      : `<div class="evt low"><div class="msg">No events match "${this._esc(q)}".</div></div>`;
+    const count = this.shadowRoot?.getElementById('activity-count');
+    if (count) count.textContent = q ? `${rows.length} OF ${total}` : `LAST ${total}`;
   }
 
   _relTime(iso) {
@@ -2230,7 +2271,7 @@ class JarvisPanel extends HTMLElement {
              <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
            </button>`
         : '';
-      // v6.43.0: temp/humidity readout + sparkline, when the area has a sensor.
+      // v6.44.0: temp/humidity readout + sparkline, when the area has a sensor.
       const spark = this._sparklines?.[a.id] || {};
       const tempSpark = spark.temp ? this._sparklineSvg(spark.temp, 'var(--cyan-dim)') : '';
       const humSpark = spark.humidity ? this._sparklineSvg(spark.humidity, 'var(--green)') : '';
@@ -2249,12 +2290,6 @@ class JarvisPanel extends HTMLElement {
           </div>
         </div>`;
     };
-
-    const evtRow = (e) => `
-      <div class="evt ${e.urgency}">
-        <div class="ts">${e.ts}</div>
-        <div class="msg"><b>${e.tag}</b> · ${e.msg}</div>
-      </div>`;
 
     return `
 <div class="app">
@@ -2340,10 +2375,11 @@ class JarvisPanel extends HTMLElement {
     <div class="c-log panel">
       <div class="head">
         <span>Activity Feed</span>
-        <span class="side">LAST ${d.activity.length}</span>
+        <span class="side" id="activity-count">LAST ${d.activity.length}</span>
       </div>
-      <div class="log">
-        ${d.activity.map(evtRow).join("")}
+      <input id="activity-search" class="log-search activity-search" type="text" placeholder="search…" autocomplete="off" value="${this._esc(this._activitySearch || '')}" />
+      <div class="log" id="activity-feed">
+        ${this._activityFiltered().rows.map(e => this._evtRowHtml(e)).join("")}
       </div>
     </div>
 
@@ -2997,6 +3033,20 @@ class JarvisPanel extends HTMLElement {
         this._logSearchDebounce = setTimeout(() => {
           this._logSearch = val;
           this._fetchDebugLog();
+        }, 200);
+      });
+    }
+
+    // Activity feed search — debounced; updates only the feed rows so the
+    // input keeps focus while typing (no full re-render).
+    const actSearch = this.shadowRoot.querySelector("#activity-search");
+    if (actSearch) {
+      actSearch.addEventListener("input", (e) => {
+        clearTimeout(this._activitySearchDebounce);
+        const val = e.currentTarget.value;
+        this._activitySearchDebounce = setTimeout(() => {
+          this._activitySearch = val;
+          this._updateActivityFeed();
         }, 200);
       });
     }
@@ -4773,7 +4823,7 @@ class JarvisPanel extends HTMLElement {
   .h3d-lamp.static { cursor: default; }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
-  /* AREA READINGS + SPARKLINES (v6.43.0) */
+  /* AREA READINGS + SPARKLINES (v6.44.0) */
   .area-readings { display: flex; gap: 10px; flex-wrap: wrap; }
   .area-reading {
     display: inline-flex; align-items: center; gap: 5px;
@@ -4781,7 +4831,7 @@ class JarvisPanel extends HTMLElement {
   }
   .spark { width: 44px; height: 14px; flex-shrink: 0; opacity: 0.85; }
 
-  /* AREA DETAIL DRILL-DOWN (v6.43.0) */
+  /* AREA DETAIL DRILL-DOWN (v6.44.0) */
   .area-detail-overlay {
     position: fixed; inset: 0; z-index: 40;
     background: rgba(2, 6, 10, 0.75);
@@ -4929,6 +4979,7 @@ class JarvisPanel extends HTMLElement {
   }
   .log-search::placeholder { color: var(--text-faint); letter-spacing: 0.1em; }
   .log-search:focus { border-color: var(--cyan-dim); background: rgba(0, 242, 254, 0.06); }
+  .activity-search { width: 100%; margin-bottom: 8px; box-sizing: border-box; }
   .log-count {
     font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
     letter-spacing: 0.08em; margin: -6px 0 10px;
@@ -5842,7 +5893,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.43.0 ",
+  "%c JARVIS Panel %c v6.44.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

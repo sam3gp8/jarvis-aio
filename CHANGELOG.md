@@ -4,6 +4,19 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.44.0] — activity feed search (and the feed is actually live now)
+The Command Center's Activity Feed gets the same treatment the Logs tab got
+in 6.43: a search box that filters events by message or tag as you type,
+with a "1 of 30" count and a clear empty state.
+
+Wiring it exposed a quiet bug worth its own line: the Activity Feed never
+updated in place. The 5s/real-time refresh patched status rows, the
+dominant room, and area tiles — but not the feed, which only redrew on a
+full structural re-render (an area being added or removed). In practice the
+feed silently went stale the moment you opened the dashboard. It now
+rebuilds its rows on every refresh, respecting whatever search is active,
+without stealing focus from the search box.
+
 ## [6.43.0] — UI Phase 3: real-time, sparklines, entity cards, log search
 Four things, in build order.
 

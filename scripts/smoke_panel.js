@@ -53,7 +53,11 @@ const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } } },
   callWS: async (m) => {
     if (m.type === "jarvis/get_panel_data") return PANEL;
-    if (m.type === "jarvis/get_activity_log") return { entries: [{ ts: "08:59", urgency: "low", tag: "OBS", msg: "event" }] };
+    if (m.type === "jarvis/get_activity_log") return { entries: [
+      { ts: "08:59", urgency: "low", tag: "OBS", msg: "motion in kitchen" },
+      { ts: "09:02", urgency: "medium", tag: "GOAL", msg: "goal #1 engaged quietly" },
+      { ts: "09:05", urgency: "high", tag: "SAFETY", msg: "garage door left open" },
+    ] };
     if (m.type === "jarvis/get_cognitive_status") return { learning: { days_of_data: 48, state_changes: 217802, commands: 93, suggestions: 0 }, ignore_rules: 0 };
     if (m.type === "jarvis/get_person_routines") return { routines: { sam: [
       { id: 1, pattern_type: "time_routine", description: "office light turns on around 07:00 most days when Sam is home", confidence: 0.82, occurrences: 9, last_seen: "2026-07-13" },
@@ -108,7 +112,32 @@ setTimeout(async () => {
     ["area tile sparkline rendered for garage", !!sr.querySelector('.area[data-area-id="garage"] .spark')],
     ["area tile without sensor has no readings row", !sr.querySelector('.area[data-area-id="backyard"] .area-readings')],
     ["area tiles are keyboard-focusable (drill-down affordance)", sr.querySelector('.area[data-area-id="garage"]')?.getAttribute('tabindex') === '0'],
+    ["activity search box present", !!sr.getElementById("activity-search")],
+    ["activity feed renders all mock entries", sr.querySelectorAll("#activity-feed .evt").length === 3],
   ];
+
+  // ── activity feed search: narrow, count, empty state, live-patch respect ──
+  el._activitySearch = "garage";
+  el._updateActivityFeed();
+  checks.push(
+    ["activity search narrows feed", el.shadowRoot.querySelectorAll("#activity-feed .evt").length === 1],
+    ["activity count shows filtered/total", /1 OF 3/.test(el.shadowRoot.getElementById("activity-count")?.textContent || "")],
+  );
+  el._patchLiveDom(PANEL);  // a poll/real-time refresh must keep the filter applied
+  checks.push(
+    ["live patch keeps activity filter applied", el.shadowRoot.querySelectorAll("#activity-feed .evt").length === 1],
+  );
+  el._activitySearch = "zzz-no-match";
+  el._updateActivityFeed();
+  checks.push(
+    ["activity search empty state shown", /No events match/.test(el.shadowRoot.getElementById("activity-feed")?.textContent || "")],
+  );
+  el._activitySearch = "";
+  el._updateActivityFeed();
+  checks.push(
+    ["clearing activity search restores all entries", el.shadowRoot.querySelectorAll("#activity-feed .evt").length === 3
+      && /LAST 3/.test(el.shadowRoot.getElementById("activity-count")?.textContent || "")],
+  );
 
   // ── click the Garage tile: entity-card drill-down should open ──
   sr.querySelector('.area[data-area-id="garage"]')?.click();
