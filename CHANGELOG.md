@@ -4,7 +4,36 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.42.0] — the panel catches up
+## [6.43.0] — UI Phase 3: real-time, sparklines, entity cards, log search
+Four things, in build order.
+
+**Real-time entity subscriptions.** The dashboard polled every 5s flat. It
+now subscribes to HA's native `state_changed` events (the same pattern
+Camera Watch already used for its own events) and refreshes within ~2s of
+anything actually changing — throttled so a burst of activity coalesces
+into one refresh, not one per entity. The 5s poll is now a 20s safety net,
+since real-time now covers the common case.
+
+**Area tile sparklines.** Every area tile with a temperature or humidity
+sensor now shows a compact trend line, not just the instant reading. This
+needed a new data path: `state_changes` (patterns.db) deliberately excludes
+sensor/binary_sensor domains as noise for pattern learning — exactly the
+domains a sparkline needs — so this is the integration's first use of HA's
+`recorder` history API, polled separately and slowly (5 min) since history
+queries are heavier than the rest of the panel payload. This is the one
+piece I couldn't exercise against a live recorder from here — worth a close
+look on first deploy.
+
+**Entity cards.** Click an area tile → a drill-down detail card: full-size
+temp/humidity readouts with their sparklines, lights with the same toggle
+as the tile, last motion, capabilities. Area tiles picked up `temp`/
+`humidity` for the first time too — previously only the dominant room ever
+got that data.
+
+**Log search.** A text box next to the category filters, debounced,
+filtering message and category text together with whatever category's
+selected. A count line ("12 of 340") and a real empty-state message when a
+search or filter matches nothing, instead of a blank pane.
 Two things v6.40 and v6.41 built now have somewhere to show up.
 
 **Goals card** (Command Center): every active goal, with its step progress,

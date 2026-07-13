@@ -31,9 +31,12 @@ const PANEL = {
   meta: { bedrooms: 3, areas_monitored: 14, announcements_today: 0, est_cost: "—", uptime: "6m" },
   dominant: { area_id: "garage", name: "Garage", subtitle: "Occupied · 26s", coord: "#09", temp: "66°", humidity: "52%", lights: "ON", satellite: "—", last_motion: "00:26" },
   areas: [
-    { id: "garage", name: "Garage", caps: ["cam", "light"], active: true, bedroom: false, lights_on: 1, lights_total: 1 },
-    { id: "backyard", name: "Backyard", caps: ["cam", "mmwave"], active: true, bedroom: false, lights_on: 0, lights_total: 0 },
-    { id: "kitchen", name: "Kitchen", caps: ["sat", "spkr"], active: false, bedroom: false, lights_on: 0, lights_total: 0 },
+    { id: "garage", name: "Garage", caps: ["cam", "light"], active: true, bedroom: false, lights_on: 1, lights_total: 1,
+      temp: "68°F", humidity: "51%", temp_entity: "sensor.garage_temp", humidity_entity: "sensor.garage_humidity", last_motion: "26s" },
+    { id: "backyard", name: "Backyard", caps: ["cam", "mmwave"], active: true, bedroom: false, lights_on: 0, lights_total: 0,
+      temp: null, humidity: null, temp_entity: null, humidity_entity: null, last_motion: null },
+    { id: "kitchen", name: "Kitchen", caps: ["sat", "spkr"], active: false, bedroom: false, lights_on: 0, lights_total: 0,
+      temp: "71°F", humidity: null, temp_entity: "sensor.kitchen_temp", humidity_entity: null, last_motion: "12m" },
   ],
   config: { cameras: [{ entity_id: "camera.front", name: "Front Door" }, { entity_id: "camera.back", name: "Backyard" }], lockdown: { active: false } },
   goals: [
@@ -45,6 +48,7 @@ const PANEL = {
       last_result: "Reached 72°, sir.", updated_ts: "2026-07-13T18:00:00" },
   ],
 };
+const _subscribedEvents = [];
 const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } } },
   callWS: async (m) => {
@@ -55,9 +59,22 @@ const hass = {
       { id: 1, pattern_type: "time_routine", description: "office light turns on around 07:00 most days when Sam is home", confidence: 0.82, occurrences: 9, last_seen: "2026-07-13" },
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
+    if (m.type === "jarvis/get_area_sparklines") return { sparklines: {
+      garage: { temp: [64, 65, 66, 67, 68, 68, 67, 68], humidity: [50, 50, 51, 52, 51, 51, 50, 51] },
+    } };
+    if (m.type === "jarvis/get_debug_log") return { entries: [
+      { ts: "09:00:01", cat: "CONV", msg: "heard: turn on the porch light" },
+      { ts: "09:00:02", cat: "AGENT", msg: "executed light.turn_on for porch" },
+      { ts: "09:01:15", cat: "ERROR", msg: "camera.front unavailable" },
+    ] };
     return {};
   },
-  connection: { subscribeEvents: async () => () => {} },
+  connection: {
+    subscribeEvents: async (handler, eventType) => {
+      _subscribedEvents.push(eventType);
+      return () => {};
+    },
+  },
   callService: async () => {},
 };
 
@@ -85,7 +102,26 @@ setTimeout(async () => {
       !!sr.querySelector('.goal-active .goal-cancel') && !sr.querySelector('.goal-done .goal-cancel')],
     ["done goal shows status badge", /DONE/.test(sr.querySelector(".goal-done .goal-status-badge")?.textContent || "")],
     ["active goal shows step progress (2/4)", /2\/4/.test(sr.querySelector(".goal-active .goal-steps-pct")?.textContent || "")],
+    ["real-time state_changed subscription wired", _subscribedEvents.includes("state_changed")],
+    ["camera event subscriptions still wired", _subscribedEvents.includes("jarvis_camera_event")],
+    ["area tile shows temp reading", /68°F/.test(sr.querySelector('.area[data-area-id="garage"] .area-reading')?.textContent || "")],
+    ["area tile sparkline rendered for garage", !!sr.querySelector('.area[data-area-id="garage"] .spark')],
+    ["area tile without sensor has no readings row", !sr.querySelector('.area[data-area-id="backyard"] .area-readings')],
+    ["area tiles are keyboard-focusable (drill-down affordance)", sr.querySelector('.area[data-area-id="garage"]')?.getAttribute('tabindex') === '0'],
   ];
+
+  // ── click the Garage tile: entity-card drill-down should open ──
+  sr.querySelector('.area[data-area-id="garage"]')?.click();
+  const detail = el.shadowRoot;
+  checks.push(
+    ["area detail overlay opens on tile click", !!detail.getElementById("area-detail-overlay")],
+    ["area detail shows the right area name", /Garage/.test(detail.querySelector(".area-detail-title")?.textContent || "")],
+    ["area detail shows temp value + sparkline", /68°F/.test(detail.querySelector(".ads-value")?.textContent || "") && !!detail.querySelector(".ads-spark .spark")],
+  );
+  detail.querySelector(".area-detail-close")?.click();
+  checks.push(
+    ["area detail overlay closes on ✕", !el.shadowRoot.getElementById("area-detail-overlay")],
+  );
 
   // ── switch to Residence tab and re-check ──
   el._currentTab = "residence";
@@ -123,6 +159,33 @@ setTimeout(async () => {
     ["person group rendered (Sam)", /Sam/.test(mem.getElementById("proutine-list")?.textContent || "")],
     ["routine description rendered", /office light turns on/.test(mem.getElementById("proutine-list")?.textContent || "")],
     ["confidence bar rendered (82%)", /82%/.test(mem.getElementById("proutine-list")?.textContent || "")],
+  );
+
+  // ── switch to Logs tab: category filter + text search ──
+  el._currentTab = "logs";
+  el._render();
+  await el._fetchDebugLog();
+  const logs1 = el.shadowRoot;
+  checks.push(
+    ["log search box present", !!logs1.getElementById("log-search")],
+    ["all 3 log entries render initially", logs1.querySelectorAll(".log-entry").length === 3],
+    ["log count shows total", /3 entries/.test(logs1.getElementById("log-count")?.textContent || "")],
+  );
+
+  el._logSearch = "porch";
+  await el._fetchDebugLog();
+  const logs2 = el.shadowRoot;
+  checks.push(
+    ["search narrows to matching entries", logs2.querySelectorAll(".log-entry").length === 2],
+    ["search excludes non-matching entry", !/camera\.front unavailable/.test(logs2.getElementById("debug-log-entries")?.textContent || "")],
+    ["log count reflects filtered/total", /2 of 3/.test(logs2.getElementById("log-count")?.textContent || "")],
+  );
+
+  el._logSearch = "nonexistent-term-xyz";
+  await el._fetchDebugLog();
+  checks.push(
+    ["search with no matches shows empty state, not a blank pane",
+      /No entries match/.test(el.shadowRoot.getElementById("debug-log-entries")?.textContent || "")],
   );
 
   let ok = true;

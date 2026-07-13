@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 
 import voluptuous as vol
 
@@ -63,6 +63,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_suggestion_action)
         websocket_api.async_register_command(hass, ws_goal_action)
         websocket_api.async_register_command(hass, ws_get_person_routines)
+        websocket_api.async_register_command(hass, ws_get_area_sparklines)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -227,6 +228,26 @@ def _area_light_state(hass: HomeAssistant, area_id: str) -> tuple[int, int]:
         if st.state == "on":
             on += 1
     return on, total
+
+
+def _area_temp_humidity_entities(hass: HomeAssistant, area_id: str) -> tuple[Optional[str], Optional[str]]:
+    """The first temperature/humidity sensor entity_id found in an area, or
+    None. Same resolution order _area_live_readings uses, factored out so
+    the areas grid and the sparkline history fetch use one source of truth."""
+    temp_eid = None
+    humidity_eid = None
+    for eid in _entities_in_area(hass, area_id):
+        if temp_eid and humidity_eid:
+            break
+        state = hass.states.get(eid)
+        if state is None or eid.split(".", 1)[0] != "sensor":
+            continue
+        dclass = state.attributes.get("device_class")
+        if dclass == "temperature" and temp_eid is None:
+            temp_eid = eid
+        elif dclass == "humidity" and humidity_eid is None:
+            humidity_eid = eid
+    return temp_eid, humidity_eid
 
 
 def _area_live_readings(hass: HomeAssistant, area_id: str) -> dict:
@@ -441,6 +462,8 @@ async def ws_get_panel_data(
             caps = _area_capabilities(hass, aid)
             active = audio_routing.is_area_occupied(hass, aid)
             l_on, l_total = _area_light_state(hass, aid)
+            readings = _area_live_readings(hass, aid)
+            temp_eid, humidity_eid = _area_temp_humidity_entities(hass, aid)
             areas_list.append({
                 "id":       aid,
                 "name":     _area_name(hass, aid),
@@ -449,6 +472,11 @@ async def ws_get_panel_data(
                 "bedroom":  aid in bedroom_areas,
                 "lights_on":    l_on,
                 "lights_total": l_total,
+                "temp":         readings.get("temp"),
+                "humidity":     readings.get("humidity"),
+                "temp_entity":     temp_eid,
+                "humidity_entity": humidity_eid,
+                "last_motion":  _format_duration(readings.get("last_motion_seconds")),
             })
         # Sort: active first, then bedrooms, then alphabetical
         areas_list.sort(key=lambda a: (not a["active"], not a["bedroom"], a["name"].lower()))
@@ -730,6 +758,84 @@ def _get_person_routines() -> dict:
         return grouped
     except Exception:
         return {}
+
+
+def _downsample(vals: list[float], n: int) -> list[float]:
+    """Evenly-spaced downsample to at most n points — a sparkline doesn't
+    need every recorder sample, just the shape."""
+    if len(vals) <= n or n <= 0:
+        return vals
+    step = len(vals) / n
+    return [vals[int(i * step)] for i in range(n)]
+
+
+async def _get_area_sparklines(hass: HomeAssistant, entity_map: dict[str, dict[str, Optional[str]]],
+                                hours: float = 12.0, points: int = 20) -> dict:
+    """Compact recent history for area-tile sparklines, keyed by area_id:
+    {area_id: {"temp": [floats], "humidity": [floats]}}. entity_map is
+    {area_id: {"temp": entity_id_or_None, "humidity": entity_id_or_None}}.
+
+    v6.43.0 — the first use of HA's recorder in this integration. Pattern
+    learning deliberately built its own telemetry (patterns.db) instead of
+    depending on recorder, but that store explicitly excludes sensor/
+    binary_sensor domains as noise — exactly the domains a temperature
+    sparkline needs. Recorder is the right tool for this one job. Read-only,
+    wrapped defensively throughout: recorder internals vary by HA version
+    and this integration has no other code path exercising them.
+    Never raises — an empty dict just means no sparklines this cycle.
+    """
+    entity_ids = sorted({eid for m in entity_map.values() for eid in m.values() if eid})
+    if not entity_ids:
+        return {}
+    try:
+        from datetime import timedelta
+        from homeassistant.components.recorder import get_instance, history
+        from homeassistant.util import dt as dt_util
+    except Exception:
+        return {}
+
+    end = dt_util.utcnow()
+    start = end - timedelta(hours=hours)
+
+    def _fetch() -> dict:
+        return history.get_significant_states(
+            hass, start, end, entity_ids,
+            minimal_response=True, no_attributes=True)
+
+    try:
+        raw = await get_instance(hass).async_add_executor_job(_fetch)
+    except Exception as exc:
+        _LOGGER.debug("sparkline history fetch failed: %s", exc)
+        return {}
+    if not raw:
+        return {}
+
+    def _series(eid: str) -> list[float]:
+        vals: list[float] = []
+        for s in (raw.get(eid) or []):
+            # minimal_response mixes full State objects (first/last entry)
+            # with plain {"state": ..., "last_changed": ...} dicts.
+            raw_state = getattr(s, "state", None) if not isinstance(s, dict) else s.get("state")
+            try:
+                vals.append(float(raw_state))
+            except (TypeError, ValueError):
+                continue
+        return _downsample(vals, points)
+
+    out: dict = {}
+    for area_id, m in entity_map.items():
+        entry: dict = {}
+        if m.get("temp"):
+            v = _series(m["temp"])
+            if v:
+                entry["temp"] = v
+        if m.get("humidity"):
+            v = _series(m["humidity"])
+            if v:
+                entry["humidity"] = v
+        if entry:
+            out[area_id] = entry
+    return out
 
 
 def _get_sentinel_rules() -> list[dict]:
@@ -1613,6 +1719,32 @@ async def ws_suggestion_action(
     except Exception as exc:
         _LOGGER.exception("ws_suggestion_action failed: %s", exc)
         connection.send_error(msg["id"], "suggestion_action_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/get_area_sparklines",
+})
+@websocket_api.async_response
+async def ws_get_area_sparklines(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Recent temp/humidity history per area, for dashboard sparklines.
+    Deliberately a separate, slow-polled command — recorder history queries
+    are heavier than the rest of the panel payload and shouldn't ride along
+    on the fast real-time-triggered refresh."""
+    try:
+        entity_map: dict[str, dict[str, Optional[str]]] = {}
+        for aid in _all_areas_with_anything(hass):
+            t_eid, h_eid = _area_temp_humidity_entities(hass, aid)
+            if t_eid or h_eid:
+                entity_map[aid] = {"temp": t_eid, "humidity": h_eid}
+        sparklines = await _get_area_sparklines(hass, entity_map)
+        connection.send_result(msg["id"], {"sparklines": sparklines})
+    except Exception as exc:
+        _LOGGER.exception("get_area_sparklines failed: %s", exc)
+        connection.send_error(msg["id"], "sparklines_failed", str(exc))
 
 
 @websocket_api.websocket_command({
