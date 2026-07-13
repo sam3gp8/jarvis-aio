@@ -562,6 +562,102 @@ JARVIS_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_goal",
+            "description": (
+                "Open a GOAL: an outcome you will keep working toward across "
+                "time, autonomously, until it's achieved or fails. Use this for "
+                "requests that can't be finished right now — preparing for an "
+                "event by a deadline, driving a condition to a target and "
+                "confirming it holds, or watching a situation and acting as it "
+                "develops. Decompose the outcome into concrete steps. Contrast: "
+                "execute_plan is for many actions RIGHT NOW; schedule_followup "
+                "is ONE instruction later; a goal is an OUTCOME with tracked "
+                "steps you re-engage until closure. You'll be re-engaged on the "
+                "goal's cadence with full tool access, and MUST record progress "
+                "via update_goal each time. The user hears about it when it "
+                "finishes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string",
+                              "description": "Short name, e.g. 'Guest prep Saturday'."},
+                    "outcome": {"type": "string",
+                                "description": "The concrete end state to achieve."},
+                    "steps": {"type": "array", "items": {"type": "string"},
+                              "description": "Ordered concrete steps toward the outcome."},
+                    "check_interval_minutes": {
+                        "type": "number",
+                        "description": "How often to re-engage (default 30)."},
+                    "deadline_minutes": {
+                        "type": "number",
+                        "description": "Optional: minutes until the goal must close."},
+                },
+                "required": ["title", "outcome"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_goal",
+            "description": (
+                "Record progress on a goal you're engaged on — REQUIRED once "
+                "per goal engagement. Mark step statuses, add a progress_note, "
+                "and either set next_check_minutes (when to re-engage) or close "
+                "the goal with status 'done'/'failed' and a result the user "
+                "will hear."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "integer"},
+                    "step_updates": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "n": {"type": "integer"},
+                                "status": {"type": "string",
+                                           "enum": ["pending", "done", "failed", "skipped"]},
+                                "note": {"type": "string"},
+                            },
+                            "required": ["n"],
+                        },
+                    },
+                    "progress_note": {"type": "string"},
+                    "next_check_minutes": {"type": "number"},
+                    "status": {"type": "string", "enum": ["done", "failed"]},
+                    "result": {"type": "string",
+                               "description": "Closing report the user will hear."},
+                },
+                "required": ["goal_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_goals",
+            "description": (
+                "List, inspect, or cancel the goals you're pursuing. Use when "
+                "the user asks what you're working on, for status, or to call "
+                "one off."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "status", "cancel"]},
+                    "goal_id": {"type": "integer",
+                                "description": "Required for status/cancel."},
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 
@@ -1293,6 +1389,76 @@ async def _verify_control(hass: HomeAssistant, entity_id: str, action: str,
         _LOGGER.debug("verify_control failed for %s: %s", entity_id, exc)
 
 
+async def _exec_create_goal(hass: HomeAssistant, args: dict) -> str:
+    from . import goals
+    res = await hass.async_add_executor_job(
+        lambda: goals.create(
+            args.get("title", ""), args.get("outcome", ""),
+            args.get("steps") or [],
+            check_interval_min=args.get("check_interval_minutes")
+            or goals.DEFAULT_INTERVAL_MIN,
+            deadline_minutes=args.get("deadline_minutes")))
+    if "error" in res:
+        return f"Couldn't open that goal: {res['error']}"
+    steps = "".join(f"\n  {s['n']}. {s['step']}" for s in res.get("steps", []))
+    dl = f" Deadline {res['deadline_ts']}." if res.get("deadline_ts") else ""
+    return (f"Goal #{res['id']} opened: {res['title']} — {res['outcome']}."
+            f"{dl}{steps}\nI'll start on it within the minute and keep at it; "
+            f"you'll hear from me when it's done.")
+
+
+async def _exec_update_goal(hass: HomeAssistant, args: dict) -> str:
+    from . import goals
+    gid = args.get("goal_id")
+    if gid is None:
+        return "update_goal needs goal_id."
+    res = await hass.async_add_executor_job(
+        lambda: goals.update(
+            int(gid), step_updates=args.get("step_updates"),
+            next_check_minutes=args.get("next_check_minutes"),
+            status=args.get("status"), result=args.get("result"),
+            progress_note=args.get("progress_note")))
+    if "error" in res:
+        return f"Couldn't update goal #{gid}: {res['error']}"
+    return f"Goal #{gid} progress recorded."
+
+
+async def _exec_manage_goals(hass: HomeAssistant, args: dict) -> str:
+    from . import goals
+    action = (args.get("action") or "list").lower()
+    if action == "cancel":
+        gid = args.get("goal_id")
+        if gid is None:
+            return "Which goal? Give me its id (use list first)."
+        ok = await hass.async_add_executor_job(lambda: goals.cancel(int(gid)))
+        return (f"Goal #{gid} cancelled." if ok
+                else f"No active goal #{gid} found.")
+    if action == "status":
+        gid = args.get("goal_id")
+        if gid is None:
+            return "status needs goal_id."
+        g = await hass.async_add_executor_job(lambda: goals.get(int(gid)))
+        if not g:
+            return f"No goal #{gid}."
+        lines = [f"Goal #{g['id']} [{g['status']}] {g['title']} — {g['outcome']}"]
+        for s in g["steps"]:
+            lines.append(f"  [{s['status']}] {s['n']}. {s['step']}")
+        for p in g["progress"][-5:]:
+            lines.append(f"  {p['t']}: {p['note']}")
+        if g.get("last_result"):
+            lines.append(f"  Result: {g['last_result']}")
+        return "\n".join(lines)
+    rows = await hass.async_add_executor_job(goals.active)
+    if not rows:
+        return "No active goals."
+    lines = ["Active goals:"]
+    for g in rows:
+        done = sum(1 for s in g["steps"] if s["status"] == "done")
+        lines.append(f"  #{g['id']} {g['title']} — steps {done}/{len(g['steps'])} "
+                     f"done, next check {g['next_check_ts']}")
+    return "\n".join(lines)
+
+
 # ── Tool dispatcher ─────────────────────────────────────────────────────────
 
 _TOOL_MAP = {
@@ -1316,6 +1482,9 @@ _TOOL_MAP = {
     "root_cause":          _exec_root_cause,
     "schedule_followup":   _exec_schedule_followup,
     "manage_followups":    _exec_manage_followups,
+    "create_goal":         _exec_create_goal,
+    "update_goal":         _exec_update_goal,
+    "manage_goals":        _exec_manage_goals,
 }
 
 

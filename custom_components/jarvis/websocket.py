@@ -908,6 +908,10 @@ PANEL_WRITABLE_KEYS = {
     "home_bedrooms",             # int: bedroom count (Residence stats)
     "home_bathrooms",            # int: bathroom count (Residence stats)
     "door_mapping",              # JSON: {model door slot -> entity_id}
+    # Outdoor classification (feeds the intrusion false-alarm guards)
+    "outdoor_areas",             # JSON list: extra area names treated as outdoor
+    "outdoor_entities",          # JSON list: entity globs forced outdoor
+    "indoor_entities",           # JSON list: entity globs forced indoor (wins)
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
     "model",

@@ -4,6 +4,60 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.40.0] — give JARVIS an outcome, not just an order
+JARVIS now has a goal planner: hand it an *outcome* and it will keep working
+toward it — across minutes, hours, or days — until it's achieved, impossible, or
+you call it off.
+
+  "Get the house ready for guests by Saturday afternoon."
+  "Warm the living room to 72 and let me know when it's actually there."
+  "Keep an eye on the basement humidity today and run the dehumidifier if it climbs."
+
+When you ask for something like that, JARVIS breaks it into concrete steps and
+opens a goal. From then on it re-engages on its own cadence with its full
+toolset — checking states, acting (every action still self-verifies), marking
+steps off, and deciding when to check back next. It works **quietly**: progress
+lands in the activity log, not your ears. You hear from it when the goal
+*finishes* — done or failed — with a plain-spoken result, through the normal
+announcement routing (so quiet hours still apply). Ask "what are you working
+on?" anytime for status, or tell it to drop one.
+
+Deadlines are honored honestly: if time runs out, JARVIS wraps up what it can
+and closes the goal rather than pretending. And it can't run away with itself —
+active goals are capped, each goal has an engagement budget, and a hiccup
+mid-run (say the LLM being briefly unreachable) just means it tries again at
+the next check instead of giving up.
+
+This completes the agency ladder: `execute_plan` does many things *now*,
+follow-ups handle one thing *later*, and goals pursue an *outcome* until it's
+real.
+
+## [6.39.0] — JARVIS knows outside from inside
+An audit of how JARVIS classifies the outside world found the biggest remaining
+sources of intrusion false alarms — and one filter from the original design that
+had been sketched but never actually connected. All fixed:
+
+  • **A delivery driver can no longer "confirm" a break-in.** Person detections
+    from OUTDOOR cameras (driveway, doorbell, backyard) no longer count as proof
+    someone is inside the house. Only an indoor camera seeing a person confirms
+    an intrusion; the courier at your door stays a doorstep event.
+  • **Outdoor motion can't start an intrusion investigation.** Previously only a
+    handful of hard-coded names ("backyard", "porch"…) were recognized as
+    outdoor — a sensor called *patio*, *deck*, *shed*, *garden*, *pool*, or
+    *doorbell* was treated as motion **inside your house**. JARVIS now uses a
+    proper classifier: your Home Assistant areas, a much richer set of outdoor
+    names, and — decisively — your own say-so.
+  • **An open yard gate isn't an open house.** Property-perimeter openings (a
+    driveway or side gate) no longer corroborate a break-in the way an open
+    window does. The garage still counts — it's part of the house.
+  • **You get the final word.** Three new settings — `outdoor_areas`,
+    `outdoor_entities`, and `indoor_entities` (globs; indoor wins) — let you
+    force-classify anything the auto-detection gets wrong, no renaming required.
+
+The notable-event policy (a person, package, mail, or damage outdoors is worth
+telling you about; wind, passing cars, and animals are not) is now wired into
+the same classifier, ready for the vision layer to consult.
+
 ## [6.38.0] — JARVIS closes its own loops
 Two upgrades that make JARVIS genuinely agentic — acting across time and
 confirming its own work — instead of only reacting turn by turn:

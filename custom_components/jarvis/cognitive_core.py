@@ -180,33 +180,15 @@ class IgnoreManager:
 
 
 # ── Outdoor Event Filter ────────────────────────────────────────────────────
-
-_NOTABLE_OUTDOOR = {
-    "person": True,       # always notable
-    "vehicle": False,     # only if driveway/property
-    "package": True,
-    "mail": True,
-    "animal": False,      # usually not notable
-    "damage": True,
-}
-
-_OUTDOOR_AREAS = {"backyard", "front_yard", "front_door", "driveway",
-                   "patio", "porch", "side_yard", "deck"}
-
+# The classifier and notable-event policy live in outdoor.py (the single source
+# of truth — the intrusion paths below use it too). Thin delegates kept here for
+# import compatibility.
 
 def is_outdoor_notable(entity_id: str, area_name: str,
                        detection_type: str = "motion") -> bool:
-    """Decide if an outdoor event is worth surfacing."""
-    area_lower = area_name.lower().replace(" ", "_")
-    if area_lower not in _OUTDOOR_AREAS:
-        return False  # Not recognized as outdoor
-
-    # Person in backyard/property = always notable
-    if detection_type in ("person", "package", "mail", "damage"):
-        return True
-
-    # Generic motion outdoors = not notable (wind, animals, cars passing)
-    return False
+    """Decide if an outdoor event is worth surfacing. Delegates to outdoor.py."""
+    from . import outdoor
+    return outdoor.notable(None, entity_id, detection_type, area_name=area_name)
 
 
 # ── Safety Manager ──────────────────────────────────────────────────────────
@@ -330,14 +312,26 @@ class SafetyManager:
 
     def _open_entry(self) -> Optional[str]:
         """The entity_id of an exterior door/window that's currently open — the
-        breach point a real entry would come through. None if all are shut."""
+        breach point a real entry would come through. None if all are shut.
+        Property-perimeter openings (a driveway or side gate, a shed door) are
+        excluded: they aren't the house envelope, and an open yard gate must not
+        turn a curtain-flutter into a corroborated intrusion. The garage IS
+        envelope, so anything garage-named stays in."""
+        from . import outdoor
+
+        def _envelope(st) -> bool:
+            fname = st.attributes.get("friendly_name") or ""
+            if "garage" in (st.entity_id + " " + fname).lower():
+                return True
+            return not outdoor.is_outdoor(self.hass, st.entity_id, fname)
+
         for st in self.hass.states.async_all("binary_sensor"):
             if (st.attributes.get("device_class") in ("door", "window", "garage_door", "opening")
-                    and st.state == "on"):
+                    and st.state == "on" and _envelope(st)):
                 return st.entity_id
         for st in self.hass.states.async_all("cover"):
             if (st.attributes.get("device_class") in ("door", "garage", "garage_door", "gate")
-                    and st.state in ("open", "opening")):
+                    and st.state in ("open", "opening") and _envelope(st)):
                 return st.entity_id
         return None
 
@@ -373,6 +367,7 @@ class SafetyManager:
     def _qualifying_motion(self, sleeping: bool) -> list:
         """Active indoor motion sensors worth considering — skips outdoor
         sensors and (while asleep) bedroom sensors. Returns [(entity_id, name)]."""
+        from . import outdoor
         out = []
         bedroom_areas = self.config.get("bedroom_areas", []) if sleeping else []
         for state in self.hass.states.async_all("binary_sensor"):
@@ -382,24 +377,35 @@ class SafetyManager:
                 continue
             eid = state.entity_id
             fname = (state.attributes.get("friendly_name") or "")
-            if any(kw in eid.lower() or kw in fname.lower() for kw in
-                   ("outdoor", "outside", "backyard", "front_yard", "driveway", "porch")):
+            # Outdoor motion never seeds or spreads an *indoor* intrusion — that
+            # is the outdoor filter's job to surface (if notable), not ours.
+            if outdoor.is_outdoor(self.hass, eid, fname):
                 continue
             if sleeping and bedroom_areas and self._motion_key(eid) in bedroom_areas:
                 continue
             out.append((eid, fname or eid))
         return out
 
-    def _person_on_camera(self) -> bool:
+    def _person_on_camera(self, indoor_only: bool = True) -> bool:
         """Best-effort: a camera reports a person right now (e.g. Frigate's
-        binary_sensor.<cam>_person). A strong intrusion confirmation."""
+        binary_sensor.<cam>_person). With indoor_only (the default, and what
+        intrusion confirmation uses), OUTDOOR cameras are excluded — a delivery
+        driver on the driveway cam is a doorstep event, not proof someone is
+        inside the house."""
+        from . import outdoor
         for st in self.hass.states.async_all("binary_sensor"):
             if st.state != "on":
                 continue
-            low = (st.entity_id + " " + (st.attributes.get("friendly_name") or "")).lower()
-            if "person" in low and st.attributes.get("device_class") in (
+            fname = st.attributes.get("friendly_name") or ""
+            low = (st.entity_id + " " + fname).lower()
+            if "person" not in low:
+                continue
+            if st.attributes.get("device_class") not in (
                     "occupancy", "motion", "presence", None):
-                return True
+                continue
+            if indoor_only and outdoor.is_outdoor(self.hass, st.entity_id, fname):
+                continue
+            return True
         return False
 
     async def _check_intrusion(self, anyone_home: bool,
@@ -1771,6 +1777,15 @@ async def _tick():
             hass, config, runner=_make_followup_runner(hass, config)))
     except Exception as exc:
         _LOGGER.debug("Follow-up tick error: %s", exc)
+
+    # v6.40: Engage due goals — outcomes JARVIS is pursuing across time. Same
+    # headless brain as follow-ups; quiet while working, speaks on completion.
+    try:
+        from . import goals as _goals
+        actions.extend(await _goals.async_process_due(
+            hass, config, runner=_make_followup_runner(hass, config)))
+    except Exception as exc:
+        _LOGGER.debug("Goal tick error: %s", exc)
 
     # Process actions
     for action in actions:

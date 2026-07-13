@@ -171,3 +171,43 @@ async def test_notify_all_falls_back_when_no_devices(cc, fake_hass):
         fake_hass, {"notify_service": "notify.fallback"}, "hi", "intrusion_investigating")
     assert ("notify", "fallback", {"message": "hi", "title": "JARVIS — Security Alert"}) \
         in fake_hass.service_calls
+
+
+# ── v6.39.0: outdoor hardening — the false-alarm guards ──────────────────────
+
+async def test_outdoor_motion_never_seeds_investigation(safety, fake_hass, clock):
+    _away(fake_hass)                                   # away + door open
+    _motion(fake_hass, "binary_sensor.patio_motion")   # outdoor-only motion
+    assert await _intr(safety, fake_hass) == []
+    assert safety._investigation is None
+
+
+async def test_outdoor_camera_person_does_not_confirm(safety, fake_hass, clock):
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.living_motion")
+    await _intr(safety, fake_hass)                     # investigating
+    clock["now"] += 20
+    # a delivery driver on the driveway cam must NOT confirm an intrusion…
+    fake_hass.states.set("binary_sensor.driveway_cam_person", "on",
+                         device_class="occupancy")
+    assert await _intr(safety, fake_hass) == []
+    assert safety._investigation is not None            # still just watching
+    clock["now"] += 10
+    # …but a person on an INDOOR camera confirms immediately.
+    fake_hass.states.set("binary_sensor.hallway_cam_person", "on",
+                         device_class="occupancy")
+    conf = await _intr(safety, fake_hass)
+    assert conf and conf[0]["type"] == "intrusion_confirmed"
+
+
+async def test_open_yard_gate_is_not_a_breach(safety, fake_hass, clock):
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("cover.side_gate", "open", device_class="gate")
+    _motion(fake_hass, "binary_sensor.living_motion")
+    # gate open is property perimeter, not the house envelope → no corroboration
+    assert await _intr(safety, fake_hass) == []
+    assert safety._investigation is None
+    # the garage cover, though, IS envelope and still corroborates
+    fake_hass.states.set("cover.garage_door", "open", device_class="garage")
+    first = await _intr(safety, fake_hass)
+    assert len(first) == 1 and first[0]["type"] == "intrusion_investigating"
