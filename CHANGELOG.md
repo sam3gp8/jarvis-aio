@@ -4,7 +4,24 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
-## [6.41.0] — commands know who; now state changes do too
+## [6.42.0] — the panel catches up
+Two things v6.40 and v6.41 built now have somewhere to show up.
+
+**Goals card** (Command Center): every active goal, with its step progress,
+next-check or deadline countdown, and a cancel button — plus recently
+finished ones for a moment of "oh, it got that done." This existed in the
+backend since the goal planner shipped with no way to see it short of asking
+JARVIS directly.
+
+**Person Routines** (Memory tab): the per-person habits JARVIS has learned
+with enough confidence to attribute to one person by name, grouped and
+confidence-scored, sitting next to the household-wide facts it already showed.
+
+Also fixed along the way: the Suggestions card — live since the pattern
+engine shipped — was silently reading `undefined` for its data the whole
+time. `_data()` normalizes the raw panel payload into a fixed shape and never
+carried the `suggestions` field through, so the card only ever rendered
+empty. Both suggestions and the new goals data go through the same fix.
 Since v6.29, every voice command has been tagged with the resolved person —
 but that signal went nowhere. The pattern analyzer only ever learned
 household-wide habits, and a `person_patterns` table has sat in the schema

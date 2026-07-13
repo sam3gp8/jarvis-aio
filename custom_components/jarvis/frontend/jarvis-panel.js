@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.41.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.42.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -780,6 +780,55 @@ class JarvisPanel extends HTMLElement {
     this._renderKnowledgeList();
   }
 
+  async _fetchPersonRoutines() {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({ type: "jarvis/get_person_routines" });
+      this._personRoutines = { groups: res?.routines || {} };
+    } catch (err) {
+      this._personRoutines = { groups: {}, error: String(err) };
+    }
+    this._personRoutinesLoaded = true;
+    this._renderPersonRoutines();
+  }
+
+  _renderPersonRoutines() {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const list = root.getElementById("proutine-list");
+    if (!list) return;
+    const esc = (s) => String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const groups = this._personRoutines?.groups || {};
+    const people = Object.keys(groups).sort();
+    if (this._personRoutines?.error) {
+      list.innerHTML = `<div class="mem-empty">Couldn't load routines — ${esc(this._personRoutines.error)}</div>`;
+      return;
+    }
+    if (!people.length) {
+      list.innerHTML = this._personRoutinesLoaded
+        ? `<div class="mem-empty">Nothing person-specific learned yet — JARVIS needs a few weeks of sole-occupant data before routines are confidently individual.</div>`
+        : `<div class="mem-empty">Loading…</div>`;
+      return;
+    }
+    list.innerHTML = people.map(person => {
+      const items = groups[person]
+        .slice().sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+        .map(r => {
+          const pct = Math.round((r.confidence || 0) * 100);
+          return `<div class="proutine-item">
+            <div class="proutine-desc">${esc(r.description)}</div>
+            <div class="proutine-meta">
+              <span class="sug-conf"><i style="width:${pct}%"></i></span>
+              <span class="sug-pct">${pct}% · ×${r.occurrences || '?'}</span>
+            </div>
+          </div>`;
+        }).join("");
+      const label = esc(person.replace(/_/g, " ")).replace(/\b\w/g, c => c.toUpperCase());
+      return `<div class="mem-group"><div class="mem-group-head">${label}</div>${items}</div>`;
+    }).join("");
+  }
+
   _renderKnowledgeList() {
     const root = this.shadowRoot;
     if (!root) return;
@@ -972,6 +1021,11 @@ class JarvisPanel extends HTMLElement {
         : [{ ts: "--:--", urgency: "low", tag: "SYSTEM", msg: "No activity yet. Enable announcements or observer to see events here." }],
       config: live.config || {},
       doors: live.doors || {},
+      // v6.42.0: goals card. Also fixes suggestions, which _data() never
+      // carried through from the raw payload — _renderSuggestions(d) has
+      // been reading undefined since it was added.
+      suggestions: live.suggestions || [],
+      goals: live.goals || [],
     };
   }
 
@@ -1324,6 +1378,54 @@ class JarvisPanel extends HTMLElement {
     if (!cams.length) return '<option value="">— no cameras —</option>';
     return cams.map(c =>
       `<option value="${this._esc(c.entity_id)}">${this._esc(c.name)}</option>`).join('');
+  }
+
+  _relTime(iso) {
+    if (!iso) return '';
+    const t = new Date(String(iso).replace(' ', 'T')).getTime();
+    if (isNaN(t)) return '';
+    const diffMin = Math.round((t - Date.now()) / 60000);
+    const abs = Math.abs(diffMin);
+    const unit = abs < 60 ? `${abs}m` : abs < 1440 ? `${Math.round(abs / 60)}h` : `${Math.round(abs / 1440)}d`;
+    return diffMin >= 0 ? `in ${unit}` : `${unit} ago`;
+  }
+
+  _renderGoals(d) {
+    const goals = d.goals || [];
+    if (!goals.length) return '';
+    const STATUS_LABEL = { active: 'ACTIVE', done: 'DONE', failed: 'FAILED', cancelled: 'CANCELLED' };
+    const rows = goals.map(g => {
+      const pct = g.steps_total ? Math.round((g.steps_done / g.steps_total) * 100) : 0;
+      const isActive = g.status === 'active';
+      const when = isActive
+        ? (g.deadline_ts
+            ? `deadline ${this._relTime(g.deadline_ts)}`
+            : `next check ${this._relTime(g.next_check_ts)}`)
+        : this._esc(g.last_result || '');
+      return `<div class="goal goal-${g.status}" data-goal-id="${g.id}">
+        <div class="goal-top">
+          <span class="goal-status-badge">${STATUS_LABEL[g.status] || g.status.toUpperCase()}</span>
+          <span class="goal-title">${this._esc(g.title)}</span>
+          ${isActive ? `<button class="goal-cancel" title="Cancel this goal">✕</button>` : ''}
+        </div>
+        <div class="goal-outcome">${this._esc(g.outcome)}</div>
+        ${g.steps_total ? `
+        <div class="goal-meta">
+          <span class="goal-steps-bar"><i style="width:${pct}%"></i></span>
+          <span class="goal-steps-pct">${g.steps_done}/${g.steps_total} steps</span>
+        </div>` : ''}
+        ${when ? `<div class="goal-when">${when}</div>` : ''}
+      </div>`;
+    }).join('');
+    const activeCount = goals.filter(g => g.status === 'active').length;
+    return `
+      <div class="panel">
+        <div class="head">
+          <span>Goals</span>
+          <span class="side">${activeCount} ACTIVE</span>
+        </div>
+        <div class="goal-list">${rows}</div>
+      </div>`;
   }
 
   _renderSuggestions(d) {
@@ -2132,6 +2234,9 @@ class JarvisPanel extends HTMLElement {
     </div>
   </div>
 
+  <!-- GOALS -->
+  ${this._renderGoals(d)}
+
   <!-- QUICK ACTIONS (dashboard only — full settings in Settings tab) -->
   <div class="panel">
     <div class="head">
@@ -2654,6 +2759,15 @@ class JarvisPanel extends HTMLElement {
       </div>
       <div id="memory-list" class="mem-list"><div class="mem-empty">Loading…</div></div>
     </div>
+
+    <div class="panel">
+      <div class="head">
+        <span>Person Routines</span>
+        <span class="side">LEARNED</span>
+      </div>
+      <div class="mem-sub">Habits JARVIS has confidently attributed to one person, from 30 days of sole-occupant activity — separate from household-wide facts above.</div>
+      <div id="proutine-list" class="mem-list"><div class="mem-empty">Loading…</div></div>
+    </div>
   </div>
   ` : ''}
 
@@ -2711,7 +2825,7 @@ class JarvisPanel extends HTMLElement {
           this._currentTab = newTab;
           this._render();
           if (newTab === "logs") this._fetchDebugLog();
-          if (newTab === "memory") this._fetchKnowledge();
+          if (newTab === "memory") { this._fetchKnowledge(); this._fetchPersonRoutines(); }
         }
       });
     });
@@ -2728,6 +2842,7 @@ class JarvisPanel extends HTMLElement {
       });
       // first paint of the tab renders whatever we already have, then refresh
       this._renderKnowledgeList();
+      this._renderPersonRoutines();
     }
 
     // Log filter buttons
@@ -2833,6 +2948,24 @@ class JarvisPanel extends HTMLElement {
       card.querySelector(".sug-yaml-btn")?.addEventListener("click", () => {
         const pre = card.querySelector(".sug-yaml");
         if (pre) pre.hidden = !pre.hidden;
+      });
+    });
+
+    // Goals: cancel an active goal
+    this.shadowRoot.querySelectorAll(".goal-cancel").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        const card = e.currentTarget.closest(".goal");
+        const gid = parseInt(card?.getAttribute("data-goal-id"), 10);
+        if (!this._hass || isNaN(gid)) return;
+        e.currentTarget.disabled = true;
+        try {
+          await this._hass.callWS({ type: "jarvis/goal_action", goal_id: gid, action: "cancel" });
+          this._toast("✓ goal cancelled", "ok");
+          await this._fetchLiveData();
+        } catch (err) {
+          this._toast(`✗ cancel — ${err?.message || err}`, "err");
+          e.currentTarget.disabled = false;
+        }
       });
     });
 
@@ -4958,6 +5091,52 @@ class JarvisPanel extends HTMLElement {
     user-select: text;
   }
 
+  /* GOALS */
+  .goal-list { display: flex; flex-direction: column; gap: 8px; }
+  .goal {
+    background: rgba(0, 242, 254, 0.025);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--cyan-dim);
+    border-radius: 6px; padding: 9px 10px;
+  }
+  .goal-done      { border-left-color: var(--green); opacity: 0.7; }
+  .goal-failed    { border-left-color: var(--red); opacity: 0.7; }
+  .goal-cancelled { border-left-color: var(--text-dim); opacity: 0.5; }
+  .goal-top { display: flex; align-items: center; gap: 8px; }
+  .goal-status-badge {
+    font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.1em;
+    color: var(--cyan-dim); border: 1px solid var(--line-hot); border-radius: 3px;
+    padding: 1px 5px; white-space: nowrap;
+  }
+  .goal-done .goal-status-badge      { color: var(--green); border-color: rgba(0,245,160,0.35); }
+  .goal-failed .goal-status-badge    { color: #ff8a9d; border-color: rgba(255,77,109,0.3); }
+  .goal-cancelled .goal-status-badge { color: var(--text-dim); }
+  .goal-title { flex: 1; font-size: 11.5px; color: var(--text); font-weight: 600; }
+  .goal-cancel {
+    font-family: var(--font-mono); font-size: 9px; line-height: 1;
+    padding: 3px 6px; border-radius: 4px; cursor: pointer;
+    background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+  }
+  .goal-cancel:hover { border-color: var(--red); color: var(--red); }
+  .goal-outcome { font-size: 10.5px; color: var(--text-dim); line-height: 1.4; margin-top: 4px; }
+  .goal-meta { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+  .goal-steps-bar {
+    flex: 1; height: 3px; background: rgba(0, 242, 254, 0.12);
+    border-radius: 2px; overflow: hidden;
+  }
+  .goal-steps-bar i { display: block; height: 100%; background: var(--cyan-dim); box-shadow: 0 0 6px var(--cyan-glow); }
+  .goal-steps-pct { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); white-space: nowrap; }
+  .goal-when { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); margin-top: 6px; letter-spacing: 0.04em; }
+
+  /* PERSON ROUTINES (reuses .sug-conf / .mem-group styling) */
+  .proutine-item {
+    padding: 6px 0; border-top: 1px dashed var(--line);
+  }
+  .mem-group .proutine-item:first-of-type { border-top: none; }
+  .proutine-desc { font-size: 11px; color: var(--text); line-height: 1.45; }
+  .proutine-meta { display: flex; align-items: center; gap: 7px; margin-top: 5px; }
+
+
   /* LOCAL LLM URL */
   .llm-url-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
   .llm-url-label {
@@ -5363,7 +5542,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.41.0 ",
+  "%c JARVIS Panel %c v6.42.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

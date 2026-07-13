@@ -61,6 +61,8 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get_cognitive_status)
         websocket_api.async_register_command(hass, ws_list_models)
         websocket_api.async_register_command(hass, ws_suggestion_action)
+        websocket_api.async_register_command(hass, ws_goal_action)
+        websocket_api.async_register_command(hass, ws_get_person_routines)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -543,8 +545,10 @@ async def ws_get_panel_data(
             "doorbell_training": _get_doorbell_training(),
             "doors":          _get_door_states(hass),
             "lockdown":       _get_lockdown_status(),
-            "intrusion":      _get_intrusion_status(),            "knowledge":      _get_knowledge_stats(),
+            "intrusion":      _get_intrusion_status(),
+            "knowledge":      _get_knowledge_stats(),
             "suggestions":    _get_suggestions(),
+            "goals":          _get_goals(),
             "config": {
                 "announcements_enabled": announcements_on,
                 "sentinel_enabled": sentinel_on,
@@ -676,6 +680,56 @@ def _get_suggestions() -> list[dict]:
         return out
     except Exception:
         return []
+
+
+def _get_goals() -> list[dict]:
+    """Active + recently closed goals, panel-shaped. Never raises."""
+    try:
+        from . import goals
+        out = []
+        for g in goals.recent(limit=20):
+            steps = g.get("steps") or []
+            done = sum(1 for s in steps if s.get("status") == "done")
+            out.append({
+                "id": g.get("id"),
+                "title": g.get("title", ""),
+                "outcome": g.get("outcome", ""),
+                "status": g.get("status", "active"),
+                "steps_done": done,
+                "steps_total": len(steps),
+                "steps": steps,
+                "next_check_ts": g.get("next_check_ts", ""),
+                "deadline_ts": g.get("deadline_ts"),
+                "last_result": g.get("last_result", ""),
+                "updated_ts": g.get("updated_ts", ""),
+            })
+        return out
+    except Exception:
+        return []
+
+
+def _get_person_routines() -> dict:
+    """Per-person learned routines from the pattern engine, grouped by
+    person for the Memory panel. Never raises."""
+    try:
+        from .pattern_analyzer import get_analyzer
+        rows = get_analyzer().get_person_patterns()
+        grouped: dict[str, list[dict]] = {}
+        for r in rows:
+            person = r.get("person", "")
+            if not person:
+                continue
+            grouped.setdefault(person, []).append({
+                "id": r.get("id"),
+                "pattern_type": r.get("pattern_type", ""),
+                "description": r.get("description", ""),
+                "confidence": round(float(r.get("confidence", 0) or 0), 2),
+                "occurrences": r.get("occurrences", 0),
+                "last_seen": r.get("last_seen", ""),
+            })
+        return grouped
+    except Exception:
+        return {}
 
 
 def _get_sentinel_rules() -> list[dict]:
@@ -1559,3 +1613,45 @@ async def ws_suggestion_action(
     except Exception as exc:
         _LOGGER.exception("ws_suggestion_action failed: %s", exc)
         connection.send_error(msg["id"], "suggestion_action_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/goal_action",
+    vol.Required("goal_id"): int,
+    vol.Required("action"): vol.In(["cancel"]),
+})
+@websocket_api.async_response
+async def ws_goal_action(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Cancel an active goal from the panel. (Only 'cancel' today — goals
+    otherwise close themselves via the headless runner.)"""
+    try:
+        from . import goals
+        gid = int(msg["goal_id"])
+        ok = await hass.async_add_executor_job(goals.cancel, gid)
+        jarvis_log("LEARN", f"Goal #{gid} cancelled from panel (ok={ok})")
+        connection.send_result(msg["id"], {"ok": bool(ok), "goals": _get_goals()})
+    except Exception as exc:
+        _LOGGER.exception("ws_goal_action failed: %s", exc)
+        connection.send_error(msg["id"], "goal_action_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/get_person_routines",
+})
+@websocket_api.async_response
+async def ws_get_person_routines(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Per-person learned routines, grouped by person, for the Memory panel."""
+    try:
+        routines = await hass.async_add_executor_job(_get_person_routines)
+        connection.send_result(msg["id"], {"routines": routines})
+    except Exception as exc:
+        _LOGGER.exception("get_person_routines failed: %s", exc)
+        connection.send_error(msg["id"], "person_routines_failed", str(exc))

@@ -172,6 +172,21 @@ def due(*, now: Optional[datetime] = None,
         return []
 
 
+def recent(*, limit: int = 20, db_path: Optional[str] = None) -> list[dict]:
+    """All goals regardless of status (active + done/failed/cancelled),
+    most recently updated first — the panel's history view. active() only
+    ever returns active ones, which can't show what JARVIS just finished."""
+    db_path = db_path or DB_PATH
+    try:
+        with _connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM goals ORDER BY datetime(updated_ts) DESC LIMIT ?",
+                (max(1, min(int(limit), 100)),)).fetchall()
+            return [_row_to_goal(r) for r in rows]
+    except Exception:
+        return []
+
+
 def update(goal_id: int, *, step_updates: Optional[list] = None,
            next_check_minutes: Optional[float] = None,
            status: Optional[str] = None, result: Optional[str] = None,

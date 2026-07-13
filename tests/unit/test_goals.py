@@ -80,6 +80,27 @@ def test_missing_db_graceful(goals):
     assert goals.get(1, db_path="/nope/p.db") is None
     assert goals.active(db_path="/nope/p.db") == []
     assert goals.cancel(1, db_path="/nope/p.db") is False
+    assert goals.recent(db_path="/nope/p.db") == []
+
+
+def test_recent_includes_all_statuses_newest_first(goals):
+    gid1 = _mk(goals, title="first")["id"]
+    goals.update(gid1, status="done", result="ok", now=NOW)
+    gid2 = _mk(goals, title="second", now=NOW + timedelta(minutes=5))["id"]
+    goals.update(gid2, status="failed", result="nope", now=NOW + timedelta(minutes=10))
+    gid3 = _mk(goals, title="third", now=NOW + timedelta(minutes=20))["id"]  # stays active
+
+    rows = goals.recent()
+    ids = [r["id"] for r in rows]
+    assert ids == [gid3, gid2, gid1]                    # newest updated_ts first
+    statuses = {r["id"]: r["status"] for r in rows}
+    assert statuses == {gid1: "done", gid2: "failed", gid3: "active"}
+
+
+def test_recent_respects_limit(goals):
+    for i in range(5):
+        _mk(goals, title=f"g{i}", now=NOW + timedelta(minutes=i))
+    assert len(goals.recent(limit=2)) == 2
 
 
 # ── the goal prompt ──────────────────────────────────────────────────────────

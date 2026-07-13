@@ -36,6 +36,14 @@ const PANEL = {
     { id: "kitchen", name: "Kitchen", caps: ["sat", "spkr"], active: false, bedroom: false, lights_on: 0, lights_total: 0 },
   ],
   config: { cameras: [{ entity_id: "camera.front", name: "Front Door" }, { entity_id: "camera.back", name: "Backyard" }], lockdown: { active: false } },
+  goals: [
+    { id: 1, title: "Guest prep", outcome: "House ready for guests by Saturday", status: "active",
+      steps_done: 2, steps_total: 4, steps: [], next_check_ts: "2026-07-13T20:00:00", deadline_ts: null,
+      last_result: "", updated_ts: "2026-07-13T19:00:00" },
+    { id: 2, title: "Warm living room", outcome: "Living room at 72°", status: "done",
+      steps_done: 1, steps_total: 1, steps: [], next_check_ts: "", deadline_ts: null,
+      last_result: "Reached 72°, sir.", updated_ts: "2026-07-13T18:00:00" },
+  ],
 };
 const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } } },
@@ -43,6 +51,10 @@ const hass = {
     if (m.type === "jarvis/get_panel_data") return PANEL;
     if (m.type === "jarvis/get_activity_log") return { entries: [{ ts: "08:59", urgency: "low", tag: "OBS", msg: "event" }] };
     if (m.type === "jarvis/get_cognitive_status") return { learning: { days_of_data: 48, state_changes: 217802, commands: 93, suggestions: 0 }, ignore_rules: 0 };
+    if (m.type === "jarvis/get_person_routines") return { routines: { sam: [
+      { id: 1, pattern_type: "time_routine", description: "office light turns on around 07:00 most days when Sam is home", confidence: 0.82, occurrences: 9, last_seen: "2026-07-13" },
+    ] } };
+    if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     return {};
   },
   connection: { subscribeEvents: async () => () => {} },
@@ -53,7 +65,7 @@ const el = window.document.createElement("jarvis-panel");
 window.document.body.appendChild(el);
 el.hass = hass;
 
-setTimeout(() => {
+setTimeout(async () => {
   const sr = el.shadowRoot, html = sr.innerHTML;
   const checks = [
     // ── Command Center tab (default) ──
@@ -67,6 +79,12 @@ setTimeout(() => {
     ["live MJPEG src wired with token", !!(sr.querySelector("#cam-feed img") && /camera_proxy_stream\/camera\.front\?token=tok123/.test(sr.querySelector("#cam-feed img").src))],
     ["camera native aspect (height:auto, no object-fit)", /\.cam-feed img\s*\{[^}]*height:\s*auto/.test(html) && !/\.cam-feed img\s*\{[^}]*object-fit/.test(html)],
     ["system status rows live (RUNNING)", /RUNNING/.test(html)],
+    ["Goals panel present", !!sr.querySelector(".goal-list")],
+    ["both goals rendered", sr.querySelectorAll(".goal").length === 2],
+    ["active goal has cancel button, done goal doesn't",
+      !!sr.querySelector('.goal-active .goal-cancel') && !sr.querySelector('.goal-done .goal-cancel')],
+    ["done goal shows status badge", /DONE/.test(sr.querySelector(".goal-done .goal-status-badge")?.textContent || "")],
+    ["active goal shows step progress (2/4)", /2\/4/.test(sr.querySelector(".goal-active .goal-steps-pct")?.textContent || "")],
   ];
 
   // ── switch to Residence tab and re-check ──
@@ -93,6 +111,18 @@ setTimeout(() => {
   checks.push(
     ["floor isolation draws labeled rooms (1F)", el.shadowRoot.querySelectorAll("#res-iso svg text").length >= 6],
     ["floor isolation keeps garage room", /GARAGE/.test(el.shadowRoot.querySelector("#res-iso svg")?.textContent || "")]
+  );
+
+  // ── switch to Memory tab: person routines fetch + render ──
+  el._currentTab = "memory";
+  el._render();
+  await el._fetchPersonRoutines();
+  const mem = el.shadowRoot;
+  checks.push(
+    ["Person Routines panel present", !!mem.getElementById("proutine-list")],
+    ["person group rendered (Sam)", /Sam/.test(mem.getElementById("proutine-list")?.textContent || "")],
+    ["routine description rendered", /office light turns on/.test(mem.getElementById("proutine-list")?.textContent || "")],
+    ["confidence bar rendered (82%)", /82%/.test(mem.getElementById("proutine-list")?.textContent || "")],
   );
 
   let ok = true;
