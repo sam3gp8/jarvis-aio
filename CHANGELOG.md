@@ -4,6 +4,30 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.46.3] — the black-frame case, cracked by DIAG
+First live DIAG run told the whole story in three lines: `nest×2` (the
+integration is fine), `state=streaming`, and "snapshot: **OK 2KB (13ms)**"
+— declared a success. A real camera frame is tens of KB and takes hundreds
+of ms; a 2KB instant response is a placeholder thumbnail. Meanwhile the
+tile sat in MJPEG mode because the stream *decodes* — a steady all-black
+feed — so `naturalWidth > 0` stood the watchdog down. Every tier reported
+victory while delivering garbage. Fixes on both ends:
+
+**Server**: a first-pass snapshot under 12KB (`SMALL_SUSPECT_SIZE`) is now
+treated as a placeholder even when it isn't literally black — the stream
+gets woken and re-shot for a real frame, with the tiny one kept only as a
+last resort. The DIAG probe reports luminance stats (`lum μ σ W×H`) on
+every frame it sees and calls out SUSPECT sizes instead of declaring
+victory, so the next screenshot self-diagnoses.
+
+**Panel**: the watchdog and the load-listener are now content-aware — a
+decoded frame only proves a tier works if it isn't near-black (mean
+luminance sampled via a 32×32 canvas; unverifiable frames get the benefit
+of the doubt). A black MJPEG stream now escalates exactly like a dead one.
+DIAG gains a **TILE** line reporting the client half of the story: render
+mode, decoded dimensions, and the current frame's luminance — including an
+explicit "BLACK STREAM (decodes fine, shows nothing)" verdict.
+
 ## [6.46.2] — stop guessing: camera diagnostics
 Three versions of fixing blank Nest tiles blind is enough. The Camera
 Watch head gains a **DIAG** button that probes the active camera

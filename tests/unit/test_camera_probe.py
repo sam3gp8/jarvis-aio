@@ -14,7 +14,8 @@ def _img(content: bytes):
     return types.SimpleNamespace(content=content)
 
 
-GOOD = b"\xff\xd8" + b"\x7f" * 8000   # > MIN_IMAGE_SIZE
+GOOD = b"\xff\xd8" + b"\x7f" * 20_000   # > SMALL_SUSPECT_SIZE — a real frame
+TINY = b"\xff\xd8" + b"\x7f" * 2_500    # placeholder-sized, non-blank
 
 
 async def test_probe_missing_entity(cam, fake_hass):
@@ -112,3 +113,81 @@ async def test_probe_blank_then_wake_recovers(cam, fake_hass, monkeypatch):
     tiers = dict(out["tiers"])
     assert "BLANK" in tiers["snapshot"]
     assert tiers["wake-retry"].startswith("OK")
+
+
+# ── v6.46.3: tiny "successful" frames are placeholders, not victories ────────
+
+async def test_probe_tiny_frame_is_suspect_then_wake_recovers(cam, fake_hass, monkeypatch):
+    fake_hass.states.set("camera.tiny", "streaming")
+    monkeypatch.setattr(cam, "find_backend", lambda h, e: None)
+    monkeypatch.setattr(cam, "_looks_blank", lambda b: False)
+
+    calls = {"n": 0}
+    async def _get(hass, eid, timeout=10):
+        calls["n"] += 1
+        return _img(TINY if calls["n"] == 1 else GOOD)
+    monkeypatch.setattr(cam, "camera_get_image", _get)
+
+    async def _warm(hass, eid, settle=2.5):
+        return True
+    monkeypatch.setattr(cam, "_prewarm_stream", _warm)
+
+    out = await cam.probe_camera(fake_hass, "camera.tiny")
+    tiers = dict(out["tiers"])
+    assert "SUSPECT" in tiers["snapshot"]           # not declared a win
+    assert tiers["wake-retry"].startswith("OK")
+    assert out["verdict"] == "frames available after stream wake (slow path)"
+
+
+async def test_probe_tiny_frame_wake_no_better_placeholder_verdict(cam, fake_hass, monkeypatch):
+    fake_hass.states.set("camera.tiny2", "streaming")
+    monkeypatch.setattr(cam, "find_backend", lambda h, e: None)
+    monkeypatch.setattr(cam, "_looks_blank", lambda b: False)
+
+    async def _get(hass, eid, timeout=10):
+        return _img(TINY)
+    monkeypatch.setattr(cam, "camera_get_image", _get)
+
+    async def _warm(hass, eid, settle=2.5):
+        return True
+    monkeypatch.setattr(cam, "_prewarm_stream", _warm)
+
+    out = await cam.probe_camera(fake_hass, "camera.tiny2")
+    assert "placeholder-sized" in out["verdict"]
+
+
+async def test_get_best_image_wakes_on_tiny_and_prefers_real_frame(cam, fake_hass, monkeypatch):
+    monkeypatch.setattr(cam, "find_backend", lambda h, e: None)
+    monkeypatch.setattr(cam, "_looks_blank", lambda b: False)
+
+    calls = {"n": 0}
+    async def _get(hass, eid, timeout=10):
+        calls["n"] += 1
+        return _img(TINY if calls["n"] == 1 else GOOD)
+    monkeypatch.setattr(cam, "camera_get_image", _get)
+
+    woke = {"v": False}
+    async def _warm(hass, eid, settle=2.5):
+        woke["v"] = True
+        return True
+    monkeypatch.setattr(cam, "_prewarm_stream", _warm)
+
+    out = await cam._get_best_image(fake_hass, "camera.tiny3")
+    assert woke["v"] is True          # tiny first frame forced the wake
+    assert out == GOOD                # and the real frame won
+
+
+async def test_get_best_image_keeps_tiny_as_last_resort(cam, fake_hass, monkeypatch):
+    monkeypatch.setattr(cam, "find_backend", lambda h, e: None)
+    monkeypatch.setattr(cam, "_looks_blank", lambda b: False)
+
+    async def _get(hass, eid, timeout=10):
+        return _img(TINY)
+    monkeypatch.setattr(cam, "camera_get_image", _get)
+
+    async def _warm(hass, eid, settle=2.5):
+        return True
+    monkeypatch.setattr(cam, "_prewarm_stream", _warm)
+
+    out = await cam._get_best_image(fake_hass, "camera.tiny4")
+    assert out == TINY                # tiny beats None

@@ -250,6 +250,7 @@ setTimeout(async () => {
     ["DIAG overlay renders platform histogram", /nest×1/.test(diagText) && /frigate×1/.test(diagText)],
     ["DIAG shows per-tier verdicts", /backend:nest/.test(diagText) && /wake-retry/.test(diagText)],
     ["DIAG surfaces the actionable Nest verdict", /Pub\/Sub/.test(diagText)],
+    ["DIAG TILE line reports client-side render state", /TILE/.test(diagText) && /no decoded pixels/.test(diagText)],
   );
   el.shadowRoot.getElementById("cam-diag-btn")?.click();   // toggle off
   checks.push(

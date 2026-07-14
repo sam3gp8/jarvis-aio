@@ -393,6 +393,18 @@ async def _prewarm_stream(hass: HomeAssistant, entity_id: str, settle: float = 2
     return False
 
 
+def frame_stats(jpeg_bytes: bytes) -> Optional[tuple]:
+    """(mean_luma, stddev_luma, width, height) or None if Pillow can't read it."""
+    try:
+        import io
+        from PIL import Image, ImageStat
+        img = Image.open(io.BytesIO(jpeg_bytes)).convert("L")
+        stat = ImageStat.Stat(img)
+        return (stat.mean[0], stat.stddev[0], img.width, img.height)
+    except Exception:
+        return None
+
+
 def _looks_blank(jpeg_bytes: bytes) -> bool:
     """
     Best-effort detection of a near-uniform black frame — what an idle Nest
@@ -401,14 +413,17 @@ def _looks_blank(jpeg_bytes: bytes) -> bool:
     conservative so a genuinely dark night scene (which still has sensor noise
     / variance) is NOT treated as blank.
     """
-    try:
-        import io
-        from PIL import Image, ImageStat
-        img = Image.open(io.BytesIO(jpeg_bytes)).convert("L")
-        stat = ImageStat.Stat(img)
-        return stat.mean[0] < 12 and stat.stddev[0] < 8
-    except Exception:
+    s = frame_stats(jpeg_bytes)
+    if s is None:
         return False
+    mean, std = s[0], s[1]
+    return mean < 12 and std < 8
+
+
+# A "successful" snapshot this small from a streaming camera is a placeholder
+# thumbnail or filler, not a real frame (v6.46.3 — diagnosed from a live 2KB
+# / 13ms "OK" that rendered as a black tile). Real frames are tens of KB.
+SMALL_SUSPECT_SIZE = 12_000
 
 
 async def probe_camera(hass: HomeAssistant, entity_id: str) -> dict:
@@ -471,16 +486,24 @@ async def probe_camera(hass: HomeAssistant, entity_id: str) -> dict:
 
     # Tier 2 — standard HA snapshot
     image = None
+    tiny_first = None
     try:
         image = await camera_get_image(hass, entity_id, timeout=8)
         c = image.content if (image and image.content) else b""
+        fs = frame_stats(c)
+        lum = f" · lum μ{fs[0]:.0f} σ{fs[1]:.0f} {fs[2]}×{fs[3]}" if fs else ""
         if len(c) <= MIN_IMAGE_SIZE:
             out["tiers"].append(["snapshot", f"too small ({len(c)}B)"])
         elif _looks_blank(c):
-            out["tiers"].append(["snapshot", f"BLANK frame ({len(c)//1024}KB) — "
+            out["tiers"].append(["snapshot", f"BLANK frame ({len(c)//1024}KB{lum}) — "
                                              "camera idle, black filler"])
+        elif len(c) <= SMALL_SUSPECT_SIZE:
+            tiny_first = c
+            out["tiers"].append(["snapshot",
+                                 f"SUSPECT: only {len(c)//1024}KB{lum} — placeholder-"
+                                 "sized, not a real frame; trying stream wake"])
         else:
-            out["tiers"].append(["snapshot", f"OK {len(c)//1024}KB"])
+            out["tiers"].append(["snapshot", f"OK {len(c)//1024}KB{lum}"])
             out["verdict"] = "frames available via standard snapshot"
             out["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
             return out
@@ -492,15 +515,25 @@ async def probe_camera(hass: HomeAssistant, entity_id: str) -> dict:
         await _prewarm_stream(hass, entity_id)
         image = await camera_get_image(hass, entity_id, timeout=10)
         c = image.content if (image and image.content) else b""
-        if len(c) > MIN_IMAGE_SIZE and not _looks_blank(c):
-            out["tiers"].append(["wake-retry", f"OK {len(c)//1024}KB"])
+        fs = frame_stats(c)
+        lum = f" · lum μ{fs[0]:.0f} σ{fs[1]:.0f} {fs[2]}×{fs[3]}" if fs else ""
+        if len(c) > MIN_IMAGE_SIZE and not _looks_blank(c) and \
+                (not tiny_first or len(c) > len(tiny_first)):
+            out["tiers"].append(["wake-retry", f"OK {len(c)//1024}KB{lum}"])
             out["verdict"] = "frames available after stream wake (slow path)"
+        elif tiny_first:
+            out["tiers"].append(["wake-retry", f"no better ({len(c)}B{lum})"])
+            out["verdict"] = ("only a placeholder-sized frame available — the "
+                              "camera/HA is serving a thumbnail, not real video. "
+                              + _no_frame_verdict(out))
         else:
-            out["tiers"].append(["wake-retry", f"still unusable ({len(c)}B)"])
+            out["tiers"].append(["wake-retry", f"still unusable ({len(c)}B{lum})"])
             out["verdict"] = _no_frame_verdict(out)
     except Exception as exc:
         out["tiers"].append(["wake-retry", f"error: {type(exc).__name__}: {exc}"])
-        out["verdict"] = _no_frame_verdict(out)
+        out["verdict"] = (("only a placeholder-sized frame available. "
+                           + _no_frame_verdict(out)) if tiny_first
+                          else _no_frame_verdict(out))
 
     out["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
     return out
@@ -547,9 +580,13 @@ async def _get_best_image(hass: HomeAssistant, entity_id: str) -> Optional[bytes
 
     # 2. Standard HA snapshot. On-demand streams (Nest WebRTC) return black when
     #    idle, so: grab → if blank/too-small, wake the stream and retry once.
-    def _usable(img) -> Optional[bytes]:
+    # v6.46.3: a first-pass frame under SMALL_SUSPECT_SIZE is treated as a
+    # placeholder even when not literally black (live diagnosis: 2KB/13ms
+    # "OK" frames rendering as black tiles) — wake and retry for a real one,
+    # keeping the tiny frame only as a last resort.
+    def _usable(img, min_size=MIN_IMAGE_SIZE) -> Optional[bytes]:
         c = img.content if (img and img.content) else b""
-        if len(c) > MIN_IMAGE_SIZE and not _looks_blank(c):
+        if len(c) > min_size and not _looks_blank(c):
             return c
         return None
 
@@ -559,20 +596,26 @@ async def _get_best_image(hass: HomeAssistant, entity_id: str) -> Optional[bytes
     except Exception as exc:
         _LOGGER.debug("JARVIS: first snapshot attempt failed for %s: %s", entity_id, exc)
 
-    good = _usable(image) if image else None
+    good = _usable(image, min_size=SMALL_SUSPECT_SIZE) if image else None
     if good:
         return good
+    tiny_first = _usable(image) if image else None   # small-but-nonblank fallback
 
-    # Blank, empty, or errored — wake the on-demand stream and try once more.
+    # Blank, empty, tiny, or errored — wake the on-demand stream, try once more.
     _LOGGER.info(
-        "JARVIS: %s snapshot blank/empty — waking stream and retrying", entity_id,
+        "JARVIS: %s snapshot blank/tiny/empty — waking stream and retrying", entity_id,
     )
     await _prewarm_stream(hass, entity_id)
     try:
         image = await camera_get_image(hass, entity_id, timeout=15)
         good = _usable(image) if image else None
-        if good:
+        if good and (not tiny_first or len(good) > len(tiny_first)):
             return good
+        if tiny_first:
+            _LOGGER.debug(
+                "JARVIS: %s wake retry no better — returning tiny first frame "
+                "(%dB, likely placeholder)", entity_id, len(tiny_first))
+            return tiny_first
         # Still unusable. Returning a black frame makes the vision model
         # hallucinate "obstructed", so signal a clean failure instead.
         size = len(image.content) if (image and image.content) else 0
