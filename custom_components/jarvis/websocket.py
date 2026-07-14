@@ -1722,6 +1722,20 @@ async def ws_suggestion_action(
         connection.send_error(msg["id"], "suggestion_action_failed", str(exc))
 
 
+_SNAP_LOG_TS: dict[str, float] = {}
+
+
+def _snap_log(entity_id: str, msg: str) -> None:
+    """CAMERA-log a snapshot failure at most once per 5 min per entity —
+    the panel polls this tier every 6s, and a broken camera shouldn't
+    flood the log while still leaving a visible trail."""
+    now = time.time()
+    if now - _SNAP_LOG_TS.get(entity_id, 0) < 300:
+        return
+    _SNAP_LOG_TS[entity_id] = now
+    jarvis_log("CAMERA", f"{entity_id} snapshot: {msg}")
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/camera_snapshot",
     vol.Required("entity_id"): str,
@@ -1746,6 +1760,9 @@ async def ws_camera_snapshot(
         from . import camera as cam
         img = await cam._get_best_image(hass, entity_id)
         if not img:
+            _snap_log(entity_id,
+                      "no frame — backend and proxy paths all empty "
+                      "(Nest: check integration is loaded and events enabled)")
             connection.send_result(msg["id"], {"image": None})
             return
         img = cam._downscale_jpeg(img, 960)
@@ -1753,6 +1770,7 @@ async def ws_camera_snapshot(
             msg["id"], {"image": base64.b64encode(img).decode()})
     except Exception as exc:
         _LOGGER.debug("camera_snapshot failed for %s: %s", entity_id, exc)
+        _snap_log(entity_id, f"error — {exc}")
         connection.send_error(msg["id"], "snapshot_failed", str(exc))
 
 

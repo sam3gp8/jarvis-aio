@@ -4,6 +4,26 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.46.1] — the fallback chain learns about hangs
+6.46.0's camera escalation was driven entirely by `<img>` error events —
+and the most common Nest failure mode fires none. HA's proxy endpoints
+often HANG for a WebRTC camera (HTTP 200, connection held open, zero
+frames ever sent) while it tries to start a stream that will never
+produce one. No error event → no escalation → tile still blank.
+
+A no-frame watchdog now backs up the error path: if no decoded pixels
+arrive within the window (6s stream / 5s stills — checked via
+`naturalWidth`), the tier escalates exactly as an error would have. A
+frame arriving stands the watchdog down.
+
+Also fixed a self-inflicted diagnosis gap: the JARVIS snapshot tier
+swallowed WS errors silently. If the command doesn't exist — the classic
+case being HA not restarted after updating — the tile now says
+"restart Home Assistant" instead of showing nothing. Other WS errors
+render their message. Server-side, empty or failed snapshot fetches now
+write a CAMERA line to the activity log (throttled to one per entity per
+5 min) so the Logs tab answers "why is there no frame" directly.
+
 ## [6.46.0] — Nest cameras visible, phantom packages gone
 Two long-standing camera complaints, both traced to real bugs.
 

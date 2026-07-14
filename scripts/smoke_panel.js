@@ -196,6 +196,35 @@ setTimeout(async () => {
     ["resolved tier remembered per entity", el._camModeByEntity["camera.front"] === "jarvis"],
   );
 
+  // ── watchdog: proxies that HANG (no error event) still escalate ──
+  el._camMode = "stream";
+  delete el._camModeByEntity["camera.front"];
+  el._armCamWatchdog("camera.front", camImg, "stream", 5);
+  await new Promise(r => setTimeout(r, 25));
+  checks.push(
+    ["hung stream (no pixels, no error) watchdogs into stills", el._camMode === "still"],
+  );
+  el._armCamWatchdog("camera.front", camImg, "still", 5);
+  await new Promise(r => setTimeout(r, 25));
+  checks.push(
+    ["hung stills watchdog into JARVIS tier", el._camMode === "jarvis"],
+  );
+
+  // ── WS failure (e.g. HA not restarted) surfaces a hint, not silence ──
+  const realCallWS = hass.callWS;
+  hass.callWS = async (m) => {
+    if (m.type === "jarvis/camera_snapshot") throw new Error("unknown command jarvis/camera_snapshot");
+    return realCallWS(m);
+  };
+  el._camWsTimer && clearInterval(el._camWsTimer); el._camWsTimer = null;
+  el._camJarvisFallback("camera.front");
+  await new Promise(r => setTimeout(r, 20));
+  hass.callWS = realCallWS;
+  checks.push(
+    ["WS-unavailable shows restart hint instead of blank", /restart Home Assistant/i.test(
+      el.shadowRoot.querySelector("#cam-feed .cam-none")?.textContent || "")],
+  );
+
   // ── switch to Memory tab: person routines fetch + render ──
   el._currentTab = "memory";
   el._render();
