@@ -4,6 +4,26 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.46.2] — stop guessing: camera diagnostics
+Three versions of fixing blank Nest tiles blind is enough. The Camera
+Watch head gains a **DIAG** button that probes the active camera
+end-to-end — the exact tiers `_get_best_image` walks, instrumented:
+backend match and fetch (with *why* it was empty), standard snapshot
+(including the blank-frame check), and the stream-wake retry, each with
+its result and the whole thing timed. The verdict is actionable — a Nest
+camera failing every tier gets told about event media and Pub/Sub
+subscriptions, not just "no frame" — and is also written to the Logs tab.
+
+The probe response always includes a platform histogram of every camera
+entity HA has, which answers the question underneath all of this in one
+glance: **if `nest×N` isn't in that list, the Google Nest integration
+isn't delivering camera entities to HA at all**, and no amount of
+JARVIS-side code can render what HA doesn't have.
+
+New: `jarvis/camera_diagnostics` WS command, `camera.probe_camera()`
+(kept tier-for-tier in sync with `_get_best_image`), 6 unit tests, 5
+panel smoke checks.
+
 ## [6.46.1] — the fallback chain learns about hangs
 6.46.0's camera escalation was driven entirely by `<img>` error events —
 and the most common Nest failure mode fires none. HA's proxy endpoints

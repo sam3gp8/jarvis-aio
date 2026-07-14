@@ -67,7 +67,8 @@ def _install_ha_stubs() -> None:
 
     er = types.ModuleType("homeassistant.helpers.entity_registry")
     dr = types.ModuleType("homeassistant.helpers.device_registry")
-    er.async_get = lambda hass: types.SimpleNamespace(entities={})
+    er.async_get = lambda hass: types.SimpleNamespace(
+        entities={}, async_get=lambda eid: None)
     dr.async_get = lambda hass: types.SimpleNamespace(devices={})
     ac = types.ModuleType("homeassistant.helpers.aiohttp_client")
     ac.async_get_clientsession = lambda hass: None

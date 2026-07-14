@@ -65,6 +65,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get_person_routines)
         websocket_api.async_register_command(hass, ws_get_area_sparklines)
         websocket_api.async_register_command(hass, ws_camera_snapshot)
+        websocket_api.async_register_command(hass, ws_camera_diagnostics)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1772,6 +1773,61 @@ async def ws_camera_snapshot(
         _LOGGER.debug("camera_snapshot failed for %s: %s", entity_id, exc)
         _snap_log(entity_id, f"error — {exc}")
         connection.send_error(msg["id"], "snapshot_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/camera_diagnostics",
+    vol.Optional("entity_id"): str,
+})
+@websocket_api.async_response
+async def ws_camera_diagnostics(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """End-to-end probe of one camera's frame sources, plus a platform
+    summary of every camera entity HA has — answers both "why is this tile
+    blank" and "do my Nest entities even exist" in one call (v6.46.2)."""
+    import asyncio as _aio
+    try:
+        summary = []
+        platforms: dict[str, int] = {}
+        try:
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(hass)
+        except Exception:
+            reg = None
+        for st in hass.states.async_all("camera"):
+            plat = None
+            if reg:
+                try:
+                    e = reg.async_get(st.entity_id)
+                    plat = e.platform if e else None
+                except Exception:
+                    plat = None
+            platforms[plat or "?"] = platforms.get(plat or "?", 0) + 1
+            summary.append({"entity_id": st.entity_id,
+                            "state": st.state, "platform": plat})
+
+        probe = None
+        entity_id = msg.get("entity_id")
+        if entity_id:
+            from . import camera as cam
+            try:
+                probe = await _aio.wait_for(
+                    cam.probe_camera(hass, str(entity_id)), timeout=30)
+            except _aio.TimeoutError:
+                probe = {"entity_id": entity_id, "tiers": [],
+                         "verdict": "probe timed out after 30s "
+                                    "(stream wake hanging?)"}
+            jarvis_log("CAMERA", f"diag {entity_id}: {probe.get('verdict', '?')}")
+
+        connection.send_result(msg["id"], {
+            "summary": summary, "platforms": platforms, "probe": probe,
+        })
+    except Exception as exc:
+        _LOGGER.exception("camera_diagnostics failed: %s", exc)
+        connection.send_error(msg["id"], "camera_diag_failed", str(exc))
 
 
 @websocket_api.websocket_command({

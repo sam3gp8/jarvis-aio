@@ -411,6 +411,111 @@ def _looks_blank(jpeg_bytes: bytes) -> bool:
         return False
 
 
+async def probe_camera(hass: HomeAssistant, entity_id: str) -> dict:
+    """
+    Diagnostic mirror of _get_best_image: walks the same tiers but reports
+    WHAT happened at each — backend match, backend fetch, standard snapshot,
+    blank check, stream-wake retry — with reasons and timings. Built for the
+    panel's camera DIAG button (v6.46.2), after three rounds of debugging
+    blank Nest tiles blind. Keep the tier order in sync with _get_best_image.
+    """
+    import time as _t
+    t0 = _t.monotonic()
+    out: dict = {"entity_id": entity_id, "tiers": []}
+
+    st = hass.states.get(entity_id)
+    out["state"] = st.state if st else "MISSING"
+    out["available"] = bool(st) and st.state != "unavailable"
+    attrs = (st.attributes if st else {}) or {}
+    out["attrs"] = {
+        "brand": attrs.get("brand"), "model": attrs.get("model_name"),
+        "supported_features": attrs.get("supported_features"),
+        "frontend_stream_type": str(attrs.get("frontend_stream_type") or ""),
+    }
+    try:
+        reg = er.async_get(hass)
+        entry = reg.async_get(entity_id)
+        out["platform"] = entry.platform if entry else None
+    except Exception:
+        out["platform"] = None
+
+    if not out["available"]:
+        out["verdict"] = ("entity missing from HA" if not st
+                          else "entity UNAVAILABLE in HA — fix the source "
+                               "integration first (nothing JARVIS can fetch)")
+        out["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
+        return out
+
+    # Tier 1 — specialised backend
+    backend = None
+    try:
+        backend = find_backend(hass, entity_id)
+    except Exception as exc:
+        out["tiers"].append(["backend-match", f"error: {exc}"])
+    if backend:
+        try:
+            data = await backend.fetch_best_image(hass, entity_id, _EVENT_CACHE)
+            if data:
+                out["tiers"].append([f"backend:{backend.name}", f"OK {len(data)//1024}KB"])
+                out["verdict"] = f"frames available via {backend.name} backend"
+                out["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
+                return out
+            cached = _EVENT_CACHE.get(entity_id)
+            out["tiers"].append([f"backend:{backend.name}",
+                                 "no image — no recent event media cached"
+                                 if not cached else "no image — cached event unusable"])
+        except Exception as exc:
+            out["tiers"].append([f"backend:{backend.name}", f"error: {exc}"])
+    else:
+        out["tiers"].append(["backend-match", "none (generic camera path)"])
+
+    # Tier 2 — standard HA snapshot
+    image = None
+    try:
+        image = await camera_get_image(hass, entity_id, timeout=8)
+        c = image.content if (image and image.content) else b""
+        if len(c) <= MIN_IMAGE_SIZE:
+            out["tiers"].append(["snapshot", f"too small ({len(c)}B)"])
+        elif _looks_blank(c):
+            out["tiers"].append(["snapshot", f"BLANK frame ({len(c)//1024}KB) — "
+                                             "camera idle, black filler"])
+        else:
+            out["tiers"].append(["snapshot", f"OK {len(c)//1024}KB"])
+            out["verdict"] = "frames available via standard snapshot"
+            out["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
+            return out
+    except Exception as exc:
+        out["tiers"].append(["snapshot", f"error: {type(exc).__name__}: {exc}"])
+
+    # Tier 3 — wake the on-demand stream, retry once
+    try:
+        await _prewarm_stream(hass, entity_id)
+        image = await camera_get_image(hass, entity_id, timeout=10)
+        c = image.content if (image and image.content) else b""
+        if len(c) > MIN_IMAGE_SIZE and not _looks_blank(c):
+            out["tiers"].append(["wake-retry", f"OK {len(c)//1024}KB"])
+            out["verdict"] = "frames available after stream wake (slow path)"
+        else:
+            out["tiers"].append(["wake-retry", f"still unusable ({len(c)}B)"])
+            out["verdict"] = _no_frame_verdict(out)
+    except Exception as exc:
+        out["tiers"].append(["wake-retry", f"error: {type(exc).__name__}: {exc}"])
+        out["verdict"] = _no_frame_verdict(out)
+
+    out["elapsed_ms"] = int((_t.monotonic() - t0) * 1000)
+    return out
+
+
+def _no_frame_verdict(out: dict) -> str:
+    if out.get("platform") == "nest":
+        return ("NO FRAME from any tier. Nest cameras only yield event media "
+                "after a motion/doorbell event, and WebRTC-only models can't "
+                "snapshot while idle — walk in front of it, then probe again. "
+                "If that still fails, check the Google Nest integration's "
+                "event subscriptions (Pub/Sub).")
+    return "NO FRAME from any tier — check the camera's source integration."
+
+
 async def _get_best_image(hass: HomeAssistant, entity_id: str) -> Optional[bytes]:
     """
     Try the best source for this camera type, fall back to standard snapshot.

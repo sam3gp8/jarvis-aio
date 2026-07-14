@@ -64,6 +64,21 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
+    if (m.type === "jarvis/camera_diagnostics") return {
+      summary: [{ entity_id: "camera.front", state: "idle", platform: "nest" }],
+      platforms: { nest: 1, frigate: 1 },
+      probe: {
+        entity_id: "camera.front", state: "idle", platform: "nest",
+        attrs: { frontend_stream_type: "web_rtc" },
+        tiers: [
+          ["backend:nest", "no image — no recent event media cached"],
+          ["snapshot", "error: HomeAssistantError: stream unavailable"],
+          ["wake-retry", "still unusable (0B)"],
+        ],
+        verdict: "NO FRAME from any tier. Nest cameras only yield event media after a motion/doorbell event — check Pub/Sub.",
+        elapsed_ms: 4210,
+      },
+    };
     if (m.type === "jarvis/get_area_sparklines") return { sparklines: {
       garage: { temp: [64, 65, 66, 67, 68, 68, 67, 68], humidity: [50, 50, 51, 52, 51, 51, 50, 51] },
     } };
@@ -223,6 +238,22 @@ setTimeout(async () => {
   checks.push(
     ["WS-unavailable shows restart hint instead of blank", /restart Home Assistant/i.test(
       el.shadowRoot.querySelector("#cam-feed .cam-none")?.textContent || "")],
+  );
+
+  // ── camera diagnostics: DIAG button probes and renders verdicts ──
+  el.shadowRoot.getElementById("cam-diag-btn")?.click();
+  await new Promise(r => setTimeout(r, 20));
+  const diag = el.shadowRoot.querySelector("#cam-feed .cam-diag");
+  const diagText = diag?.textContent || "";
+  checks.push(
+    ["DIAG button present in Camera Watch head", !!el.shadowRoot.getElementById("cam-diag-btn")],
+    ["DIAG overlay renders platform histogram", /nest×1/.test(diagText) && /frigate×1/.test(diagText)],
+    ["DIAG shows per-tier verdicts", /backend:nest/.test(diagText) && /wake-retry/.test(diagText)],
+    ["DIAG surfaces the actionable Nest verdict", /Pub\/Sub/.test(diagText)],
+  );
+  el.shadowRoot.getElementById("cam-diag-btn")?.click();   // toggle off
+  checks.push(
+    ["DIAG toggles closed on second tap", !el.shadowRoot.querySelector("#cam-feed .cam-diag")],
   );
 
   // ── switch to Memory tab: person routines fetch + render ──
