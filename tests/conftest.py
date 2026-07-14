@@ -42,12 +42,19 @@ def _install_ha_stubs() -> None:
             self.state = state
             self.attributes = attributes or {}
 
+    class ServiceCall:  # type reference only (camera.py annotations)
+        def __init__(self, domain="", service="", data=None):
+            self.domain = domain
+            self.service = service
+            self.data = data or {}
+
     def callback(func):
         return func
 
     core.HomeAssistant = HomeAssistant
     core.Event = Event
     core.State = State
+    core.ServiceCall = ServiceCall
     core.callback = callback
 
     dt = types.ModuleType("homeassistant.util.dt")
@@ -62,12 +69,26 @@ def _install_ha_stubs() -> None:
     dr = types.ModuleType("homeassistant.helpers.device_registry")
     er.async_get = lambda hass: types.SimpleNamespace(entities={})
     dr.async_get = lambda hass: types.SimpleNamespace(devices={})
+    ac = types.ModuleType("homeassistant.helpers.aiohttp_client")
+    ac.async_get_clientsession = lambda hass: None
+    net = types.ModuleType("homeassistant.helpers.network")
+    net.get_url = lambda hass, **kw: "http://127.0.0.1:8123"
     helpers = types.ModuleType("homeassistant.helpers")
     helpers.entity_registry = er
     helpers.device_registry = dr
+    helpers.aiohttp_client = ac
+    helpers.network = net
 
     cfg = types.ModuleType("homeassistant.config_entries")
     cfg.ConfigEntry = type("ConfigEntry", (), {})
+
+    components = types.ModuleType("homeassistant.components")
+    comp_camera = types.ModuleType("homeassistant.components.camera")
+
+    async def _stub_get_image(hass, entity_id, timeout=10):
+        return None
+    comp_camera.async_get_image = _stub_get_image
+    components.camera = comp_camera
 
     const = types.ModuleType("homeassistant.const")
     const.__getattr__ = lambda name: name  # any HA const → its own name
@@ -84,8 +105,12 @@ def _install_ha_stubs() -> None:
         "homeassistant.helpers": helpers,
         "homeassistant.helpers.entity_registry": er,
         "homeassistant.helpers.device_registry": dr,
+        "homeassistant.helpers.aiohttp_client": ac,
+        "homeassistant.helpers.network": net,
         "homeassistant.config_entries": cfg,
         "homeassistant.const": const,
+        "homeassistant.components": components,
+        "homeassistant.components.camera": comp_camera,
     }.items():
         sys.modules[name] = mod
 

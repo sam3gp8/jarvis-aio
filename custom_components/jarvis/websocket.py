@@ -64,6 +64,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_goal_action)
         websocket_api.async_register_command(hass, ws_get_person_routines)
         websocket_api.async_register_command(hass, ws_get_area_sparklines)
+        websocket_api.async_register_command(hass, ws_camera_snapshot)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1719,6 +1720,40 @@ async def ws_suggestion_action(
     except Exception as exc:
         _LOGGER.exception("ws_suggestion_action failed: %s", exc)
         connection.send_error(msg["id"], "suggestion_action_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/camera_snapshot",
+    vol.Required("entity_id"): str,
+})
+@websocket_api.async_response
+async def ws_camera_snapshot(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """A frame via JARVIS's camera backend registry (Nest event media,
+    Frigate snapshot, stream-wake). The panel's last-resort tile source for
+    cameras where /api/camera_proxy* fails — WebRTC-only Nest cams have no
+    MJPEG stream and can't produce stills while idle, so both proxy tiers
+    404 and the tile went permanently blank (v6.46.0)."""
+    import base64
+    entity_id = str(msg["entity_id"])
+    try:
+        if not hass.states.get(entity_id) or not entity_id.startswith("camera."):
+            connection.send_error(msg["id"], "unknown_camera", entity_id)
+            return
+        from . import camera as cam
+        img = await cam._get_best_image(hass, entity_id)
+        if not img:
+            connection.send_result(msg["id"], {"image": None})
+            return
+        img = cam._downscale_jpeg(img, 960)
+        connection.send_result(
+            msg["id"], {"image": base64.b64encode(img).decode()})
+    except Exception as exc:
+        _LOGGER.debug("camera_snapshot failed for %s: %s", entity_id, exc)
+        connection.send_error(msg["id"], "snapshot_failed", str(exc))
 
 
 @websocket_api.websocket_command({

@@ -4,6 +4,40 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.46.0] — Nest cameras visible, phantom packages gone
+Two long-standing camera complaints, both traced to real bugs.
+
+**Nest tiles were permanently blank.** The panel's fallback was
+stream → stills, but WebRTC-only Nest cameras fail *both* — no MJPEG
+stream exists, and an idle WebRTC camera can't produce stills through
+`/api/camera_proxy` — leaving the tile in a silent error loop. The chain
+now escalates a third time to a new `jarvis/camera_snapshot` WS command
+that pulls frames through JARVIS's own backend registry (Nest event media,
+stream-wake), polling gently at 6s. A camera that resolves to this tier is
+remembered, so re-renders jump straight there instead of blank-flashing
+through two 404s. If even JARVIS can't get a frame, the tile now *says so*
+with a pointer at the Nest integration rather than showing nothing.
+
+**"A package has been delivered" — when none was.** Three compounding
+causes, all fixed:
+  • The doorbell-press path matched keywords with no negation handling —
+    an analysis reading "person at the door, **no package** visible"
+    literally contains "package" and announced a delivery. Negated spans
+    (including "no packages or mail" chains) are now stripped first.
+  • Backend-sourced frames (Nest event media, Frigate snapshots) skipped
+    the blank-frame check that guards the standard snapshot path — a black
+    wake-up frame fed to a vision model is a hallucination machine. Blank
+    frames are now dropped before classification.
+  • A single frame could announce an arrival. A NEW positive now triggers
+    one immediate re-capture + re-classify, and only two independent
+    frames agreeing announce — one extra vision call, only when an
+    announcement is on the line. Pickups still register from one frame.
+
+Also: README gains a proper "Nest cameras (prerequisite)" section — the
+Google Device Access / SDM / Application Credentials setup lives on the
+official Nest integration, which JARVIS consumes; that's the only path
+Google's licensing allows, now documented instead of tribal knowledge.
+
 ## [6.45.2] — hassfest gets its way
 The 6.45.1 push tripped hassfest on four counts, all now fixed:
 

@@ -63,6 +63,7 @@ const hass = {
       { id: 1, pattern_type: "time_routine", description: "office light turns on around 07:00 most days when Sam is home", confidence: 0.82, occurrences: 9, last_seen: "2026-07-13" },
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
+    if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
     if (m.type === "jarvis/get_area_sparklines") return { sparklines: {
       garage: { temp: [64, 65, 66, 67, 68, 68, 67, 68], humidity: [50, 50, 51, 52, 51, 51, 50, 51] },
     } };
@@ -176,6 +177,23 @@ setTimeout(async () => {
   checks.push(
     ["floor isolation draws labeled rooms (1F)", el.shadowRoot.querySelectorAll("#res-iso svg text").length >= 6],
     ["floor isolation keeps garage room", /GARAGE/.test(el.shadowRoot.querySelector("#res-iso svg")?.textContent || "")]
+  );
+
+  // ── camera fallback chain: stream → still → JARVIS WS snapshot ──
+  el._currentTab = "dashboard";   // the floor-plan section above leaves us on residence
+  el._render();
+  const camImg = el.shadowRoot.querySelector("#cam-feed img");
+  camImg.dispatchEvent(new window.Event("error"));       // MJPEG failed
+  checks.push(
+    ["cam error #1 falls back to proxy stills", el._camMode === "still"
+      && /camera_proxy\/camera\.front/.test(camImg.src)],
+  );
+  camImg.dispatchEvent(new window.Event("error"));       // stills failed too
+  await new Promise(r => setTimeout(r, 20));             // let the WS shot resolve
+  checks.push(
+    ["cam error #2 escalates to JARVIS snapshot tier", el._camMode === "jarvis"],
+    ["JARVIS tier renders the WS frame as a data URL", /^data:image\/jpeg;base64,/.test(camImg.src)],
+    ["resolved tier remembered per entity", el._camModeByEntity["camera.front"] === "jarvis"],
   );
 
   // ── switch to Memory tab: person routines fetch + render ──

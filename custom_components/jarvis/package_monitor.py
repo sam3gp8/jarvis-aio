@@ -40,6 +40,24 @@ _MAIL_KEYWORDS = re.compile(
     r"\b(mail|letter|letters|envelope|envelopes|mailman|mail\s*carrier|"
     r"postal|postman|post)\b", re.I,
 )
+# Negated mentions — "no package visible", "not carrying a delivery",
+# "without any boxes", "no sign of packages or mail" — must not count as
+# sightings. The doorbell analysis text frequently *rules out* deliveries in
+# exactly these words, which raw keyword matching turned into false
+# "package delivered" announcements. Strip negated spans (including
+# or/and-connected chains) before keyword matching.
+_DELIVERY_WORD = (
+    r"(?:package|packages|parcel|parcels|box|boxes|delivery|deliveries|"
+    r"mail|letter|letters|envelope|envelopes)\w*"
+)
+_NEGATION = re.compile(
+    r"\b(?:no|not|without|isn'?t|aren'?t|doesn'?t|don'?t|nor|zero|none of|"
+    r"no sign of|no signs of|nobody|no one)\b"
+    r"(?:\s+\w+){0,3}?\s+"
+    + _DELIVERY_WORD
+    + r"(?:\s*(?:,|\bor\b|\band\b|\bnor\b)\s*" + _DELIVERY_WORD + r")*",
+    re.I,
+)
 
 _PKG_PROMPT = (
     "You are inspecting a still frame from a doorway / front-porch security "
@@ -85,11 +103,14 @@ def _parse_detection(text: str) -> Optional[dict]:
 
 def detection_from_text(text: str) -> dict:
     """Keyword-based detection from an existing free-text analysis (e.g. the
-    doorbell-press description). A cheap reuse — no extra vision call."""
-    has_pkg = bool(_PKG_KEYWORDS.search(text or ""))
+    doorbell-press description). A cheap reuse — no extra vision call.
+    Negated mentions ("no package visible") are stripped first, so text that
+    rules a delivery OUT can never announce one (v6.46.0)."""
+    cleaned = _NEGATION.sub(" ", text or "")
+    has_pkg = bool(_PKG_KEYWORDS.search(cleaned))
     return {
         "package": has_pkg,
-        "mail": bool(_MAIL_KEYWORDS.search(text or "")),
+        "mail": bool(_MAIL_KEYWORDS.search(cleaned)),
         "count": 1 if has_pkg else 0,
         "description": "",
     }
@@ -102,6 +123,16 @@ async def detect_on_camera(hass, groq_client, entity_id: str) -> Optional[dict]:
     img = await cam._get_best_image(hass, entity_id)
     if not img:
         return None
+    # v6.46.0: backend-sourced images (Nest event media, Frigate snapshots)
+    # bypass the blank check the standard-snapshot path applies. A black
+    # wake-up frame or corrupt event thumbnail fed to the vision model is a
+    # classic hallucinated-package source — classify nothing instead.
+    try:
+        if cam._looks_blank(img):
+            _LOGGER.debug("JARVIS package: blank frame from %s — skipping", entity_id)
+            return None
+    except Exception:
+        pass
     img = cam._downscale_jpeg(img)
     provider = cam._cfg_opt(hass, "vision_provider", "groq") or "groq"
     model = cam._cfg_opt(hass, "vision_model", cam.VISION_MODEL) or cam.VISION_MODEL
@@ -270,6 +301,23 @@ async def evaluate(hass, groq_client, honorific, tts_entity, speakers,
     return spoke
 
 
+def _confirm_transitions(prev: dict, det: dict, det2: Optional[dict]) -> dict:
+    """A flag newly flipping True (would announce) must be confirmed by the
+    second look; unconfirmed new positives are dropped for this cycle.
+    Established state and negative transitions pass through untouched —
+    pickups still register from a single frame."""
+    out = dict(det)
+    for flag in ("package", "mail"):
+        if det.get(flag) and not prev.get(flag):
+            if not (det2 and det2.get(flag)):
+                out[flag] = False
+                if flag == "package":
+                    out["count"] = 0
+    if out.get("package") and det2 and det2.get("package"):
+        out["count"] = max(int(det.get("count") or 1), int(det2.get("count") or 1))
+    return out
+
+
 async def periodic_check(hass, groq_client, honorific, tts_entity, speakers,
                          configured_camera=None) -> dict:
     """Inspect each watched camera once. Skipped during quiet hours (nothing is
@@ -282,6 +330,15 @@ async def periodic_check(hass, groq_client, honorific, tts_entity, speakers,
         det = await detect_on_camera(hass, groq_client, entity_id)
         if det is None:
             continue
+        # v6.46.0: a NEW positive gets one immediate re-capture + re-classify
+        # before it can announce. Two independent frames agreeing kills the
+        # single-frame hallucination class outright, at the cost of one extra
+        # vision call only when an announcement is on the line.
+        prev = _STATE.get(entity_id, {"package": False, "mail": False})
+        if (det.get("package") and not prev.get("package")) or \
+           (det.get("mail") and not prev.get("mail")):
+            det2 = await detect_on_camera(hass, groq_client, entity_id)
+            det = _confirm_transitions(prev, det, det2)
         await evaluate(hass, groq_client, honorific, tts_entity, speakers,
                        entity_id, det, source="periodic")
         checked += 1

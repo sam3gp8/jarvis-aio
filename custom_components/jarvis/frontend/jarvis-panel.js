@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.45.2 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.46.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -508,7 +508,7 @@ class JarvisPanel extends HTMLElement {
     this._knowledge = { facts: [], stats: {} }; // curated memory tab state
     this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
-    this._logSearch = "";          // log text search (v6.45.2)
+    this._logSearch = "";          // log text search (v6.46.0)
     this._lastLogSearch = null;
     this._activitySearch = "";     // dashboard activity feed search (v6.43.x)
     this._currentFloor = "all";     // floor plan tab — 3D default shows all
@@ -534,16 +534,19 @@ class JarvisPanel extends HTMLElement {
     this._camStillTimer = null;
     this._camSubs = [];
     this._lastCamKey = "";         // entity|token of the attached stream
-    // Real-time entity subscriptions (v6.45.2) — a native state_changed feed
+    this._camMode = "stream";      // stream → still → jarvis (v6.46.0 fallback chain)
+    this._camModeByEntity = {};    // remembered resolved mode, skips re-escalation
+    this._camWsTimer = null;       // WS-snapshot poll for cams both proxies fail on
+    // Real-time entity subscriptions (v6.46.0) — a native state_changed feed
     // that triggers a fast, throttled refresh instead of waiting on the poll.
     this._stateSubs = [];
     this._lastRealtimeFetch = 0;
     this._realtimeTrailing = null;
-    // Sparklines (v6.45.2) — slow-polled separately from live data since
+    // Sparklines (v6.46.0) — slow-polled separately from live data since
     // recorder history queries are heavier than the rest of the payload.
     this._sparklines = {};
     this._sparklineInterval = null;
-    // Area drill-down (v6.45.2) — id of the area currently expanded, or null.
+    // Area drill-down (v6.46.0) — id of the area currently expanded, or null.
     this._expandedArea = null;
   }
 
@@ -622,6 +625,7 @@ class JarvisPanel extends HTMLElement {
     if (this._fetchInterval)    { clearInterval(this._fetchInterval);    this._fetchInterval = null; }
     if (this._camFocusTimer)    { clearTimeout(this._camFocusTimer);     this._camFocusTimer = null; }
     if (this._camStillTimer)    { clearInterval(this._camStillTimer);    this._camStillTimer = null; }
+    if (this._camWsTimer)       { clearInterval(this._camWsTimer);       this._camWsTimer = null; }
     if (this._realtimeTrailing) { clearTimeout(this._realtimeTrailing);  this._realtimeTrailing = null; }
     if (this._sparklineInterval) { clearInterval(this._sparklineInterval); this._sparklineInterval = null; }
     this._camSubs.forEach(u => { try { u && u(); } catch (_) {} });
@@ -1079,7 +1083,7 @@ class JarvisPanel extends HTMLElement {
         : [{ ts: "--:--", urgency: "low", tag: "SYSTEM", msg: "No activity yet. Enable announcements or observer to see events here." }],
       config: live.config || {},
       doors: live.doors || {},
-      // v6.45.2: goals card. Also fixes suggestions, which _data() never
+      // v6.46.0: goals card. Also fixes suggestions, which _data() never
       // carried through from the raw payload — _renderSuggestions(d) has
       // been reading undefined since it was added.
       suggestions: live.suggestions || [],
@@ -2271,7 +2275,7 @@ class JarvisPanel extends HTMLElement {
              <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
            </button>`
         : '';
-      // v6.45.2: temp/humidity readout + sparkline, when the area has a sensor.
+      // v6.46.0: temp/humidity readout + sparkline, when the area has a sensor.
       const spark = this._sparklines?.[a.id] || {};
       const tempSpark = spark.temp ? this._sparklineSvg(spark.temp, 'var(--cyan-dim)') : '';
       const humSpark = spark.humidity ? this._sparklineSvg(spark.humidity, 'var(--green)') : '';
@@ -3820,14 +3824,30 @@ class JarvisPanel extends HTMLElement {
     const key = entity + "|" + (tok || "");
     if (key !== this._lastCamKey) {
       this._lastCamKey = key;
+      this._camMode = "stream";
+      if (this._camWsTimer) { clearInterval(this._camWsTimer); this._camWsTimer = null; }
       feed.querySelector(".cam-none")?.remove();
       let img = feed.querySelector("img");
-      if (!img) { img = document.createElement("img"); feed.prepend(img); img.addEventListener("error", () => this._camFallback(entity)); }
+      if (!img) {
+        img = document.createElement("img");
+        feed.prepend(img);
+        // Escalating fallback chain (v6.46.0): MJPEG stream → proxy stills →
+        // JARVIS backend snapshot. WebRTC-only Nest cams fail BOTH proxy
+        // tiers (no MJPEG; no stills while idle), which used to leave the
+        // tile blank in an error loop.
+        img.addEventListener("error", () => {
+          if (this._camMode === "stream") this._camFallback(entity);
+          else if (this._camMode === "still") this._camJarvisFallback(entity);
+        });
+      }
       img.src = tok
         ? `/api/camera_proxy_stream/${entity}?token=${encodeURIComponent(tok)}`
         : `/api/camera_proxy_stream/${entity}`;
+      // A camera that already escalated to the JARVIS tier will fail both
+      // proxy tiers again — skip the blank-flash and go straight there.
+      if (this._camModeByEntity[entity] === "jarvis") this._camJarvisFallback(entity);
     }
-    if (stripEl) {
+    if (stripEl && this._camMode !== "jarvis") {
       const tgt = this._camFocus && this._camFocus.entity === entity && this._camFocus.conf != null
         ? `${(this._camFocus.label || 'OBJECT').toUpperCase()} [${this._camFocus.conf}%]` : "STREAMING";
       stripEl.innerHTML = `<span>SRC <b>${this._esc(entity.split(".").pop())}</b></span><span>MJPEG</span><span>TARGET <b>${this._esc(tgt)}</b></span>`;
@@ -3837,6 +3857,7 @@ class JarvisPanel extends HTMLElement {
   _camFallback(entity) {
     // Nest/WebRTC cameras may not serve MJPEG — fall back to a refreshed still.
     if (entity !== this._activeCam) return;
+    this._camMode = "still";
     const feed = this.shadowRoot?.getElementById("cam-feed");
     const img = feed && feed.querySelector("img");
     if (!img) return;
@@ -3844,6 +3865,39 @@ class JarvisPanel extends HTMLElement {
     const still = () => { img.src = `/api/camera_proxy/${entity}?token=${encodeURIComponent(tok || "")}&_=${Date.now()}`; };
     still();
     if (!this._camStillTimer) this._camStillTimer = setInterval(() => { if (this._activeCam === entity) still(); }, 2000);
+  }
+
+  _camJarvisFallback(entity) {
+    // Last tier: frames through JARVIS's backend registry (Nest event media,
+    // stream-wake) over WS. Slower cadence — stream-wake isn't free.
+    if (entity !== this._activeCam) return;
+    this._camMode = "jarvis";
+    this._camModeByEntity[entity] = "jarvis";
+    if (this._camStillTimer) { clearInterval(this._camStillTimer); this._camStillTimer = null; }
+    const feed = this.shadowRoot?.getElementById("cam-feed");
+    const img = feed && feed.querySelector("img");
+    if (!img || !this._hass) return;
+    const strip = this.shadowRoot?.querySelector("#cam-strip");
+    if (strip) strip.innerHTML = `<span>SRC <b>${this._esc(entity.split(".").pop())}</b></span><span>JARVIS SNAPSHOT</span>`;
+    const shot = async () => {
+      if (this._activeCam !== entity || this._camMode !== "jarvis") return;
+      try {
+        const res = await this._hass.callWS({ type: "jarvis/camera_snapshot", entity_id: entity });
+        if (res?.image) {
+          feed.querySelector(".cam-none")?.remove();
+          img.style.display = "";
+          img.src = `data:image/jpeg;base64,${res.image}`;
+        } else if (!feed.querySelector(".cam-none")) {
+          img.style.display = "none";
+          const d = document.createElement("div");
+          d.className = "cam-none";
+          d.textContent = "NO FRAME — camera idle or unreachable. For Nest: verify the Google Nest integration is loaded and events are enabled.";
+          feed.appendChild(d);
+        }
+      } catch (_) { /* keep trying on the interval */ }
+    };
+    shot();
+    if (!this._camWsTimer) this._camWsTimer = setInterval(shot, 6000);
   }
 
   _selectCam(entity) {
@@ -4823,7 +4877,7 @@ class JarvisPanel extends HTMLElement {
   .h3d-lamp.static { cursor: default; }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
-  /* AREA READINGS + SPARKLINES (v6.45.2) */
+  /* AREA READINGS + SPARKLINES (v6.46.0) */
   .area-readings { display: flex; gap: 10px; flex-wrap: wrap; }
   .area-reading {
     display: inline-flex; align-items: center; gap: 5px;
@@ -4831,7 +4885,7 @@ class JarvisPanel extends HTMLElement {
   }
   .spark { width: 44px; height: 14px; flex-shrink: 0; opacity: 0.85; }
 
-  /* AREA DETAIL DRILL-DOWN (v6.45.2) */
+  /* AREA DETAIL DRILL-DOWN (v6.46.0) */
   .area-detail-overlay {
     position: fixed; inset: 0; z-index: 40;
     background: rgba(2, 6, 10, 0.75);
@@ -5893,7 +5947,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.45.2 ",
+  "%c JARVIS Panel %c v6.46.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
