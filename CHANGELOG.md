@@ -4,6 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.47.0] — camera_overrides: let the restream do the work
+The durable fix for Nest's expiring streams and placeholder snapshots
+isn't more heuristics — it's not using Google's transport for frames at
+all. The community-standard architecture is a go2rtc restream (Frigate
+bundles one): go2rtc's native `nest:` source speaks SDM directly, handles
+the 5-minute stream extension, and republishes solid RTSP that HA and
+JARVIS consume like any local camera.
+
+JARVIS now meets that halfway with one runtime key:
+
+    camera_overrides: { "camera.eliana_s_camera": "camera.eliana_restream" }
+
+The original entity keeps its identity everywhere — chips, names, doorbell
+events, Nest event metadata — while every FRAME transparently comes from
+the twin: the panel tile (stream URL, token, stills), the JARVIS snapshot
+tier, the package monitor, vision analysis, all via one server-side
+`resolve_camera_source()` mirrored client-side. The cam strip shows the
+mapping (`SRC eliana_s_camera → eliana_restream`), DIAG probes and labels
+the actual source, and a missing/typo'd target safely falls back to the
+original. 3 new smoke checks, 3 new unit tests.
+
 ## [6.46.3] — the black-frame case, cracked by DIAG
 First live DIAG run told the whole story in three lines: `nest×2` (the
 integration is fine), `state=streaming`, and "snapshot: **OK 2KB (13ms)**"

@@ -362,6 +362,17 @@ def _get_satellites(hass: HomeAssistant) -> list[dict]:
     return satellites
 
 
+def _get_camera_overrides() -> dict:
+    """The camera_overrides runtime map (original → frame source), for the
+    panel to mirror server-side source resolution (v6.47.0). Never raises."""
+    try:
+        from . import jarvis_config
+        ov = jarvis_config.get("camera_overrides", {}) or {}
+        return {str(k): str(v) for k, v in ov.items()} if isinstance(ov, dict) else {}
+    except Exception:
+        return {}
+
+
 def _get_cameras(hass: HomeAssistant) -> list[dict]:
     """Return list of camera entities for the diagnostics camera-review picker."""
     cams = []
@@ -605,6 +616,7 @@ async def ws_get_panel_data(
                 "satellites": _get_satellites(hass),
                 "cast_devices": _get_cast_devices(hass),
                 "cameras": _get_cameras(hass),
+                "camera_overrides": _get_camera_overrides(),
                 "satellite_pairings": _get_runtime_json(hass, entry, "satellite_pairings", {}),
                 "announcement_speakers": _get_runtime_json(hass, entry, "announcement_speakers", []),
                 "floor_plan_rooms": _get_runtime_json(hass, entry, "floor_plan_rooms", {}),

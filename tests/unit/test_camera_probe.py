@@ -191,3 +191,53 @@ async def test_get_best_image_keeps_tiny_as_last_resort(cam, fake_hass, monkeypa
 
     out = await cam._get_best_image(fake_hass, "camera.tiny4")
     assert out == TINY                # tiny beats None
+
+
+# ── v6.47.0: camera_overrides — restream twins take over frame duty ─────────
+
+def _set_overrides(load, monkeypatch, mapping):
+    jcfg = load("jarvis_config")
+    monkeypatch.setattr(jcfg, "get",
+                        lambda key, default=None: mapping if key == "camera_overrides" else default)
+
+
+async def test_override_redirects_frame_fetch(cam, fake_hass, load, monkeypatch):
+    fake_hass.states.set("camera.nest_orig", "streaming")
+    fake_hass.states.set("camera.restream_twin", "streaming")
+    _set_overrides(load, monkeypatch, {"camera.nest_orig": "camera.restream_twin"})
+    monkeypatch.setattr(cam, "find_backend", lambda h, e: None)
+    monkeypatch.setattr(cam, "_looks_blank", lambda b: False)
+
+    seen = []
+    async def _get(hass, eid, timeout=10):
+        seen.append(eid)
+        return _img(GOOD if eid == "camera.restream_twin" else TINY)
+    monkeypatch.setattr(cam, "camera_get_image", _get)
+
+    out = await cam._get_best_image(fake_hass, "camera.nest_orig")
+    assert out == GOOD
+    assert seen == ["camera.restream_twin"]   # never touched the nest path
+
+
+async def test_override_missing_target_falls_back(cam, fake_hass, load, monkeypatch):
+    fake_hass.states.set("camera.nest_orig2", "streaming")
+    _set_overrides(load, monkeypatch, {"camera.nest_orig2": "camera.ghost_twin"})
+    assert cam.resolve_camera_source(fake_hass, "camera.nest_orig2") == "camera.nest_orig2"
+
+
+async def test_probe_reports_override(cam, fake_hass, load, monkeypatch):
+    fake_hass.states.set("camera.nest_orig3", "streaming")
+    fake_hass.states.set("camera.twin3", "streaming")
+    _set_overrides(load, monkeypatch, {"camera.nest_orig3": "camera.twin3"})
+    monkeypatch.setattr(cam, "find_backend", lambda h, e: None)
+    monkeypatch.setattr(cam, "_looks_blank", lambda b: False)
+
+    async def _get(hass, eid, timeout=10):
+        return _img(GOOD)
+    monkeypatch.setattr(cam, "camera_get_image", _get)
+
+    out = await cam.probe_camera(fake_hass, "camera.nest_orig3")
+    assert out["override"] == "camera.twin3"
+    tiers = dict(out["tiers"])
+    assert "camera.twin3" in tiers["override"]
+    assert out["verdict"] == "frames available via standard snapshot"

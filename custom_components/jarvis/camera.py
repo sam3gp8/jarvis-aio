@@ -438,6 +438,14 @@ async def probe_camera(hass: HomeAssistant, entity_id: str) -> dict:
     t0 = _t.monotonic()
     out: dict = {"entity_id": entity_id, "tiers": []}
 
+    # Source override (v6.47.0): probe what frames actually come from.
+    source = resolve_camera_source(hass, entity_id)
+    if source != entity_id:
+        out["override"] = source
+        out["tiers"].append(["override",
+                             f"frames sourced from {source} (camera_overrides)"])
+        entity_id = source
+
     st = hass.states.get(entity_id)
     out["state"] = st.state if st else "MISSING"
     out["available"] = bool(st) and st.state != "unavailable"
@@ -549,6 +557,26 @@ def _no_frame_verdict(out: dict) -> str:
     return "NO FRAME from any tier — check the camera's source integration."
 
 
+def resolve_camera_source(hass: HomeAssistant, entity_id: str) -> str:
+    """
+    v6.47.0: honor the `camera_overrides` runtime map — {original: source}.
+    Built for Nest cameras restreamed through go2rtc/Frigate: HA's native
+    Nest path serves expiring WebRTC streams and placeholder snapshots, so
+    the override lets the Nest entity keep its identity (chips, doorbell
+    events, names) while every FRAME quietly comes from the restream twin.
+    Falls back to the original if the target doesn't exist.
+    """
+    try:
+        from . import jarvis_config
+        ov = jarvis_config.get("camera_overrides", {}) or {}
+        target = ov.get(entity_id)
+        if target and target != entity_id and hass.states.get(target):
+            return str(target)
+    except Exception:
+        pass
+    return entity_id
+
+
 async def _get_best_image(hass: HomeAssistant, entity_id: str) -> Optional[bytes]:
     """
     Try the best source for this camera type, fall back to standard snapshot.
@@ -557,6 +585,9 @@ async def _get_best_image(hass: HomeAssistant, entity_id: str) -> Optional[bytes
     Uses the camera_backends registry so new camera systems (UniFi, Reolink,
     Blue Iris, anything future) can be added without modifying this function.
     """
+    # 0. Source override (v6.47.0) — restreamed twins take over frame duty.
+    entity_id = resolve_camera_source(hass, entity_id)
+
     # 1. Try the appropriate specialised backend (Frigate, Nest, etc.)
     backend = find_backend(hass, entity_id)
     if backend:

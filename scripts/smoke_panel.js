@@ -50,7 +50,7 @@ const PANEL = {
 };
 const _subscribedEvents = [];
 const hass = {
-  states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } } },
+  states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
   callWS: async (m) => {
     if (m.type === "jarvis/get_panel_data") return PANEL;
     if (m.type === "jarvis/get_activity_log") return { entries: [
@@ -256,6 +256,21 @@ setTimeout(async () => {
   checks.push(
     ["DIAG toggles closed on second tap", !el.shadowRoot.querySelector("#cam-feed .cam-diag")],
   );
+
+  // ── camera_overrides: frames reroute to the restream twin ──
+  el._liveData.config.camera_overrides = { "camera.front": "camera.back" };
+  el._camMode = "stream"; delete el._camModeByEntity["camera.front"];
+  if (el._camWsTimer) { clearInterval(el._camWsTimer); el._camWsTimer = null; }
+  el._lastCamKey = "";
+  el._renderCameraFeed();
+  const ovImg = el.shadowRoot.querySelector("#cam-feed img");
+  checks.push(
+    ["override reroutes stream URL to the twin", /camera_proxy_stream\/camera\.back/.test(ovImg?.src || "")],
+    ["override uses the twin's token", /tok456/.test(ovImg?.src || "")],
+    ["strip shows the override mapping", /front → back/.test(el.shadowRoot.getElementById("cam-strip")?.textContent || "")],
+  );
+  delete el._liveData.config.camera_overrides;
+  el._lastCamKey = ""; el._renderCameraFeed();   // restore for anything downstream
 
   // ── switch to Memory tab: person routines fetch + render ──
   el._currentTab = "memory";
