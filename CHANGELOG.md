@@ -4,6 +4,29 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.47.1] — local model, cloud provider: auto-corrected
+The GPU server's first contact produced a confusing error: Google's API
+404ing on `models/gemma4:26b`. Root cause: `model` was pointed at the
+local Ollama model but `llm_provider` still said a cloud provider, so
+JARVIS faithfully forwarded an Ollama tag to Google. Two fixes:
+
+  • **Routing correction** at the single provider choke point: a
+    colon-tagged model (Ollama syntax — no cloud provider uses it)
+    configured against groq/gemini/openai/anthropic now auto-routes to
+    the ollama provider with the configured `llm_base_url` (or Ollama's
+    default), with a clear correction logged. Explicit `ollama`/`custom`
+    settings are never touched.
+  • **Smarter fallback**: the agent's failure path used to replay the
+    SAME model on gemini — a 404'd model 404s everywhere identically.
+    Model-not-found is now detected as a settings problem (with an
+    actionable ERROR log naming the fix), and the fallback goes through
+    the reasoning tier's own provider+model instead.
+
+Test-infra fix along the way: the `homeassistant.helpers.llm` stub moved
+from a per-file guard into conftest — agent.py only loaded if a file that
+happened to stub it ran first, and the loader caches half-executed
+modules (the exact order-dependence the standing test lessons warn about).
+
 ## [6.47.0] — camera_overrides: let the restream do the work
 The durable fix for Nest's expiring streams and placeholder snapshots
 isn't more heuristics — it's not using Google's transport for frames at

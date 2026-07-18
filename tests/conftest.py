@@ -74,6 +74,15 @@ def _install_ha_stubs() -> None:
     ac.async_get_clientsession = lambda hass: None
     net = types.ModuleType("homeassistant.helpers.network")
     net.get_url = lambda hass, **kw: "http://127.0.0.1:8123"
+    # agent.py imports this at module level; without the stub, agent only
+    # loads if a file that happens to stub it runs first (order-dependent
+    # partial-module trap — the loader caches half-executed modules).
+    llm_mod = types.ModuleType("homeassistant.helpers.llm")
+    llm_mod.async_get_api = lambda *a, **k: None
+    llm_mod.ToolInput = type("ToolInput", (), {
+        "__init__": lambda self, tool_name="", tool_args=None:
+            (setattr(self, "tool_name", tool_name),
+             setattr(self, "tool_args", tool_args or {}), None)[-1]})
     helpers = types.ModuleType("homeassistant.helpers")
     helpers.entity_registry = er
     helpers.device_registry = dr
@@ -108,6 +117,7 @@ def _install_ha_stubs() -> None:
         "homeassistant.helpers.device_registry": dr,
         "homeassistant.helpers.aiohttp_client": ac,
         "homeassistant.helpers.network": net,
+        "homeassistant.helpers.llm": llm_mod,
         "homeassistant.config_entries": cfg,
         "homeassistant.const": const,
         "homeassistant.components": components,

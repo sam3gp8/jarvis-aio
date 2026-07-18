@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
@@ -356,6 +357,32 @@ PROVIDERS = {
 }
 
 
+_CLOUD_PROVIDERS = {"groq", "gemini", "openai", "anthropic"}
+# Ollama tag syntax: name[:size-tag], e.g. gemma4:26b, llama3.3:70b-instruct.
+# No cloud provider uses colon-tagged model ids, which makes this a safe tell.
+_OLLAMA_TAG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*:[a-z0-9][a-z0-9._-]*$", re.I)
+
+
+def normalize_routing(provider_name: str, model: str,
+                       base_url: Optional[str]) -> tuple[str, Optional[str], Optional[str]]:
+    """
+    (provider_name, base_url, correction_note|None). v6.47.1: a colon-tagged
+    model (Ollama syntax, e.g. 'gemma4:26b') configured against a cloud
+    provider is a settings mismatch that produces confusing 404s from the
+    cloud API ('models/gemma4:26b is not found') — the model plainly lives
+    on the local Ollama server. Route it there and say so, instead of
+    faithfully forwarding a local model name to Google.
+    """
+    p = (provider_name or "").lower().strip()
+    m = (model or "").strip()
+    if p in _CLOUD_PROVIDERS and _OLLAMA_TAG_RE.match(m):
+        note = (f"model '{m}' uses Ollama tag syntax but provider was "
+                f"'{p}' — routing to ollama"
+                + ("" if base_url else " (default base URL)"))
+        return "ollama", base_url, note
+    return p, base_url, None
+
+
 def create_provider(
     provider_name: str,
     api_key: str,
@@ -371,6 +398,9 @@ def create_provider(
     For 'custom', set base_url to whatever OpenAI-compatible endpoint you want.
     """
     provider_name = provider_name.lower().strip()
+    provider_name, base_url, note = normalize_routing(provider_name, model, base_url)
+    if note:
+        _LOGGER.warning("LLM routing corrected: %s", note)
     cls = PROVIDERS.get(provider_name)
     if cls is None:
         _LOGGER.warning(

@@ -1695,6 +1695,16 @@ def _is_tool_format_error(exc: Exception) -> bool:
     )
 
 
+def _is_model_not_found(exc: Exception) -> bool:
+    """True when the provider was reachable but the MODEL doesn't exist there
+    — a settings mismatch, not connectivity. Retrying the same model anywhere
+    is guaranteed to fail; the fallback must switch models (v6.47.1)."""
+    s = str(exc).lower()
+    return ("not_found" in s or "404" in s) and (
+        "model" in s or "is not found" in s or "does not exist" in s
+    )
+
+
 def _is_connectivity_error(exc: Exception) -> bool:
     """True when the failure looks like the LLM being genuinely unreachable."""
     s = str(exc).lower()
@@ -1852,24 +1862,41 @@ async def run_agent(
                     else:
                         return "I'm not sure I caught that, sir."
             else:
-                # Genuine call failure (unreachable / 5xx / etc.) — try the
-                # fallback provider. If that also fails, signal connectivity.
+                # Genuine call failure (unreachable / 5xx / bad model / etc.)
+                # — try the fallback. v6.47.1: the fallback is the REASONING
+                # TIER (its own provider+model), not the same model replayed
+                # on gemini — a 404'd model 404s everywhere identically.
                 _LOGGER.warning(
                     "Agent LLM call failed (iter %d): %s — trying fallback",
                     iteration, exc,
                 )
                 try:
                     from .websocket import jarvis_log
-                    jarvis_log(
-                        "ERROR",
-                        f"agent LLM failed ({provider_name}/{model}): {str(exc)[:160]}",
-                    )
+                    if _is_model_not_found(exc):
+                        jarvis_log(
+                            "ERROR",
+                            f"model '{model}' not found on provider "
+                            f"'{provider_name}' — check llm_provider / model "
+                            f"settings (Ollama-tagged models need "
+                            f"llm_provider=ollama + llm_base_url)",
+                        )
+                    else:
+                        jarvis_log(
+                            "ERROR",
+                            f"agent LLM failed ({provider_name}/{model}): {str(exc)[:160]}",
+                        )
                 except Exception:
                     pass
                 try:
-                    client = await _create_provider_with_fallback(
-                        hass, "gemini", api_key, model, base_url, config,
-                    )
+                    if config:
+                        from .llm_provider import create_tier_provider
+                        client = await hass.async_add_executor_job(
+                            create_tier_provider, config, "reasoning",
+                        )
+                    else:
+                        client = await _create_provider_with_fallback(
+                            hass, "gemini", api_key, model, base_url, config,
+                        )
                     result = await hass.async_add_executor_job(
                         client.chat, working, tools or None, 1024, temperature,
                     )
