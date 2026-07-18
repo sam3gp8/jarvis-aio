@@ -28,5 +28,5 @@
     "openai>=1.0.0",
     "anthropic>=0.39.0"
   ],
-  "version": "6.47.1"
+  "version": "6.47.2"
 }

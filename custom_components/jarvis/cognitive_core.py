@@ -2041,9 +2041,16 @@ async def _on_lockdown_state(event) -> None:
 async def _sync_lockdown_to_alarm(reason: str, announce: bool = True) -> None:
     """
     Engage lockdown when any alarm is armed, lift it (if it was the alarm that
-    engaged it) when all alarms are disarmed. Honours lockdown_auto_on_arm and
-    the manual-exit suppression. Event-driven, so it does not depend on the loop.
-    `announce=False` adopts an already-armed state silently (startup / reboot).
+    engaged it) when all alarms report a CONFIRMED disarm. Honours
+    lockdown_auto_on_arm and the manual-exit suppression. Event-driven, so it
+    does not depend on the loop. `announce=False` adopts an already-armed
+    state silently (startup / reboot).
+
+    v6.47.2: `unavailable`/`unknown` is neither armed nor disarmed — it's the
+    alarm integration losing its cloud (Cove/Alula drops were LIFTING an
+    armed-night lockdown as "alarm disarmed"). Indeterminate state now HOLDS
+    the current lockdown, with a throttled SAFETY log so the dropout is
+    visible. Only an actual 'disarmed' report lifts an auto-engaged lockdown.
     """
     mgr = _CORE.lockdown_mgr
     if mgr is None or _CORE.hass is None:
@@ -2051,22 +2058,69 @@ async def _sync_lockdown_to_alarm(reason: str, announce: bool = True) -> None:
     if not (_CORE.config or {}).get("lockdown_auto_on_arm", True):
         return
     try:
-        armed = mgr._alarm_armed()
+        armed, disarm_confirmed, indeterminate = _alarm_state_view(_CORE.hass)
     except Exception:
         return
+    if indeterminate:
+        _log_alarm_indeterminate(reason, lockdown_active=mgr.active)
+        return  # hold everything — no engage, no lift, no suppression reset
     if not armed and mgr._auto_suppressed:
         mgr._auto_suppressed = False
         await mgr._persist()
     action = None
     if armed and not mgr.active and not mgr._auto_suppressed:
         action = await mgr.engage("alarm armed", auto=True, announce=announce)
-    elif mgr.active and mgr.auto and not armed:
+    elif mgr.active and mgr.auto and disarm_confirmed:
         action = await mgr.disengage("alarm disarmed")
     if action and _CORE.hass:
         try:
             await _emit_action(_CORE.hass, _CORE.config or {}, action, False)
         except Exception as exc:
             _LOGGER.debug("lockdown alarm-sync emit failed: %s", exc)
+
+
+_ALARM_INDET_STATES = {"unavailable", "unknown", "none", ""}
+_ALARM_INDET_LOG_TS = 0.0
+
+
+def _alarm_state_view(hass) -> tuple:
+    """(armed, disarm_confirmed, indeterminate) across all alarm panels.
+    armed: any panel in an armed state. disarm_confirmed: no panel armed AND
+    at least one affirmatively reports 'disarmed'. indeterminate: no panel
+    armed and none disarmed either (all unavailable/unknown, or no panels) —
+    the integration is down, not the alarm off."""
+    armed = False
+    disarmed = False
+    for st in hass.states.async_all("alarm_control_panel"):
+        s = str(st.state).lower()
+        if s in ALARM_ARMED_STATES:
+            armed = True
+        elif s == "disarmed":
+            disarmed = True
+    if armed:
+        return True, False, False
+    if disarmed:
+        return False, True, False
+    return False, False, True
+
+
+def _log_alarm_indeterminate(reason: str, lockdown_active: bool) -> None:
+    """SAFETY-log the alarm integration being unreadable, at most once per
+    10 minutes — a Cove/Alula cloud drop shouldn't spam, but must be seen."""
+    global _ALARM_INDET_LOG_TS
+    now = time.time()
+    if now - _ALARM_INDET_LOG_TS < 600:
+        return
+    _ALARM_INDET_LOG_TS = now
+    msg = ("alarm panel unavailable/unknown (%s) — holding lockdown %s; "
+           "only a confirmed disarm lifts it" %
+           (reason, "ACTIVE" if lockdown_active else "state"))
+    _LOGGER.warning("Lockdown: %s", msg)
+    try:
+        from .websocket import jarvis_log
+        jarvis_log("SAFETY", f"Lockdown: {msg}")
+    except Exception:
+        pass
 
 
 async def request_lockdown(on: bool, reason: str = "requested", hass: HomeAssistant = None) -> bool:

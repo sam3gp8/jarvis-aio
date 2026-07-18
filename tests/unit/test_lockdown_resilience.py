@@ -73,6 +73,95 @@ async def test_alarm_disarm_lifts_auto_lockdown(cognitive_core, fake_hass):
     assert cognitive_core.is_lockdown() is False
 
 
+# ── v6.47.2: Cove/Alula cloud dropouts must not lift lockdown ────────────────
+
+async def test_alarm_unavailable_holds_lockdown(cognitive_core, fake_hass, monkeypatch):
+    """The live bug: armed-night lockdown lifted itself whenever the Cove
+    integration lost its cloud and the panel went `unavailable`."""
+    _reset(cognitive_core)
+    monkeypatch.setattr(cognitive_core, "_ALARM_INDET_LOG_TS", 0.0)
+    fake_hass.states.set("alarm_control_panel.cove", "armed_night")
+    await cognitive_core.ensure_lockdown(fake_hass, cognitive_core._CORE.config)
+    fake_hass.close_pending()
+    assert cognitive_core.is_lockdown() is True
+
+    fake_hass.states.set("alarm_control_panel.cove", "unavailable")
+    await cognitive_core._sync_lockdown_to_alarm("cove dropped")
+    fake_hass.close_pending()
+    assert cognitive_core.is_lockdown() is True          # HELD, not lifted
+    assert cognitive_core._CORE.lockdown_mgr.auto is True  # still alarm-owned
+
+
+async def test_alarm_recovery_after_dropout_stays_quietly_locked(cognitive_core, fake_hass, monkeypatch):
+    _reset(cognitive_core)
+    monkeypatch.setattr(cognitive_core, "_ALARM_INDET_LOG_TS", 0.0)
+    fake_hass.states.set("alarm_control_panel.cove", "armed_night")
+    await cognitive_core.ensure_lockdown(fake_hass, cognitive_core._CORE.config)
+    fake_hass.close_pending()
+
+    fake_hass.states.set("alarm_control_panel.cove", "unavailable")
+    await cognitive_core._sync_lockdown_to_alarm("cove dropped")
+    fake_hass.states.set("alarm_control_panel.cove", "armed_night")
+    await cognitive_core._sync_lockdown_to_alarm("cove recovered", announce=False)
+    fake_hass.close_pending()
+    assert cognitive_core.is_lockdown() is True
+
+
+async def test_real_disarm_after_dropout_still_lifts(cognitive_core, fake_hass, monkeypatch):
+    _reset(cognitive_core)
+    monkeypatch.setattr(cognitive_core, "_ALARM_INDET_LOG_TS", 0.0)
+    fake_hass.states.set("alarm_control_panel.cove", "armed_away")
+    await cognitive_core.ensure_lockdown(fake_hass, cognitive_core._CORE.config)
+    fake_hass.close_pending()
+    fake_hass.states.set("alarm_control_panel.cove", "unavailable")
+    await cognitive_core._sync_lockdown_to_alarm("cove dropped")
+    assert cognitive_core.is_lockdown() is True
+
+    fake_hass.states.set("alarm_control_panel.cove", "disarmed")   # genuine disarm
+    await cognitive_core._sync_lockdown_to_alarm("real disarm")
+    fake_hass.close_pending()
+    assert cognitive_core.is_lockdown() is False
+
+
+async def test_all_unavailable_at_startup_is_inert(cognitive_core, fake_hass, monkeypatch):
+    _reset(cognitive_core)
+    monkeypatch.setattr(cognitive_core, "_ALARM_INDET_LOG_TS", 0.0)
+    fake_hass.states.set("alarm_control_panel.cove", "unavailable")
+    await cognitive_core.ensure_lockdown(fake_hass, cognitive_core._CORE.config)
+    fake_hass.close_pending()
+    assert cognitive_core.is_lockdown() is False   # nothing engaged, no crash
+
+
+async def test_dropout_logs_safety_line_throttled(cognitive_core, fake_hass, monkeypatch):
+    import sys
+    _reset(cognitive_core)
+    monkeypatch.setattr(cognitive_core, "_ALARM_INDET_LOG_TS", 0.0)
+    logged = []
+    monkeypatch.setattr(sys.modules["jc.websocket"], "jarvis_log",
+                        lambda cat, msg: logged.append((cat, msg)))
+    fake_hass.states.set("alarm_control_panel.cove", "armed_home")
+    await cognitive_core.ensure_lockdown(fake_hass, cognitive_core._CORE.config)
+    fake_hass.close_pending()
+
+    fake_hass.states.set("alarm_control_panel.cove", "unavailable")
+    await cognitive_core._sync_lockdown_to_alarm("drop 1")
+    await cognitive_core._sync_lockdown_to_alarm("drop 2")   # inside throttle window
+    safety = [m for c, m in logged if c == "SAFETY" and "unavailable" in m]
+    assert len(safety) == 1
+    assert "holding lockdown" in safety[0]
+
+
+async def test_alarm_state_view_triads(cognitive_core, fake_hass):
+    _reset(cognitive_core)
+    fake_hass.states.set("alarm_control_panel.a", "armed_home")
+    fake_hass.states.set("alarm_control_panel.b", "unavailable")
+    assert cognitive_core._alarm_state_view(fake_hass) == (True, False, False)
+    fake_hass.states.set("alarm_control_panel.a", "disarmed")
+    assert cognitive_core._alarm_state_view(fake_hass) == (False, True, False)
+    fake_hass.states.set("alarm_control_panel.a", "unknown")
+    assert cognitive_core._alarm_state_view(fake_hass) == (False, False, True)
+
+
 async def test_auto_on_arm_can_be_disabled(cognitive_core, fake_hass):
     _reset(cognitive_core)
     cognitive_core._CORE.config["lockdown_auto_on_arm"] = False

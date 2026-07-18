@@ -4,6 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.47.2] — a cloud blip is not a disarm
+Live bug: lockdown was lifting itself overnight. Cause: when the
+Cove/Alula integration lost its cloud connection, the alarm panel entity
+went `unavailable` — and the alarm→lockdown sync only knew two states.
+`_alarm_armed()` said "not armed," the sync read that as a disarm, and an
+auto-engaged lockdown disengaged (with an announcement) because a cloud
+API hiccupped.
+
+The sync now sees three states: **armed** (any panel armed → engage, as
+before), **disarm confirmed** (no panel armed AND at least one
+affirmatively reporting `disarmed` → lift, as before), and
+**indeterminate** (all panels unavailable/unknown, or none exist → HOLD
+everything). During a dropout nothing engages, nothing lifts, the
+manual-exit suppression isn't reset, and a throttled SAFETY line (once
+per 10 min) records "alarm panel unavailable — holding lockdown" in the
+activity feed so the outage itself is visible. Recovery to armed re-adopts
+silently; a genuine disarm after recovery lifts exactly as it always did.
+
+Six regression tests, including the precise live sequence:
+armed_night → unavailable → held → disarmed → lifted.
+
 ## [6.47.1] — local model, cloud provider: auto-corrected
 The GPU server's first contact produced a confusing error: Google's API
 404ing on `models/gemma4:26b`. Root cause: `model` was pointed at the
