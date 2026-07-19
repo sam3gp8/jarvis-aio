@@ -4,6 +4,35 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.48.0] — call your cameras what you actually call them
+Cameras can now be renamed **inside JARVIS only** — HA entity names and
+Frigate stream names stay untouched. Useful now that restream twins exist:
+`eliana_restream` can just be "Eliana's Room" on the panel.
+
+A **✎ NAME** button in the Camera Watch head opens an inline overlay for
+the active camera: type a name, Enter saves, Esc cancels, blank reverts to
+the HA name (shown as the placeholder so you always know what blank means).
+The name applies everywhere the panel shows a camera — chips, the SRC
+strip (including the override-mapping arrow), pickers — via a
+`camera_names` runtime map, persisted through a new `jarvis/rename_camera`
+WS command with a CONFIG line in the activity log.
+
+Server logs and DIAG probes deliberately keep entity ids — display names
+are for humans, entity ids are for debugging, and mixing them costs
+precision exactly when it matters.
+
+**Also in 6.48.0 — config.json can no longer take the panel down.** A
+hand-edited `/config/jarvis/config.json` (adding `camera_overrides` by
+hand) that parsed to something other than a JSON object crashed
+`async_setup_entry` *before* panel registration — the integration never
+loaded and the JARVIS tab died with "Unable to load custom panel."
+`jarvis_config` is now self-healing: an unparseable or non-object file is
+**sidelined** (preserved as `config.json.corrupt-<timestamp>`, never
+deleted), defaults load, every accessor guards the cache type, and a
+persistent notification explains exactly what happened and where your
+edits went. A typo in that file now costs you a notification, not the
+integration. Seven regression tests, including the exact live failure.
+
 ## [6.47.2] — a cloud blip is not a disarm
 Live bug: lockdown was lifting itself overnight. Cause: when the
 Cove/Alula integration lost its cloud connection, the alarm panel entity

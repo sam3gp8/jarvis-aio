@@ -557,6 +557,30 @@ def _no_frame_verdict(out: dict) -> str:
     return "NO FRAME from any tier — check the camera's source integration."
 
 
+def display_name(entity_id: str, friendly: Optional[str],
+                 names: Optional[dict]) -> str:
+    """JARVIS-only camera display name (v6.48.0): the `camera_names` runtime
+    map wins, else the HA friendly name, else the entity id. Blank or
+    non-string custom names are ignored — they mean 'revert'."""
+    n = (names or {}).get(entity_id)
+    if isinstance(n, str) and n.strip():
+        return n.strip()
+    return friendly or entity_id
+
+
+def merge_camera_name(names: Optional[dict], entity_id: str,
+                      new_name: Optional[str]) -> dict:
+    """Pure read-modify-write for the camera_names map: a non-blank name sets
+    the entry; blank/None removes it (revert to the HA name). Returns a new
+    dict — callers persist it."""
+    out = dict(names or {})
+    if isinstance(new_name, str) and new_name.strip():
+        out[entity_id] = new_name.strip()
+    else:
+        out.pop(entity_id, None)
+    return out
+
+
 def resolve_camera_source(hass: HomeAssistant, entity_id: str) -> str:
     """
     v6.47.0: honor the `camera_overrides` runtime map — {original: source}.

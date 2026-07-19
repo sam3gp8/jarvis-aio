@@ -300,6 +300,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Load persisted settings into runtime_config
         cfg = await hass.async_add_executor_job(jarvis_config.get_all)
+        # v6.48.0: a hand-edited config.json that couldn't be used was
+        # sidelined by jarvis_config.load() — tell the user loudly instead of
+        # silently reverting every setting to defaults.
+        if getattr(jarvis_config, "last_load_error", None):
+            try:
+                await hass.services.async_call(
+                    "persistent_notification", "create", {
+                        "title": "JARVIS: config.json was invalid",
+                        "message": (
+                            f"{jarvis_config.last_load_error}. JARVIS started "
+                            "with defaults. Fix the JSON in the preserved file "
+                            "and copy it back to /config/jarvis/config.json, "
+                            "then restart."),
+                        "notification_id": "jarvis_config_corrupt",
+                    }, blocking=False)
+            except Exception:
+                pass
         restore_keys = set(PANEL_WRITABLE_KEYS) | {
             "broadcast_group", "observer_quiet_start",
             "observer_quiet_end", "bedroom_areas",

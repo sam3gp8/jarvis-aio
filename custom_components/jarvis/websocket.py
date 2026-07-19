@@ -66,6 +66,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get_area_sparklines)
         websocket_api.async_register_command(hass, ws_camera_snapshot)
         websocket_api.async_register_command(hass, ws_camera_diagnostics)
+        websocket_api.async_register_command(hass, ws_rename_camera)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -373,14 +374,31 @@ def _get_camera_overrides() -> dict:
         return {}
 
 
-def _get_cameras(hass: HomeAssistant) -> list[dict]:
-    """Return list of camera entities for the diagnostics camera-review picker."""
-    cams = []
+def _get_camera_names() -> dict:
+    """The camera_names runtime map (entity_id → JARVIS-only display name),
+    v6.48.0. Never raises."""
     try:
+        from . import jarvis_config
+        nm = jarvis_config.get("camera_names", {}) or {}
+        return {str(k): str(v) for k, v in nm.items()} if isinstance(nm, dict) else {}
+    except Exception:
+        return {}
+
+
+def _get_cameras(hass: HomeAssistant) -> list[dict]:
+    """Camera entities for the picker/chips. `name` honours the JARVIS-only
+    camera_names map (v6.48.0); `raw_name` keeps the HA friendly name so the
+    rename UI can show what blank reverts to."""
+    cams = []
+    names = _get_camera_names()
+    try:
+        from .camera import display_name
         for state in hass.states.async_all("camera"):
+            friendly = state.attributes.get("friendly_name", state.entity_id)
             cams.append({
                 "entity_id": state.entity_id,
-                "name": state.attributes.get("friendly_name", state.entity_id),
+                "name": display_name(state.entity_id, friendly, names),
+                "raw_name": friendly,
             })
     except Exception:
         pass
@@ -617,6 +635,7 @@ async def ws_get_panel_data(
                 "cast_devices": _get_cast_devices(hass),
                 "cameras": _get_cameras(hass),
                 "camera_overrides": _get_camera_overrides(),
+                "camera_names": _get_camera_names(),
                 "satellite_pairings": _get_runtime_json(hass, entry, "satellite_pairings", {}),
                 "announcement_speakers": _get_runtime_json(hass, entry, "announcement_speakers", []),
                 "floor_plan_rooms": _get_runtime_json(hass, entry, "floor_plan_rooms", {}),
@@ -1785,6 +1804,41 @@ async def ws_camera_snapshot(
         _LOGGER.debug("camera_snapshot failed for %s: %s", entity_id, exc)
         _snap_log(entity_id, f"error — {exc}")
         connection.send_error(msg["id"], "snapshot_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/rename_camera",
+    vol.Required("entity_id"): str,
+    vol.Required("name"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_rename_camera(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set a JARVIS-only display name for a camera (v6.48.0) — chips, strip,
+    and pickers use it; HA's entity name is untouched. Blank name reverts."""
+    entity_id = str(msg["entity_id"])
+    new_name = msg.get("name")
+    try:
+        if not entity_id.startswith("camera.") or not hass.states.get(entity_id):
+            connection.send_error(msg["id"], "unknown_camera", entity_id)
+            return
+        from . import jarvis_config
+        from .camera import merge_camera_name
+        names = merge_camera_name(_get_camera_names(), entity_id, new_name)
+        await hass.async_add_executor_job(jarvis_config.set, "camera_names", names)
+        shown = names.get(entity_id)
+        jarvis_log("CONFIG", f"camera {entity_id} "
+                             + (f"renamed to '{shown}'" if shown else "name reverted")
+                             + " (JARVIS only)")
+        connection.send_result(msg["id"], {
+            "ok": True, "camera_names": names, "cameras": _get_cameras(hass),
+        })
+    except Exception as exc:
+        _LOGGER.exception("rename_camera failed: %s", exc)
+        connection.send_error(msg["id"], "rename_failed", str(exc))
 
 
 @websocket_api.websocket_command({
