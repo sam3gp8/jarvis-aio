@@ -128,6 +128,35 @@ def is_outdoor(hass, entity_id: str, friendly_name: Optional[str] = None) -> boo
     return bool(_NAME_RE.search(eid) or _NAME_RE.search(fname))
 
 
+def location_mode(entity_id: str, indoor: list[str], outdoor: list[str]) -> str:
+    """The explicit designation for this exact entity: 'indoor', 'outdoor',
+    or 'auto' (heuristics decide). Exact-id matches only — globs a user wrote
+    by hand still classify via is_outdoor, but read as 'auto' here since they
+    aren't a per-camera pin (v6.49.0)."""
+    eid = (entity_id or "").lower()
+    if eid in [str(x).lower() for x in (indoor or [])]:
+        return "indoor"
+    if eid in [str(x).lower() for x in (outdoor or [])]:
+        return "outdoor"
+    return "auto"
+
+
+def set_entity_location(indoor: list[str], outdoor: list[str], entity_id: str,
+                        mode: str) -> tuple[list[str], list[str]]:
+    """Pure pin/unpin of one entity across the two designation lists.
+    'indoor'/'outdoor' pins the exact id into that list and out of the other;
+    'auto' removes it from both (heuristics resume). Globs and other entries
+    are preserved untouched. Returns new lists; callers persist."""
+    eid = (entity_id or "").lower().strip()
+    keep = lambda lst: [x for x in (lst or []) if str(x).lower() != eid]  # noqa: E731
+    new_in, new_out = keep(indoor), keep(outdoor)
+    if mode == "indoor":
+        new_in.append(eid)
+    elif mode == "outdoor":
+        new_out.append(eid)
+    return new_in, new_out
+
+
 def notable(hass, entity_id: str, detection_type: str = "motion",
             area_name: Optional[str] = None) -> bool:
     """Is an *outdoor* event worth surfacing? Non-outdoor entities return False

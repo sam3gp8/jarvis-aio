@@ -38,7 +38,7 @@ const PANEL = {
     { id: "kitchen", name: "Kitchen", caps: ["sat", "spkr"], active: false, bedroom: false, lights_on: 0, lights_total: 0,
       temp: "71°F", humidity: null, temp_entity: "sensor.kitchen_temp", humidity_entity: null, last_motion: "12m" },
   ],
-  config: { cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard" }], camera_names: {}, lockdown: { active: false } },
+  config: { cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
   goals: [
     { id: 1, title: "Guest prep", outcome: "House ready for guests by Saturday", status: "active",
       steps_done: 2, steps_total: 4, steps: [], next_check_ts: "2026-07-13T20:00:00", deadline_ts: null,
@@ -50,6 +50,7 @@ const PANEL = {
 };
 const _subscribedEvents = [];
 const _renameCalls = [];
+const _locationCalls = [];
 const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
   callWS: async (m) => {
@@ -65,13 +66,20 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
+    if (m.type === "jarvis/camera_location") {
+      _locationCalls.push({ entity_id: m.entity_id, mode: m.mode });
+      return { ok: true, cameras: [
+        { entity_id: "camera.front", name: "Eliana's Room", raw_name: "Front Door", outdoor: m.mode === "outdoor", location_mode: m.mode },
+        { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" },
+      ] };
+    }
     if (m.type === "jarvis/rename_camera") {
       _renameCalls.push({ entity_id: m.entity_id, name: m.name });
       return { ok: true,
         camera_names: m.name ? { [m.entity_id]: m.name } : {},
         cameras: [
-          { entity_id: "camera.front", name: m.name || "Front Door", raw_name: "Front Door" },
-          { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard" },
+          { entity_id: "camera.front", name: m.name || "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" },
+          { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" },
         ] };
     }
     if (m.type === "jarvis/camera_diagnostics") return {
@@ -305,6 +313,27 @@ setTimeout(async () => {
     ["strip shows the JARVIS-only name",
       /Eliana's Room/.test(el.shadowRoot.getElementById("cam-strip")?.textContent || "")],
   );
+
+  // ── indoor/outdoor designation: chips in the ✎ overlay, instant save ──
+  el.shadowRoot.getElementById("cam-rename-btn")?.click();
+  const locRow = el.shadowRoot.querySelector("#cam-loc-row");
+  checks.push(
+    ["location row renders three chips", locRow?.querySelectorAll(".cam-loc-chip").length === 3],
+    ["AUTO chip shows the resolved heuristic", /AUTO \(indoor\)/.test(locRow?.textContent || "")],
+    ["AUTO is the active designation initially",
+      locRow?.querySelector('.cam-loc-chip[data-loc="auto"]')?.classList.contains("active") === true],
+  );
+  locRow?.querySelector('.cam-loc-chip[data-loc="outdoor"]')?.click();
+  await new Promise(r => setTimeout(r, 20));
+  checks.push(
+    ["location WS called with entity + mode", _locationCalls.length === 1
+      && _locationCalls[0].entity_id === "camera.front" && _locationCalls[0].mode === "outdoor"],
+    ["OUTDOOR chip becomes active after save",
+      el.shadowRoot.querySelector('.cam-loc-chip[data-loc="outdoor"]')?.classList.contains("active") === true],
+    ["camera metadata refreshed from response",
+      (el._cams.find(c => c.entity_id === "camera.front") || {}).location_mode === "outdoor"],
+  );
+  el.shadowRoot.getElementById("cam-rename-btn")?.click();   // close overlay
 
   // ── switch to Memory tab: person routines fetch + render ──
   el._currentTab = "memory";

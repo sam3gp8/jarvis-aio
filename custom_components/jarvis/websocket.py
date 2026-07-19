@@ -67,6 +67,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_camera_snapshot)
         websocket_api.async_register_command(hass, ws_camera_diagnostics)
         websocket_api.async_register_command(hass, ws_rename_camera)
+        websocket_api.async_register_command(hass, ws_camera_location)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -392,13 +393,22 @@ def _get_cameras(hass: HomeAssistant) -> list[dict]:
     cams = []
     names = _get_camera_names()
     try:
+        from . import outdoor
         from .camera import display_name
+        indoor_list = outdoor._cfg_list("indoor_entities")
+        outdoor_list = outdoor._cfg_list("outdoor_entities")
         for state in hass.states.async_all("camera"):
             friendly = state.attributes.get("friendly_name", state.entity_id)
             cams.append({
                 "entity_id": state.entity_id,
                 "name": display_name(state.entity_id, friendly, names),
                 "raw_name": friendly,
+                # v6.49.0: location designation for the whole cognitive stack
+                # (intrusion filter, notable-events, motion scan all consult
+                # outdoor.is_outdoor).
+                "outdoor": outdoor.is_outdoor(hass, state.entity_id, friendly),
+                "location_mode": outdoor.location_mode(
+                    state.entity_id, indoor_list, outdoor_list),
             })
     except Exception:
         pass
@@ -1839,6 +1849,48 @@ async def ws_rename_camera(
     except Exception as exc:
         _LOGGER.exception("rename_camera failed: %s", exc)
         connection.send_error(msg["id"], "rename_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/camera_location",
+    vol.Required("entity_id"): str,
+    vol.Required("mode"): vol.In(["auto", "indoor", "outdoor"]),
+})
+@websocket_api.async_response
+async def ws_camera_location(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Designate a camera indoor/outdoor (or auto = heuristics), v6.49.0.
+    Pins the exact entity id into the existing indoor_entities /
+    outdoor_entities lists — outdoor.py's most-authoritative layer — so the
+    designation immediately governs the intrusion investigator, the
+    notable-outdoor-event filter, and the motion scan alike."""
+    entity_id = str(msg["entity_id"])
+    mode = str(msg["mode"])
+    try:
+        if not entity_id.startswith("camera.") or not hass.states.get(entity_id):
+            connection.send_error(msg["id"], "unknown_camera", entity_id)
+            return
+        from . import jarvis_config, outdoor
+        new_in, new_out = outdoor.set_entity_location(
+            outdoor._cfg_list("indoor_entities"),
+            outdoor._cfg_list("outdoor_entities"),
+            entity_id, mode,
+        )
+        await hass.async_add_executor_job(
+            jarvis_config.set_many,
+            {"indoor_entities": new_in, "outdoor_entities": new_out},
+        )
+        jarvis_log("CONFIG", f"camera {entity_id} location → {mode.upper()}"
+                             + ("" if mode != "auto" else " (heuristics)"))
+        connection.send_result(msg["id"], {
+            "ok": True, "cameras": _get_cameras(hass),
+        })
+    except Exception as exc:
+        _LOGGER.exception("camera_location failed: %s", exc)
+        connection.send_error(msg["id"], "camera_location_failed", str(exc))
 
 
 @websocket_api.websocket_command({

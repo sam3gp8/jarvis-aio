@@ -4,6 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.49.0] — tell JARVIS which side of the walls a camera lives on
+The ✎ camera overlay gains a **LOCATION** row: AUTO / ⌂ INDOOR /
+▲ OUTDOOR, saving instantly per click. AUTO shows what the heuristics
+currently resolve — "AUTO (outdoor)" — so overriding is an informed choice,
+not a guess.
+
+This isn't cosmetic. `outdoor.py` is the single source of truth the whole
+cognitive stack consults — the intrusion investigator (outdoor sensors must
+not seed or confirm indoor investigations), the notable-outdoor-event
+filter, and the motion scan. Its most-authoritative layer has always been
+the user's word (`indoor_entities` / `outdoor_entities`); the new chips pin
+the exact entity id into those lists via `jarvis/camera_location`, so a
+designation immediately governs everything downstream. AUTO unpins and the
+heuristics resume. Hand-written globs in those lists are preserved
+untouched and still classify — they just read as AUTO in the picker, since
+they aren't a per-camera pin.
+
+Regression-tested end-to-end: an INDOOR pin beats an outdoor name keyword
+(`camera.backyard_playroom` stays inside), an OUTDOOR pin makes a hallway
+camera exterior for the whole stack, and unpinning restores heuristics.
+
 ## [6.48.0] — call your cameras what you actually call them
 Cameras can now be renamed **inside JARVIS only** — HA entity names and
 Frigate stream names stay untouched. Useful now that restream twins exist:
