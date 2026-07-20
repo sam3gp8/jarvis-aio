@@ -298,6 +298,10 @@ setTimeout(async () => {
     ["✎ button removed from Command Center (decluttered)",
       !el.shadowRoot.getElementById("cam-rename-btn")],
     ["Settings renders a row per camera", camsetRows.length === 2],
+    ["JARVIS Character panel renders banter + web-research controls",
+      !!el.shadowRoot.querySelector('[data-cfg-key="banter_level"]')
+      && !!el.shadowRoot.querySelector('[data-cfg-key="search_backend"]')
+      && !!el.shadowRoot.querySelector('[data-cfg-key="calendar_tight_gap_min"]')],
     ["name input placeholder is the HA name",
       el.shadowRoot.querySelector('.camset-name[data-cam="camera.front"]')?.getAttribute("placeholder") === "Front Door"],
     ["location chips render with resolved AUTO label",

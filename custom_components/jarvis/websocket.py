@@ -1115,6 +1115,12 @@ PANEL_WRITABLE_KEYS = {
     "outdoor_areas",             # JSON list: extra area names treated as outdoor
     "outdoor_entities",          # JSON list: entity globs forced outdoor
     "indoor_entities",           # JSON list: entity globs forced indoor (wins)
+    # Web Research + Communication agents (v6.51.0)
+    "search_backend",            # str: "duckduckgo" (default) | "searxng"
+    "searxng_url",               # str: SearXNG base URL when backend=searxng
+    "calendar_tight_gap_min",    # int: back-to-back gap flagged as "tight"
+    # Persona (v6.51.0)
+    "banter_level",              # int: 0 plain · 1 dry (default) · 2 full MCU wit
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
     "model",

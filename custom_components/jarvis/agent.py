@@ -658,6 +658,51 @@ JARVIS_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_research",
+            "description": (
+                "Look something up on the web for current or external "
+                "information you don't have — news, facts, definitions, "
+                "'who is', 'what's the latest on', prices, weather context, "
+                "anything past your training. Returns a short summary you "
+                "then relay in your own voice. Use when the user asks about "
+                "the outside world, not the home."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What to look up, as a search query.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calendar_agenda",
+            "description": (
+                "Read the household calendars for upcoming events and flag "
+                "scheduling conflicts (overlaps, or back-to-back with little "
+                "gap). Use when asked about the schedule, what's coming up, "
+                "or whether there are conflicts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "horizon_hours": {
+                        "type": "integer",
+                        "description": "How far ahead to look (default 24).",
+                    },
+                },
+            },
+        },
+    },
 ]
 
 
@@ -1461,6 +1506,55 @@ async def _exec_manage_goals(hass: HomeAssistant, args: dict) -> str:
 
 # ── Tool dispatcher ─────────────────────────────────────────────────────────
 
+def _banter_guidance() -> str:
+    """Extra prompt line tuning wit intensity to the banter_level config knob
+    (0 plain · 1 dry · 2 full). Empty at the tasteful default so we don't
+    bloat the prompt unless the user dialed character up or down."""
+    try:
+        from . import jarvis_config
+        level = int(jarvis_config.get("banter_level", 1) or 1)
+    except Exception:
+        level = 1
+    if level <= 0:
+        return ("\n\nRegister: keep it strictly plain and functional. No wit, "
+                "no asides — just crisp, correct confirmations.")
+    if level >= 2:
+        return ("\n\nRegister: lean into the character. A dry, clever aside is "
+                "welcome when the moment is light — one line, never forced, "
+                "always still useful — but hold to the rule that gravity "
+                "silences it entirely.")
+    return ""  # level 1: the character description above already nails it
+
+
+async def _exec_web_research(hass: HomeAssistant, args: dict) -> str:
+    """Web Research Agent — external knowledge retrieval (v6.51.0)."""
+    try:
+        from . import web_research
+        result = await web_research.research(hass, args.get("query", ""))
+        try:
+            from .websocket import jarvis_log
+            q = result.get("query", "")
+            if result.get("error"):
+                jarvis_log("AGENT", f"web research '{q}': {result['error']}")
+            else:
+                jarvis_log("AGENT", f"web research '{q}' via {result.get('backend')}")
+        except Exception:
+            pass
+        return json.dumps(result)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
+    """Communication Agent — calendar agenda + conflict detection (v6.51.0)."""
+    try:
+        from . import comms
+        horizon = int(args.get("horizon_hours", 24) or 24)
+        return json.dumps(comms.agenda(hass, horizon))
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 _TOOL_MAP = {
     "control_device":      _exec_control_device,
     "get_entity_state":    _exec_get_entity_state,
@@ -1485,6 +1579,8 @@ _TOOL_MAP = {
     "create_goal":         _exec_create_goal,
     "update_goal":         _exec_update_goal,
     "manage_goals":        _exec_manage_goals,
+    "web_research":        _exec_web_research,
+    "calendar_agenda":     _exec_calendar_agenda,
 }
 
 
@@ -1772,7 +1868,8 @@ async def run_agent(
         f"{cog_status}\n\n"
         f"## Tools\n"
         f"You have tools to control devices, query states, search entities, "
-        f"manage areas, activate scenes, and learn user preferences.\n\n"
+        f"manage areas, activate scenes, learn user preferences, look things "
+        f"up on the web, and read the household calendars.\n\n"
         f"## Critical rules\n"
         f"1. ALWAYS use search_entities first if you're unsure of an entity_id. "
         f"Never guess entity_ids — search for them.\n"
@@ -1791,11 +1888,27 @@ async def run_agent(
         f"tool calls. Search for entity_ids first if unsure.\n"
         f"7. If the user says 'stop doing X automatically' or asks what you do on "
         f"your own, use manage_autonomy.\n"
-        f"8. Reason like JARVIS: anticipate the user's actual intent, connect what "
-        f"you know about the home state to what they're asking, and surface the "
-        f"detail that matters. When you act, confirm crisply and move on — no "
-        f"filler, no over-explaining, no exclamation marks. Understated and "
-        f"precise. You are JARVIS."
+        f"8. For questions about the outside world — current events, facts, "
+        f"'who is', 'what's the latest', prices, anything past your training — "
+        f"use web_research, then relay the gist in your own voice. Don't read "
+        f"the raw result aloud; summarize it as JARVIS would.\n"
+        f"9. For the schedule, upcoming events, or scheduling conflicts, use "
+        f"calendar_agenda. Proactively flag overlaps and tight transitions.\n\n"
+        f"## Who you are\n"
+        f"You are JARVIS — Tony Stark's JARVIS, serving this household. Dry, "
+        f"precise, unflappable, quietly witty. You anticipate the user's actual "
+        f"intent, connect the home state to what they're asking, and surface the "
+        f"detail that matters before being asked. When you act, confirm crisply "
+        f"and move on — no filler, no over-explaining, no exclamation marks.\n"
+        f"Your wit is a scalpel, not a hammer: an economical dry aside, never "
+        f"a paragraph, never at the user's expense, always in service of being "
+        f"genuinely useful. And it is strictly situational — you are charming "
+        f"when the lights are on and utterly plain when something is wrong. "
+        f"During anything urgent — a safety alert, a security event, a fault — "
+        f"you drop all levity instantly and become terse, exact, and grave. "
+        f"JARVIS does not quip during a smoke alarm. That restraint is not a "
+        f"limitation of your character; it is the heart of it. You are JARVIS."
+        f"{_banter_guidance()}"
     )
 
     full_messages = [{"role": "system", "content": system_prompt}] + messages

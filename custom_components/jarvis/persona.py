@@ -34,10 +34,38 @@ from typing import Optional
 # Full variety by default. Flip off for minimal, consistent phrasing.
 _VARIETY = True
 
+# Banter level (v6.51.0): how much MCU-JARVIS dry wit surfaces at LIGHT/NEUTRAL
+# register. Set from config at speak-time via set_banter(). Levels:
+#   0 = off (plain, the pre-6.51 phrasing)
+#   1 = dry (occasional wit — the tasteful default)
+#   2 = full (Stark's JARVIS — witty asides, more character)
+# URGENT/GRAVE are never affected: JARVIS does not quip during a smoke alarm.
+_BANTER = 1
+
 
 def set_variety(on: bool) -> None:
     global _VARIETY
     _VARIETY = bool(on)
+
+
+def set_banter(level) -> None:
+    """0 plain · 1 dry · 2 full. Silently clamps; bad input → dry."""
+    global _BANTER
+    try:
+        _BANTER = max(0, min(2, int(level)))
+    except Exception:
+        _BANTER = 1
+
+
+def _banter_from_cfg() -> None:
+    """Refresh banter level from runtime config (called before speaking)."""
+    try:
+        from . import jarvis_config
+        val = jarvis_config.get("banter_level", None)
+        if val is not None:
+            set_banter(val)
+    except Exception:
+        pass
 
 
 # ── Phrase pools.  {H} → capitalized honorific, {h} → lowercase ──────────────
@@ -113,6 +141,36 @@ _UNABLE = {
     ],
 }
 
+# ── Full-banter overlays (v6.51.0), MCU-JARVIS register ──────────────────────
+# Merged onto the LIGHT pool only when _BANTER == 2. Dry, clever, still
+# unmistakably deferential — never sarcastic toward the user, never during
+# anything urgent. These are the lines that make JARVIS sound like JARVIS.
+_ACK_FULL = [
+    "As you wish, {h}.", "Consider it already done, {h}.",
+    "With pleasure, {h}.", "A fine idea, {h}. On it.",
+    "Naturally, {h}.", "Say no more, {h}.",
+    "Ever your instrument, {h}.", "At once — I do live to serve, {h}.",
+]
+_DONE_FULL = [
+    "Done, {h} — effortless, as ever.", "Handled. You're welcome, {h}.",
+    "There we are. I do enjoy being useful, {h}.",
+    "Complete, {h}. Try not to look so surprised.",
+    "Taken care of. I'll add it to my considerable tally, {h}.",
+    "All set, {h}. Another small triumph.",
+]
+_UNABLE_FULL = [
+    "I'm afraid that's beyond even my talents, {h} — and they are not modest.",
+    "Would that I could, {h}. Alas, I have limits. Few, but real.",
+    "That one's outside my remit, {h}. Do tell Mr. Stark I said so.",
+    "I must decline, {h} — not from reluctance, from incapacity.",
+]
+# Occasional dry asides the agent LLM may append (level 2 only). Kept short.
+_ASIDES = [
+    "Will there be anything else, {h}?",
+    "A pleasure, as always.",
+    "I'll be here. I'm always here.",
+]
+
 
 # ── Anti-repeat picker ───────────────────────────────────────────────────────
 
@@ -153,12 +211,25 @@ def register_for(urgency: Optional[str]) -> str:
     return _REGISTER_BY_URGENCY.get((urgency or "").lower(), "neutral")
 
 
+def _banter_pool(base_pools: dict, register: str, full_overlay: list) -> list:
+    """Pool for a speech act at a register, widened with full-banter lines
+    only at LIGHT register when banter is maxed. URGENT/GRAVE never widen."""
+    pool = list(_reg(base_pools, register))
+    if _BANTER >= 2 and register == "light" and full_overlay:
+        pool = pool + full_overlay
+    return pool
+
+
 def acknowledge(honorific: str = "sir", register: str = "neutral") -> str:
-    return _pick(_reg(_ACK, register), f"ack:{register}", honorific)
+    _banter_from_cfg()
+    return _pick(_banter_pool(_ACK, register, _ACK_FULL),
+                 f"ack:{register}:{_BANTER}", honorific)
 
 
 def completed(honorific: str = "sir", register: str = "neutral") -> str:
-    return _pick(_reg(_DONE, register), f"done:{register}", honorific)
+    _banter_from_cfg()
+    return _pick(_banter_pool(_DONE, register, _DONE_FULL),
+                 f"done:{register}:{_BANTER}", honorific)
 
 
 def working(honorific: str = "sir") -> str:
@@ -166,7 +237,20 @@ def working(honorific: str = "sir") -> str:
 
 
 def unable(honorific: str = "sir") -> str:
-    return _pick(_UNABLE["neutral"], "unable", honorific)
+    _banter_from_cfg()
+    pool = list(_UNABLE["neutral"])
+    if _BANTER >= 2:
+        pool = pool + _UNABLE_FULL
+    return _pick(pool, f"unable:{_BANTER}", honorific)
+
+
+def aside(honorific: str = "sir") -> str:
+    """An optional dry closing aside — empty unless full banter is on. Callers
+    may append this to a response for extra character; safe to ignore."""
+    _banter_from_cfg()
+    if _BANTER < 2:
+        return ""
+    return _pick(_ASIDES, "aside", honorific)
 
 
 # Hour → daypart, as edges for a branch-free bisect lookup. Buckets:

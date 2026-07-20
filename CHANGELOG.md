@@ -4,6 +4,45 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.51.0] — three new agents, and JARVIS finally sounds like JARVIS
+The home-agent blueprint, reconciled against what already existed. Most of
+its twelve agents were already here under other names — the Supervisor is
+the agentic core, the Memory agent is the Chroma vector store, Vision is
+the camera stack, Voice is the Wyoming pipeline. Three were genuinely
+missing; two of the twelve (OS control, code execution) are deliberately
+NOT built — arbitrary desktop automation and code execution inside the HA
+process are security weight a home butler shouldn't carry, and there's no
+display to drive in the sandbox anyway.
+
+**Web Research agent.** A new `web_research` tool: ask about the outside
+world and JARVIS looks it up, then relays the gist in its own voice.
+DuckDuckGo's Instant Answer API by default (no key, no signup), switchable
+to a self-hosted SearXNG. Results are summarized, capped, and sanitized —
+never a raw page dump — and a failed lookup returns an honest "couldn't
+find that," never an exception.
+
+**Communication agent.** A new `calendar_agenda` tool reading the
+`calendar.*` entities HA already exposes: upcoming events plus conflict
+detection — overlaps, and back-to-back transitions tighter than a
+configurable gap. Email is deliberately untouched; reading an inbox from
+inside HA is privacy weight better handled by exposing specific mail as an
+entity.
+
+**MCU-JARVIS persona.** The voice now leans into Stark's JARVIS — dry,
+clever, unflappable — with an engineered safety valve: full wit only at
+light/neutral register, automatically silenced at urgent/grave. JARVIS
+does not quip during a smoke alarm, and that's now structurally guaranteed
+(the urgent/grave phrase pools can never gain banter lines — there's a test
+that asserts exactly this). A **banter level** knob (plain / dry / full)
+in Settings → JARVIS Character tunes it live, flowing into both the phrase
+pools and the LLM's own prompt.
+
+New: `web_research.py`, `comms.py`, banter valve in `persona.py`, two agent
+tools, four panel-writable config keys, a JARVIS Character settings panel,
+26 tests. The HTTP paths can't be exercised from the build sandbox (no
+egress to the search endpoints), so they're covered by pure-shaper tests
+and run live where HA has normal network access.
+
 ## [6.50.0] — camera management moves to Settings
 The ✎ NAME button and its overlay are gone from Command Center — camera
 renaming and indoor/outdoor designation now live in a **Cameras** panel on
