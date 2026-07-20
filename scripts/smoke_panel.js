@@ -290,50 +290,52 @@ setTimeout(async () => {
   delete el._liveData.config.camera_overrides;
   el._lastCamKey = ""; el._renderCameraFeed();   // restore for anything downstream
 
-  // ── JARVIS-only camera rename: overlay → WS → chips + strip update ──
-  el.shadowRoot.getElementById("cam-rename-btn")?.click();
-  const renameBox = el.shadowRoot.querySelector("#cam-feed .cam-rename");
-  const renameInput = renameBox?.querySelector("#cam-rename-input");
+  // ── Settings tab: camera names + location designation (v6.50.0 home) ──
+  el._currentTab = "settings";
+  el._render();
+  const camsetRows = el.shadowRoot.querySelectorAll(".camset-row");
   checks.push(
-    ["rename button opens the overlay with HA-name placeholder",
-      !!renameInput && renameInput.getAttribute("placeholder") === "Front Door"],
+    ["✎ button removed from Command Center (decluttered)",
+      !el.shadowRoot.getElementById("cam-rename-btn")],
+    ["Settings renders a row per camera", camsetRows.length === 2],
+    ["name input placeholder is the HA name",
+      el.shadowRoot.querySelector('.camset-name[data-cam="camera.front"]')?.getAttribute("placeholder") === "Front Door"],
+    ["location chips render with resolved AUTO label",
+      /AUTO \(indoor\)/.test(el.shadowRoot.querySelector('.camset-row[data-cam="camera.front"]')?.textContent || "")],
   );
-  if (renameInput) {
-    renameInput.value = "Eliana's Room";
-    renameBox.querySelector("#cam-rename-save")?.click();
-    await new Promise(r => setTimeout(r, 20));
-  }
+
+  const nameInput = el.shadowRoot.querySelector('.camset-name[data-cam="camera.front"]');
+  nameInput.value = "Eliana's Room";
+  nameInput.dispatchEvent(new window.Event("blur"));
+  await new Promise(r => setTimeout(r, 20));
   checks.push(
     ["rename WS called with entity + new name",
       _renameCalls.length === 1 && _renameCalls[0].entity_id === "camera.front"
       && _renameCalls[0].name === "Eliana's Room"],
-    ["rename overlay closes after save", !el.shadowRoot.querySelector("#cam-feed .cam-rename")],
-    ["chip shows the JARVIS-only name",
-      /ELIANA'S ROOM/.test(el.shadowRoot.getElementById("cam-sel")?.textContent || "")],
-    ["strip shows the JARVIS-only name",
-      /Eliana's Room/.test(el.shadowRoot.getElementById("cam-strip")?.textContent || "")],
+    ["display name resolver picks up the rename", el._camName("camera.front") === "Eliana's Room"],
+  );
+  nameInput.dispatchEvent(new window.Event("blur"));       // unchanged — must not re-call
+  await new Promise(r => setTimeout(r, 10));
+  checks.push(
+    ["unchanged blur does not re-save", _renameCalls.length === 1],
   );
 
-  // ── indoor/outdoor designation: chips in the ✎ overlay, instant save ──
-  el.shadowRoot.getElementById("cam-rename-btn")?.click();
-  const locRow = el.shadowRoot.querySelector("#cam-loc-row");
-  checks.push(
-    ["location row renders three chips", locRow?.querySelectorAll(".cam-loc-chip").length === 3],
-    ["AUTO chip shows the resolved heuristic", /AUTO \(indoor\)/.test(locRow?.textContent || "")],
-    ["AUTO is the active designation initially",
-      locRow?.querySelector('.cam-loc-chip[data-loc="auto"]')?.classList.contains("active") === true],
-  );
-  locRow?.querySelector('.cam-loc-chip[data-loc="outdoor"]')?.click();
+  el.shadowRoot.querySelector('.camset-row[data-cam="camera.front"] .cam-loc-chip[data-loc="outdoor"]')?.click();
   await new Promise(r => setTimeout(r, 20));
   checks.push(
     ["location WS called with entity + mode", _locationCalls.length === 1
       && _locationCalls[0].entity_id === "camera.front" && _locationCalls[0].mode === "outdoor"],
-    ["OUTDOOR chip becomes active after save",
-      el.shadowRoot.querySelector('.cam-loc-chip[data-loc="outdoor"]')?.classList.contains("active") === true],
+    ["OUTDOOR chip becomes active in the row",
+      el.shadowRoot.querySelector('.camset-row[data-cam="camera.front"] .cam-loc-chip[data-loc="outdoor"]')?.classList.contains("active") === true],
     ["camera metadata refreshed from response",
       (el._cams.find(c => c.entity_id === "camera.front") || {}).location_mode === "outdoor"],
   );
-  el.shadowRoot.getElementById("cam-rename-btn")?.click();   // close overlay
+  el._currentTab = "dashboard";
+  el._render();
+  checks.push(
+    ["strip on Command Center shows the JARVIS-only name",
+      /Eliana's Room/.test(el.shadowRoot.getElementById("cam-strip")?.textContent || "")],
+  );
 
   // ── switch to Memory tab: person routines fetch + render ──
   el._currentTab = "memory";

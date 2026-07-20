@@ -4,6 +4,25 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.50.0] — camera management moves to Settings
+The ✎ NAME button and its overlay are gone from Command Center — camera
+renaming and indoor/outdoor designation now live in a **Cameras** panel on
+the Settings tab, one row per camera: entity id (with the restream
+override arrow when one is mapped), a name field (Enter or blur saves,
+unchanged blur makes no call, blank reverts — placeholder shows the HA
+name), and the AUTO/⌂ INDOOR/▲ OUTDOOR chips with instant save and the
+resolved heuristic on AUTO. All cameras visible and editable at once
+instead of one-at-a-time through an overlay, and Command Center's Camera
+Watch head is back to just DIAG.
+
+Two mechanics worth noting: the Settings tab already skips poll re-renders,
+so typing a name is never wiped mid-edit; and the row refresh no longer
+depends on `CSS.escape`, which isn't guaranteed in every embedding (found
+by the smoke harness — the chip toggle silently died in its catch).
+
+Same backend as 6.48/6.49 — `jarvis/rename_camera` and
+`jarvis/camera_location` unchanged.
+
 ## [6.49.0] — tell JARVIS which side of the walls a camera lives on
 The ✎ camera overlay gains a **LOCATION** row: AUTO / ⌂ INDOOR /
 ▲ OUTDOOR, saving instantly per click. AUTO shows what the heuristics
