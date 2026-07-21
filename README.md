@@ -27,6 +27,8 @@ The guiding principle is **suggest, don't act** until you grant otherwise: JARVI
 
 **Web research & schedule awareness.** Ask JARVIS about the outside world — current events, facts, "what's the latest on…" — and it looks it up (DuckDuckGo Instant Answer out of the box, no API key; point it at a self-hosted SearXNG for richer results). It also reads your household `calendar.*` entities to surface upcoming events and flag scheduling conflicts — overlaps, and back-to-back commitments with too little gap between them.
 
+**Answers from your own paperwork.** Drop appliance manuals and receipts (PDF, `.txt`, `.md`) into `/config/jarvis/documents`, and JARVIS ingests, chunks, and embeds them into its vector store. Then ask "what's the filter size for the furnace?" or "when did we buy the dishwasher?" and it answers from your documents, citing the source — no more digging through a drawer of manuals.
+
 **The JARVIS voice.** Modelled on Stark's JARVIS: dry, precise, unflappable, quietly witty — and strictly situational about it. The wit is a scalpel, not a hammer, and it goes silent the instant something is wrong. JARVIS does not quip during a smoke alarm. A **banter level** setting (plain / dry / full) tunes how much character surfaces, and urgent and grave events always speak plainly regardless.
 
 **Vision & cameras.** Automatic doorbell-press analysis with a two-pass live-clip / recorded-event approach, package and mail detection on porch cameras, and silent visitor learning that quietly builds a picture of who comes and goes — all powered by vision models reasoning over Nest and Frigate feeds.
@@ -154,8 +156,8 @@ The reasoning pipeline is layered for resilience and cost: local templates → l
 
 - **Pattern-driven automations** — the engine reads observed behavior from `patterns.db`, proposes automations, and now *installs* an approved suggestion straight into Home Assistant. It keeps improving as more per-person data accumulates and more pattern shapes become directly installable.
 - **Per-person routine inference** — the person-aware engine and `person_patterns` store are live; this is now a matter of real per-household-member data accumulating over a 1–2 year horizon to sharpen each baseline.
-- **Document RAG agent** — semantic retrieval over manuals and receipts, the last un-built agent from the home-agent blueprint.
-- **UI Phase 2 residence view** — the isometric floor plan now glows room-by-room from live mmWave detection (with a matching overview panel alongside), distinct from plain area occupancy. Continues to gain depth from here.
+
+With the Document RAG agent shipped, all twelve agents from the home-agent blueprint that belong in Home Assistant are now built. What remains above is data-accumulation, not new construction.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 

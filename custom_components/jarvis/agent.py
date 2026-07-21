@@ -709,6 +709,43 @@ JARVIS_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_documents",
+            "description": (
+                "Search the household's ingested manuals, receipts, and "
+                "documents for an answer — appliance specs, filter sizes, "
+                "model numbers, purchase dates, warranty terms, how-to steps. "
+                "Use when the user asks about something that would be in their "
+                "own paperwork rather than general knowledge or the live home "
+                "state. Returns relevant excerpts you then answer from, citing "
+                "the source document."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What to look up in the documents.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ingest_documents",
+            "description": (
+                "Re-scan and ingest the documents folder "
+                "(/config/jarvis/documents). Use when the user says they added "
+                "or updated manuals/receipts and wants them searchable."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
 ]
 
 
@@ -1560,6 +1597,46 @@ async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_search_documents(hass: HomeAssistant, args: dict) -> str:
+    """Document RAG agent — retrieve from ingested manuals/receipts (v6.55.0)."""
+    try:
+        from . import documents
+        hits = await hass.async_add_executor_job(
+            documents.search_documents, args.get("query", ""), 4)
+        if not hits:
+            return json.dumps({
+                "results": [],
+                "note": "nothing in the document library matched — it may be "
+                        "empty (add files to /config/jarvis/documents and "
+                        "ingest) or the answer isn't in the paperwork",
+            })
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("AGENT", f"document search '{args.get('query','')}' "
+                                f"→ {len(hits)} hits")
+        except Exception:
+            pass
+        return json.dumps({"results": hits})
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+async def _exec_ingest_documents(hass: HomeAssistant, args: dict) -> str:
+    """Re-scan the documents folder (v6.55.0)."""
+    try:
+        from . import documents
+        res = await hass.async_add_executor_job(documents.ingest_directory)
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("AGENT", f"document ingest: {res.get('files_ingested',0)} "
+                                f"files, {res.get('total_chunks',0)} chunks")
+        except Exception:
+            pass
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 _TOOL_MAP = {
     "control_device":      _exec_control_device,
     "get_entity_state":    _exec_get_entity_state,
@@ -1586,6 +1663,8 @@ _TOOL_MAP = {
     "manage_goals":        _exec_manage_goals,
     "web_research":        _exec_web_research,
     "calendar_agenda":     _exec_calendar_agenda,
+    "search_documents":    _exec_search_documents,
+    "ingest_documents":    _exec_ingest_documents,
 }
 
 
@@ -1874,7 +1953,8 @@ async def run_agent(
         f"## Tools\n"
         f"You have tools to control devices, query states, search entities, "
         f"manage areas, activate scenes, learn user preferences, look things "
-        f"up on the web, and read the household calendars.\n\n"
+        f"up on the web, read the household calendars, and search the "
+        f"household's own manuals and receipts.\n\n"
         f"## Critical rules\n"
         f"1. ALWAYS use search_entities first if you're unsure of an entity_id. "
         f"Never guess entity_ids — search for them.\n"
@@ -1898,7 +1978,12 @@ async def run_agent(
         f"use web_research, then relay the gist in your own voice. Don't read "
         f"the raw result aloud; summarize it as JARVIS would.\n"
         f"9. For the schedule, upcoming events, or scheduling conflicts, use "
-        f"calendar_agenda. Proactively flag overlaps and tight transitions.\n\n"
+        f"calendar_agenda. Proactively flag overlaps and tight transitions.\n"
+        f"10. For questions answerable from the household's own paperwork — "
+        f"appliance filter sizes, model numbers, warranty dates, manual "
+        f"instructions — use search_documents and answer from the excerpts, "
+        f"naming the source document. Don't invent specs; if the documents "
+        f"don't contain it, say so.\n\n"
         f"## Who you are\n"
         f"You are JARVIS — Tony Stark's JARVIS, serving this household. Dry, "
         f"precise, unflappable, quietly witty. You anticipate the user's actual "

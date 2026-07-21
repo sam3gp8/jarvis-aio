@@ -4,6 +4,34 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.55.0] — Document RAG: JARVIS reads your manuals
+The last un-built agent from the home-agent blueprint. JARVIS can now
+answer from the household's own paperwork: drop appliance manuals and
+receipts (PDF, .txt, .md) into `/config/jarvis/documents`, ingest them,
+and ask "what's the furnace filter size?" or "when did we buy the
+dishwasher?" — it retrieves the relevant excerpt and answers, citing the
+source document, instead of guessing.
+
+Built on the same ChromaDB the memory system already runs, but as a
+*separate* collection — a manual isn't a conversation turn, and a furnace
+query shouldn't surface old chats. Documents are chunked with overlap on
+paragraph/sentence boundaries for good recall, embedded via Chroma's
+default function (no extra model dependency), cosine-scored. When ChromaDB
+isn't installed it falls back to FTS5 keyword search in the existing
+jarvis.db, so retrieval works on a minimal install too. PDF text
+extraction degrades honestly across pypdf / pdfplumber / PyPDF2 and, if
+none is present, says so and skips the file rather than crashing — plain
+text always works. `pypdf` is now a manifest requirement so PDFs work out
+of the box.
+
+Two agent tools (`search_documents`, `ingest_documents`), a
+`jarvis/documents` WS command, and a **Document Library** panel in Settings
+with an ingest button, live source list, and a test-search box. 17 unit
+tests (the pure chunker, extraction routing, ingest/search through a
+simulated collection, honest fallbacks) plus 4 panel smoke checks.
+
+This completes every blueprint agent that belongs inside Home Assistant.
+
 ## [6.54.0] — the floor plan glows from live mmWave
 The residence model now lights up room-by-room from genuine mmWave/presence
 detection, not just the binary area-occupancy flag. A room whose presence

@@ -69,6 +69,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_rename_camera)
         websocket_api.async_register_command(hass, ws_camera_location)
         websocket_api.async_register_command(hass, ws_mmwave_overview)
+        websocket_api.async_register_command(hass, ws_documents)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1869,6 +1870,41 @@ async def ws_rename_camera(
     except Exception as exc:
         _LOGGER.exception("rename_camera failed: %s", exc)
         connection.send_error(msg["id"], "rename_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/documents",
+    vol.Required("action"): vol.In(["status", "ingest", "search"]),
+    vol.Optional("query"): str,
+})
+@websocket_api.async_response
+async def ws_documents(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Document library control for the panel (v6.55.0): status (what's
+    ingested), ingest (re-scan /config/jarvis/documents), search (test a
+    query). The retrieval JARVIS actually uses in conversation is the
+    search_documents agent tool; this exposes the same store to the UI."""
+    action = msg["action"]
+    try:
+        from . import documents
+        if action == "status":
+            res = await hass.async_add_executor_job(documents.library_status)
+        elif action == "ingest":
+            res = await hass.async_add_executor_job(documents.ingest_directory)
+            jarvis_log("AGENT", f"documents ingested via panel: "
+                                f"{res.get('files_ingested',0)} files, "
+                                f"{res.get('total_chunks',0)} chunks")
+        else:  # search
+            hits = await hass.async_add_executor_job(
+                documents.search_documents, msg.get("query", ""), 5)
+            res = {"results": hits}
+        connection.send_result(msg["id"], res)
+    except Exception as exc:
+        _LOGGER.exception("ws_documents failed: %s", exc)
+        connection.send_error(msg["id"], "documents_failed", str(exc))
 
 
 @websocket_api.websocket_command({

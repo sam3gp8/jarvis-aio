@@ -70,6 +70,11 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
+    if (m.type === "jarvis/documents") {
+      if (m.action === "status") return { chroma: true, fts: false, chunk_count: 42, directory: "/config/jarvis/documents", sources: [{ source: "furnace_manual.pdf", chunks: 30 }, { source: "dishwasher_receipt.txt", chunks: 12 }] };
+      if (m.action === "ingest") return { ok: true, files_ingested: 2, files_seen: 2, total_chunks: 42 };
+      if (m.action === "search") return { results: [{ text: "The furnace filter size is 16x25x1 MERV 11.", source: "furnace_manual.pdf", chunk: 4, score: 0.88 }] };
+    }
     if (m.type === "jarvis/mmwave_overview") return {
       rooms: [
         { area_id: "kitchen", name: "Kitchen", outdoor: false, sensor_count: 2, detecting_count: 1, state: "detecting", freshest: "now", sensors: [] },
@@ -441,6 +446,36 @@ setTimeout(async () => {
       litMap["kitchen"] === "mmwave"],
     ["non-detecting sensor room is not force-lit by mmwave",
       litMap["office"] !== "mmwave"],
+  );
+
+  // ── Document Library (RAG) panel on Settings (v6.55.0) ──
+  el._currentTab = "settings";
+  el._render();
+  await el._fetchDocLibrary();
+  const docBody = el.shadowRoot.getElementById("doclib-body");
+  const docStatus = el.shadowRoot.getElementById("doclib-status");
+  checks.push(
+    ["doc library shows backend + chunk count", /VECTOR/.test(docStatus?.textContent || "") && /42/.test(docStatus?.textContent || "")],
+    ["doc library lists ingested sources",
+      /furnace_manual\.pdf/.test(docBody?.textContent || "") && /dishwasher_receipt\.txt/.test(docBody?.textContent || "")],
+  );
+  // ingest button
+  el.shadowRoot.getElementById("doclib-ingest")?.click();
+  await new Promise(r => setTimeout(r, 20));
+  checks.push(
+    ["doc ingest button present + wired", !!el.shadowRoot.getElementById("doclib-ingest")],
+  );
+  // test-search
+  const dq = el.shadowRoot.getElementById("doclib-q");
+  if (dq) {
+    dq.value = "furnace filter size";
+    dq.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise(r => setTimeout(r, 20));
+  }
+  checks.push(
+    ["doc search renders excerpt with source + score",
+      /16x25x1/.test(el.shadowRoot.getElementById("doclib-body")?.textContent || "")
+      && /furnace_manual\.pdf/.test(el.shadowRoot.getElementById("doclib-body")?.textContent || "")],
   );
 
   let ok = true;

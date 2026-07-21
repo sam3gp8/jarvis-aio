@@ -26,7 +26,8 @@
   "requirements": [
     "groq>=0.9.0",
     "openai>=1.0.0",
-    "anthropic>=0.39.0"
+    "anthropic>=0.39.0",
+    "pypdf>=4.0.0"
   ],
-  "version": "6.54.0"
+  "version": "6.55.0"
 }
