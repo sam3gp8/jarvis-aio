@@ -432,6 +432,17 @@ setTimeout(async () => {
     ["summary reflects detecting/total", /1\/3 OCCUPIED/.test(mmSummary)],
   );
 
+  // ── mmWave glow feeds the floor plan itself (v6.54.0) ──
+  // Kitchen is detecting in the mock; _house3dLit must mark it 'mmwave', a
+  // distinct state from plain area-occupancy, so the plan glows accordingly.
+  const litMap = el._house3dLit();
+  checks.push(
+    ["detecting room enters floor-plan lit map as 'mmwave'",
+      litMap["kitchen"] === "mmwave"],
+    ["non-detecting sensor room is not force-lit by mmwave",
+      litMap["office"] !== "mmwave"],
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();

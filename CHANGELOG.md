@@ -4,6 +4,22 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.54.0] — the floor plan glows from live mmWave
+The residence model now lights up room-by-room from genuine mmWave/presence
+detection, not just the binary area-occupancy flag. A room whose presence
+sensor is actively detecting gets a distinct, punchy aqua-green glow with a
+brighter border — visibly the "hottest" room — while a room lit only by
+generic area occupancy stays standard cyan, and the dominant room keeps its
+mint. At a glance you can now tell *where a body actually is* versus where
+HA merely thinks a zone is active.
+
+Mechanically: `_house3dLit()` overlays the `jarvis/mmwave_overview` feed
+onto the plan's lit map as a new `mmwave` state that flows through the
+whole 3D builder — floor fill, walls, label, and pulse dot all render it
+distinctly. The plan rebuilds when fresh mmWave data lands, so detection
+appears live. Verified by rasterizing the plan and eyeballing that the
+three presence states are actually distinguishable before shipping.
+
 ## [6.53.0] — mmWave presence overview
 The residence tab gains a live **mmWave Presence** panel: every room with a
 presence, motion, or occupancy sensor, showing whether it's occupied right

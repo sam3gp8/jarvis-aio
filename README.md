@@ -155,7 +155,7 @@ The reasoning pipeline is layered for resilience and cost: local templates → l
 - **Pattern-driven automations** — the engine reads observed behavior from `patterns.db`, proposes automations, and now *installs* an approved suggestion straight into Home Assistant. It keeps improving as more per-person data accumulates and more pattern shapes become directly installable.
 - **Per-person routine inference** — the person-aware engine and `person_patterns` store are live; this is now a matter of real per-household-member data accumulating over a 1–2 year horizon to sharpen each baseline.
 - **Document RAG agent** — semantic retrieval over manuals and receipts, the last un-built agent from the home-agent blueprint.
-- **UI Phase 2 residence view** — the isometric floor plan continues to gain depth; a live mmWave presence overview now sits alongside it, with per-room sensor glow on the plan itself as the next step.
+- **UI Phase 2 residence view** — the isometric floor plan now glows room-by-room from live mmWave detection (with a matching overview panel alongside), distinct from plain area occupancy. Continues to gain depth from here.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
