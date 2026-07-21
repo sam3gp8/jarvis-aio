@@ -4,6 +4,23 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.56.1] — fix ChromaDB install; modernize CI actions
+Two fixes surfaced by real deployment of 6.56.0.
+
+**Semantic-search install failed** with "HA package helper unavailable:
+cannot import name 'async_install_package'." There is no
+`async_install_package` in `homeassistant.util.package` — the real helper
+is the synchronous `install_package`. Now the enable button calls that
+through an executor job (it shells out to pip/uv, so it must stay off the
+event loop), and semantic search installs as intended. Keyword search was
+never affected.
+
+**CI Node 20 deprecation warning.** `actions/checkout@v4` and
+`actions/setup-python@v5` run on Node 20, which GitHub is retiring in favor
+of Node 24 — the Validate workflow was green but annotated with a warning.
+Bumped to `actions/checkout@v5` and `actions/setup-python@v6` (both on Node
+24), clearing it. No behavior change to the checks themselves.
+
 ## [6.56.0] — optional ChromaDB: semantic search, one button
 JARVIS-AIO leans further into "all-in-one" without punishing small hosts.
 Memory and document retrieval have always worked everywhere via the

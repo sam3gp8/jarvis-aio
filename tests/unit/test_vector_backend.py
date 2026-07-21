@@ -49,11 +49,11 @@ async def test_install_runs_helper_then_reinits(vb, fake_hass, monkeypatch):
     monkeypatch.setattr(vb, "is_installed", lambda: False)
 
     called = {}
-    async def _fake_install(pkg):
+    def _fake_install(pkg):          # synchronous, matches real install_package
         called["pkg"] = pkg
         return True
     stub = types.ModuleType("homeassistant.util.package")
-    stub.async_install_package = _fake_install
+    stub.install_package = _fake_install
     monkeypatch.setitem(sys.modules, "homeassistant.util.package", stub)
     monkeypatch.setattr(vb, "_reinit_stores",
                         lambda: {"memory_vector": True, "documents_vector": True})
@@ -66,10 +66,10 @@ async def test_install_runs_helper_then_reinits(vb, fake_hass, monkeypatch):
 
 async def test_install_helper_failure_keeps_keyword(vb, fake_hass, monkeypatch):
     monkeypatch.setattr(vb, "is_installed", lambda: False)
-    async def _fail_install(pkg):
+    def _fail_install(pkg):
         return False
     stub = types.ModuleType("homeassistant.util.package")
-    stub.async_install_package = _fail_install
+    stub.install_package = _fail_install
     monkeypatch.setitem(sys.modules, "homeassistant.util.package", stub)
 
     res = await vb.install(fake_hass)

@@ -88,18 +88,19 @@ async def install(hass) -> dict:
         reinit = await hass.async_add_executor_job(_reinit_stores)
         return {"ok": True, "installed": True, "already": True, **reinit}
 
-    # Use Home Assistant's supported installer so it lands in the same env HA
-    # imports from (respects venv, constraints, uv/pip backend).
+    # HA's package installer is the SYNCHRONOUS install_package (it shells out to
+    # pip/uv), so it must run in an executor, never on the event loop. There is
+    # no async_install_package in homeassistant.util.package.
     try:
-        from homeassistant.util.package import async_install_package
+        from homeassistant.util.package import install_package
     except Exception as exc:
         return {"ok": False, "installed": False,
                 "error": f"HA package helper unavailable: {exc}"}
 
+    _LOGGER.info("JARVIS: installing optional vector backend (%s) — "
+                 "this can take a few minutes on first install", _PACKAGE)
     try:
-        _LOGGER.info("JARVIS: installing optional vector backend (%s) — "
-                     "this can take a few minutes on first install", _PACKAGE)
-        ok = await async_install_package(_PACKAGE)
+        ok = await hass.async_add_executor_job(install_package, _PACKAGE)
     except Exception as exc:
         _LOGGER.exception("chromadb install failed: %s", exc)
         return {"ok": False, "installed": False, "error": str(exc)}

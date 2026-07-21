@@ -17,7 +17,7 @@ jobs:
     name: Hassfest (integration manifest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Hassfest validation
         uses: home-assistant/actions/hassfest@master
 
@@ -25,7 +25,7 @@ jobs:
     name: HACS validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: HACS validation
         uses: hacs/action@main
         with:
@@ -35,8 +35,8 @@ jobs:
     name: Python syntax
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Compile all integration modules
