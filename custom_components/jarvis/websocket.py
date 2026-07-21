@@ -70,6 +70,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_camera_location)
         websocket_api.async_register_command(hass, ws_mmwave_overview)
         websocket_api.async_register_command(hass, ws_documents)
+        websocket_api.async_register_command(hass, ws_vector_backend)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1870,6 +1871,38 @@ async def ws_rename_camera(
     except Exception as exc:
         _LOGGER.exception("rename_camera failed: %s", exc)
         connection.send_error(msg["id"], "rename_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/vector_backend",
+    vol.Required("action"): vol.In(["status", "install"]),
+})
+@websocket_api.async_response
+async def ws_vector_backend(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Optional ChromaDB vector backend control (v6.56.0): report status, or
+    install it at runtime to upgrade memory + document retrieval from keyword
+    (FTS5) to true semantic vector search — no HA restart needed."""
+    try:
+        from . import vector_backend
+        if msg["action"] == "install":
+            res = await vector_backend.install(hass)
+            if res.get("ok") and res.get("installed"):
+                jarvis_log("AGENT", "vector backend (ChromaDB) "
+                                    + ("already active" if res.get("already")
+                                       else "installed and activated"))
+            elif res.get("error"):
+                jarvis_log("AGENT", f"vector backend install failed: {res['error']}")
+            connection.send_result(msg["id"], res)
+        else:
+            res = await hass.async_add_executor_job(vector_backend.status)
+            connection.send_result(msg["id"], res)
+    except Exception as exc:
+        _LOGGER.exception("ws_vector_backend failed: %s", exc)
+        connection.send_error(msg["id"], "vector_backend_failed", str(exc))
 
 
 @websocket_api.websocket_command({

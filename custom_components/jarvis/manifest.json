@@ -29,5 +29,5 @@
     "anthropic>=0.39.0",
     "pypdf>=4.0.0"
   ],
-  "version": "6.55.0"
+  "version": "6.56.0"
 }

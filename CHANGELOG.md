@@ -4,6 +4,38 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.56.0] — optional ChromaDB: semantic search, one button
+JARVIS-AIO leans further into "all-in-one" without punishing small hosts.
+Memory and document retrieval have always worked everywhere via the
+built-in SQLite FTS5 keyword search; now you can upgrade both to true
+semantic vector search by installing ChromaDB from a single button in
+Settings → Document Library — no separate add-on, no manual pip, no HA
+restart.
+
+It's deliberately opt-in, not a hard requirement: ChromaDB pulls ~300–500 MB
+(onnxruntime, tokenizers, etc.) that can be slow or fail to build on a Pi /
+HA Green / Yellow. So JARVIS ships light and the panel tells you plainly
+what enabling costs and where it's a good idea. The install runs through
+Home Assistant's own package helper (lands in the env HA imports from) and
+then re-initializes the memory and document stores in place, so vector
+search activates immediately. If the host can't build it, the install
+fails gracefully and keyword search keeps working — nothing breaks.
+
+New: `vector_backend.py` (detect / install / re-init), a
+`jarvis/vector_backend` WS command, and a search-engine banner in the
+Document Library panel showing KEYWORD vs SEMANTIC with an enable button
+and honest host guidance. 7 unit tests (detection, re-init resilience,
+install flow with mocked HA helper, graceful failure) and 4 panel smoke
+checks.
+
+Also: the CI workflow gained a `workflow_dispatch` trigger (so Validate can
+be re-run manually from the Actions tab — GitHub auto-pauses scheduled
+workflows after ~60 days of repo inactivity), plus an explicit
+`permissions: {}` block and branch scoping on push. Verified the repo is
+fully HACS-default-compatible: brand icons are correctly sized (256×256 /
+512×512) and satisfy the HACS brands check in-repo, manifest keys and
+hassfest ordering are valid, and hacs.json carries the required name.
+
 ## [6.55.0] — Document RAG: JARVIS reads your manuals
 The last un-built agent from the home-agent blueprint. JARVIS can now
 answer from the household's own paperwork: drop appliance manuals and

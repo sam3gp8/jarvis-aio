@@ -70,6 +70,10 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
+    if (m.type === "jarvis/vector_backend") {
+      if (m.action === "status") return { installed: false, package: "chromadb>=0.4.22", memory_vector: false, documents_vector: false };
+      if (m.action === "install") return { ok: true, installed: true, already: false, memory_vector: true, documents_vector: true };
+    }
     if (m.type === "jarvis/documents") {
       if (m.action === "status") return { chroma: true, fts: false, chunk_count: 42, directory: "/config/jarvis/documents", sources: [{ source: "furnace_manual.pdf", chunks: 30 }, { source: "dishwasher_receipt.txt", chunks: 12 }] };
       if (m.action === "ingest") return { ok: true, files_ingested: 2, files_seen: 2, total_chunks: 42 };
@@ -476,6 +480,27 @@ setTimeout(async () => {
     ["doc search renders excerpt with source + score",
       /16x25x1/.test(el.shadowRoot.getElementById("doclib-body")?.textContent || "")
       && /furnace_manual\.pdf/.test(el.shadowRoot.getElementById("doclib-body")?.textContent || "")],
+  );
+
+  // ── optional vector backend banner (v6.56.0) ──
+  await el._fetchVectorBackend();
+  const vbState = el.shadowRoot.getElementById("vecbk-state")?.textContent || "";
+  const vbBtn = el.shadowRoot.getElementById("vecbk-install");
+  checks.push(
+    ["vector backend shows KEYWORD state when chromadb absent", /KEYWORD/.test(vbState)],
+    ["enable-semantic-search button offered in keyword mode", vbBtn && vbBtn.style.display !== "none"],
+  );
+  // simulate install activating vector search (confirm() auto-true in jsdom? guard it)
+  const origConfirm = window.confirm;
+  window.confirm = () => true;
+  vbBtn?.click();
+  await new Promise(r => setTimeout(r, 20));
+  window.confirm = origConfirm;
+  checks.push(
+    ["after install the banner reflects semantic/vector active",
+      /SEMANTIC/.test(el.shadowRoot.getElementById("vecbk-state")?.textContent || "")],
+    ["enable button hidden once vector active",
+      el.shadowRoot.getElementById("vecbk-install")?.style.display === "none"],
   );
 
   let ok = true;
