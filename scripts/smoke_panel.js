@@ -39,6 +39,9 @@ const PANEL = {
       temp: "71°F", humidity: null, temp_entity: "sensor.kitchen_temp", humidity_entity: null, last_motion: "12m" },
   ],
   config: { cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
+  suggestions: [
+    { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{\"alias\":\"...\"}" },
+  ],
   goals: [
     { id: 1, title: "Guest prep", outcome: "House ready for guests by Saturday", status: "active",
       steps_done: 2, steps_total: 4, steps: [], next_check_ts: "2026-07-13T20:00:00", deadline_ts: null,
@@ -51,6 +54,7 @@ const PANEL = {
 const _subscribedEvents = [];
 const _renameCalls = [];
 const _locationCalls = [];
+const _sugCalls = [];
 const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
   callWS: async (m) => {
@@ -66,6 +70,20 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
+    if (m.type === "jarvis/mmwave_overview") return {
+      rooms: [
+        { area_id: "kitchen", name: "Kitchen", outdoor: false, sensor_count: 2, detecting_count: 1, state: "detecting", freshest: "now", sensors: [] },
+        { area_id: "office", name: "Office", outdoor: false, sensor_count: 1, detecting_count: 0, state: "clear", freshest: "12m", sensors: [] },
+        { area_id: "patio", name: "Patio", outdoor: true, sensor_count: 1, detecting_count: 0, state: "clear", freshest: "3h", sensors: [] },
+      ],
+      summary: { rooms_with_mmwave: 3, rooms_detecting: 1, total_sensors: 4 },
+    };
+    if (m.type === "jarvis/suggestion_action") {
+      _sugCalls.push({ id: m.suggestion_id, action: m.action });
+      return m.action === "approve"
+        ? { ok: true, installed: true, alias: "JARVIS · porch on at 18:00" }
+        : { ok: true };
+    }
     if (m.type === "jarvis/camera_location") {
       _locationCalls.push({ entity_id: m.entity_id, mode: m.mode });
       return { ok: true, cameras: [
@@ -378,6 +396,40 @@ setTimeout(async () => {
   checks.push(
     ["search with no matches shows empty state, not a blank pane",
       /No entries match/.test(el.shadowRoot.getElementById("debug-log-entries")?.textContent || "")],
+  );
+
+  // ── pattern-engine suggestion: approve installs the automation (v6.52.0) ──
+  el._currentTab = "dashboard";
+  el._render();
+  const sugCard = el.shadowRoot.querySelector('.sug[data-sug-id="11"]');
+  checks.push(
+    ["suggestion card renders with approve button",
+      !!sugCard && !!sugCard.querySelector(".sug-approve")],
+  );
+  sugCard?.querySelector(".sug-approve")?.click();
+  await new Promise(r => setTimeout(r, 20));
+  const toastEl = el.shadowRoot.querySelector(".toast, #toast, .jarvis-toast");
+  checks.push(
+    ["approve sends suggestion_action", _sugCalls.length === 1
+      && _sugCalls[0].id === 11 && _sugCalls[0].action === "approve"],
+    ["approved card is visually retired", sugCard?.style.opacity === "0.35"],
+  );
+
+  // ── mmWave presence overview on the residence tab (v6.53.0) ──
+  el._currentTab = "residence";
+  el._render();
+  await el._fetchMmwave();
+  const mmList = el.shadowRoot.getElementById("mmwave-list");
+  const mmText = mmList?.textContent || "";
+  const mmSummary = el.shadowRoot.getElementById("mmwave-summary")?.textContent || "";
+  checks.push(
+    ["mmWave panel renders a row per sensor-equipped room",
+      mmList?.querySelectorAll(".mmwave-room").length === 3],
+    ["occupied room is marked live", !!mmList?.querySelector(".mmwave-room.live .mmwave-dot.on")],
+    ["occupied room shows OCCUPIED + now", /Kitchen/.test(mmText) && /OCCUPIED/.test(mmText)],
+    ["clear room shows freshness age", /Office/.test(mmText) && /12m/.test(mmText)],
+    ["outdoor room tagged", /Patio/.test(mmText) && /OUT/.test(mmText)],
+    ["summary reflects detecting/total", /1\/3 OCCUPIED/.test(mmSummary)],
   );
 
   let ok = true;

@@ -434,7 +434,13 @@ JARVIS_TOOLS = [
         "type": "function",
         "function": {
             "name": "approve_suggestion",
-            "description": "Approve a learned automation suggestion by its ID.",
+            "description": (
+                "Approve a learned automation suggestion by its ID. This "
+                "installs the automation into Home Assistant immediately when "
+                "the suggestion is concrete (returns installed:true with the "
+                "alias); some suggestions are advisory only (installed:false "
+                "with a reason) — relay which outcome occurred."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1273,13 +1279,12 @@ async def _exec_review_suggestions(hass: HomeAssistant, args: dict) -> str:
 
 
 async def _exec_approve_suggestion(hass: HomeAssistant, args: dict) -> str:
-    """Approve a suggestion."""
+    """Approve a suggestion — and install its automation into HA (v6.52.0)."""
     try:
-        from .pattern_analyzer import get_analyzer
+        from .pattern_analyzer import install_approved_suggestion
         sid = int(args.get("suggestion_id", 0))
-        ok = await hass.async_add_executor_job(
-            get_analyzer().approve_suggestion, sid)
-        return json.dumps({"success": ok, "suggestion_id": sid})
+        res = await install_approved_suggestion(hass, sid)
+        return json.dumps(res)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 

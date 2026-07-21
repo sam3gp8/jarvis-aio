@@ -68,6 +68,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_camera_diagnostics)
         websocket_api.async_register_command(hass, ws_rename_camera)
         websocket_api.async_register_command(hass, ws_camera_location)
+        websocket_api.async_register_command(hass, ws_mmwave_overview)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1754,16 +1755,29 @@ async def ws_suggestion_action(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Approve or dismiss a pattern-engine automation suggestion."""
+    """Approve or dismiss a pattern-engine automation suggestion. Approval now
+    installs the automation into HA, not just flags it (v6.52.0)."""
     try:
-        from .pattern_analyzer import get_analyzer
+        from .pattern_analyzer import get_analyzer, install_approved_suggestion
         analyzer = get_analyzer()
         sid = int(msg["suggestion_id"])
         if msg["action"] == "approve":
-            ok = await hass.async_add_executor_job(analyzer.approve_suggestion, sid)
-        else:
-            ok = await hass.async_add_executor_job(analyzer.dismiss_suggestion, sid)
-        jarvis_log("LEARN", f"Suggestion #{sid} {msg['action']}d (ok={ok})")
+            res = await install_approved_suggestion(hass, sid)
+            if res.get("installed"):
+                jarvis_log("LEARN", f"Suggestion #{sid} approved & installed "
+                                    f"as '{res.get('alias')}'")
+            elif res.get("ok"):
+                jarvis_log("LEARN", f"Suggestion #{sid} approved "
+                                    f"(advisory — {res.get('reason')})")
+            connection.send_result(msg["id"], {
+                "ok": bool(res.get("ok")),
+                "installed": bool(res.get("installed")),
+                "reason": res.get("reason"),
+                "alias": res.get("alias"),
+            })
+            return
+        ok = await hass.async_add_executor_job(analyzer.dismiss_suggestion, sid)
+        jarvis_log("LEARN", f"Suggestion #{sid} dismissed (ok={ok})")
         connection.send_result(msg["id"], {"ok": bool(ok)})
     except Exception as exc:
         _LOGGER.exception("ws_suggestion_action failed: %s", exc)
@@ -1855,6 +1869,83 @@ async def ws_rename_camera(
     except Exception as exc:
         _LOGGER.exception("rename_camera failed: %s", exc)
         connection.send_error(msg["id"], "rename_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/mmwave_overview",
+})
+@websocket_api.async_response
+async def ws_mmwave_overview(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Per-area mmWave presence overview for the residence tab (v6.53.0).
+
+    Distinct from the generic area grid: this reports *only* rooms with
+    presence/occupancy/motion sensors, and for each the live sensor breakdown —
+    how many sensors, how many currently detecting, the freshest detection age —
+    so the panel can show genuine mmWave coverage and live state rather than a
+    binary 'occupied' flag that could come from a door contact."""
+    import time as _t
+    try:
+        from . import audio_routing
+        rooms = []
+        total_sensors = 0
+        rooms_detecting = 0
+        for aid in _all_areas_with_anything(hass):
+            sensors = audio_routing.presence_entities_in_area(hass, aid)
+            if not sensors:
+                continue
+            detecting = 0
+            freshest = None            # seconds since most-recent change
+            sensor_rows = []
+            for eid in sensors:
+                st = hass.states.get(eid)
+                if st is None:
+                    continue
+                on = st.state == "on"
+                if on:
+                    detecting += 1
+                age = None
+                try:
+                    age = _t.time() - st.last_changed.timestamp()
+                    if freshest is None or age < freshest:
+                        freshest = age
+                except Exception:
+                    pass
+                sensor_rows.append({
+                    "entity_id": eid,
+                    "name": (st.attributes.get("friendly_name") or eid),
+                    "detecting": on,
+                    "age": _format_duration(age),
+                })
+            total_sensors += len(sensor_rows)
+            if detecting:
+                rooms_detecting += 1
+            rooms.append({
+                "area_id": aid,
+                "name": _area_name(hass, aid),
+                "outdoor": _is_outdoor_area(hass, aid),
+                "sensor_count": len(sensor_rows),
+                "detecting_count": detecting,
+                "state": ("detecting" if detecting else "clear"),
+                "freshest": _format_duration(freshest),
+                "sensors": sensor_rows,
+            })
+        # Detecting rooms first, then most-recently-active, then name
+        rooms.sort(key=lambda r: (r["detecting_count"] == 0, r["name"].lower()))
+        connection.send_result(msg["id"], {
+            "rooms": rooms,
+            "summary": {
+                "rooms_with_mmwave": len(rooms),
+                "rooms_detecting": rooms_detecting,
+                "total_sensors": total_sensors,
+            },
+        })
+    except Exception as exc:
+        _LOGGER.exception("mmwave_overview failed: %s", exc)
+        connection.send_error(msg["id"], "mmwave_overview_failed", str(exc))
 
 
 @websocket_api.websocket_command({

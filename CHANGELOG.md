@@ -4,6 +4,86 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.53.0] — mmWave presence overview
+The residence tab gains a live **mmWave Presence** panel: every room with a
+presence, motion, or occupancy sensor, showing whether it's occupied right
+now, how many of its sensors are detecting, and — when clear — how long
+since the last detection. Occupied rooms glow green and pulse; the header
+summarizes at a glance ("2/5 OCCUPIED"). It's the ground truth behind the
+floor-plan glow, surfaced directly instead of inferred.
+
+This reads genuine sensor state, not the binary area-occupancy flag — a
+room lit only by a door contact won't masquerade as mmWave presence here.
+A new `jarvis/mmwave_overview` WS command assembles the per-room breakdown
+from the occupancy sensors already mapped to HA areas; outdoor rooms are
+tagged so yard sensors don't read as living space. Refreshes live on the
+poll while the tab is open. 6 panel smoke checks; verified by rasterizing
+the panel and eyeballing it before ship.
+
+## [6.52.1] — learned automations for locks and covers are now valid
+A latent bug in the pattern generator became reachable the moment 6.52.0
+started installing suggestions. Every learned action was built as
+`{domain}.turn_{state}` — fine for lights and switches, but nonsense for
+other domains: a learned door-lock routine (the pattern module's own
+flagship example, "front door locks after garage closes") would emit
+`lock.turn_locked`, and a garage-cover routine `cover.turn_closed` —
+invalid services that would write a broken automation to `automations.yaml`.
+
+Actions now resolve through a domain-aware `service_for()`: locks get
+`lock.lock`/`unlock`, covers get `open_cover`/`close_cover`, on/off domains
+keep `turn_on`/`turn_off`, and cover transient states (`opening`/`closing`)
+settle to their end state. Domains that need parameters we can't infer from
+a bare state (climate, media_player) return no mapping, so those patterns
+become advisory suggestions rather than broken automations. Time routines
+were already gated to on/off and unaffected. 6 new tests, including the
+end-to-end proof that a lock sequence installs `lock.lock`, not a
+`turn_`-prefixed impossibility.
+
+## [6.52.0] — the pattern engine closes the loop
+The learning pipeline had a dead end: it observed behavior, detected
+patterns, generated automation YAML, surfaced suggestions — and approving
+one only flipped a database flag to `approved`. Nothing was ever installed.
+The user saw "learned a routine," approved it, and… nothing happened.
+
+Approval now **installs the automation into Home Assistant**. A new
+`install_approved_suggestion` bridges the gap: it reads the suggestion's
+stored automation, normalizes the generator's legacy shape into HA's
+current format (translating `platform`→`trigger` and `service`→`action`),
+and writes it live through the existing automation creator — then records
+the suggestion as `installed`. Both approval paths use it: the panel's ✓
+button and the voice tool ("JARVIS, approve that suggestion"). Concrete
+suggestions (time routines, sequences, presence) install and go live
+immediately; advisory-only ones (vague repeated-command notes) are still
+acknowledged as approved but honestly reported as needing a human to
+design — no fabricated automations. The panel toast and the agent both
+relay which outcome occurred, and a `LEARN` line logs each install.
+
+16 new tests: the normalizer across every pattern shape and malformed
+input, plus the installer wiring end-to-end (installs, advisory skip,
+missing suggestion, write-failure). Plus a panel smoke check for the
+approve→install path.
+
+## [6.51.2] — roadmap: local GPU inference shipped
+Local GPU inference is done — Ollama on a dedicated GPU box (via a HAOS
+GPU AI setup), so the reasoning chain runs templates → cache → local model
+→ cloud on your own hardware. Moved it out of the roadmap's "on the
+horizon" list into "shipped recently," and updated the Requirements note so
+the local GPU server reads as supported now rather than a future item.
+
+## [6.51.1] — README visuals, Nest streaming guide, roadmap trim
+Documentation pass. The README gains faithful HUD visuals — a hero banner
+and a two-up gallery of the Cognitive Core feed and the Camera Watch/DIAG
+panel — rendered as SVG from the panel's actual design tokens (real cyan,
+real fonts, real layout), so they represent the aesthetic without stale
+screenshots to maintain. Added a full **"Continuous streaming for Google
+Nest cameras"** guide: the go2rtc restream setup that defeats Google's
+5-minute expiring streams, with the exact `nest:` source config, where to
+find each credential, the optional Frigate hand-off, and the JARVIS
+`camera_overrides` mapping that ties it together. Trimmed the roadmap —
+UI Phase 3 (real-time WebSocket subscriptions, sparklines, entity cards,
+log/feed search) has shipped, so it moved to a "shipped recently" note;
+Document RAG is now called out as the last un-built blueprint agent.
+
 ## [6.51.0] — three new agents, and JARVIS finally sounds like JARVIS
 The home-agent blueprint, reconciled against what already existed. Most of
 its twelve agents were already here under other names — the Supervisor is

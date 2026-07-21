@@ -69,6 +69,107 @@ class DetectedPattern:
     details: dict = field(default_factory=dict)
 
 
+def normalize_suggestion_automation(stored_yaml: str) -> dict:
+    """
+    Pure: turn a suggestion's stored automation JSON into structured args for
+    automation_creator.create_automation, or explain why it can't (v6.52.0).
+
+    Closes the pattern-engine loop: the analyzer generates these blobs, the
+    user approves, and this converts the blob into an installable automation.
+    Handles the legacy trigger/action shape the generator emits — HA modernized
+    'platform'→'trigger' and 'service'→'action', so we translate both — and
+    refuses the non-actionable 'manual_review' markers honestly instead of
+    fabricating an automation from a vague note.
+
+    Returns either:
+        {"installable": True, "alias", "trigger": [...], "action": [...]}
+        {"installable": False, "reason": "..."}
+    """
+    if not stored_yaml:
+        return {"installable": False, "reason": "no automation payload"}
+    try:
+        data = json.loads(stored_yaml)
+    except Exception:
+        return {"installable": False, "reason": "payload is not valid JSON"}
+
+    if not isinstance(data, dict):
+        return {"installable": False, "reason": "payload is not an object"}
+    if data.get("type") == "manual_review" or "note" in data and "trigger" not in data:
+        return {"installable": False,
+                "reason": "advisory only — needs a human to design the automation"}
+
+    alias = data.get("alias")
+    trigger = data.get("trigger")
+    action = data.get("action")
+    if not alias or not trigger or not action:
+        return {"installable": False, "reason": "missing alias, trigger, or action"}
+
+    def _modernize_trigger(t: dict) -> dict:
+        t = dict(t)
+        if "platform" in t and "trigger" not in t:
+            t["trigger"] = t.pop("platform")
+        return t
+
+    def _modernize_action(a: dict) -> dict:
+        a = dict(a)
+        if "service" in a and "action" not in a:
+            a["action"] = a.pop("service")
+        return a
+
+    triggers = [trigger] if isinstance(trigger, dict) else list(trigger)
+    actions = [action] if isinstance(action, dict) else list(action)
+    triggers = [_modernize_trigger(t) if isinstance(t, dict) else t for t in triggers]
+    # action items can be delays or service calls; only modernize the dicts
+    norm_actions = []
+    for a in actions:
+        if isinstance(a, dict):
+            norm_actions.append(_modernize_action(a))
+        else:
+            norm_actions.append(a)
+
+    return {"installable": True, "alias": alias,
+            "trigger": triggers, "action": norm_actions}
+
+
+def service_for(entity_id: str, state: str) -> Optional[dict]:
+    """
+    Map an entity + desired state to the correct HA service call (v6.52.1).
+    The pattern generator used to build every action as `{domain}.turn_{state}`,
+    which is only valid for on/off domains — it would emit `lock.turn_on` for a
+    learned door-lock routine (the module's own flagship example) and write a
+    broken automation. Now each domain gets its real service; anything without a
+    clean mapping returns None so the caller can mark it advisory instead of
+    installing garbage.
+
+    Returns {"service": "domain.service", "entity_id": ...} or None.
+    """
+    if not entity_id or "." not in entity_id:
+        return None
+    domain = entity_id.split(".")[0]
+    s = str(state).lower().strip()
+
+    onoff = {"light", "switch", "fan", "input_boolean", "humidifier", "siren"}
+    if domain in onoff and s in ("on", "off"):
+        return {"service": f"{domain}.turn_{s}", "entity_id": entity_id}
+
+    if domain == "lock" and s in ("locked", "unlocked"):
+        return {"service": f"lock.{'lock' if s == 'locked' else 'unlock'}",
+                "entity_id": entity_id}
+
+    if domain == "cover" and s in ("open", "closed", "opening", "closing"):
+        # settle transient states to the intended end state
+        want_open = s in ("open", "opening")
+        return {"service": f"cover.{'open' if want_open else 'close'}_cover",
+                "entity_id": entity_id}
+
+    if domain in ("switch", "input_boolean") and s in ("on", "off"):
+        return {"service": f"{domain}.turn_{s}", "entity_id": entity_id}
+
+    # climate, media_player, and everything else need parameters we don't infer
+    # from a bare state — better to advise than to guess.
+    return None
+
+
 class PatternAnalyzer:
     """Analyzes accumulated state change data for behavioral patterns."""
 
@@ -607,6 +708,15 @@ class PatternAnalyzer:
         if p.pattern_type == "sequence":
             trigger = d.get("trigger", {})
             action = d.get("action", {})
+            svc = service_for(action.get("entity", ""), action.get("state", ""))
+            if not svc:
+                return json.dumps({
+                    "note": f"Consider automating: {action.get('entity','?')} → "
+                            f"{action.get('state','?')} after "
+                            f"{trigger.get('entity','?')} "
+                            f"{trigger.get('state','?')}",
+                    "type": "manual_review",
+                }, indent=2)
             return json.dumps({
                 "alias": f"JARVIS Learned: {action['entity']} after {trigger['entity']}",
                 "trigger": {
@@ -616,10 +726,7 @@ class PatternAnalyzer:
                 },
                 "action": [
                     {"delay": "00:01:00"},
-                    {
-                        "service": f"{action['entity'].split('.')[0]}.turn_{action['state']}",
-                        "entity_id": action["entity"],
-                    },
+                    svc,
                 ],
             }, indent=2)
 
@@ -630,6 +737,15 @@ class PatternAnalyzer:
             }, indent=2)
 
         if p.pattern_type == "presence":
+            svc = service_for(d.get("action_entity", ""), d.get("action_state", ""))
+            if not svc:
+                return json.dumps({
+                    "note": f"Consider automating: {d.get('action_entity','?')} → "
+                            f"{d.get('action_state','?')} when "
+                            f"{d.get('trigger_person','?')} "
+                            f"{d.get('trigger_state','?')}",
+                    "type": "manual_review",
+                }, indent=2)
             return json.dumps({
                 "alias": f"JARVIS Learned: {d['action_entity']} when {d['trigger_person']} {d['trigger_state']}",
                 "trigger": {
@@ -637,10 +753,7 @@ class PatternAnalyzer:
                     "entity_id": d["trigger_person"],
                     "to": d["trigger_state"],
                 },
-                "action": {
-                    "service": f"{d['action_entity'].split('.')[0]}.turn_{d['action_state']}",
-                    "entity_id": d["action_entity"],
-                },
+                "action": svc,
             }, indent=2)
 
         return json.dumps({"note": p.description}, indent=2)
@@ -658,6 +771,40 @@ class PatternAnalyzer:
             return [dict(r) for r in rows]
         except Exception:
             return []
+        finally:
+            conn.close()
+
+    def get_suggestion(self, suggestion_id: int) -> Optional[dict]:
+        """One suggestion row by id, or None."""
+        conn = self._connect()
+        if not conn:
+            return None
+        try:
+            row = conn.execute(
+                "SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)
+            ).fetchone()
+            return dict(row) if row else None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def mark_installed(self, suggestion_id: int, automation_id: str) -> None:
+        """Record that an approved suggestion became a live automation."""
+        conn = self._connect()
+        if not conn:
+            return
+        try:
+            # widen status vocabulary without a migration: 'installed' is just
+            # another string the UI can render distinctly from 'approved'.
+            conn.execute(
+                "UPDATE suggestions SET status = 'installed', "
+                "approved_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), suggestion_id),
+            )
+            conn.commit()
+        except Exception:
+            pass
         finally:
             conn.close()
 
@@ -744,3 +891,62 @@ _ANALYZER = PatternAnalyzer()
 
 def get_analyzer() -> PatternAnalyzer:
     return _ANALYZER
+
+
+async def install_approved_suggestion(hass, suggestion_id: int) -> dict:
+    """
+    Close the pattern-engine loop (v6.52.0): approve a suggestion AND actually
+    install its automation into Home Assistant, instead of only flagging it
+    approved. Returns a dict the caller relays:
+
+        {"ok": True, "installed": True, "automation_id": "...", "alias": "..."}
+        {"ok": True, "installed": False, "reason": "..."}   # approved, advisory
+        {"ok": False, "error": "..."}                        # not found / failed
+
+    Advisory suggestions (repeated-command notes with no concrete trigger) are
+    still marked approved — the user acknowledged them — but nothing is written
+    to HA, and the reason says so plainly.
+    """
+    analyzer = get_analyzer()
+    try:
+        sug = await hass.async_add_executor_job(analyzer.get_suggestion, suggestion_id)
+        if not sug:
+            return {"ok": False, "error": f"suggestion #{suggestion_id} not found"}
+
+        # Always record the user's approval first.
+        await hass.async_add_executor_job(analyzer.approve_suggestion, suggestion_id)
+
+        norm = normalize_suggestion_automation(sug.get("automation_yaml", ""))
+        if not norm.get("installable"):
+            return {"ok": True, "installed": False,
+                    "reason": norm.get("reason", "not installable"),
+                    "suggestion_id": suggestion_id}
+
+        from .automation_creator import create_automation
+        result = await create_automation(
+            hass,
+            alias=norm["alias"],
+            description=sug.get("description", ""),
+            trigger=norm["trigger"],
+            action=norm["action"],
+        )
+        if result.get("success"):
+            await hass.async_add_executor_job(
+                analyzer.mark_installed, suggestion_id, result["automation_id"])
+            try:
+                from .websocket import jarvis_log
+                jarvis_log("LEARN", f"Installed learned automation "
+                                    f"'{result['alias']}' from suggestion "
+                                    f"#{suggestion_id}")
+            except Exception:
+                pass
+            return {"ok": True, "installed": True,
+                    "automation_id": result["automation_id"],
+                    "alias": result["alias"], "suggestion_id": suggestion_id}
+        return {"ok": True, "installed": False,
+                "reason": f"automation write failed: {result.get('error')}",
+                "suggestion_id": suggestion_id}
+    except Exception as exc:
+        _LOGGER.exception("install_approved_suggestion failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+

@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" font-family="'Space Grotesk','Segoe UI',sans-serif">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="0%" r="90%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.06"/>
+      <stop offset="55%" stop-color="#0a1224" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bgGlow2" cx="82%" cy="100%" r="60%">
+      <stop offset="0%" stop-color="#0064b4" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#060a13" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#1fb6c9"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="380" fill="#060a13"/>
+  <rect width="1200" height="380" fill="url(#bgGlow)"/>
+  <rect width="1200" height="380" fill="url(#bgGlow2)"/>
+
+  <!-- faint grid -->
+  <g stroke="#00f2fe" stroke-opacity="0.04" stroke-width="1">
+    <line x1="0" y1="95" x2="1200" y2="95"/>
+    <line x1="0" y1="190" x2="1200" y2="190"/>
+    <line x1="0" y1="285" x2="1200" y2="285"/>
+    <line x1="300" y1="0" x2="300" y2="380"/>
+    <line x1="600" y1="0" x2="600" y2="380"/>
+    <line x1="900" y1="0" x2="900" y2="380"/>
+  </g>
+
+  <!-- title block -->
+  <text x="60" y="118" fill="#e2e8f0" font-size="58" font-weight="700" letter-spacing="14">JARVIS</text>
+  <text x="63" y="150" fill="#64748b" font-size="14" letter-spacing="5" font-family="'JetBrains Mono',monospace">JUST A RATHER VERY INTELLIGENT SYSTEM</text>
+  <rect x="63" y="166" width="360" height="1.5" fill="#00f2fe" fill-opacity="0.35"/>
+
+  <!-- status chips -->
+  <g font-family="'JetBrains Mono',monospace" font-size="12" letter-spacing="1.5">
+    <g transform="translate(63,196)">
+      <rect width="118" height="26" rx="4" fill="rgba(0,245,160,0.06)" stroke="#00f5a0" stroke-opacity="0.4"/>
+      <circle cx="15" cy="13" r="4" fill="#00f5a0"/>
+      <text x="28" y="17" fill="#00f5a0">OBSERVER</text>
+    </g>
+    <g transform="translate(191,196)">
+      <rect width="96" height="26" rx="4" fill="rgba(0,242,254,0.06)" stroke="#00f2fe" stroke-opacity="0.4"/>
+      <circle cx="15" cy="13" r="4" fill="#00f2fe"/>
+      <text x="28" y="17" fill="#00f2fe">GEMINI</text>
+    </g>
+    <g transform="translate(297,196)">
+      <rect width="128" height="26" rx="4" fill="rgba(180,140,255,0.06)" stroke="#b48cff" stroke-opacity="0.4"/>
+      <circle cx="15" cy="13" r="4" fill="#b48cff"/>
+      <text x="28" y="17" fill="#b48cff">SATELLITES 8/8</text>
+    </g>
+  </g>
+
+  <!-- cognitive readout -->
+  <g font-family="'JetBrains Mono',monospace" transform="translate(63,258)">
+    <text fill="#00f2fe" font-size="10" letter-spacing="3">COGNITIVE CORE</text>
+    <text y="24" fill="#64748b" font-size="12">DATA <tspan fill="#e2e8f0">67D</tspan>   STATES <tspan fill="#e2e8f0">341,117</tspan>   CMDS <tspan fill="#e2e8f0">135</tspan></text>
+    <text y="46" fill="#64748b" font-size="12">AREAS MONITORED <tspan fill="#e2e8f0">14</tspan>   UPTIME <tspan fill="#e2e8f0">2M 21S</tspan></text>
+    <text y="72" fill="#00f5a0" font-size="11" letter-spacing="2">▸ "The basement window has never opened before — flagging."</text>
+  </g>
+
+  <!-- radial telemetry gauge (right) -->
+  <g transform="translate(1010,190)" filter="url(#soft)">
+    <circle r="118" fill="none" stroke="#00f2fe" stroke-opacity="0.08" stroke-width="1"/>
+    <circle r="95" fill="none" stroke="#0a1a2e" stroke-width="14"/>
+    <circle r="95" fill="none" stroke="url(#ring)" stroke-width="14" stroke-linecap="round"
+            stroke-dasharray="447 597" transform="rotate(-90)"/>
+    <circle r="72" fill="none" stroke="#00f5a0" stroke-opacity="0.15" stroke-width="6"/>
+    <circle r="72" fill="none" stroke="#00f5a0" stroke-width="6" stroke-linecap="round"
+            stroke-dasharray="339 452" transform="rotate(-90)"/>
+    <text text-anchor="middle" y="-6" fill="#e2e8f0" font-size="42" font-weight="700">72°</text>
+    <text text-anchor="middle" y="20" fill="#64748b" font-size="12" letter-spacing="3" font-family="'JetBrains Mono',monospace">CLIMATE</text>
+    <text text-anchor="middle" y="150" fill="#00f2fe" font-size="11" letter-spacing="4" font-family="'JetBrains Mono',monospace">◉ LIVE</text>
+  </g>
+
+  <!-- occupancy dots arc -->
+  <g transform="translate(760,300)" font-family="'JetBrains Mono',monospace" font-size="10" fill="#64748b" letter-spacing="1">
+    <circle cx="0"   cy="0" r="5" fill="#00f5a0"/><text x="12" y="4">KITCHEN</text>
+    <circle cx="120" cy="0" r="5" fill="#334155"/><text x="132" y="4" fill="#334155">GARAGE</text>
+    <circle cx="235" cy="0" r="5" fill="#00f5a0"/><text x="247" y="4">LIVING</text>
+  </g>
+</svg>

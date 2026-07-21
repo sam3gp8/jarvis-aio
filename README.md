@@ -6,6 +6,8 @@
 
 An autonomous AI butler for Home Assistant — voice, vision, and a reasoning core that learns your home and watches over it.
 
+<img src="docs/media/hero-hud.svg" alt="JARVIS Iron Man HUD command center" width="100%">
+
 [![HACS Integration](https://img.shields.io/badge/HACS-Integration-41BDF5?logo=home-assistant&logoColor=white)](https://github.com/sam3gp8/jarvis-aio)
 [![Release](https://img.shields.io/github/v/release/sam3gp8/jarvis-aio?color=00d9ff)](https://github.com/sam3gp8/jarvis-aio/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -37,12 +39,27 @@ The guiding principle is **suggest, don't act** until you grant otherwise: JARVI
 
 **An Iron Man HUD dashboard.** A dark-cyan glassmorphism control panel with a live isometric 3D house, per-room occupancy glow, radial telemetry gauges, an event feed, a doorbell-training view, and surfaced automation suggestions.
 
+<div align="center">
+<table border="0">
+<tr>
+<td width="50%"><img src="docs/media/feed-card.svg" alt="Cognitive Core activity feed with urgency classification" width="100%"></td>
+<td width="50%"><img src="docs/media/camera-diag.svg" alt="Camera Watch with end-to-end frame-source diagnostics" width="100%"></td>
+</tr>
+<tr>
+<td align="center"><em>The Cognitive Core classifies every event by urgency — escalating the anomalous, muting the routine.</em></td>
+<td align="center"><em>Camera intelligence: per-camera diagnostics, go2rtc restream override, rename &amp; indoor/outdoor designation.</em></td>
+</tr>
+</table>
+
+<sub>Visuals reflect the panel's actual design system. The live dashboard renders in your browser inside Home Assistant.</sub>
+</div>
+
 ## Requirements
 
 - **Home Assistant** with [HACS](https://hacs.xyz) installed. HA OS / Supervised is recommended — the optional voice-stack auto-setup (Piper / Whisper / openWakeWord) uses the Supervisor; on HA Container/Core you'd add those yourself.
 - At least one **LLM API key** (Groq has a generous free tier and is the recommended starting point).
 - *Optional but recommended:* a Gemini API key for camera/vision reasoning, Nest cameras + doorbell, Frigate NVR, ESP32-S3 voice satellites, and a Piper TTS voice.
-- *On the horizon:* a local GPU server running Ollama, for fully local inference — JARVIS is already wired for it.
+- *For fully local inference:* a GPU box running Ollama (e.g. via a HAOS GPU AI setup) — point `llm_base_url` at it and JARVIS runs entirely on your own hardware, no cloud account required.
 
 ### Nest cameras (prerequisite for camera intelligence)
 
@@ -51,6 +68,43 @@ JARVIS consumes Nest cameras and doorbells **through the official [Google Nest i
 1. **Google SDM API** — create a project in the [Device Access Console](https://console.nest.google.com/device-access) (US $5 one-time fee) and a Google Cloud project with the SDM API enabled and OAuth credentials.
 2. **Credentials in HA** — add your OAuth Client ID + Secret under *Settings → Devices & Services → Application Credentials*, then add the **Google Nest** integration and authorize it. Your cameras and doorbell appear as `camera.*` entities.
 3. **That's it for JARVIS** — it auto-detects Nest-platform cameras and uses the right frame source for each event (event media, stream-wake, or its own snapshot path). Battery/WebRTC-only Nest cameras can't produce ordinary still images while idle; the JARVIS panel handles this automatically by escalating to its own snapshot tier, so the tile shows frames instead of going blank.
+
+### Continuous streaming for Google Nest cameras (recommended)
+
+Google's SDM API hands out **WebRTC/RTSP stream URLs that expire every ~5 minutes** and won't reliably produce a still image while a camera is idle. That's fine for the occasional glance, but it means live tiles can stall and 24/7 NVR recording (Frigate) chokes. The durable fix — and the one JARVIS is built to lean on — is to **restream each Nest camera through [go2rtc](https://github.com/AlexxIT/go2rtc)**, which speaks Google's SDM protocol natively, transparently renews the expiring stream, and republishes a rock-solid RTSP/WebRTC feed that Home Assistant, Frigate, and JARVIS all consume like any local camera. If you already run **Frigate**, you already have a go2rtc instance — it's bundled.
+
+**1. Point go2rtc at your Nest account.** In your go2rtc (or Frigate) config, add a `nest:` source per camera. You need five values, all from the same Device Access setup you did above:
+
+```yaml
+go2rtc:
+  streams:
+    eliana_restream:
+      - "nest:?client_id=CLIENT_ID&client_secret=CLIENT_SECRET&refresh_token=REFRESH_TOKEN&project_id=DEVICE_ACCESS_PROJECT_ID&device_id=DEVICE_ID"
+    front_doorbell_restream:
+      - "nest:?client_id=CLIENT_ID&client_secret=CLIENT_SECRET&refresh_token=REFRESH_TOKEN&project_id=DEVICE_ACCESS_PROJECT_ID&device_id=DOORBELL_DEVICE_ID"
+```
+
+- `client_id` / `client_secret` — the same OAuth pair you added under *Application Credentials*.
+- `project_id` — the **Device Access Console** project UUID (not the Google Cloud project).
+- `refresh_token` — from the Nest integration's stored config: in *Settings → Add-ons → File editor* (or SSH), open `.storage/core.config_entries`, find the `nest` entry, copy its `refresh_token`.
+- `device_id` — easiest via the **go2rtc web UI** (Frigate exposes it on port `1984`): *Add → nest*, supply the other four values, and it lists your devices with their IDs. Copy the one you want.
+
+**2. (Optional) add the restreams as Frigate cameras.** If you want continuous recording and object detection, add each `*_restream` as a Frigate camera and enable `detect`/`record`. Frigate's on-camera object detection for people and packages is more reliable than vision-LLM guessing, and JARVIS will happily consume Frigate's snapshots.
+
+**3. Tell JARVIS to source frames from the twins.** Restart Home Assistant so the new `camera.*_restream` entities exist, then map each Nest camera to its restream in JARVIS's config (`camera_overrides`). The Nest entity keeps its identity — chips, names, doorbell **events** — while every *frame* comes from the durable restream:
+
+```json
+{
+  "camera_overrides": {
+    "camera.eliana_s_camera": "camera.eliana_restream",
+    "camera.front_doorbell": "camera.front_doorbell_restream"
+  }
+}
+```
+
+This lives in `/config/jarvis/config.json` (merge it into the existing object — don't replace the file). JARVIS validates this on load, so a typo is sidelined with a notification rather than breaking the panel. Then open **Camera Watch → DIAG** on the camera: it should report `override → camera.eliana_restream` and a healthy full-size frame instead of a blank or black tile.
+
+> **Note:** go2rtc's Nest source is a third-party bridge and Google occasionally changes its auth behavior. If a restream ever drops, JARVIS automatically falls back to the original Nest entity — worst case is the pre-restream behavior, never worse.
 
 ## Installation
 
@@ -94,10 +148,14 @@ The reasoning pipeline is layered for resilience and cost: local templates → l
 
 ## Roadmap
 
-- **Local GPU inference** — drop-in Ollama support is wired; the chain becomes templates → cache → local model → cloud once the hardware lands.
-- **Pattern-driven automations** — the engine that proposes automations from observed behavior continues to mature.
-- **Per-person routine inference** — learning each household member's patterns over a 1–2 year horizon.
-- **UI Phase 2/3** — SVG floor plan with mmWave presence, sparklines, real-time WebSocket entity subscriptions.
+**Shipped recently** — local GPU inference (Ollama on a dedicated GPU box, so the reasoning chain runs templates → cache → local model → cloud), web research + calendar awareness, the MCU-JARVIS persona with a banter valve, per-camera rename and indoor/outdoor designation, go2rtc restream overrides with end-to-end camera diagnostics, real-time WebSocket entity subscriptions, area sparklines, entity drill-down cards, and log/feed search. See [CHANGELOG.md](CHANGELOG.md) for the full history.
+
+**On the horizon:**
+
+- **Pattern-driven automations** — the engine reads observed behavior from `patterns.db`, proposes automations, and now *installs* an approved suggestion straight into Home Assistant. It keeps improving as more per-person data accumulates and more pattern shapes become directly installable.
+- **Per-person routine inference** — the person-aware engine and `person_patterns` store are live; this is now a matter of real per-household-member data accumulating over a 1–2 year horizon to sharpen each baseline.
+- **Document RAG agent** — semantic retrieval over manuals and receipts, the last un-built agent from the home-agent blueprint.
+- **UI Phase 2 residence view** — the isometric floor plan continues to gain depth; a live mmWave presence overview now sits alongside it, with per-room sensor glow on the plan itself as the next step.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 

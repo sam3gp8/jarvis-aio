@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 440" font-family="'Space Grotesk','Segoe UI',sans-serif">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="0%" r="90%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.05"/>
+      <stop offset="60%" stop-color="#060a13" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="580" height="440" fill="#060a13"/>
+  <rect width="580" height="440" fill="url(#g)"/>
+
+  <!-- panel -->
+  <rect x="20" y="20" width="540" height="400" rx="12" fill="rgba(10,18,36,0.45)" stroke="#00f2fe" stroke-opacity="0.12"/>
+  <!-- header -->
+  <text x="42" y="52" fill="#e2e8f0" font-size="16" font-weight="600" letter-spacing="1">Activity Feed</text>
+  <text x="500" y="52" fill="#64748b" font-size="11" letter-spacing="2" font-family="'JetBrains Mono',monospace" text-anchor="end">LAST 30</text>
+  <rect x="42" y="64" width="496" height="1" fill="#00f2fe" fill-opacity="0.12"/>
+
+  <!-- rows -->
+  <g font-family="'JetBrains Mono',monospace">
+    <!-- row: security escalation (red) -->
+    <g transform="translate(42,80)">
+      <rect x="0" y="0" width="496" height="62" rx="6" fill="rgba(255,77,109,0.05)" stroke="#ff4d6d" stroke-opacity="0.25"/>
+      <circle cx="18" cy="20" r="4" fill="#ff4d6d"/>
+      <text x="34" y="24" fill="#ff4d6d" font-size="12" letter-spacing="1">BASEMENT_WINDOW_CONTACT</text>
+      <text x="470" y="24" fill="#64748b" font-size="10" text-anchor="end">02:14</text>
+      <text x="34" y="44" fill="#e2e8f0" font-size="11" font-family="'Space Grotesk',sans-serif">Opened — never seen open before, and you're away. Escalating.</text>
+    </g>
+    <!-- row: package (green) -->
+    <g transform="translate(42,152)">
+      <rect x="0" y="0" width="496" height="52" rx="6" fill="rgba(0,245,160,0.04)" stroke="#00f5a0" stroke-opacity="0.2"/>
+      <circle cx="18" cy="18" r="4" fill="#00f5a0"/>
+      <text x="34" y="22" fill="#00f5a0" font-size="12" letter-spacing="1">FRONT_DOORBELL</text>
+      <text x="470" y="22" fill="#64748b" font-size="10" text-anchor="end">01:48</text>
+      <text x="34" y="40" fill="#e2e8f0" font-size="11" font-family="'Space Grotesk',sans-serif">Package delivered — confirmed across two frames.</text>
+    </g>
+    <!-- row: routine (cyan) -->
+    <g transform="translate(42,214)">
+      <rect x="0" y="0" width="496" height="52" rx="6" fill="rgba(0,242,254,0.04)" stroke="#00f2fe" stroke-opacity="0.18"/>
+      <circle cx="18" cy="18" r="4" fill="#00f2fe"/>
+      <text x="34" y="22" fill="#00f2fe" font-size="12" letter-spacing="1">KITCHEN_MOTION</text>
+      <text x="470" y="22" fill="#64748b" font-size="10" text-anchor="end">07:02</text>
+      <text x="34" y="40" fill="#94a3b8" font-size="11" font-family="'Space Grotesk',sans-serif">Morning coffee run — routine, not worth surfacing.</text>
+    </g>
+    <!-- row: suggestion (amber) -->
+    <g transform="translate(42,276)">
+      <rect x="0" y="0" width="496" height="52" rx="6" fill="rgba(255,180,84,0.04)" stroke="#ffb454" stroke-opacity="0.22"/>
+      <circle cx="18" cy="18" r="4" fill="#ffb454"/>
+      <text x="34" y="22" fill="#ffb454" font-size="12" letter-spacing="1">SUGGESTION</text>
+      <text x="470" y="22" fill="#64748b" font-size="10" text-anchor="end">—</text>
+      <text x="34" y="40" fill="#e2e8f0" font-size="11" font-family="'Space Grotesk',sans-serif">Porch light comes on at dusk 6 days running. Automate it?</text>
+    </g>
+  </g>
+
+  <!-- footer cognitive line -->
+  <rect x="42" y="344" width="496" height="1" fill="#00f2fe" fill-opacity="0.12"/>
+  <text x="42" y="372" fill="#00f2fe" font-size="10" letter-spacing="3" font-family="'JetBrains Mono',monospace">COGNITIVE CORE</text>
+  <text x="42" y="394" fill="#64748b" font-size="11" letter-spacing="1" font-family="'JetBrains Mono',monospace">SUGGESTIONS <tspan fill="#e2e8f0">1</tspan>   IGNORES <tspan fill="#e2e8f0">0</tspan>   ESCALATIONS TODAY <tspan fill="#ff4d6d">1</tspan></text>
+</svg>

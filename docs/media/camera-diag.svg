@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 440" font-family="'Space Grotesk','Segoe UI',sans-serif">
+  <defs>
+    <radialGradient id="g2" cx="50%" cy="0%" r="90%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.05"/>
+      <stop offset="60%" stop-color="#060a13" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="feed" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a1a2e"/>
+      <stop offset="100%" stop-color="#050a12"/>
+    </linearGradient>
+  </defs>
+  <rect width="580" height="440" fill="#060a13"/>
+  <rect width="580" height="440" fill="url(#g2)"/>
+
+  <rect x="20" y="20" width="540" height="400" rx="12" fill="rgba(10,18,36,0.45)" stroke="#00f2fe" stroke-opacity="0.12"/>
+
+  <!-- header with DIAG button -->
+  <text x="42" y="52" fill="#e2e8f0" font-size="16" font-weight="600" letter-spacing="1">Camera Watch</text>
+  <g transform="translate(410,38)" font-family="'JetBrains Mono',monospace">
+    <rect width="54" height="20" rx="3" fill="none" stroke="#00f2fe" stroke-opacity="0.35"/>
+    <text x="27" y="14" fill="#00f2fe" font-size="9" letter-spacing="2" text-anchor="middle">DIAG</text>
+  </g>
+  <text x="536" y="52" fill="#00f5a0" font-size="11" letter-spacing="2" font-family="'JetBrains Mono',monospace" text-anchor="end">◉ LIVE</text>
+
+  <!-- chip row -->
+  <g transform="translate(42,66)" font-family="'JetBrains Mono',monospace" font-size="9" letter-spacing="1">
+    <g><rect width="86" height="20" rx="3" fill="rgba(0,242,254,0.08)" stroke="#00f2fe" stroke-opacity="0.4"/><text x="43" y="14" fill="#00f2fe" text-anchor="middle">ELIANA'S ROOM</text></g>
+    <g transform="translate(94,0)"><rect width="78" height="20" rx="3" fill="none" stroke="#00f2fe" stroke-opacity="0.15"/><text x="39" y="14" fill="#64748b" text-anchor="middle">DOORBELL</text></g>
+    <g transform="translate(180,0)"><rect width="70" height="20" rx="3" fill="none" stroke="#00f2fe" stroke-opacity="0.15"/><text x="35" y="14" fill="#64748b" text-anchor="middle">BACKYARD</text></g>
+    <g transform="translate(258,0)"><rect width="70" height="20" rx="3" fill="none" stroke="#00f2fe" stroke-opacity="0.15"/><text x="35" y="14" fill="#64748b" text-anchor="middle">DRIVEWAY</text></g>
+  </g>
+
+  <!-- feed area with DIAG overlay -->
+  <rect x="42" y="96" width="496" height="230" rx="6" fill="url(#feed)" stroke="#00f2fe" stroke-opacity="0.12"/>
+
+  <!-- DIAG readout text -->
+  <g transform="translate(58,120)" font-family="'JetBrains Mono',monospace" font-size="10.5">
+    <text fill="#64748b" font-size="9">┌ camera.eliana_s_camera</text>
+    <text y="22" fill="#e2e8f0"><tspan fill="#00f2fe" font-weight="700">HA CAMERAS</tspan>  <tspan fill="#00f5a0">frigate×8</tspan>  <tspan fill="#00f5a0">nest×2</tspan></text>
+    <text y="44" fill="#94a3b8">camera.eliana_s_camera  state=<tspan fill="#00f5a0">streaming</tspan>  platform=nest</text>
+    <text y="66" fill="#94a3b8">  override: <tspan fill="#00f2fe">→ camera.eliana_restream</tspan> (go2rtc)</text>
+    <text y="88" fill="#94a3b8">  backend:frigate: <tspan fill="#00f5a0">OK 47KB · lum μ84 σ38 960×540</tspan></text>
+    <text y="118" fill="#00f2fe" font-size="11">frames available via go2rtc restream  (112ms)</text>
+    <text y="150" fill="#64748b" font-size="9">tap DIAG again to close · verdict logged to the Logs tab</text>
+  </g>
+
+  <!-- strip -->
+  <g transform="translate(42,336)" font-family="'JetBrains Mono',monospace" font-size="10" letter-spacing="1">
+    <text x="0" y="12" fill="#64748b">SRC <tspan fill="#e2e8f0">Eliana's Room → eliana_restream</tspan></text>
+    <text x="496" y="12" fill="#64748b" text-anchor="end">MJPEG · TARGET <tspan fill="#00f5a0">STREAMING</tspan></text>
+  </g>
+
+  <!-- footer note -->
+  <rect x="42" y="360" width="496" height="1" fill="#00f2fe" fill-opacity="0.12"/>
+  <text x="42" y="388" fill="#00f2fe" font-size="10" letter-spacing="3" font-family="'JetBrains Mono',monospace">CAMERA INTELLIGENCE</text>
+  <text x="42" y="406" fill="#64748b" font-size="10.5" letter-spacing="0.5" font-family="'Space Grotesk',sans-serif">End-to-end frame-source probe · restream override · per-camera rename &amp; indoor/outdoor</text>
+</svg>
