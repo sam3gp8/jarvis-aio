@@ -29,12 +29,13 @@ install flow with mocked HA helper, graceful failure) and 4 panel smoke
 checks.
 
 Also: the CI workflow gained a `workflow_dispatch` trigger (so Validate can
-be re-run manually from the Actions tab — GitHub auto-pauses scheduled
-workflows after ~60 days of repo inactivity), plus an explicit
-`permissions: {}` block and branch scoping on push. Verified the repo is
-fully HACS-default-compatible: brand icons are correctly sized (256×256 /
-512×512) and satisfy the HACS brands check in-repo, manifest keys and
-hassfest ordering are valid, and hacs.json carries the required name.
+be re-run on demand from the Actions tab without a throwaway commit), plus
+an explicit `permissions: {}` block and branch scoping on push. Note that
+Actions simply hadn't run since 6.47.0 because nothing had been pushed since
+that commit — the workflow was healthy and green, just idle. Verified the
+repo is fully HACS-default-compatible: brand icons are correctly sized
+(256×256 / 512×512) and satisfy the HACS brands check in-repo, manifest keys
+and hassfest ordering are valid, and hacs.json carries the required name.
 
 ## [6.55.0] — Document RAG: JARVIS reads your manuals
 The last un-built agent from the home-agent blueprint. JARVIS can now
