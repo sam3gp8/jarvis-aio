@@ -216,8 +216,10 @@ def _forget_source(source: str) -> None:
 
 
 def ingest_file(path: str) -> dict:
-    """Ingest one document file. Returns
-    {"source", "chunks", "ok": bool, "error"?}. Never raises."""
+    """Ingest one document file into keyword (FTS) search. Returns
+    {"source", "chunks", "ok", "chunk_texts"?, "error"?}. Never raises.
+    chunk_texts is included on success so an async caller can also embed them
+    for semantic search (v6.57.0)."""
     _ensure_init()
     source = os.path.basename(path)
     text, err = extract_text(path)
@@ -239,7 +241,8 @@ def ingest_file(path: str) -> dict:
                            for i in range(len(chunks))],
                 ids=[_doc_id(source, i, c) for i, c in enumerate(chunks)],
             )
-            return {"source": source, "chunks": len(chunks), "ok": True}
+            return {"source": source, "chunks": len(chunks), "ok": True,
+                    "chunk_texts": chunks, "ingested": ingested}
         except Exception as exc:
             _LOGGER.debug("doc chroma add failed: %s", exc)
 
@@ -254,13 +257,75 @@ def ingest_file(path: str) -> dict:
             )
             conn.commit()
             conn.close()
-            return {"source": source, "chunks": len(chunks), "ok": True}
+            return {"source": source, "chunks": len(chunks), "ok": True,
+                    "chunk_texts": chunks, "ingested": ingested}
         except Exception as exc:
             return {"source": source, "chunks": 0, "ok": False,
                     "error": f"fts store failed: {exc}"}
 
     return {"source": source, "chunks": 0, "ok": False,
             "error": "no vector or FTS store available"}
+
+
+async def ingest_directory_async(hass, directory: str = DOCS_DIR) -> dict:
+    """Ingest the documents folder, adding Ollama-embedded vectors when semantic
+    search is enabled (v6.57.0). Always does keyword (FTS) ingest; layers vector
+    embeddings on top when available. Falls back silently to keyword-only if
+    Ollama is unreachable."""
+    from . import embeddings
+    base = ingest_directory(directory)          # FTS ingest (sync)
+    if not base.get("ok") or not embeddings.is_enabled():
+        base["semantic"] = False
+        return base
+
+    embeddings.init_store()
+    embedded_files = 0
+    embedded_chunks = 0
+    semantic_error = None
+    for res in base.get("files", []):
+        if not res.get("ok") or not res.get("chunk_texts"):
+            continue
+        source = res["source"]
+        chunks = res["chunk_texts"]
+        vecs = await embeddings.embed_texts(hass, chunks)
+        if vecs is None:
+            semantic_error = ("Ollama embeddings unavailable — pull the embed "
+                              "model and check the host; keyword search is active")
+            break
+        embeddings.forget_source(source)
+        stored = await hass.async_add_executor_job(
+            embeddings.store_vectors, source, chunks, vecs,
+            res.get("ingested", ""))
+        if stored:
+            embedded_files += 1
+            embedded_chunks += stored
+
+    base["semantic"] = embedded_files > 0
+    base["embedded_files"] = embedded_files
+    base["embedded_chunks"] = embedded_chunks
+    if semantic_error:
+        base["semantic_error"] = semantic_error
+    return base
+
+
+async def search_documents_async(hass, query: str, k: int = 4) -> list[dict]:
+    """Retrieve document chunks, preferring Ollama semantic search when enabled,
+    falling back to keyword (FTS) otherwise (v6.57.0)."""
+    from . import embeddings
+    if embeddings.is_enabled():
+        qvec = await embeddings.embed_one(hass, query)
+        if qvec:
+            hits = await hass.async_add_executor_job(
+                embeddings.search_vectors, qvec, k)
+            if hits:
+                for h in hits:
+                    h["engine"] = "semantic"
+                return hits
+    # fall back to keyword
+    hits = search_documents(query, k)
+    for h in hits:
+        h["engine"] = "keyword"
+    return hits
 
 
 def ingest_directory(directory: str = DOCS_DIR) -> dict:

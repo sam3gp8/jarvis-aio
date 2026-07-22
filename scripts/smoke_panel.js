@@ -55,6 +55,7 @@ const _subscribedEvents = [];
 const _renameCalls = [];
 const _locationCalls = [];
 const _sugCalls = [];
+let _semanticEnabled = false;
 const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
   callWS: async (m) => {
@@ -70,9 +71,11 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
-    if (m.type === "jarvis/vector_backend") {
-      if (m.action === "status") return { installed: false, package: "chromadb>=0.4.22", memory_vector: false, documents_vector: false };
-      if (m.action === "install") return { ok: true, installed: true, already: false, memory_vector: true, documents_vector: true };
+    if (m.type === "jarvis/semantic_search") {
+      if (m.action === "status") return { enabled: _semanticEnabled, ollama_configured: true, base: "http://gpu.local:11434", model: "nomic-embed-text", vector_count: _semanticEnabled ? 42 : 0 };
+      if (m.action === "enable") { _semanticEnabled = true; return { ok: true, enabled: true, model: "nomic-embed-text", base: "http://gpu.local:11434", dim: 768 }; }
+      if (m.action === "disable") { _semanticEnabled = false; return { ok: true, enabled: false }; }
+      if (m.action === "test") return { ok: true, model: "nomic-embed-text", dim: 768 };
     }
     if (m.type === "jarvis/documents") {
       if (m.action === "status") return { chroma: true, fts: false, chunk_count: 42, directory: "/config/jarvis/documents", sources: [{ source: "furnace_manual.pdf", chunks: 30 }, { source: "dishwasher_receipt.txt", chunks: 12 }] };
@@ -482,25 +485,24 @@ setTimeout(async () => {
       && /furnace_manual\.pdf/.test(el.shadowRoot.getElementById("doclib-body")?.textContent || "")],
   );
 
-  // ── optional vector backend banner (v6.56.0) ──
+  // ── semantic search banner (Ollama embeddings, v6.57.0) ──
   await el._fetchVectorBackend();
   const vbState = el.shadowRoot.getElementById("vecbk-state")?.textContent || "";
-  const vbBtn = el.shadowRoot.getElementById("vecbk-install");
+  const vbBtn = el.shadowRoot.getElementById("vecbk-toggle");
   checks.push(
-    ["vector backend shows KEYWORD state when chromadb absent", /KEYWORD/.test(vbState)],
-    ["enable-semantic-search button offered in keyword mode", vbBtn && vbBtn.style.display !== "none"],
+    ["semantic banner shows KEYWORD when not enabled", /KEYWORD/.test(vbState)],
+    ["enable button offered when Ollama configured",
+      vbBtn && vbBtn.style.display !== "none" && /ENABLE/.test(vbBtn.textContent)],
   );
-  // simulate install activating vector search (confirm() auto-true in jsdom? guard it)
-  const origConfirm = window.confirm;
-  window.confirm = () => true;
+  // enabling flips to SEMANTIC and offers a disable toggle
   vbBtn?.click();
   await new Promise(r => setTimeout(r, 20));
-  window.confirm = origConfirm;
+  const vbState2 = el.shadowRoot.getElementById("vecbk-state")?.textContent || "";
+  const vbBtn2 = el.shadowRoot.getElementById("vecbk-toggle");
   checks.push(
-    ["after install the banner reflects semantic/vector active",
-      /SEMANTIC/.test(el.shadowRoot.getElementById("vecbk-state")?.textContent || "")],
-    ["enable button hidden once vector active",
-      el.shadowRoot.getElementById("vecbk-install")?.style.display === "none"],
+    ["after enable the banner reflects SEMANTIC (Ollama)", /SEMANTIC/.test(vbState2)],
+    ["disable toggle offered once semantic active",
+      vbBtn2 && /DISABLE/.test(vbBtn2.textContent)],
   );
 
   let ok = true;

@@ -70,7 +70,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_camera_location)
         websocket_api.async_register_command(hass, ws_mmwave_overview)
         websocket_api.async_register_command(hass, ws_documents)
-        websocket_api.async_register_command(hass, ws_vector_backend)
+        websocket_api.async_register_command(hass, ws_semantic_search)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1124,6 +1124,10 @@ PANEL_WRITABLE_KEYS = {
     "calendar_tight_gap_min",    # int: back-to-back gap flagged as "tight"
     # Persona (v6.51.0)
     "banter_level",              # int: 0 plain · 1 dry (default) · 2 full MCU wit
+    # Local semantic search via Ollama embeddings (v6.57.0)
+    "semantic_search",           # bool: use Ollama embeddings for doc retrieval
+    "embed_model",               # str: Ollama embed model (default nomic-embed-text)
+    "embed_base_url",            # str: override Ollama host for embeddings
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
     "model",
@@ -1874,35 +1878,56 @@ async def ws_rename_camera(
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "jarvis/vector_backend",
-    vol.Required("action"): vol.In(["status", "install"]),
+    vol.Required("type"): "jarvis/semantic_search",
+    vol.Required("action"): vol.In(["status", "enable", "disable", "test"]),
 })
 @websocket_api.async_response
-async def ws_vector_backend(
+async def ws_semantic_search(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Optional ChromaDB vector backend control (v6.56.0): report status, or
-    install it at runtime to upgrade memory + document retrieval from keyword
-    (FTS5) to true semantic vector search — no HA restart needed."""
+    """Local semantic search control (v6.57.0). Instead of ChromaDB (whose
+    onnxruntime dep has no Python-3.14 wheel), JARVIS embeds via the Ollama
+    server it already uses and stores vectors in its own SQLite DB. This
+    reports status, toggles it on/off, and runs a live embedding health check."""
+    action = msg["action"]
     try:
-        from . import vector_backend
-        if msg["action"] == "install":
-            res = await vector_backend.install(hass)
-            if res.get("ok") and res.get("installed"):
-                jarvis_log("AGENT", "vector backend (ChromaDB) "
-                                    + ("already active" if res.get("already")
-                                       else "installed and activated"))
-            elif res.get("error"):
-                jarvis_log("AGENT", f"vector backend install failed: {res['error']}")
+        from . import embeddings, jarvis_config
+        if action == "enable":
+            jarvis_config.set("semantic_search", True)
+            embeddings.init_store()
+            res = await embeddings.probe(hass)
+            res["enabled"] = True
+            if res.get("ok"):
+                jarvis_log("AGENT", f"semantic search enabled "
+                                    f"(Ollama {res.get('model')}, dim "
+                                    f"{res.get('dim')}) — re-ingest to embed docs")
+            else:
+                jarvis_log("AGENT", f"semantic search enabled but Ollama not "
+                                    f"ready: {res.get('error')}")
             connection.send_result(msg["id"], res)
-        else:
-            res = await hass.async_add_executor_job(vector_backend.status)
+        elif action == "disable":
+            jarvis_config.set("semantic_search", False)
+            jarvis_log("AGENT", "semantic search disabled — keyword (FTS) active")
+            connection.send_result(msg["id"], {"enabled": False, "ok": True})
+        elif action == "test":
+            res = await embeddings.probe(hass)
             connection.send_result(msg["id"], res)
+        else:  # status
+            enabled = bool(jarvis_config.get("semantic_search", False))
+            base = embeddings._ollama_base()
+            vcount = await hass.async_add_executor_job(embeddings.vector_count)
+            connection.send_result(msg["id"], {
+                "enabled": enabled,
+                "ollama_configured": bool(base),
+                "base": base or "",
+                "model": embeddings._model(),
+                "vector_count": vcount,
+            })
     except Exception as exc:
-        _LOGGER.exception("ws_vector_backend failed: %s", exc)
-        connection.send_error(msg["id"], "vector_backend_failed", str(exc))
+        _LOGGER.exception("ws_semantic_search failed: %s", exc)
+        connection.send_error(msg["id"], "semantic_search_failed", str(exc))
 
 
 @websocket_api.websocket_command({
@@ -1926,13 +1951,15 @@ async def ws_documents(
         if action == "status":
             res = await hass.async_add_executor_job(documents.library_status)
         elif action == "ingest":
-            res = await hass.async_add_executor_job(documents.ingest_directory)
+            res = await documents.ingest_directory_async(hass)
+            extra = (f", {res.get('embedded_chunks',0)} embedded"
+                     if res.get("semantic") else "")
             jarvis_log("AGENT", f"documents ingested via panel: "
                                 f"{res.get('files_ingested',0)} files, "
-                                f"{res.get('total_chunks',0)} chunks")
+                                f"{res.get('total_chunks',0)} chunks{extra}")
         else:  # search
-            hits = await hass.async_add_executor_job(
-                documents.search_documents, msg.get("query", ""), 5)
+            hits = await documents.search_documents_async(
+                hass, msg.get("query", ""), 5)
             res = {"results": hits}
         connection.send_result(msg["id"], res)
     except Exception as exc:

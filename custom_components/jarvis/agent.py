@@ -1598,11 +1598,11 @@ async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
 
 
 async def _exec_search_documents(hass: HomeAssistant, args: dict) -> str:
-    """Document RAG agent — retrieve from ingested manuals/receipts (v6.55.0)."""
+    """Document RAG agent — retrieve from ingested manuals/receipts (v6.55.0),
+    semantic (Ollama) when enabled, else keyword (v6.57.0)."""
     try:
         from . import documents
-        hits = await hass.async_add_executor_job(
-            documents.search_documents, args.get("query", ""), 4)
+        hits = await documents.search_documents_async(hass, args.get("query", ""), 4)
         if not hits:
             return json.dumps({
                 "results": [],
@@ -1612,8 +1612,9 @@ async def _exec_search_documents(hass: HomeAssistant, args: dict) -> str:
             })
         try:
             from .websocket import jarvis_log
+            engine = hits[0].get("engine", "keyword") if hits else "keyword"
             jarvis_log("AGENT", f"document search '{args.get('query','')}' "
-                                f"→ {len(hits)} hits")
+                                f"→ {len(hits)} hits ({engine})")
         except Exception:
             pass
         return json.dumps({"results": hits})
@@ -1622,14 +1623,17 @@ async def _exec_search_documents(hass: HomeAssistant, args: dict) -> str:
 
 
 async def _exec_ingest_documents(hass: HomeAssistant, args: dict) -> str:
-    """Re-scan the documents folder (v6.55.0)."""
+    """Re-scan the documents folder (v6.55.0), embedding for semantic search
+    when enabled (v6.57.0)."""
     try:
         from . import documents
-        res = await hass.async_add_executor_job(documents.ingest_directory)
+        res = await documents.ingest_directory_async(hass)
         try:
             from .websocket import jarvis_log
+            extra = (f", {res.get('embedded_chunks',0)} embedded"
+                     if res.get("semantic") else "")
             jarvis_log("AGENT", f"document ingest: {res.get('files_ingested',0)} "
-                                f"files, {res.get('total_chunks',0)} chunks")
+                                f"files, {res.get('total_chunks',0)} chunks{extra}")
         except Exception:
             pass
         return json.dumps(res)

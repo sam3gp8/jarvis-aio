@@ -4,6 +4,36 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.57.0] — semantic search via Ollama, no ChromaDB
+The 6.56.0 approach hit a wall: ChromaDB's embedded mode depends on
+onnxruntime, which has no wheel for the Python 3.14 that Home Assistant now
+runs on, so the install could never succeed on this platform. Rather than
+wait on an upstream wheel, this replaces it with something more in the
+JARVIS-AIO spirit — reuse what's already here.
+
+Semantic search now runs on the **Ollama server JARVIS already talks to**.
+Embeddings come from Ollama's `/api/embed` (`nomic-embed-text` by default) —
+no API key, no Python package, no native wheel to compile, works on any
+Python version. Vectors are stored in JARVIS's own `jarvis.db` SQLite file
+alongside the keyword index, and similarity is plain cosine computed in
+stdlib Python (no numpy). No new service, no ChromaDB, no 300–500 MB
+download.
+
+Enable it in Settings → Document Library: it runs a live Ollama health
+check, and once on, re-ingesting embeds your documents so retrieval matches
+on meaning instead of keywords. It degrades to keyword (FTS5) search
+automatically whenever Ollama or the embed model isn't reachable — the
+document tools and panel keep working either way. Requires an Ollama host
+(set `llm_base_url`) and a pulled embed model (`ollama pull
+nomic-embed-text`).
+
+New: `embeddings.py` (Ollama calls + SQLite vector store + cosine search),
+a `jarvis/semantic_search` WS command (status/enable/disable/test), async
+`ingest_directory_async` / `search_documents_async` in documents.py, and a
+reworked search-engine banner. The obsolete ChromaDB `vector_backend.py` is
+removed. 17 new embeddings tests (vector math, store, mocked Ollama
+batch/legacy endpoints) and updated panel smoke checks.
+
 ## [6.56.1] — fix ChromaDB install; modernize CI actions
 Two fixes surfaced by real deployment of 6.56.0.
 
