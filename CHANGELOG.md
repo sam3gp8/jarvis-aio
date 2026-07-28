@@ -4,6 +4,33 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.58.0] — visual questions and standing camera monitors
+JARVIS can now look at a camera and answer a specific question about what's
+there — "is a tool left on the workbench," "is the garage open," "did a
+package come," "is anyone in the backyard." A new `look_at_camera` agent
+tool captures a fresh snapshot and reasons over it with the vision model,
+using your question as the prompt.
+
+Two shapes, one mechanism. On demand: ask and it checks now. Standing
+monitor: create a goal whose recurring action is a `look_at_camera` check —
+the existing goal loop already handles the interval, re-arming, run budget,
+and stays quiet unless the thing is found, so "keep an eye on the workshop
+for tools left out" needs no new scheduler. The tool defaults to silent
+(announce=false) so a background monitor doesn't narrate every clear check.
+
+Built on the existing camera-analysis pipeline (`async_analyze_camera`), so
+it inherits the tiered snapshot chain and graceful failure — a WebRTC-only
+or offline camera, or a missing vision provider, returns a clear reason and
+hint rather than failing silently. Honest about limits: vision LLMs are
+reliable for presence/absence and coarse identification, not fine detail
+like exact model numbers. 6 new tests; the tool surface is now 28 tools.
+
+Note: gesture recognition (real-time hand-landmark detection) is
+deliberately NOT added here — it needs continuous local CV at video frame
+rate, which doesn't fit a snapshot-plus-cloud-LLM pipeline and would
+reintroduce the native-ML dependency the project avoids. That belongs in a
+dedicated detector (Frigate/MediaPipe) publishing events JARVIS can consume.
+
 ## [6.57.0] — semantic search via Ollama, no ChromaDB
 The 6.56.0 approach hit a wall: ChromaDB's embedded mode depends on
 onnxruntime, which has no wheel for the Python 3.14 that Home Assistant now

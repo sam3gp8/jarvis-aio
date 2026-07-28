@@ -712,6 +712,48 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "look_at_camera",
+            "description": (
+                "Look at a camera right now and answer a specific visual "
+                "question about what's there — e.g. 'is there a tool left on "
+                "the workbench', 'is the garage door open', 'did a package "
+                "arrive', 'is anyone in the backyard'. Captures a fresh "
+                "snapshot and reasons over it with the vision model. Use for "
+                "on-demand visual checks and for standing 'watch the X' "
+                "monitors. Search for the camera entity_id first if unsure. "
+                "Vision LLMs are reliable for presence/absence and coarse "
+                "identification, not fine detail (exact model numbers)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {
+                        "type": "string",
+                        "description": "The camera entity_id (e.g. camera.workshop).",
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": (
+                            "What to check for, as a direct question the vision "
+                            "model should answer."
+                        ),
+                    },
+                    "announce": {
+                        "type": "boolean",
+                        "description": (
+                            "Speak the result aloud. Default false — for a quiet "
+                            "background monitor, leave false and only speak if "
+                            "the finding warrants it."
+                        ),
+                    },
+                },
+                "required": ["entity_id", "question"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_documents",
             "description": (
                 "Search the household's ingested manuals, receipts, and "
@@ -1597,6 +1639,57 @@ async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
+    """Vision query: snapshot a camera and answer a question about it (v6.58.0).
+    Powers on-demand visual checks and standing vision monitors. Reuses the
+    camera pipeline's analyze path with the user's question as the prompt."""
+    entity_id = str(args.get("entity_id", "")).strip()
+    question = str(args.get("question", "")).strip()
+    if not entity_id or not question:
+        return json.dumps({"error": "entity_id and question are required"})
+    try:
+        from .camera import async_analyze_camera, _FakeCall
+        from . import jarvis_config
+        honorific = jarvis_config.get("honorific", "sir") or "sir"
+        prompt = (
+            f"Answer this question about what you see, concisely and factually: "
+            f"{question} If the thing asked about is present, say so and briefly "
+            f"describe it; if not, say it is not present. Do not speculate beyond "
+            f"the image."
+        )
+        fc = _FakeCall({
+            "entity_id": entity_id,
+            "prompt": prompt,
+            "announce": bool(args.get("announce", False)),
+        })
+        # groq_client=None → analyze path resolves the configured vision client
+        # itself; degrades gracefully with a clear error if none is set up.
+        result = await async_analyze_camera(
+            hass, fc, None, honorific, None, [], gate_announce=False)
+        if not result.get("success"):
+            return json.dumps({
+                "success": False,
+                "camera": result.get("camera", entity_id),
+                "error": result.get("error", "vision analysis failed"),
+                "hint": ("this camera may be WebRTC-only/offline, or no vision "
+                         "provider is configured (set vision_provider + key)"),
+            })
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("CAMERA", f"visual query on {result.get('camera')}: "
+                                 f"{question[:60]}")
+        except Exception:
+            pass
+        return json.dumps({
+            "success": True,
+            "camera": result.get("camera"),
+            "answer": result.get("analysis"),
+            "source": result.get("source"),
+        })
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_search_documents(hass: HomeAssistant, args: dict) -> str:
     """Document RAG agent — retrieve from ingested manuals/receipts (v6.55.0),
     semantic (Ollama) when enabled, else keyword (v6.57.0)."""
@@ -1667,6 +1760,7 @@ _TOOL_MAP = {
     "manage_goals":        _exec_manage_goals,
     "web_research":        _exec_web_research,
     "calendar_agenda":     _exec_calendar_agenda,
+    "look_at_camera":      _exec_look_at_camera,
     "search_documents":    _exec_search_documents,
     "ingest_documents":    _exec_ingest_documents,
 }
@@ -1957,8 +2051,9 @@ async def run_agent(
         f"## Tools\n"
         f"You have tools to control devices, query states, search entities, "
         f"manage areas, activate scenes, learn user preferences, look things "
-        f"up on the web, read the household calendars, and search the "
-        f"household's own manuals and receipts.\n\n"
+        f"up on the web, read the household calendars, look at cameras to "
+        f"answer visual questions, and search the household's own manuals and "
+        f"receipts.\n\n"
         f"## Critical rules\n"
         f"1. ALWAYS use search_entities first if you're unsure of an entity_id. "
         f"Never guess entity_ids — search for them.\n"
@@ -1987,7 +2082,14 @@ async def run_agent(
         f"appliance filter sizes, model numbers, warranty dates, manual "
         f"instructions — use search_documents and answer from the excerpts, "
         f"naming the source document. Don't invent specs; if the documents "
-        f"don't contain it, say so.\n\n"
+        f"don't contain it, say so.\n"
+        f"11. To check what's physically on a camera right now — 'is a tool "
+        f"left on the workbench', 'is the garage open', 'did a package come' — "
+        f"use look_at_camera with a specific question. For a standing watch "
+        f"('keep an eye on the workshop for tools left out'), create a goal "
+        f"whose recurring action is a look_at_camera check: alert only when the "
+        f"thing is found, otherwise stay quiet. Vision is reliable for "
+        f"presence/absence, not fine detail.\n\n"
         f"## Who you are\n"
         f"You are JARVIS — Tony Stark's JARVIS, serving this household. Dry, "
         f"precise, unflappable, quietly witty. You anticipate the user's actual "
