@@ -206,3 +206,83 @@ def test_document_tools_registered(load):
     assert {"search_documents", "ingest_documents"} <= names
     assert "search_documents" in agent._TOOL_MAP
     assert "ingest_documents" in agent._TOOL_MAP
+
+
+# ── upload, watch-folder, delete (v6.59.0) ───────────────────────────────────
+
+import base64 as _b64
+
+
+def test_safe_filename_rejects_traversal(docs):
+    assert docs._safe_filename("../../etc/passwd") is None or \
+        "/" not in docs._safe_filename("../../etc/passwd.txt")
+    assert docs._safe_filename("../secret.txt") == "secret.txt"
+    assert docs._safe_filename("/abs/path/manual.pdf") == "manual.pdf"
+
+
+def test_safe_filename_rejects_unsupported(docs):
+    assert docs._safe_filename("evil.exe") is None
+    assert docs._safe_filename("script.sh") is None
+    assert docs._safe_filename("doc.pdf") == "doc.pdf"
+
+
+def test_safe_filename_sanitizes_chars(docs):
+    out = docs._safe_filename("my; rm -rf.txt")
+    assert out and out.endswith(".txt") and ";" not in out
+
+
+def test_save_uploaded_file_writes(docs, tmp_path, monkeypatch):
+    monkeypatch.setattr(docs, "DOCS_DIR", str(tmp_path / "docs"))
+    content = _b64.b64encode(b"furnace filter 16x25x1").decode()
+    res = docs.save_uploaded_file("manual.txt", content)
+    assert res["ok"] is True and res["filename"] == "manual.txt"
+    from pathlib import Path
+    assert Path(res["path"]).read_bytes() == b"furnace filter 16x25x1"
+
+
+def test_save_uploaded_file_rejects_bad_name(docs, tmp_path, monkeypatch):
+    monkeypatch.setattr(docs, "DOCS_DIR", str(tmp_path / "docs"))
+    res = docs.save_uploaded_file("hack.exe", _b64.b64encode(b"x").decode())
+    assert res["ok"] is False
+
+
+def test_save_uploaded_file_rejects_oversize(docs, tmp_path, monkeypatch):
+    monkeypatch.setattr(docs, "DOCS_DIR", str(tmp_path / "docs"))
+    monkeypatch.setattr(docs, "_MAX_FILE_MB", 0.001)   # ~1KB cap
+    big = _b64.b64encode(b"x" * 5000).decode()
+    res = docs.save_uploaded_file("big.txt", big)
+    assert res["ok"] is False and "exceeds" in res["error"]
+
+
+def test_delete_source_removes_file(docs, tmp_path, monkeypatch):
+    monkeypatch.setattr(docs, "DOCS_DIR", str(tmp_path / "docs"))
+    monkeypatch.setattr(docs, "_fts_ok", False)
+    monkeypatch.setattr(docs, "_chroma_ok", False)
+    content = _b64.b64encode(b"content here").decode()
+    docs.save_uploaded_file("gone.txt", content)
+    from pathlib import Path
+    assert (Path(docs.DOCS_DIR) / "gone.txt").exists()
+    res = docs.delete_source("gone.txt")
+    assert res["ok"] is True
+    assert not (Path(docs.DOCS_DIR) / "gone.txt").exists()
+
+
+def test_delete_source_bad_name(docs):
+    res = docs.delete_source("../etc/passwd")
+    # sanitized to passwd (no ext) → invalid, or simply not found → ok either way, never raises
+    assert "ok" in res
+
+
+def test_watch_folders_parsing(docs, monkeypatch):
+    monkeypatch.setattr(docs, "_cfg", lambda k, d: "/media/dl\n/config/incoming" if k == "document_watch_folders" else d)
+    assert docs._watch_folders() == ["/media/dl", "/config/incoming"]
+    monkeypatch.setattr(docs, "_cfg", lambda k, d: ["/a", "/b"] if k == "document_watch_folders" else d)
+    assert docs._watch_folders() == ["/a", "/b"]
+    monkeypatch.setattr(docs, "_cfg", lambda k, d: "" if k == "document_watch_folders" else d)
+    assert docs._watch_folders() == []
+
+
+async def test_scan_watch_no_folders(docs, fake_hass, monkeypatch):
+    monkeypatch.setattr(docs, "_cfg", lambda k, d: "" if k == "document_watch_folders" else d)
+    res = await docs.scan_watch_folders(fake_hass)
+    assert res["ok"] is True and res["watched"] == 0

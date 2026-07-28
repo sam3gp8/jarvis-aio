@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.58.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.59.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -512,7 +512,7 @@ class JarvisPanel extends HTMLElement {
     this._knowledge = { facts: [], stats: {} }; // curated memory tab state
     this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
-    this._logSearch = "";          // log text search (v6.58.0)
+    this._logSearch = "";          // log text search (v6.59.0)
     this._lastLogSearch = null;
     this._activitySearch = "";     // dashboard activity feed search (v6.43.x)
     this._currentFloor = "all";     // floor plan tab — 3D default shows all
@@ -538,20 +538,20 @@ class JarvisPanel extends HTMLElement {
     this._camStillTimer = null;
     this._camSubs = [];
     this._lastCamKey = "";         // entity|token of the attached stream
-    this._camMode = "stream";      // stream → still → jarvis (v6.58.0 fallback chain)
+    this._camMode = "stream";      // stream → still → jarvis (v6.59.0 fallback chain)
     this._camModeByEntity = {};    // remembered resolved mode, skips re-escalation
     this._camWatchdog = null;      // no-frame watchdog: hangs don't fire error events
     this._camWsTimer = null;       // WS-snapshot poll for cams both proxies fail on
-    // Real-time entity subscriptions (v6.58.0) — a native state_changed feed
+    // Real-time entity subscriptions (v6.59.0) — a native state_changed feed
     // that triggers a fast, throttled refresh instead of waiting on the poll.
     this._stateSubs = [];
     this._lastRealtimeFetch = 0;
     this._realtimeTrailing = null;
-    // Sparklines (v6.58.0) — slow-polled separately from live data since
+    // Sparklines (v6.59.0) — slow-polled separately from live data since
     // recorder history queries are heavier than the rest of the payload.
     this._sparklines = {};
     this._sparklineInterval = null;
-    // Area drill-down (v6.58.0) — id of the area currently expanded, or null.
+    // Area drill-down (v6.59.0) — id of the area currently expanded, or null.
     this._expandedArea = null;
   }
 
@@ -1089,7 +1089,7 @@ class JarvisPanel extends HTMLElement {
         : [{ ts: "--:--", urgency: "low", tag: "SYSTEM", msg: "No activity yet. Enable announcements or observer to see events here." }],
       config: live.config || {},
       doors: live.doors || {},
-      // v6.58.0: goals card. Also fixes suggestions, which _data() never
+      // v6.59.0: goals card. Also fixes suggestions, which _data() never
       // carried through from the raw payload — _renderSuggestions(d) has
       // been reading undefined since it was added.
       suggestions: live.suggestions || [],
@@ -1849,7 +1849,7 @@ class JarvisPanel extends HTMLElement {
   // Live presence -> per-room lit state for the model.
   // States: 'on' (area occupied), 'mmwave' (a presence/mmWave sensor is
   // actively detecting — stronger signal than a bare area flag), 'dom'
-  // (dominant room). mmWave overlays on top of plain occupancy (v6.58.0).
+  // (dominant room). mmWave overlays on top of plain occupancy (v6.59.0).
   _house3dLit() {
     const d = this._data();
     const lit = {};
@@ -1866,7 +1866,7 @@ class JarvisPanel extends HTMLElement {
     return lit;
   }
 
-  // mmWave presence overview (v6.58.0): live per-room sensor state, fetched
+  // mmWave presence overview (v6.59.0): live per-room sensor state, fetched
   // when the residence tab is shown and refreshed on the poll while it's open.
   async _fetchMmwave() {
     if (!this._hass) return;
@@ -1877,7 +1877,7 @@ class JarvisPanel extends HTMLElement {
       this._mmwave = { rooms: [], summary: {}, error: true };
     }
     this._renderMmwave();
-    // Fresh mmWave state feeds the floor-plan glow too (v6.58.0) — rebuild it
+    // Fresh mmWave state feeds the floor-plan glow too (v6.59.0) — rebuild it
     // so a room actively detected lights up on the house, not just the list.
     if (this._currentTab === 'residence') this._build3DHouse();
   }
@@ -2344,7 +2344,7 @@ class JarvisPanel extends HTMLElement {
              <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
            </button>`
         : '';
-      // v6.58.0: temp/humidity readout + sparkline, when the area has a sensor.
+      // v6.59.0: temp/humidity readout + sparkline, when the area has a sensor.
       const spark = this._sparklines?.[a.id] || {};
       const tempSpark = spark.temp ? this._sparklineSvg(spark.temp, 'var(--cyan-dim)') : '';
       const humSpark = spark.humidity ? this._sparklineSvg(spark.humidity, 'var(--green)') : '';
@@ -2544,7 +2544,7 @@ class JarvisPanel extends HTMLElement {
       ${this._renderDoorMapping(d)}
     </div>
 
-    <!-- mmWave presence overview (v6.58.0) -->
+    <!-- mmWave presence overview (v6.59.0) -->
     <div class="res-side panel mmwave-panel">
       <div class="head">
         <span>mmWave Presence</span>
@@ -2877,16 +2877,22 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- DOCUMENT LIBRARY (v6.58.0) -->
+      <!-- DOCUMENT LIBRARY (v6.59.0) -->
       <div class="panel">
         <div class="head">
           <span>Document Library</span>
           <span class="side" id="doclib-status">RAG</span>
         </div>
-        <div class="mem-sub">Drop manuals &amp; receipts (PDF, .txt, .md) into <code>/config/jarvis/documents</code>, then ingest. Ask JARVIS "what's the furnace filter size?" and it answers from your paperwork.</div>
+        <div class="mem-sub">Drop manuals &amp; receipts (PDF, .txt, .md) into <code>/config/jarvis/documents</code> or upload below, then ingest. Ask JARVIS "what's the furnace filter size?" and it answers from your paperwork.</div>
         <div class="doclib-controls">
+          <button class="cam-diag-btn" id="doclib-upload-btn">⬆ UPLOAD FILE</button>
+          <input type="file" id="doclib-file" accept=".pdf,.txt,.md" style="display:none;" />
           <button class="cam-diag-btn" id="doclib-ingest">⟳ INGEST FOLDER</button>
           <input class="log-search doclib-q" id="doclib-q" type="text" placeholder="test a search — e.g. furnace filter size" autocomplete="off" />
+        </div>
+        <div class="doclib-watch">
+          <input class="log-search doclib-watch-field" id="doclib-watch" type="text" placeholder="watch folders (one per line/comma) — e.g. /media/downloads" autocomplete="off" />
+          <button class="cam-diag-btn" id="doclib-scan">⟳ SCAN WATCH</button>
         </div>
         <div class="doclib-body" id="doclib-body">
           <div class="mmwave-empty">Loading library…</div>
@@ -2901,7 +2907,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- JARVIS CHARACTER + RESEARCH (v6.58.0) -->
+      <!-- JARVIS CHARACTER + RESEARCH (v6.59.0) -->
       <div class="panel">
         <div class="head">
           <span>JARVIS Character &amp; Research</span>
@@ -2930,7 +2936,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- CAMERAS (names + location designation, v6.58.0 — moved from Command Center) -->
+      <!-- CAMERAS (names + location designation, v6.59.0 — moved from Command Center) -->
       <div class="panel">
         <div class="head">
           <span>Cameras</span>
@@ -3313,7 +3319,7 @@ class JarvisPanel extends HTMLElement {
         try {
           const res = await this._hass.callWS({ type: "jarvis/suggestion_action", suggestion_id: sid, action });
           if (action === "approve") {
-            // v6.58.0: approval now installs the automation into HA directly.
+            // v6.59.0: approval now installs the automation into HA directly.
             this._toast(res?.installed
               ? `✓ installed — "${res.alias || 'automation'}" is now live in Home Assistant`
               : `✓ approved — advisory only${res?.reason ? ` (${res.reason})` : ''}`, "ok");
@@ -3956,7 +3962,7 @@ class JarvisPanel extends HTMLElement {
   }
 
   _camName(entity) {
-    // JARVIS-only display name (v6.58.0): camera_names map → picker name →
+    // JARVIS-only display name (v6.59.0): camera_names map → picker name →
     // entity tail. Mirrors server-side camera.display_name.
     const cfg = (this._liveData && this._liveData.config) || {};
     const custom = (cfg.camera_names || {})[entity];
@@ -3997,7 +4003,7 @@ class JarvisPanel extends HTMLElement {
     }
 
     // live MJPEG via HA's camera proxy; only (re)attach when entity, source,
-    // or token changes. src = the frame source (override-aware, v6.58.0).
+    // or token changes. src = the frame source (override-aware, v6.59.0).
     const src = this._camSource(entity);
     const tok = this._camToken(src);
     const key = entity + "|" + src + "|" + (tok || "");
@@ -4010,7 +4016,7 @@ class JarvisPanel extends HTMLElement {
       if (!img) {
         img = document.createElement("img");
         feed.prepend(img);
-        // Escalating fallback chain (v6.58.0): MJPEG stream → proxy stills →
+        // Escalating fallback chain (v6.59.0): MJPEG stream → proxy stills →
         // JARVIS backend snapshot. WebRTC-only Nest cams fail BOTH proxy
         // tiers (no MJPEG; no stills while idle), which used to leave the
         // tile blank in an error loop.
@@ -4018,7 +4024,7 @@ class JarvisPanel extends HTMLElement {
           if (this._camMode === "stream") this._camFallback(entity);
           else if (this._camMode === "still") this._camJarvisFallback(entity);
         });
-        // v6.58.0: a decoded frame proves the tier works only if it isn't
+        // v6.59.0: a decoded frame proves the tier works only if it isn't
         // BLACK — Nest MJPEG happily decodes an all-black stream.
         img.addEventListener("load", () => {
           if (img.naturalWidth > 0 && this._camWatchdog) {
@@ -4037,7 +4043,7 @@ class JarvisPanel extends HTMLElement {
       if (this._camModeByEntity[entity] === "jarvis") {
         this._camJarvisFallback(entity);
       } else {
-        // v6.58.0: no-frame watchdog. Nest WebRTC proxies typically HANG
+        // v6.59.0: no-frame watchdog. Nest WebRTC proxies typically HANG
         // (HTTP 200, zero frames) instead of erroring, so the error-driven
         // chain never fired. No decoded pixels within the window ⇒ escalate.
         this._armCamWatchdog(entity, img, "stream", 6000);
@@ -4080,7 +4086,7 @@ class JarvisPanel extends HTMLElement {
     }).join("");
   }
 
-  // ── Document Library (RAG) — v6.58.0 ──
+  // ── Document Library (RAG) — v6.59.0 ──
   async _fetchDocLibrary() {
     if (!this._hass) return;
     try {
@@ -4109,8 +4115,23 @@ class JarvisPanel extends HTMLElement {
       return;
     }
     body.innerHTML = `<div class="doclib-list">` + sources.map(s =>
-      `<div class="doclib-row"><span class="doclib-name">${this._esc(s.source)}</span><span class="doclib-chunks">${s.chunks} chunks</span></div>`
+      `<div class="doclib-row"><span class="doclib-name">${this._esc(s.source)}</span><span class="doclib-row-r"><span class="doclib-chunks">${s.chunks} chunks</span><button class="doclib-del" data-src="${this._esc(s.source)}" title="Remove document">✕</button></span></div>`
     ).join("") + `</div>`;
+    // wire delete buttons
+    body.querySelectorAll(".doclib-del").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const src = btn.getAttribute("data-src");
+        if (!src || !this._hass) return;
+        if (!window.confirm(`Remove "${src}" from the library? This deletes the file and its indexed chunks.`)) return;
+        try {
+          await this._hass.callWS({ type: "jarvis/documents", action: "delete", filename: src });
+          this._toast(`✓ removed ${src}`, "ok");
+          await this._fetchDocLibrary();
+        } catch (err) {
+          this._toast(`✗ delete — ${err?.message || err}`, "err");
+        }
+      });
+    });
   }
 
   _renderDocSearch(hits) {
@@ -4161,9 +4182,87 @@ class JarvisPanel extends HTMLElement {
         this._toast(`✗ search — ${err?.message || err}`, "err");
       }
     });
+
+    // ── upload (file → base64 → WS) ──
+    const upBtn = this.shadowRoot?.getElementById("doclib-upload-btn");
+    const fileInput = this.shadowRoot?.getElementById("doclib-file");
+    upBtn?.addEventListener("click", () => fileInput?.click());
+    fileInput?.addEventListener("change", async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file || !this._hass) return;
+      if (file.size > 25 * 1024 * 1024) {
+        this._toast("✗ file exceeds 25MB", "err");
+        fileInput.value = ""; return;
+      }
+      upBtn.disabled = true;
+      const orig = upBtn.textContent;
+      upBtn.textContent = "⬆ UPLOADING…";
+      try {
+        const b64 = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(",")[1] || "");
+          r.onerror = () => reject(new Error("read failed"));
+          r.readAsDataURL(file);
+        });
+        const res = await this._hass.callWS({ type: "jarvis/documents", action: "upload", filename: file.name, content: b64 });
+        if (res.ok) {
+          this._toast(`✓ uploaded ${res.filename} — ${res.chunks || 0} chunks${res.embedded ? `, ${res.embedded} embedded` : ""}`, "ok");
+          await this._fetchDocLibrary();
+        } else {
+          this._toast(`✗ upload — ${res.error || "failed"}`, "err");
+        }
+      } catch (err) {
+        this._toast(`✗ upload — ${err?.message || err}`, "err");
+      } finally {
+        upBtn.disabled = false;
+        upBtn.textContent = orig;
+        fileInput.value = "";
+      }
+    });
+
+    // ── watch folders (config field + scan button) ──
+    const watchField = this.shadowRoot?.getElementById("doclib-watch");
+    if (watchField && this._hass) {
+      // prefill from config
+      this._hass.callWS({ type: "jarvis/get_panel_data" }).then(pd => {
+        const wf = pd?.config?.document_watch_folders;
+        if (wf && !watchField.value) watchField.value = Array.isArray(wf) ? wf.join("\n") : wf;
+      }).catch(() => {});
+      const saveWatch = async () => {
+        try {
+          await this._hass.callWS({ type: "jarvis/update_config", key: "document_watch_folders", value: watchField.value.trim() });
+        } catch (_) {}
+      };
+      watchField.addEventListener("blur", saveWatch);
+    }
+    const scanBtn = this.shadowRoot?.getElementById("doclib-scan");
+    scanBtn?.addEventListener("click", async () => {
+      if (!this._hass) return;
+      // persist the field first so the scan sees current folders
+      if (watchField) {
+        try { await this._hass.callWS({ type: "jarvis/update_config", key: "document_watch_folders", value: watchField.value.trim() }); } catch (_) {}
+      }
+      scanBtn.disabled = true;
+      const orig = scanBtn.textContent;
+      scanBtn.textContent = "⟳ SCANNING…";
+      try {
+        const res = await this._hass.callWS({ type: "jarvis/documents", action: "scan_watch" });
+        if (res.watched === 0) {
+          this._toast("no watch folders configured", "err");
+        } else {
+          this._toast(`✓ scanned ${res.watched} folder(s) — ${res.new_files || 0} new document(s)`, "ok");
+          await this._fetchDocLibrary();
+        }
+      } catch (err) {
+        this._toast(`✗ scan — ${err?.message || err}`, "err");
+      } finally {
+        scanBtn.disabled = false;
+        scanBtn.textContent = orig;
+      }
+    });
   }
 
-  // ── Optional ChromaDB vector backend — v6.58.0 ──
+  // ── Optional ChromaDB vector backend — v6.59.0 ──
   async _fetchVectorBackend() {
     if (!this._hass) return;
     try {
@@ -4375,7 +4474,7 @@ class JarvisPanel extends HTMLElement {
     this._camWatchdog = setTimeout(() => {
       this._camWatchdog = null;
       if (this._activeCam !== entity || this._camMode !== expectMode) return;
-      // v6.58.0: pixels alone don't prove a working tier — a Nest MJPEG can
+      // v6.59.0: pixels alone don't prove a working tier — a Nest MJPEG can
       // decode a steady BLACK stream (naturalWidth > 0, nothing visible),
       // which defeated the original watchdog. Escalate on no-pixels OR a
       // near-black frame; an unsampleable frame gets the benefit of the doubt.
@@ -4435,7 +4534,7 @@ class JarvisPanel extends HTMLElement {
           hint("NO FRAME — camera idle or unreachable. For Nest: verify the Google Nest integration is loaded and events are enabled.");
         }
       } catch (err) {
-        // v6.58.0: don't swallow this — the most common cause is the WS
+        // v6.59.0: don't swallow this — the most common cause is the WS
         // command not existing because HA wasn't restarted after updating.
         const m = String(err?.message || err?.code || err || "");
         hint(/unknown|not.*found|invalid.*type/i.test(m)
@@ -5424,7 +5523,7 @@ class JarvisPanel extends HTMLElement {
   .h3d-lamp.static { cursor: default; }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
-  /* AREA READINGS + SPARKLINES (v6.58.0) */
+  /* AREA READINGS + SPARKLINES (v6.59.0) */
   .area-readings { display: flex; gap: 10px; flex-wrap: wrap; }
   .area-reading {
     display: inline-flex; align-items: center; gap: 5px;
@@ -5432,7 +5531,7 @@ class JarvisPanel extends HTMLElement {
   }
   .spark { width: 44px; height: 14px; flex-shrink: 0; opacity: 0.85; }
 
-  /* AREA DETAIL DRILL-DOWN (v6.58.0) */
+  /* AREA DETAIL DRILL-DOWN (v6.59.0) */
   .area-detail-overlay {
     position: fixed; inset: 0; z-index: 40;
     background: rgba(2, 6, 10, 0.75);
@@ -5489,7 +5588,7 @@ class JarvisPanel extends HTMLElement {
   .adm-row span:last-child { color: var(--text); }
   .area-light.adl { margin: 0; }
 
-  /* CAMERA DIAGNOSTICS (v6.58.0) */
+  /* CAMERA DIAGNOSTICS (v6.59.0) */
   .cam-diag-btn {
     font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.14em;
     padding: 2px 8px; margin-left: 10px; border-radius: 3px; cursor: pointer;
@@ -6363,7 +6462,12 @@ class JarvisPanel extends HTMLElement {
   .doclib-controls { display: flex; gap: 8px; margin: 8px 0; align-items: center; flex-wrap: wrap; }
   .doclib-q { flex: 1; min-width: 200px; font-size: 11px; }
   .doclib-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-  .doclib-row { display: flex; justify-content: space-between; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: rgba(0,0,0,0.2); }
+  .doclib-row { display: flex; justify-content: space-between; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: rgba(0,0,0,0.2); align-items: center; }
+  .doclib-row-r { display: flex; align-items: center; gap: 8px; }
+  .doclib-del { background: transparent; border: 1px solid var(--line); color: var(--text-dim); border-radius: 3px; font-size: 9px; cursor: pointer; padding: 2px 6px; line-height: 1; }
+  .doclib-del:hover { color: var(--red, #ff6b81); border-color: var(--red, #ff6b81); }
+  .doclib-watch { display: flex; gap: 8px; margin: 6px 0; align-items: center; }
+  .doclib-watch-field { flex: 1; min-width: 200px; font-size: 11px; }
   .doclib-name { font-size: 11px; color: var(--text); font-family: var(--font-mono); }
   .doclib-chunks { font-size: 9px; color: var(--text-dim); font-family: var(--font-mono); }
   .doclib-hit { padding: 8px 10px; border: 1px solid var(--line); border-left: 2px solid var(--cyan); border-radius: 5px; background: rgba(0,242,254,0.03); margin-bottom: 6px; }
@@ -6552,7 +6656,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.58.0 ",
+  "%c JARVIS Panel %c v6.59.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

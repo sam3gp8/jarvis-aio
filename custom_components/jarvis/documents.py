@@ -215,6 +215,31 @@ def _forget_source(source: str) -> None:
             _LOGGER.debug("doc forget (fts) failed: %s", exc)
 
 
+def delete_source(filename: str) -> dict:
+    """Remove a document entirely: delete its file from DOCS_DIR and purge all
+    its chunks from FTS/chroma and its vectors from the embedding store. Returns
+    {"ok", "filename", "error"?}. Never raises."""
+    safe = _safe_filename(filename)
+    if not safe:
+        return {"ok": False, "error": "invalid filename"}
+    # purge chunks (FTS + chroma)
+    _forget_source(safe)
+    # purge vectors
+    try:
+        from . import embeddings
+        embeddings.forget_source(safe)
+    except Exception:
+        pass
+    # remove the file
+    try:
+        p = Path(DOCS_DIR) / safe
+        if p.exists():
+            p.unlink()
+    except Exception as exc:
+        return {"ok": False, "filename": safe, "error": f"file remove failed: {exc}"}
+    return {"ok": True, "filename": safe}
+
+
 def ingest_file(path: str) -> dict:
     """Ingest one document file into keyword (FTS) search. Returns
     {"source", "chunks", "ok", "chunk_texts"?, "error"?}. Never raises.
@@ -306,6 +331,216 @@ async def ingest_directory_async(hass, directory: str = DOCS_DIR) -> dict:
     if semantic_error:
         base["semantic_error"] = semantic_error
     return base
+
+
+    base["embedded_chunks"] = embedded_chunks
+    if semantic_error:
+        base["semantic_error"] = semantic_error
+    return base
+
+
+def _safe_filename(name: str) -> Optional[str]:
+    """Sanitize a user-supplied filename to a bare, safe basename. Returns None
+    if it can't be made safe or isn't a supported type. Prevents path traversal
+    (../, absolute paths, separators) since this name is written to disk."""
+    import os as _os
+    import re as _re
+    if not name:
+        return None
+    # strip any directory components — keep only the final name
+    base = _os.path.basename(str(name).replace("\\", "/").strip())
+    # drop anything that isn't a sane filename char
+    base = _re.sub(r"[^A-Za-z0-9._ \-()]", "_", base).strip(". ")
+    if not base or base in (".", ".."):
+        return None
+    if _os.path.splitext(base)[1].lower() not in _SUPPORTED:
+        return None
+    return base[:180]          # bound length
+
+
+def save_uploaded_file(filename: str, b64_content: str) -> dict:
+    """Write an uploaded document (base64) into DOCS_DIR, safely. Returns
+    {"ok", "filename"?, "path"?, "error"?}. Does NOT ingest — caller ingests
+    after. Never raises."""
+    import base64 as _b64
+    safe = _safe_filename(filename)
+    if not safe:
+        return {"ok": False, "error": "unsupported or unsafe filename "
+                                      "(allowed: .pdf, .txt, .md)"}
+    try:
+        raw = _b64.b64decode(b64_content, validate=False)
+    except Exception:
+        return {"ok": False, "error": "could not decode file content"}
+    if len(raw) > _MAX_FILE_MB * 1_000_000:
+        return {"ok": False, "error": f"file exceeds {_MAX_FILE_MB}MB"}
+    try:
+        d = Path(DOCS_DIR)
+        d.mkdir(parents=True, exist_ok=True)
+        dest = d / safe
+        # resolve and re-check the destination stays inside DOCS_DIR
+        if not str(dest.resolve()).startswith(str(d.resolve())):
+            return {"ok": False, "error": "path escapes documents directory"}
+        dest.write_bytes(raw)
+        return {"ok": True, "filename": safe, "path": str(dest),
+                "bytes": len(raw)}
+    except Exception as exc:
+        return {"ok": False, "error": f"write failed: {exc}"}
+
+
+async def save_and_ingest_upload(hass, filename: str, b64_content: str) -> dict:
+    """Save an uploaded file then ingest it (semantic-aware). Returns the save
+    result merged with per-file ingest outcome. Never raises."""
+    saved = await hass.async_add_executor_job(
+        save_uploaded_file, filename, b64_content)
+    if not saved.get("ok"):
+        return saved
+    # ingest just this file (FTS), then embed if semantic is on
+    res = await hass.async_add_executor_job(ingest_file, saved["path"])
+    out = {"ok": bool(res.get("ok")), "filename": saved["filename"],
+           "chunks": res.get("chunks", 0)}
+    if not res.get("ok"):
+        out["error"] = res.get("error")
+        return out
+    try:
+        from . import embeddings
+        if embeddings.is_enabled() and res.get("chunk_texts"):
+            embeddings.init_store()
+            vecs = await embeddings.embed_texts(hass, res["chunk_texts"])
+            if vecs is not None:
+                embeddings.forget_source(saved["filename"])
+                n = await hass.async_add_executor_job(
+                    embeddings.store_vectors, saved["filename"],
+                    res["chunk_texts"], vecs, res.get("ingested", ""))
+                out["embedded"] = n
+            else:
+                out["semantic_note"] = "saved & indexed; Ollama embedding unavailable"
+    except Exception:
+        pass
+    return out
+
+
+def _watch_folders() -> list[str]:
+    """Configured extra folders to scan for documents (besides DOCS_DIR)."""
+    raw = _cfg("document_watch_folders", "")
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        items = raw
+    else:
+        items = [p.strip() for p in str(raw).replace(",", "\n").splitlines()]
+    return [p for p in items if p]
+
+
+def _cfg(key: str, default):
+    try:
+        from . import jarvis_config
+        val = jarvis_config.get(key, default)
+        return val if val is not None else default
+    except Exception:
+        return default
+
+
+async def scan_watch_folders(hass) -> dict:
+    """Ingest any NEW supported files found in configured watch folders (e.g. a
+    Downloads or Drive-sync folder). Tracks what's been seen so re-scans only
+    pick up new files. Never raises."""
+    folders = _watch_folders()
+    if not folders:
+        return {"ok": True, "watched": 0, "new_files": 0,
+                "note": "no watch folders configured"}
+
+    import sqlite3
+    # remember ingested watch-file paths+mtimes in a tiny table
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("CREATE TABLE IF NOT EXISTS document_watch_seen ("
+                     "path TEXT PRIMARY KEY, mtime REAL, ingested TEXT)")
+        conn.commit()
+        seen = {r[0]: r[1] for r in
+                conn.execute("SELECT path, mtime FROM document_watch_seen")}
+        conn.close()
+    except Exception:
+        seen = {}
+
+    new_results = []
+    for folder in folders:
+        try:
+            d = Path(folder)
+            if not d.is_dir():
+                continue
+            for f in sorted(d.iterdir()):
+                if not f.is_file() or f.suffix.lower() not in _SUPPORTED:
+                    continue
+                try:
+                    mtime = f.stat().st_mtime
+                    if f.stat().st_size > _MAX_FILE_MB * 1_000_000:
+                        continue
+                except Exception:
+                    continue
+                key = str(f)
+                if key in seen and abs(seen[key] - mtime) < 1.0:
+                    continue          # already ingested this version
+                # ingest by copying into DOCS_DIR (keeps the library in one place)
+                copied = await hass.async_add_executor_job(
+                    _copy_into_docs, key)
+                if not copied.get("ok"):
+                    continue
+                res = await save_and_ingest_upload_from_path(hass, copied["path"])
+                new_results.append({"source": f.name, **res})
+                try:
+                    conn = sqlite3.connect(_DB_PATH)
+                    conn.execute("INSERT OR REPLACE INTO document_watch_seen "
+                                 "(path, mtime, ingested) VALUES (?, ?, ?)",
+                                 (key, mtime, datetime.utcnow().isoformat()))
+                    conn.commit()
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception as exc:
+            _LOGGER.debug("watch scan of %s failed: %s", folder, exc)
+
+    ingested = sum(1 for r in new_results if r.get("ok"))
+    return {"ok": True, "watched": len(folders), "new_files": ingested,
+            "files": new_results}
+
+
+def _copy_into_docs(src_path: str) -> dict:
+    """Copy a watched file into DOCS_DIR (sanitized name). Never raises."""
+    import shutil
+    safe = _safe_filename(os.path.basename(src_path))
+    if not safe:
+        return {"ok": False}
+    try:
+        d = Path(DOCS_DIR)
+        d.mkdir(parents=True, exist_ok=True)
+        dest = d / safe
+        shutil.copy2(src_path, dest)
+        return {"ok": True, "path": str(dest), "filename": safe}
+    except Exception:
+        return {"ok": False}
+
+
+async def save_and_ingest_upload_from_path(hass, path: str) -> dict:
+    """Ingest an already-placed file (used by watch-folder copy). Semantic-aware."""
+    res = await hass.async_add_executor_job(ingest_file, path)
+    out = {"ok": bool(res.get("ok")), "filename": os.path.basename(path),
+           "chunks": res.get("chunks", 0)}
+    if not res.get("ok"):
+        out["error"] = res.get("error")
+        return out
+    try:
+        from . import embeddings
+        if embeddings.is_enabled() and res.get("chunk_texts"):
+            embeddings.init_store()
+            vecs = await embeddings.embed_texts(hass, res["chunk_texts"])
+            if vecs is not None:
+                embeddings.forget_source(out["filename"])
+                await hass.async_add_executor_job(
+                    embeddings.store_vectors, out["filename"],
+                    res["chunk_texts"], vecs, res.get("ingested", ""))
+    except Exception:
+        pass
+    return out
 
 
 async def search_documents_async(hass, query: str, k: int = 4) -> list[dict]:

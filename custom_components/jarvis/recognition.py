@@ -1,21 +1,24 @@
 """
-JARVIS — Facial recognition awareness (DoubleTake + CompreFace).
+JARVIS — Facial recognition awareness (Frigate-native, DoubleTake, CompreFace).
 
-DoubleTake publishes MQTT messages to double-take/matches with the format:
-  {
-    "id": "<id>", "camera": "front_door",
-    "match": {"name": "Sam", "confidence": 98.7, ...},
-    "attempts": 3, ...
-  }
+Two independent identity sources, either or both:
 
-It also creates HA sensors sensor.double_take_<name> that flip to the
-matched name and back to "not_home" (or similar) after expire_after seconds.
+1. Frigate-native (v6.59.0): when Frigate's own face recognition (or a plus
+   model) attaches a `sub_label` to a person event on frigate/events, JARVIS
+   reads it directly — no Double Take needed. This is the preferred path: one
+   fewer add-on, identity straight from the detection stream JARVIS already
+   watches.
 
-This module:
-  - Subscribes to the MQTT matches topic directly so we get the richest data
-  - Caches recent matches per camera (for JARVIS context)
-  - Fires a jarvis_face_recognized event on the bus (for automations)
-  - Provides helpers to ask 'who was last seen at the front door?' in chat
+2. DoubleTake (optional): publishes MQTT messages to double-take/matches:
+     {"id": "<id>", "camera": "front_door",
+      "match": {"name": "Sam", "confidence": 98.7, ...}, ...}
+   and creates HA sensors sensor.double_take_<name>. Still supported for setups
+   that use it.
+
+Both sources converge on the same result: they cache recent matches per camera
+(for JARVIS context) and fire a jarvis_face_recognized event on the bus (for
+automations), so downstream persona/greeting logic doesn't care which produced
+the identity. Helpers answer 'who was last seen at the front door?' in chat.
 """
 from __future__ import annotations
 
@@ -38,6 +41,31 @@ _RECOGNITION_CACHE: dict[str, dict] = {}
 _RECENT_EVENTS: dict[str, dict] = {}
 CACHE_MAX_AGE = timedelta(hours=2)
 CONFIDENCE_THRESHOLD = 60  # anything below this is considered uncertain
+
+
+def _parse_sub_label(sub) -> tuple[str, float]:
+    """Normalize Frigate's sub_label into (name, confidence_percent).
+
+    Frigate represents a recognized face sub-label differently across versions:
+      - a bare string:            "Sam"
+      - a [name, score] pair:     ["Sam", 0.92]   (score 0..1)
+    Returns ("", 0.0) when there's no usable name. Never raises.
+    """
+    try:
+        if not sub:
+            return "", 0.0
+        if isinstance(sub, str):
+            return sub.strip(), 0.0
+        if isinstance(sub, (list, tuple)) and sub:
+            name = str(sub[0] or "").strip()
+            conf = 0.0
+            if len(sub) > 1 and sub[1] is not None:
+                raw = float(sub[1])
+                conf = raw * 100.0 if raw <= 1.0 else raw   # 0..1 → percent
+            return name, round(conf, 1)
+    except (ValueError, TypeError):
+        pass
+    return "", 0.0
 
 
 def _camera_entity_from_name(camera_name: str) -> str:
@@ -201,6 +229,28 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                     "score": score,
                     "event_id": event_id,
                 })
+
+                # ── Frigate-native identity (v6.59.0) ──────────────────────
+                # If Frigate's own face recognition (or a +/- plus model)
+                # attached a sub_label, use it directly — no Double Take needed.
+                # sub_label is either "Name" or ["Name", score] across versions.
+                sub = after.get("sub_label")
+                sub_name, sub_conf = _parse_sub_label(sub)
+                if sub_name:
+                    remember_recognition(camera, sub_name, sub_conf)
+                    hass.bus.async_fire("jarvis_face_recognized", {
+                        "camera": camera,
+                        "camera_entity": camera_entity,
+                        "name": sub_name,
+                        "confidence": sub_conf,
+                        "is_unknown": sub_name.lower() in ("unknown", "unknown person"),
+                        "is_confident": sub_conf >= CONFIDENCE_THRESHOLD,
+                        "source": "frigate",
+                    })
+                    _LOGGER.info(
+                        "JARVIS: Frigate identified %s @ %s (%.1f%%) via sub_label",
+                        sub_name, camera, sub_conf,
+                    )
 
             except Exception as exc:
                 _LOGGER.debug("Frigate event parse error: %s", exc)

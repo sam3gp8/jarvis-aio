@@ -1128,6 +1128,7 @@ PANEL_WRITABLE_KEYS = {
     "semantic_search",           # bool: use Ollama embeddings for doc retrieval
     "embed_model",               # str: Ollama embed model (default nomic-embed-text)
     "embed_base_url",            # str: override Ollama host for embeddings
+    "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
     "model",
@@ -1932,8 +1933,11 @@ async def ws_semantic_search(
 
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/documents",
-    vol.Required("action"): vol.In(["status", "ingest", "search"]),
+    vol.Required("action"): vol.In(["status", "ingest", "search", "upload",
+                                    "scan_watch", "delete"]),
     vol.Optional("query"): str,
+    vol.Optional("filename"): str,
+    vol.Optional("content"): str,        # base64 for upload
 })
 @websocket_api.async_response
 async def ws_documents(
@@ -1941,10 +1945,11 @@ async def ws_documents(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Document library control for the panel (v6.55.0): status (what's
-    ingested), ingest (re-scan /config/jarvis/documents), search (test a
-    query). The retrieval JARVIS actually uses in conversation is the
-    search_documents agent tool; this exposes the same store to the UI."""
+    """Document library control for the panel. status / ingest (rescan) /
+    search / upload (base64 file → save + ingest) / scan_watch (pull new files
+    from configured watch folders) / delete (remove a source). The retrieval
+    JARVIS uses in conversation is the search_documents agent tool; this exposes
+    the same store to the UI (v6.55.0; upload+watch v6.59.0)."""
     action = msg["action"]
     try:
         from . import documents
@@ -1957,6 +1962,22 @@ async def ws_documents(
             jarvis_log("AGENT", f"documents ingested via panel: "
                                 f"{res.get('files_ingested',0)} files, "
                                 f"{res.get('total_chunks',0)} chunks{extra}")
+        elif action == "upload":
+            res = await documents.save_and_ingest_upload(
+                hass, msg.get("filename", ""), msg.get("content", ""))
+            if res.get("ok"):
+                jarvis_log("AGENT", f"document uploaded: {res.get('filename')} "
+                                    f"({res.get('chunks',0)} chunks)")
+        elif action == "scan_watch":
+            res = await documents.scan_watch_folders(hass)
+            if res.get("new_files"):
+                jarvis_log("AGENT", f"watch-folder scan: {res['new_files']} "
+                                    f"new document(s) ingested")
+        elif action == "delete":
+            res = await hass.async_add_executor_job(
+                documents.delete_source, msg.get("filename", ""))
+            if res.get("ok"):
+                jarvis_log("AGENT", f"document removed: {msg.get('filename')}")
         else:  # search
             hits = await documents.search_documents_async(
                 hass, msg.get("query", ""), 5)

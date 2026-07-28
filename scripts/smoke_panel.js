@@ -81,6 +81,9 @@ const hass = {
       if (m.action === "status") return { chroma: true, fts: false, chunk_count: 42, directory: "/config/jarvis/documents", sources: [{ source: "furnace_manual.pdf", chunks: 30 }, { source: "dishwasher_receipt.txt", chunks: 12 }] };
       if (m.action === "ingest") return { ok: true, files_ingested: 2, files_seen: 2, total_chunks: 42 };
       if (m.action === "search") return { results: [{ text: "The furnace filter size is 16x25x1 MERV 11.", source: "furnace_manual.pdf", chunk: 4, score: 0.88 }] };
+      if (m.action === "upload") return { ok: true, filename: m.filename || "uploaded.pdf", chunks: 12, embedded: 12 };
+      if (m.action === "scan_watch") return { ok: true, watched: 1, new_files: 2 };
+      if (m.action === "delete") return { ok: true, filename: m.filename };
     }
     if (m.type === "jarvis/mmwave_overview") return {
       rooms: [

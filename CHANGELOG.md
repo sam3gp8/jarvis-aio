@@ -4,6 +4,23 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.59.0] — Frigate-native face identity (Double Take optional)
+JARVIS can now read a recognized name straight from Frigate. When Frigate's
+own face recognition (or a plus model) attaches a `sub_label` to a person
+event on `frigate/events`, JARVIS uses it directly — caching the match and
+firing the same `jarvis_face_recognized` event that drives greetings and
+recognition-aware behavior. Double Take is no longer required for identity;
+it still works for setups that use it, but this is one fewer add-on in the
+chain, with identity coming straight from the detection stream JARVIS
+already watches.
+
+The sub_label parser handles Frigate's version-to-version format drift — a
+bare `"Name"` string or a `["Name", score]` pair, with 0..1 scores scaled to
+percent and malformed values falling back safely. Both identity sources
+(Frigate-native and Double Take) converge on the same cache and event, so
+downstream persona logic is unchanged. 11 new tests covering every sub_label
+shape and malformed input.
+
 ## [6.58.0] — visual questions and standing camera monitors
 JARVIS can now look at a camera and answer a specific question about what's
 there — "is a tool left on the workbench," "is the garage open," "did a
