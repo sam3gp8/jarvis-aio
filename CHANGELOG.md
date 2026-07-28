@@ -4,6 +4,20 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.63.1] — document the privacy & data story
+Adds a "Privacy & your data" section to the README, spelling out JARVIS's
+local-first posture: what it stores and where (all local SQLite under
+`/config/jarvis/`), that there's no JARVIS cloud or telemetry, that document
+ingestion is path-guarded to its own folder, and — now that biometrics exist
+— that wellbeing context is opt-in, off by default, never stored or
+transmitted, and explicitly not medical. Documentation only; no code change.
+
+(Reviewed an external suggestion list against the codebase and found nearly
+all of it already implemented — offline reasoning, self-diagnostics, the
+protocol/mode engine, biometrics, environmental sensing, the HUD, CI, and
+pattern automations all already ship. The data-privacy writeup was the one
+genuinely missing piece worth adding.)
+
 ## [6.63.0] — biometric wellbeing context (Sensory Integration)
 JARVIS can now "feel" the user's state by reading biometric entities a
 wearable already surfaces to Home Assistant — heart rate, sleep, steps — so
