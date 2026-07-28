@@ -180,12 +180,16 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class JarvisOptionsFlow(OptionsFlow):
     """
-    Full options flow — JARVIS is configurable from Settings → Devices &
-    Services → JARVIS → Configure (in addition to the in-app panel). Steps:
-      1. Core      — persona/honorific, directive, conversation model, home control
-      2. Routing   — bedroom areas, broadcast group, phone notify service
-      3. Observer  — proactive awareness (Gemini key + model tiers + quiet hours)
-      4. Identity  — per-person recognition (voice-fingerprint tier is GPU-only)
+    Options flow — JARVIS is configurable from Settings → Devices &
+    Services → JARVIS → Configure (in addition to the in-app panel).
+
+    A menu lets you jump straight to the section you want instead of clicking
+    through every screen: Core (persona/model/home control), Routing (bedroom
+    areas, broadcast group, notify service), Observer (proactive awareness),
+    and Identity (per-person recognition). Each section saves on its own and
+    returns to the menu, so changing one setting no longer means walking the
+    whole sequence.
+
     Collected values are written straight into jarvis_config (the runtime source
     of truth the panel and modules read) and persisted as entry options, which
     triggers a reload so they take effect immediately.
@@ -211,10 +215,16 @@ class JarvisOptionsFlow(OptionsFlow):
         return {"suggested_value": self._cur(key, default)}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> dict:
-        """Step 1 — Core."""
+        """Landing menu — jump to any section directly."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["core", "routing", "observer", "identity"],
+        )
+
+    async def async_step_core(self, user_input: dict[str, Any] | None = None) -> dict:
+        """Core — persona, directive, conversation model, home control."""
         if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_routing()
+            return await self._save_section(user_input)
         schema = vol.Schema({
             vol.Optional(CONF_HONORIFIC, description=self._sv(CONF_HONORIFIC, DEFAULT_HONORIFIC)):
                 selector.TextSelector(),
@@ -230,13 +240,12 @@ class JarvisOptionsFlow(OptionsFlow):
             vol.Optional(CONF_USE_HASS_API, description=self._sv(CONF_USE_HASS_API, True)):
                 selector.BooleanSelector(),
         })
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="core", data_schema=schema)
 
     async def async_step_routing(self, user_input: dict[str, Any] | None = None) -> dict:
-        """Step 2 — Routing."""
+        """Routing — bedroom areas, broadcast group, phone notify service."""
         if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_observer()
+            return await self._save_section(user_input)
         schema = vol.Schema({
             vol.Optional(CONF_BEDROOM_AREAS, description=self._sv(CONF_BEDROOM_AREAS, [])):
                 selector.AreaSelector(selector.AreaSelectorConfig(multiple=True)),
@@ -248,10 +257,9 @@ class JarvisOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="routing", data_schema=schema)
 
     async def async_step_observer(self, user_input: dict[str, Any] | None = None) -> dict:
-        """Step 3 — Observer."""
+        """Observer — proactive awareness (Gemini key + model tiers + quiet hours)."""
         if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_identity()
+            return await self._save_section(user_input)
         schema = vol.Schema({
             vol.Optional(CONF_OBSERVER_ENABLED, description=self._sv(CONF_OBSERVER_ENABLED, False)):
                 selector.BooleanSelector(),
@@ -277,10 +285,9 @@ class JarvisOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="observer", data_schema=schema)
 
     async def async_step_identity(self, user_input: dict[str, Any] | None = None) -> dict:
-        """Step 4 — Identity (per-person recognition; voice tier needs a GPU)."""
+        """Identity — per-person recognition; voice fingerprint tier needs a GPU."""
         if user_input is not None:
-            self._data.update(user_input)
-            return await self._save()
+            return await self._save_section(user_input)
         schema = vol.Schema({
             vol.Optional("identity_enabled", description=self._sv("identity_enabled", True)):
                 selector.BooleanSelector(),
@@ -300,11 +307,14 @@ class JarvisOptionsFlow(OptionsFlow):
         })
         return self.async_show_form(step_id="identity", data_schema=schema)
 
-    async def _save(self) -> dict:
-        """Persist all collected values to the runtime config + entry options."""
+    async def _save_section(self, user_input: dict[str, Any]) -> dict:
+        """Persist one section's values to runtime config + entry options, then
+        finish. Each section saves independently (menu-based flow), so only the
+        edited keys are written — other sections' stored values are untouched."""
+        self._data.update(user_input)
         try:
             from . import jarvis_config
-            await self.hass.async_add_executor_job(jarvis_config.set_many, dict(self._data))
+            await self.hass.async_add_executor_job(jarvis_config.set_many, dict(user_input))
         except Exception as exc:
             _LOGGER.warning("JARVIS options: jarvis_config write failed: %s", exc)
         return self.async_create_entry(title="", data={**self._entry.options, **self._data})

@@ -23,8 +23,17 @@
   "options": {
     "step": {
       "init": {
+        "title": "JARVIS — Configure",
+        "menu_options": {
+          "core": "Core — persona, directive, conversation model",
+          "routing": "Routing — bedroom areas, broadcast group, notify service",
+          "observer": "Observer — proactive awareness (needs a Gemini key)",
+          "identity": "Identity — per-person recognition"
+        }
+      },
+      "core": {
         "title": "JARVIS — Core",
-        "description": "Step 1 of 4: persona, directive, and conversation model.",
+        "description": "Persona, directive, and conversation model.",
         "data": {
           "honorific": "Address me as",
           "directive_preset": "Directive preset",
@@ -35,7 +44,7 @@
       },
       "routing": {
         "title": "JARVIS — Routing",
-        "description": "Step 2 of 4: bedroom areas (for sleep detection), broadcast media_player group, and your phone notify service.",
+        "description": "Bedroom areas (for sleep detection), broadcast media_player group, and your phone notify service.",
         "data": {
           "bedroom_areas": "Bedroom areas (for sleep detection during quiet hours)",
           "broadcast_group": "Broadcast speaker group (typically your home Cast group)",
@@ -44,7 +53,7 @@
       },
       "observer": {
         "title": "JARVIS — Observer Mode",
-        "description": "Step 3 of 4: proactive awareness. Requires a Gemini API key.",
+        "description": "Proactive awareness. Requires a Gemini API key.",
         "data": {
           "observer_enabled": "Enable observer mode",
           "gemini_api_key": "Gemini API key",
@@ -57,7 +66,7 @@
       },
       "identity": {
         "title": "JARVIS — Identity",
-        "description": "Step 4 of 4: per-person recognition. Works without special hardware; voice fingerprinting needs a local GPU and is off by default.",
+        "description": "Per-person recognition. Works without special hardware; voice fingerprinting needs a local GPU and is off by default.",
         "data": {
           "identity_enabled": "Recognize who's speaking",
           "identity_voice_fingerprint": "Voice fingerprinting (requires a local GPU)",

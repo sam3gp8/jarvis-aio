@@ -23,8 +23,17 @@
   "options": {
     "step": {
       "init": {
+        "title": "JARVIS — Configure",
+        "menu_options": {
+          "core": "Core — persona, directive, conversation model",
+          "routing": "Routing — bedroom areas, broadcast group, notify service",
+          "observer": "Observer — proactive awareness (needs a Gemini key)",
+          "identity": "Identity — per-person recognition"
+        }
+      },
+      "core": {
         "title": "JARVIS — Core",
-        "description": "Step 1 of 4: persona, directive, and conversation model.",
+        "description": "Persona, directive, and conversation model.",
         "data": {
           "honorific": "Address me as",
           "directive_preset": "Directive preset",
@@ -35,7 +44,7 @@
       },
       "routing": {
         "title": "JARVIS — Routing",
-        "description": "Step 2 of 4: pick which HA areas are bedrooms (for sleep detection), which media_player group to use for broadcasts, and your phone notify service.",
+        "description": "pick which HA areas are bedrooms (for sleep detection), which media_player group to use for broadcasts, and your phone notify service.",
         "data": {
           "bedroom_areas": "Bedroom areas (for sleep detection during quiet hours)",
           "broadcast_group": "Broadcast speaker group (typically your home Cast group)",
@@ -49,7 +58,7 @@
       },
       "observer": {
         "title": "JARVIS — Observer Mode",
-        "description": "Step 3 of 4: proactive awareness. JARVIS watches your home and speaks up when something's worth noting. Requires a Gemini API key (billing-enabled recommended).",
+        "description": "proactive awareness. JARVIS watches your home and speaks up when something's worth noting. Requires a Gemini API key (billing-enabled recommended).",
         "data": {
           "observer_enabled": "Enable observer mode",
           "gemini_api_key": "Gemini API key",
@@ -62,7 +71,7 @@
       },
       "identity": {
         "title": "JARVIS — Identity",
-        "description": "Step 4 of 4: per-person recognition, so JARVIS tailors itself to who's speaking. Works with no special hardware using presence and (if set up) camera face recognition. Voice fingerprinting is the most accurate but needs a local GPU, so it's off by default.",
+        "description": "per-person recognition, so JARVIS tailors itself to who's speaking. Works with no special hardware using presence and (if set up) camera face recognition. Voice fingerprinting is the most accurate but needs a local GPU, so it's off by default.",
         "data": {
           "identity_enabled": "Recognize who's speaking",
           "identity_voice_fingerprint": "Voice fingerprinting (requires a local GPU)",

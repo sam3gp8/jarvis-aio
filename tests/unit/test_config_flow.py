@@ -27,6 +27,9 @@ def _install_stubs():
         def async_show_form(self, **kw):
             return {"type": "form", **kw}
 
+        def async_show_menu(self, **kw):
+            return {"type": "menu", **kw}
+
         def async_create_entry(self, **kw):
             return {"type": "create_entry", **kw}
 
@@ -110,9 +113,16 @@ def _flow(config_flow, fake_hass):
     return flow
 
 
-async def test_step_init_renders_fields(config_flow, fake_hass):
+async def test_step_init_renders_menu(config_flow, fake_hass):
+    # init is now a landing menu (not a form) — jump to any section directly
     res = await _flow(config_flow, fake_hass).async_step_init(None)
-    assert res["type"] == "form" and res["step_id"] == "init"
+    assert res["type"] == "menu" and res["step_id"] == "init"
+    assert set(res["menu_options"]) == {"core", "routing", "observer", "identity"}
+
+
+async def test_step_core_renders_fields(config_flow, fake_hass):
+    res = await _flow(config_flow, fake_hass).async_step_core(None)
+    assert res["type"] == "form" and res["step_id"] == "core"
     assert len(res["data_schema"].schema) == 5   # persona, preset, directive, model, hass-api
 
 
@@ -131,9 +141,22 @@ async def test_step_identity_renders_fields(config_flow, fake_hass):
     assert len(res["data_schema"].schema) == 5   # enabled, voice-fp, source, auto-enroll, min-confidence
 
 
-async def test_no_step_is_an_empty_stub(config_flow, fake_hass):
+async def test_no_section_step_is_an_empty_stub(config_flow, fake_hass):
+    # init is a menu now; the four section steps must each render real fields
     flow = _flow(config_flow, fake_hass)
-    for step in (flow.async_step_init, flow.async_step_routing,
+    for step in (flow.async_step_core, flow.async_step_routing,
                  flow.async_step_observer, flow.async_step_identity):
         res = await step(None)
+        assert res["type"] == "form"
         assert len(res["data_schema"].schema) > 0   # never an empty form
+
+
+async def test_section_saves_independently(config_flow, fake_hass):
+    # submitting a section creates the entry immediately (menu flow — each
+    # section saves on its own rather than chaining to the next step)
+    flow = _flow(config_flow, fake_hass)
+    res = await flow.async_step_core({"honorific": "boss", "model": "x"})
+    assert res["type"] == "create_entry"
+    # only the submitted keys are carried in _data (other sections untouched)
+    assert flow._data == {"honorific": "boss", "model": "x"}
+

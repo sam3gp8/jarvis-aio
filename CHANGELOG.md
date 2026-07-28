@@ -4,6 +4,20 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.63.2] — consolidated options flow (menu instead of forced steps)
+The Settings → Configure options flow was four screens you had to click
+through in sequence — change one setting and you walked all four. It's now a
+menu: pick the section you want (Core, Routing, Observer, or Identity), edit
+it, and you're done. Each section saves on its own, so touching the honorific
+no longer means paging past routing, observer, and identity to reach the end.
+
+Every option, default, selector, and the stored-value pre-fill behavior is
+preserved exactly — this is purely how the flow is presented. The (already
+removed in v6.45.0) integration/add-on split stays gone; setup remains
+config-entry-only. Strings and translations updated to match; config-flow
+tests updated for the menu structure with a new check that each section
+saves independently.
+
 ## [6.63.1] — document the privacy & data story
 Adds a "Privacy & your data" section to the README, spelling out JARVIS's
 local-first posture: what it stores and where (all local SQLite under
