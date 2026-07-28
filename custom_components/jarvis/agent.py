@@ -712,6 +712,73 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "wellbeing_context",
+            "description": (
+                "Read ambient wellbeing context from a wearable connected to "
+                "Home Assistant — heart rate, sleep, steps — as CONTEXT only. "
+                "Use when the user asks about their own biometric readings ('how "
+                "did I sleep', 'what's my heart rate showing'). This is not "
+                "medical: report the numbers plainly as what the device shows, "
+                "never diagnose, never alarm, and if a reading seems concerning "
+                "gently suggest they check their device or a medical resource "
+                "rather than interpreting it yourself. Returns empty if no "
+                "wearable is connected or the feature is off."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "energy_status",
+            "description": (
+                "Report the home's current power draw and energy advice — "
+                "whole-home wattage, whether it's over the configured peak, "
+                "which high-draw appliances are running, and staggering "
+                "suggestions. Use when asked 'how much power are we using', "
+                "'what's running', 'are we over peak', or for energy-saving "
+                "advice. Reflects the current agency level (advisory / opt-in / "
+                "autonomous) and never sheds critical loads."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_mode",
+            "description": (
+                "Switch JARVIS's operational mode — a high-level state that "
+                "shifts its whole behavior at once. Built-in modes: normal, "
+                "party (relax nagging, full wit, only critical alerts), lab "
+                "(minimal interruptions, safety still active), movie "
+                "(near-silent), guest (softer autonomy), away (convenience off, "
+                "security posture), focus (hold non-critical interrupts). Use "
+                "when the user says things like 'party mode', 'I'm heading "
+                "out', 'movie time', 'do not disturb', 'back to normal'. Modes "
+                "never disable safety — pipe-freeze, intrusion, and lockdown "
+                "always act. To leave a mode, set 'normal'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "description": "The mode to activate (e.g. 'party', "
+                                       "'movie', 'away', 'normal').",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional short reason/context.",
+                    },
+                },
+                "required": ["mode"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "system_diagnostics",
             "description": (
                 "Check the health of the core services JARVIS depends on — the "
@@ -1655,6 +1722,51 @@ async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_wellbeing_context(hass: HomeAssistant, args: dict) -> str:
+    """Read non-medical wellbeing context from a wearable (v6.63.0)."""
+    try:
+        from . import biometrics
+        res = await hass.async_add_executor_job(biometrics.wellbeing_context, hass)
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+async def _exec_energy_status(hass: HomeAssistant, args: dict) -> str:
+    """Report whole-home power draw + energy advice (v6.62.0)."""
+    try:
+        from . import energy
+        res = await hass.async_add_executor_job(energy.power_status, hass)
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
+    """Switch the operational mode (Directive Layer, v6.61.0)."""
+    try:
+        from . import modes
+        res = await hass.async_add_executor_job(
+            modes.set_mode, args.get("mode", ""), args.get("reason", ""))
+        if res.get("ok"):
+            info = modes.mode_info()
+            try:
+                from .websocket import jarvis_log
+                jarvis_log("MODE", f"mode → {res['mode']}"
+                                   + (f" ({args.get('reason')})" if args.get("reason") else ""))
+            except Exception:
+                pass
+            return json.dumps({
+                "ok": True, "mode": res["mode"],
+                "description": info.get("description", ""),
+                "note": "safety (pipe-freeze, intrusion, lockdown) remains fully "
+                        "active in every mode",
+            })
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_system_diagnostics(hass: HomeAssistant, args: dict) -> str:
     """Report core dependency health (LLM, embeddings, TTS, STT) (v6.60.0)."""
     try:
@@ -1788,6 +1900,9 @@ _TOOL_MAP = {
     "calendar_agenda":     _exec_calendar_agenda,
     "look_at_camera":      _exec_look_at_camera,
     "system_diagnostics":  _exec_system_diagnostics,
+    "set_mode":            _exec_set_mode,
+    "energy_status":       _exec_energy_status,
+    "wellbeing_context":   _exec_wellbeing_context,
     "search_documents":    _exec_search_documents,
     "ingest_documents":    _exec_ingest_documents,
 }

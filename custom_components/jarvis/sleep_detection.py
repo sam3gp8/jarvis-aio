@@ -87,6 +87,20 @@ def is_sleeping(
             return True, f"manual nap ({minutes_left:.0f}min remaining)"
         _NAP_UNTIL = None
 
+    # Wearable sleep signal (v6.63.0) — if a biometric sleep entity is present
+    # and enabled, it's stronger evidence than bedroom occupancy. Opt-in; returns
+    # None when unavailable, so this is a no-op on systems without a wearable.
+    try:
+        from . import biometrics
+        sig = biometrics.sleep_signal(hass)
+        if sig is True:
+            return True, "wearable reports asleep"
+        if sig is False and not (bedroom_area_ids and _in_quiet_hours(quiet_start, quiet_end)):
+            # wearable says awake and no strong occupancy signal → trust awake
+            return False, "wearable reports awake"
+    except Exception:
+        pass
+
     # Bedroom + quiet hours
     if bedroom_area_ids and _in_quiet_hours(quiet_start, quiet_end):
         occupied, area_id = is_any_bedroom_occupied(hass, bedroom_area_ids)

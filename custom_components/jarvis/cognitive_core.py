@@ -1364,9 +1364,20 @@ class AutonomyManager:
             self._save()
 
     def is_autonomous(self, pattern_key: str) -> bool:
-        """True if JARVIS may perform this action without asking."""
+        """True if JARVIS may perform this convenience action without asking.
+        The active operational mode can suppress convenience auto-actions
+        (party/movie/lab) — this only affects graduated convenience patterns;
+        safety events never route through here, so they act regardless of mode."""
         g = self._grants.get(pattern_key)
-        return bool(g and g.get("granted"))
+        if not (g and g.get("granted")):
+            return False
+        try:
+            from . import modes
+            if not modes.mode_allows_auto_actions():
+                return False
+        except Exception:
+            pass
+        return True
 
     def revoke(self, pattern_key: str) -> bool:
         """Manually revoke autonomy for a pattern (back to offer-only)."""
@@ -1683,9 +1694,16 @@ async def _tick():
     actions.extend(await _CORE.safety_mgr.tick(sleeping, anyone_home))
 
     # ── Proactive comfort/efficiency offers (v5.9.07) ───────────────
-    # Gated by the global proactive kill-switch; safety always runs but
-    # comfort offers must be allowed.
+    # Gated by the global proactive kill-switch AND the active operational mode
+    # (a mode like party/movie/lab can silence convenience offers). Safety always
+    # runs regardless — mode never gates SafetyManager.
     proactive_enabled = _CORE.config.get("observer_proactive", True)
+    try:
+        from . import modes
+        if not modes.mode_allows_proactive():
+            proactive_enabled = False
+    except Exception:
+        pass
     if proactive_enabled and _CORE.proactive_mgr:
         try:
             offers = await _CORE.proactive_mgr.tick(sleeping, anyone_home)
@@ -1726,6 +1744,19 @@ async def _tick():
                     spoke_offer = True
         except Exception as exc:
             _LOGGER.debug("Proactive tick error: %s", exc)
+
+    # ── Energy management (v6.62.0) ─────────────────────────────────
+    # Same gating as proactive offers (kill-switch + mode). Surfaces high-draw
+    # situations; at higher agency levels may propose/auto-defer a load. Never
+    # sheds a critical load (handled inside energy.evaluate_for_proactive).
+    if proactive_enabled:
+        try:
+            from . import energy
+            e_offer = energy.evaluate_for_proactive(hass)
+            if e_offer:
+                actions.append(e_offer)
+        except Exception as exc:
+            _LOGGER.debug("Energy tick error: %s", exc)
 
     # Run pattern analysis periodically
     try:

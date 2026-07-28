@@ -58,7 +58,17 @@ def set_banter(level) -> None:
 
 
 def _banter_from_cfg() -> None:
-    """Refresh banter level from runtime config (called before speaking)."""
+    """Refresh banter level before speaking. The active operational mode's banter
+    preference (if it sets one) takes precedence over the user's config default —
+    e.g. movie mode forces plain, party mode forces full wit."""
+    try:
+        from . import modes
+        mode_level = modes.mode_banter_level()
+        if mode_level is not None:
+            set_banter(mode_level)
+            return
+    except Exception:
+        pass
     try:
         from . import jarvis_config
         val = jarvis_config.get("banter_level", None)

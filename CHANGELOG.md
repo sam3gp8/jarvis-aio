@@ -4,6 +4,88 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.63.0] — biometric wellbeing context (Sensory Integration)
+JARVIS can now "feel" the user's state by reading biometric entities a
+wearable already surfaces to Home Assistant — heart rate, sleep, steps — so
+it can be quieter when you're resting and factor wellbeing into how it
+behaves. The most useful hook: a wearable's sleep entity now strengthens
+JARVIS's sleep detection — a watch reporting "asleep" is stronger evidence
+than bedroom occupancy alone, so quiet-hours suppression gets more accurate.
+
+Discovery is heuristic over entity name / device class / unit, so it works
+across wearables — Withings, Google Fit, Apple Health bridges, Oura, Fitbit —
+without hard-coding any integration; an explicit `biometric_entities` mapping
+can override. A new Wellbeing Context panel shows what's connected with an
+enable toggle, and a `wellbeing_context` agent tool answers "how did I sleep?"
+or "what's my heart rate showing?".
+
+**This is not a medical device and never behaves like one.** It reads existing
+entities as comfort/context only — it does not diagnose, does not raise health
+alarms, and does not interpret vitals clinically. Readings are reported plainly
+as what the device shows; anything concerning is deferred to the person's own
+device or a real medical resource, never assessed by JARVIS. The output carries
+a non-medical disclaimer, and it's strictly opt-in and off by default — health
+data stays private until the user turns it on. New biometrics.py module,
+wellbeing_context tool, jarvis/biometrics WebSocket command, sleep-detection
+enrichment, and the panel. 19 new tests (including a guarantee the output
+contains no diagnostic or alarm language) and 4 panel smoke checks; tool
+surface now 32.
+
+## [6.62.0] — whole-house energy management
+JARVIS graduates from sensing power to managing it. The appliance monitor
+already found the whole-home meter and fingerprinted appliances by wattage;
+this adds the decision layer on top — reading current draw, understanding
+what's running, and helping run the house efficiently. Ask "how much power
+are we using?" or "what's running?" (new energy_status tool), or watch the
+new Energy Management panel: live kW, a peak-threshold indicator, running
+high-draw loads, and staggering advice.
+
+The centerpiece is a **configurable agency ladder** you choose your comfort
+level on: advisory (only surfaces insights), opt-in (proposes deferring a
+load, acts only on approval), or autonomous (auto-defers high-draw loads over
+the peak threshold). It ties into the Directive Layer — a mode listed in
+`energy_mode_bump` (e.g. away) can raise the level one step while active,
+letting the house save more aggressively when you're out. The bump is
+opt-in and empty by default, so nothing surprises you: choose advisory and
+JARVIS only ever advises.
+
+Safety is absolute here: JARVIS never sheds a critical load — fridge/freezer,
+medical (CPAP, oxygen), security, network, sump/well pump, or heat — matched
+by a never-shed list, regardless of agency. The energy check runs in the
+cognitive loop under the same gating as other proactive offers (kill-switch +
+mode), and every entry point is defensive and never raises.
+
+New energy.py module (reusing the appliance monitor's meter discovery rather
+than duplicating it), energy_status agent tool, jarvis/energy WebSocket
+command, and the Energy Management panel with an agency selector. 18 new
+tests (agency ladder, never-shed guarantee, per-agency offer shaping, mode
+bump) and 5 panel smoke checks; tool surface now 31.
+
+## [6.61.0] — the Directive Layer: operational modes
+JARVIS gains high-level operational modes — a single switch that shifts its
+whole behavior profile at once, generalizing the proven Lockdown state
+machine into a proper directive layer. Built-in modes: normal, party (relax
+nagging, full wit, only critical alerts), lab (minimal interruptions), movie
+(near-silent), guest (softer autonomy), away (convenience off, security
+posture), and focus (hold non-critical interrupts). Say "party mode," "movie
+time," "I'm heading out," or "back to normal" — or pick from the new
+Operational Mode panel in Settings.
+
+Each mode is declared as behavior *overrides* (proactivity, persona banter,
+event-surfacing scope, whether graduated autonomy may auto-execute); a mode
+only states what it changes and everything else falls through to normal
+config. The active mode is consulted by three hooks — the proactive gate, the
+persona banter resolver, and the autonomy auto-execute check — so switching
+modes genuinely changes how chatty, how autonomous, and how selective JARVIS
+is. State persists atomically across reboots, exactly like lockdown.
+
+Crucially, **modes never disable safety.** Pipe-freeze, intrusion, and
+lockdown run regardless of mode — mode gating only touches the
+proactive/convenience layer, never SafetyManager. Users can define their own
+modes via the `custom_modes` config key, overriding built-ins or adding new
+ones. New `set_mode` agent tool and `jarvis/mode` WebSocket command; 15 new
+tests and 3 panel smoke checks; tool surface now 30.
+
 ## [6.60.0] — system diagnostics: is everything JARVIS needs up?
 A one-glance health check for the core services JARVIS actually calls — the
 LLM backend, the embedding endpoint (when semantic search is on), the TTS
@@ -24,7 +106,7 @@ healthy-count. Every check is defensive — the whole run never raises.
 This lives inside the existing diagnostics package (alongside the
 infrastructure-triage and fault-log subsystems) as a new service_health
 module — deliberately narrow to the four services JARVIS depends on, not the
-whole home. 12 new tests; 4 new panel smoke checks; tool surface now 30.
+whole home. 12 new tests; 4 new panel smoke checks; tool surface now 29.
 
 ## [6.59.0] — Frigate-native face identity (Double Take optional)
 JARVIS can now read a recognized name straight from Frigate. When Frigate's

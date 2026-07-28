@@ -56,6 +56,9 @@ const _renameCalls = [];
 const _locationCalls = [];
 const _sugCalls = [];
 let _semanticEnabled = false;
+let _activeMode = "normal";
+let _energyAgency = "advisory";
+let _bioEnabled = false;
 const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
   callWS: async (m) => {
@@ -71,6 +74,33 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
+    if (m.type === "jarvis/biometrics") {
+      if (m.action === "enable") _bioEnabled = true;
+      if (m.action === "disable") _bioEnabled = false;
+      return { enabled: _bioEnabled, found: _bioEnabled ? 2 : 0, entities: _bioEnabled ? [
+        { kind: "heart_rate", entity: "sensor.watch_hr", value: "62", unit: "bpm", name: "Heart Rate" },
+        { kind: "sleep_stage", entity: "sensor.sleep_stage", value: "light_sleep", unit: "", name: "Sleep Stage" },
+      ] : [] };
+    }
+    if (m.type === "jarvis/energy") {
+      if (m.action === "status") return { watts: 9200, kw: 9.2, meter: "sensor.home_power", peak_watts: 8000, over_peak: true, agency: "advisory", configured_agency: "advisory", running: [
+        { name: "Dryer", entity: "switch.dryer", watts: 4200, shed_ok: true },
+        { name: "Refrigerator", entity: "sensor.fridge", watts: 200, shed_ok: false },
+      ], advice: ["Heads up — Dryer and Oven are running at 9.2 kW, over your peak."] };
+      if (m.action === "set_agency") { _energyAgency = m.agency; return { watts: 9200, kw: 9.2, over_peak: true, agency: m.agency, configured_agency: m.agency, running: [], advice: [] }; }
+    }
+    if (m.type === "jarvis/mode") {
+      if (m.action === "status") return { active: _activeMode, since: 0, reason: "", description: "Default operation.", overrides: {}, available: [
+        { name: "normal", description: "Default operation." },
+        { name: "party", description: "Guests over." },
+        { name: "movie", description: "Near-silent." },
+        { name: "away", description: "Household away." },
+      ]};
+      if (m.action === "set") { _activeMode = m.mode; return { ok: true, mode: m.mode, active: m.mode, description: "switched", available: [
+        { name: "normal", description: "Default operation." },
+        { name: "party", description: "Guests over." },
+      ]}; }
+    }
     if (m.type === "jarvis/diagnostics") return {
       overall: "warn", summary: "3/4 core services healthy",
       services: [
@@ -515,6 +545,51 @@ setTimeout(async () => {
     ["after enable the banner reflects SEMANTIC (Ollama)", /SEMANTIC/.test(vbState2)],
     ["disable toggle offered once semantic active",
       vbBtn2 && /DISABLE/.test(vbBtn2.textContent)],
+  );
+
+  // ── Wellbeing Context panel (v6.63.0) ──
+  await el._fetchBio();
+  const bioStatus = el.shadowRoot.getElementById("bio-status")?.textContent || "";
+  checks.push(
+    ["wellbeing panel shows OFF by default", /OFF/.test(bioStatus)],
+    ["wellbeing enable button present", !!el.shadowRoot.getElementById("bio-toggle")],
+  );
+  // enabling reveals discovered wearable entities
+  el.shadowRoot.getElementById("bio-toggle")?.click();
+  await new Promise(r => setTimeout(r, 20));
+  const bioBody2 = el.shadowRoot.getElementById("bio-body")?.textContent || "";
+  const bioStatus2 = el.shadowRoot.getElementById("bio-status")?.textContent || "";
+  checks.push(
+    ["enabling wellbeing turns status ON", /ON/.test(bioStatus2)],
+    ["wellbeing lists discovered biometric readings", /heart rate/i.test(bioBody2) && /62/.test(bioBody2)],
+  );
+
+  // ── Energy Management panel (v6.62.0) ──
+  await el._fetchEnergy();
+  const energyDraw = el.shadowRoot.getElementById("energy-draw")?.textContent || "";
+  const energyBody = el.shadowRoot.getElementById("energy-body")?.textContent || "";
+  checks.push(
+    ["energy panel shows draw + over-peak", /9\.2 kW/.test(energyDraw) && /OVER PEAK/.test(energyDraw)],
+    ["energy panel lists running loads", /Dryer/.test(energyBody) && /Refrigerator/.test(energyBody)],
+    ["energy panel marks protected loads", /protected/.test(energyBody)],
+    ["energy panel shows advice", /over your peak/.test(energyBody)],
+    ["energy agency chips present", el.shadowRoot.querySelectorAll("#energy-agency .mode-chip").length === 3],
+  );
+
+  // ── Operational Mode panel (Directive Layer, v6.61.0) ──
+  await el._fetchMode();
+  const modeActive = el.shadowRoot.getElementById("mode-active")?.textContent || "";
+  const modeGrid = el.shadowRoot.getElementById("mode-grid")?.textContent || "";
+  checks.push(
+    ["mode panel shows active mode", /NORMAL/.test(modeActive)],
+    ["mode panel lists selectable modes", /party/.test(modeGrid) && /movie/.test(modeGrid) && /away/.test(modeGrid)],
+  );
+  // switching mode updates the active tag
+  const partyChip = [...el.shadowRoot.querySelectorAll(".mode-chip")].find(b => b.dataset.mode === "party");
+  if (partyChip) { partyChip.click(); await new Promise(r => setTimeout(r, 20)); }
+  checks.push(
+    ["selecting a mode updates active",
+      /PARTY/.test(el.shadowRoot.getElementById("mode-active")?.textContent || "")],
   );
 
   // ── System Diagnostics panel (v6.60.0) ──

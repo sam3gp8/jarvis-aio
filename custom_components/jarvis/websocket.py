@@ -72,6 +72,9 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_documents)
         websocket_api.async_register_command(hass, ws_semantic_search)
         websocket_api.async_register_command(hass, ws_diagnostics)
+        websocket_api.async_register_command(hass, ws_mode)
+        websocket_api.async_register_command(hass, ws_energy)
+        websocket_api.async_register_command(hass, ws_biometrics)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1129,6 +1132,12 @@ PANEL_WRITABLE_KEYS = {
     "semantic_search",           # bool: use Ollama embeddings for doc retrieval
     "embed_model",               # str: Ollama embed model (default nomic-embed-text)
     "embed_base_url",            # str: override Ollama host for embeddings
+    "custom_modes",              # dict: user-defined operational modes (v6.61.0)
+    "energy_agency",             # str: advisory | opt_in | autonomous (v6.62.0)
+    "energy_peak_watts",         # float: whole-home peak threshold in watts
+    "energy_mode_bump",          # list: modes that raise energy agency one step
+    "biometrics_enabled",        # bool: read wearable context (opt-in) (v6.63.0)
+    "biometric_entities",        # dict: explicit kind→entity_id overrides
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
@@ -1877,6 +1886,108 @@ async def ws_rename_camera(
     except Exception as exc:
         _LOGGER.exception("rename_camera failed: %s", exc)
         connection.send_error(msg["id"], "rename_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/biometrics",
+    vol.Required("action"): vol.In(["status", "enable", "disable"]),
+})
+@websocket_api.async_response
+async def ws_biometrics(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Wellbeing/biometric context for the panel (v6.63.0) — discover connected
+    wearable entities and toggle the feature. Context only; never medical."""
+    try:
+        from . import biometrics, jarvis_config
+        if msg["action"] == "enable":
+            jarvis_config.set("biometrics_enabled", True)
+            jarvis_log("BIO", "biometric context enabled")
+        elif msg["action"] == "disable":
+            jarvis_config.set("biometrics_enabled", False)
+            jarvis_log("BIO", "biometric context disabled")
+        enabled = bool(jarvis_config.get("biometrics_enabled", False))
+        found = await hass.async_add_executor_job(biometrics.discover, hass)
+        # flatten discovered entities for the panel
+        entities = []
+        for kind, ents in found.items():
+            for e in ents:
+                entities.append({"kind": kind, **e})
+        connection.send_result(msg["id"], {
+            "enabled": enabled,
+            "found": len(entities),
+            "entities": entities,
+        })
+    except Exception as exc:
+        _LOGGER.exception("ws_biometrics failed: %s", exc)
+        connection.send_error(msg["id"], "biometrics_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/energy",
+    vol.Required("action"): vol.In(["status", "set_agency"]),
+    vol.Optional("agency"): str,
+})
+@websocket_api.async_response
+async def ws_energy(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Energy management for the panel (v6.62.0): report the current power
+    picture + advice, or set the agency level (advisory/opt_in/autonomous)."""
+    try:
+        from . import energy, jarvis_config
+        if msg["action"] == "set_agency":
+            level = str(msg.get("agency", "") or "").lower()
+            if level not in (energy.AGENCY_ADVISORY, energy.AGENCY_OPT_IN,
+                             energy.AGENCY_AUTONOMOUS):
+                connection.send_error(msg["id"], "bad_agency",
+                                      f"unknown agency '{level}'")
+                return
+            jarvis_config.set("energy_agency", level)
+            jarvis_log("ENERGY", f"agency → {level}")
+            res = await hass.async_add_executor_job(energy.power_status, hass)
+            connection.send_result(msg["id"], res)
+        else:
+            res = await hass.async_add_executor_job(energy.power_status, hass)
+            connection.send_result(msg["id"], res)
+    except Exception as exc:
+        _LOGGER.exception("ws_energy failed: %s", exc)
+        connection.send_error(msg["id"], "energy_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/mode",
+    vol.Required("action"): vol.In(["status", "set"]),
+    vol.Optional("mode"): str,
+    vol.Optional("reason"): str,
+})
+@websocket_api.async_response
+async def ws_mode(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Operational mode control for the panel (Directive Layer, v6.61.0):
+    report the active mode + available modes, or switch modes. Modes shift the
+    whole behavior profile (proactivity, tone, event scope) but never disable
+    safety."""
+    try:
+        from . import modes
+        if msg["action"] == "set":
+            res = await hass.async_add_executor_job(
+                modes.set_mode, msg.get("mode", ""), msg.get("reason", ""))
+            if res.get("ok"):
+                jarvis_log("MODE", f"mode → {res['mode']} (panel)")
+            connection.send_result(msg["id"], {**res, **modes.mode_info()})
+        else:
+            connection.send_result(msg["id"], modes.mode_info())
+    except Exception as exc:
+        _LOGGER.exception("ws_mode failed: %s", exc)
+        connection.send_error(msg["id"], "mode_failed", str(exc))
 
 
 @websocket_api.websocket_command({
