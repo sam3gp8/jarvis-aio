@@ -4,6 +4,21 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.64.0] — write in and delete goals from the panel
+The Goals panel is now fully manageable by hand. Previously you could only
+cancel an active goal (and only JARVIS or a voice command could create one).
+Now there's a text box to **write a goal in** directly — type an outcome, hit
+Add, and JARVIS starts working toward it — and finished or cancelled goals get
+a **delete** button to tidy the list. The panel also shows the Goals card even
+when empty, with the new-goal input, so you can add the first one from
+scratch.
+
+Backend: a new `goals.delete()` that hard-removes a goal row (distinct from
+`cancel()`, which keeps it in history), and the `jarvis/goal_action` WebSocket
+command extended from cancel-only to create / cancel / delete. Voice goal
+creation (the `create_goal` tool) is unchanged. 3 new goal tests and 2 panel
+smoke checks.
+
 ## [6.63.2] — consolidated options flow (menu instead of forced steps)
 The Settings → Configure options flow was four screens you had to click
 through in sequence — change one setting and you walked all four. It's now a

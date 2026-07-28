@@ -76,6 +76,27 @@ def test_close_and_cancel(goals):
     assert goals.cancel(gid2) is True and goals.active() == []
 
 
+def test_delete_removes_row_any_status(goals):
+    # delete works regardless of status (unlike cancel, which is active-only)
+    gid = _mk(goals)["id"]
+    assert goals.get(gid) is not None
+    assert goals.delete(gid) is True
+    assert goals.get(gid) is None                    # row is gone, not just cancelled
+
+
+def test_delete_cancelled_goal(goals):
+    gid = _mk(goals)["id"]
+    goals.cancel(gid)
+    assert goals.get(gid)["status"] == "cancelled"
+    assert goals.delete(gid) is True                 # can tidy a cancelled goal
+    assert goals.get(gid) is None
+
+
+def test_delete_missing_goal_is_false(goals):
+    assert goals.delete(999) is False                # nothing to delete
+    assert goals.delete(1, db_path="/nope/p.db") is False   # bad db → graceful
+
+
 def test_missing_db_graceful(goals):
     assert goals.get(1, db_path="/nope/p.db") is None
     assert goals.active(db_path="/nope/p.db") == []

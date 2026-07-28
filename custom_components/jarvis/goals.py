@@ -253,6 +253,19 @@ def cancel(goal_id: int, *, db_path: Optional[str] = None) -> bool:
         return False
 
 
+def delete(goal_id: int, *, db_path: Optional[str] = None) -> bool:
+    """Permanently remove a goal row (any status). Unlike cancel(), which keeps
+    the row for history, this hard-deletes it — for tidying the goals list.
+    Returns True if a row was removed. Never raises."""
+    db_path = db_path or DB_PATH
+    try:
+        with _connect(db_path) as conn:
+            cur = conn.execute("DELETE FROM goals WHERE id=?", (int(goal_id),))
+            return cur.rowcount > 0
+    except Exception:
+        return False
+
+
 def _arm(goal_id: int, when: datetime, runs: int, *,
          db_path: Optional[str] = None) -> None:
     """Pre-arm the next engagement + count the run (crash-safe: set BEFORE the

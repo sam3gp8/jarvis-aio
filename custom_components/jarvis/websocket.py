@@ -2323,8 +2323,11 @@ async def ws_get_area_sparklines(
 
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/goal_action",
-    vol.Required("goal_id"): int,
-    vol.Required("action"): vol.In(["cancel"]),
+    vol.Required("action"): vol.In(["cancel", "delete", "create"]),
+    vol.Optional("goal_id"): int,
+    vol.Optional("title"): str,
+    vol.Optional("outcome"): str,
+    vol.Optional("interval_min"): vol.Coerce(float),
 })
 @websocket_api.async_response
 async def ws_goal_action(
@@ -2332,13 +2335,45 @@ async def ws_goal_action(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Cancel an active goal from the panel. (Only 'cancel' today — goals
-    otherwise close themselves via the headless runner.)"""
+    """Manage goals from the panel: create a new one, cancel an active one
+    (keeps it in history), or delete one entirely (tidies the list). Goals also
+    close themselves via the headless runner as before."""
     try:
         from . import goals
-        gid = int(msg["goal_id"])
-        ok = await hass.async_add_executor_job(goals.cancel, gid)
-        jarvis_log("LEARN", f"Goal #{gid} cancelled from panel (ok={ok})")
+        action = msg["action"]
+        if action == "create":
+            outcome = str(msg.get("outcome", "") or "").strip()
+            if not outcome:
+                connection.send_error(msg["id"], "empty_outcome",
+                                      "a goal needs an outcome to work toward")
+                return
+            title = str(msg.get("title", "") or "").strip()
+            kwargs = {}
+            if msg.get("interval_min") is not None:
+                kwargs["check_interval_min"] = float(msg["interval_min"])
+            res = await hass.async_add_executor_job(
+                lambda: goals.create(title, outcome, **kwargs))
+            if res.get("error"):
+                connection.send_error(msg["id"], "create_failed", res["error"])
+                return
+            jarvis_log("LEARN", f"Goal created from panel: {title or outcome[:50]}")
+            connection.send_result(msg["id"], {"ok": True, "goal": res,
+                                               "goals": _get_goals()})
+            return
+
+        # cancel / delete both need a goal_id
+        gid = msg.get("goal_id")
+        if gid is None:
+            connection.send_error(msg["id"], "missing_goal_id",
+                                  f"{action} needs a goal_id")
+            return
+        gid = int(gid)
+        if action == "delete":
+            ok = await hass.async_add_executor_job(goals.delete, gid)
+            jarvis_log("LEARN", f"Goal #{gid} deleted from panel (ok={ok})")
+        else:  # cancel
+            ok = await hass.async_add_executor_job(goals.cancel, gid)
+            jarvis_log("LEARN", f"Goal #{gid} cancelled from panel (ok={ok})")
         connection.send_result(msg["id"], {"ok": bool(ok), "goals": _get_goals()})
     except Exception as exc:
         _LOGGER.exception("ws_goal_action failed: %s", exc)
