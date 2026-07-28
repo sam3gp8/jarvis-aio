@@ -71,6 +71,15 @@ const hass = {
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
+    if (m.type === "jarvis/diagnostics") return {
+      overall: "warn", summary: "3/4 core services healthy",
+      services: [
+        { name: "LLM", key: "llm", status: "ok", detail: "reachable — 5 model(s) available" },
+        { name: "Embeddings", key: "embeddings", status: "off", detail: "semantic search disabled" },
+        { name: "TTS", key: "tts", status: "ok", detail: "tts.piper available" },
+        { name: "STT", key: "stt", status: "warn", detail: "configured not found; 1 other present" },
+      ],
+    };
     if (m.type === "jarvis/semantic_search") {
       if (m.action === "status") return { enabled: _semanticEnabled, ollama_configured: true, base: "http://gpu.local:11434", model: "nomic-embed-text", vector_count: _semanticEnabled ? 42 : 0 };
       if (m.action === "enable") { _semanticEnabled = true; return { ok: true, enabled: true, model: "nomic-embed-text", base: "http://gpu.local:11434", dim: 768 }; }
@@ -506,6 +515,18 @@ setTimeout(async () => {
     ["after enable the banner reflects SEMANTIC (Ollama)", /SEMANTIC/.test(vbState2)],
     ["disable toggle offered once semantic active",
       vbBtn2 && /DISABLE/.test(vbBtn2.textContent)],
+  );
+
+  // ── System Diagnostics panel (v6.60.0) ──
+  await el._fetchDiagnostics();
+  const diagBody = el.shadowRoot.getElementById("diag-body")?.textContent || "";
+  const diagOverall = el.shadowRoot.getElementById("diag-overall")?.textContent || "";
+  checks.push(
+    ["diagnostics lists all four core services",
+      /LLM/.test(diagBody) && /Embeddings/.test(diagBody) && /TTS/.test(diagBody) && /STT/.test(diagBody)],
+    ["diagnostics shows per-service detail", /reachable/.test(diagBody)],
+    ["diagnostics overall summary rendered", /HEALTHY|WARN|DOWN/i.test(diagOverall)],
+    ["diagnostics run-check button present", !!el.shadowRoot.getElementById("diag-refresh")],
   );
 
   let ok = true;

@@ -712,6 +712,22 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "system_diagnostics",
+            "description": (
+                "Check the health of the core services JARVIS depends on — the "
+                "LLM backend, the embedding endpoint (if semantic search is on), "
+                "the TTS engine, and the STT/Whisper engine. Use when asked 'is "
+                "everything working', 'are you fully online', 'is the voice "
+                "pipeline up', or to diagnose why a capability (speech, "
+                "semantic search) isn't functioning. Reports per-service status "
+                "with a specific reason for anything down."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "look_at_camera",
             "description": (
                 "Look at a camera right now and answer a specific visual "
@@ -1639,6 +1655,16 @@ async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_system_diagnostics(hass: HomeAssistant, args: dict) -> str:
+    """Report core dependency health (LLM, embeddings, TTS, STT) (v6.60.0)."""
+    try:
+        from . import diagnostics
+        res = await diagnostics.run_service_health(hass)
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
     """Vision query: snapshot a camera and answer a question about it (v6.58.0).
     Powers on-demand visual checks and standing vision monitors. Reuses the
@@ -1761,6 +1787,7 @@ _TOOL_MAP = {
     "web_research":        _exec_web_research,
     "calendar_agenda":     _exec_calendar_agenda,
     "look_at_camera":      _exec_look_at_camera,
+    "system_diagnostics":  _exec_system_diagnostics,
     "search_documents":    _exec_search_documents,
     "ingest_documents":    _exec_ingest_documents,
 }

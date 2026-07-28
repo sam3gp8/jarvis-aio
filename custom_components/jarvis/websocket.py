@@ -71,6 +71,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_mmwave_overview)
         websocket_api.async_register_command(hass, ws_documents)
         websocket_api.async_register_command(hass, ws_semantic_search)
+        websocket_api.async_register_command(hass, ws_diagnostics)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -1876,6 +1877,27 @@ async def ws_rename_camera(
     except Exception as exc:
         _LOGGER.exception("rename_camera failed: %s", exc)
         connection.send_error(msg["id"], "rename_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/diagnostics",
+})
+@websocket_api.async_response
+async def ws_diagnostics(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Core dependency health for the panel (v6.60.0): LLM, embeddings, TTS,
+    STT. Returns per-service status so the user can see at a glance what's up
+    and get a specific reason for anything down."""
+    try:
+        from . import diagnostics
+        res = await diagnostics.run_service_health(hass)
+        connection.send_result(msg["id"], res)
+    except Exception as exc:
+        _LOGGER.exception("ws_diagnostics failed: %s", exc)
+        connection.send_error(msg["id"], "diagnostics_failed", str(exc))
 
 
 @websocket_api.websocket_command({

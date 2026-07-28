@@ -4,6 +4,28 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.60.0] — system diagnostics: is everything JARVIS needs up?
+A one-glance health check for the core services JARVIS actually calls — the
+LLM backend, the embedding endpoint (when semantic search is on), the TTS
+engine, and the STT/Whisper engine — surfaced both as a Settings panel with
+per-service status lights and a re-check button, and as a `system_diagnostics`
+agent tool ("JARVIS, is everything working?"). Anything down comes back with
+a specific reason: "no LLM base URL configured," "stt.whisper is unavailable,"
+"Ollama did not return an embedding — pull the embed model," rather than a
+vague failure.
+
+Signals are matched to each service: the LLM reuses the connectivity circuit
+breaker plus a live /api/tags ping for Ollama hosts; embeddings reuse the
+existing Ollama probe; TTS and STT are Home Assistant entities, so the check
+confirms the configured engine exists and isn't unavailable. Services that
+aren't configured report "off" (not a failure) and are excluded from the
+healthy-count. Every check is defensive — the whole run never raises.
+
+This lives inside the existing diagnostics package (alongside the
+infrastructure-triage and fault-log subsystems) as a new service_health
+module — deliberately narrow to the four services JARVIS depends on, not the
+whole home. 12 new tests; 4 new panel smoke checks; tool surface now 30.
+
 ## [6.59.0] — Frigate-native face identity (Double Take optional)
 JARVIS can now read a recognized name straight from Frigate. When Frigate's
 own face recognition (or a plus model) attaches a `sub_label` to a person
