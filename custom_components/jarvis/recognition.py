@@ -33,6 +33,12 @@ _LOGGER = logging.getLogger(__name__)
 
 MATCHES_TOPIC = "double-take/matches"
 CAMERAS_TOPIC = "double-take/cameras"
+# Modern Frigate (0.14+/HA integration 5.9.2+) publishes recognized faces here
+# as {"type": "face", "name": "Sam", "score": 0.93, "camera": "...", ...} and
+# exposes a sensor.<camera>_last_recognized_face per camera. This is the
+# reliable channel for Frigate-native face recognition — the older sub_label on
+# frigate/events isn't always populated. (v6.66.0)
+TRACKED_OBJECT_TOPIC = "frigate/tracked_object_update"
 
 # Cache of recent recognitions keyed by camera entity
 # {camera_entity: {"name": "Sam", "confidence": 98.7, "ts": datetime, "unknown_count": int}}
@@ -41,6 +47,98 @@ _RECOGNITION_CACHE: dict[str, dict] = {}
 _RECENT_EVENTS: dict[str, dict] = {}
 CACHE_MAX_AGE = timedelta(hours=2)
 CONFIDENCE_THRESHOLD = 60  # anything below this is considered uncertain
+
+
+def _normalize_score(raw) -> float:
+    """Frigate scores are 0..1; return a 0..100 percent. Never raises."""
+    try:
+        if raw is None:
+            return 0.0
+        v = float(raw)
+        return round(v * 100.0 if v <= 1.0 else v, 1)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+# Values a last_recognized_face sensor uses to mean "no known person right now"
+_FACE_SENSOR_EMPTY = ("none", "unknown", "unavailable", "unknown_face", "")
+
+
+def read_frigate_face_sensors(hass) -> list[dict]:
+    """Read every `sensor.*_last_recognized_face` entity Frigate exposes and
+    return the ones currently naming a known person:
+    [{camera, camera_entity, name, entity, confidence}]. This is the on-demand
+    query path — it answers "who do you see / can you recognize me" from the
+    sensor states, complementing the real-time MQTT path. Never raises.
+
+    Note: the sensor holds the LAST recognized face and doesn't reset to none
+    the instant a person leaves, so callers should treat this as "most recently
+    seen", not "in frame right now". Confidence may live in an attribute
+    (score/confidence) when the integration provides it."""
+    out = []
+    try:
+        states = hass.states.async_all("sensor")
+    except Exception:
+        return out
+    for st in states:
+        try:
+            eid = st.entity_id
+            if not eid.endswith("_last_recognized_face"):
+                continue
+            val = str(st.state or "").strip()
+            if val.lower() in _FACE_SENSOR_EMPTY:
+                continue
+            # derive the camera slug from sensor.<camera>_last_recognized_face
+            slug = eid[len("sensor."):-len("_last_recognized_face")]
+            attrs = st.attributes or {}
+            conf = _normalize_score(
+                attrs.get("score", attrs.get("confidence", attrs.get("sub_label_score"))))
+            out.append({
+                "camera": slug,
+                "camera_entity": f"camera.{slug}",
+                "name": val,
+                "entity": eid,
+                "confidence": conf,
+            })
+        except Exception:
+            continue
+    return out
+
+
+def who_do_you_see(hass) -> dict:
+    """Answer 'can you recognize me / who do you see' from all available identity
+    sources — the recent-recognition cache (populated by MQTT) and the Frigate
+    face sensors. Returns {seen: [names], detail: [...], any: bool}. Never
+    raises. This is what the agent's identity query should consult so JARVIS can
+    say yes when Frigate is naming a face."""
+    detail = []
+    seen = []
+
+    # 1. Frigate last_recognized_face sensors (on-demand, most reliable here)
+    for f in read_frigate_face_sensors(hass):
+        if f["name"] and f["name"].lower() not in _FACE_SENSOR_EMPTY:
+            detail.append({**f, "source": "frigate_sensor"})
+            if f["name"] not in seen:
+                seen.append(f["name"])
+
+    # 2. Recent-recognition cache (MQTT-driven, any source), still fresh
+    now = datetime.utcnow()
+    for cam, rec in _RECOGNITION_CACHE.items():
+        name = rec.get("name", "")
+        ts = rec.get("ts")
+        if not name or name.lower() in _FACE_SENSOR_EMPTY:
+            continue
+        if ts and (now - ts) > CACHE_MAX_AGE:
+            continue
+        if name not in seen:
+            seen.append(name)
+            detail.append({
+                "camera_entity": cam, "name": name,
+                "confidence": rec.get("confidence", 0.0),
+                "source": "recent_cache",
+            })
+
+    return {"seen": seen, "detail": detail, "any": bool(seen)}
 
 
 def _parse_sub_label(sub) -> tuple[str, float]:
@@ -112,13 +210,15 @@ def who_is_where(hass: HomeAssistant) -> dict[str, str]:
 
 
 def recognition_context_string(hass: HomeAssistant) -> str:
-    """One-line summary for the conversation agent's system prompt."""
-    current = who_is_where(hass)
-    if not current:
-        return ""
-
+    """One-line summary for the conversation agent's system prompt, merging the
+    MQTT-driven recognition cache with Frigate's last_recognized_face sensors —
+    so JARVIS can answer "can you see me" from whichever source has data."""
     bits = []
-    for entity_id, name in current.items():
+    seen_names = set()
+
+    # MQTT/DoubleTake cache
+    current = who_is_where(hass)
+    for entity_id, name in (current or {}).items():
         rec = _RECOGNITION_CACHE[entity_id]
         age = int((datetime.utcnow() - rec["ts"]).total_seconds())
         if age < 60:
@@ -129,6 +229,23 @@ def recognition_context_string(hass: HomeAssistant) -> str:
             when = f"{age // 3600}h ago"
         friendly_cam = entity_id.replace("camera.", "").replace("_", " ")
         bits.append(f"{name} seen at {friendly_cam} ({when})")
+        seen_names.add(name.lower())
+
+    # Frigate last_recognized_face sensors (may have data before an MQTT event)
+    try:
+        for f in read_frigate_face_sensors(hass):
+            nm = f.get("name", "")
+            if nm and nm.lower() not in seen_names:
+                friendly_cam = f["camera"].replace("_", " ")
+                conf = f.get("confidence", 0)
+                tail = f" ~{conf:.0f}%" if conf else ""
+                bits.append(f"{nm} recognized at {friendly_cam}{tail}")
+                seen_names.add(nm.lower())
+    except Exception:
+        pass
+
+    if not bits:
+        return ""
     return "Recent faces: " + "; ".join(bits) + "."
 
 
@@ -281,5 +398,51 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
         _LOGGER.info("JARVIS: subscribed to %s for Frigate person detection", FRIGATE_EVENTS_TOPIC)
     except Exception as exc:
         _LOGGER.debug("JARVIS: Frigate MQTT subscription skipped: %s", exc)
+
+    # ── Frigate-native face recognition via tracked_object_update (v6.66.0) ──
+    # Modern Frigate publishes {"type":"face","name":"Sam","score":0.93,...} to
+    # frigate/tracked_object_update. This is the RELIABLE identity channel — the
+    # sub_label on frigate/events isn't always populated, which is why JARVIS
+    # couldn't previously "see" a known person. Gated by recognition_source.
+    if _use_frigate_id:
+        try:
+            async def _tracked_update_handler(msg):
+                try:
+                    payload = json.loads(msg.payload)
+                    if payload.get("type") != "face":
+                        return
+                    name = str(payload.get("name") or "").strip()
+                    if not name or name.lower() in ("none", "null"):
+                        return
+                    camera = str(payload.get("camera") or "").strip()
+                    conf = _normalize_score(payload.get("score"))
+                    is_unknown = name.lower() in ("unknown", "unknown person")
+                    if camera:
+                        remember_recognition(camera, name, conf)
+                    hass.bus.async_fire("jarvis_face_recognized", {
+                        "camera": camera,
+                        "camera_entity": f"camera.{camera}" if camera else "",
+                        "name": name,
+                        "confidence": conf,
+                        "is_unknown": is_unknown,
+                        "is_confident": conf >= CONFIDENCE_THRESHOLD,
+                        "source": "frigate_tracked_object",
+                    })
+                    if not is_unknown:
+                        _LOGGER.info(
+                            "JARVIS: Frigate recognized %s @ %s (%.1f%%) via tracked_object_update",
+                            name, camera or "?", conf,
+                        )
+                except Exception as exc:
+                    _LOGGER.debug("Frigate tracked_object_update parse error: %s", exc)
+
+            unsub_tou = await mqtt.async_subscribe(
+                hass, TRACKED_OBJECT_TOPIC, _tracked_update_handler
+            )
+            unsubs.append(unsub_tou)
+            _LOGGER.info("JARVIS: subscribed to %s for Frigate face recognition",
+                         TRACKED_OBJECT_TOPIC)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS: Frigate tracked_object_update subscription skipped: %s", exc)
 
     return unsubs

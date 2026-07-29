@@ -4,6 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.66.0] — JARVIS can actually see you now (Frigate face recognition, fixed)
+Ask JARVIS "can you recognize me?" and it can finally say yes. The problem: the
+Frigate-native identity added in 6.59.0 read a recognized name off the
+`sub_label` on the `frigate/events` topic — but modern Frigate (0.14+, HA
+integration 5.9.2+) doesn't reliably put it there. It publishes recognized
+faces to a dedicated MQTT topic, `frigate/tracked_object_update`, as
+`{"type":"face","name":"Sam","score":0.93,...}`, and exposes a
+`sensor.<camera>_last_recognized_face` per camera. JARVIS was listening in the
+wrong place, so its recognition cache stayed empty and it truthfully reported
+that it couldn't see anyone.
+
+This wires up both correct channels. JARVIS now subscribes to
+`frigate/tracked_object_update` and handles `type: "face"` payloads in
+real time, AND reads the `last_recognized_face` sensors directly — so the
+conversation context ("Recent faces: Sam recognized at dining room ~91%") is
+populated from whichever source has data, and a new `who_do_you_see` agent
+tool answers "who do you see / can you recognize me" on demand by checking the
+sensors live. Person detection and the older sub_label path still work; this
+adds the channels modern Frigate actually uses. Honors the recognition_source
+setting (Frigate side). 12 new tests; tool surface now 33.
+
 ## [6.65.0] — fix settings that reset after saving; pick your recognition source
 **Bug fix:** several Settings controls saved your choice but snapped back to
 the default on the next render — most visibly the JARVIS Character banter level

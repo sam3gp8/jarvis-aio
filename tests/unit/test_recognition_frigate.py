@@ -88,3 +88,103 @@ def test_recognition_source_default_is_both(rec):
         assert src in ("both", "frigate")      # frigate would be active
     finally:
         sys.modules.pop("jc.jarvis_config", None)
+
+
+# ── score normalizer ─────────────────────────────────────────────────────────
+
+def test_normalize_score_fractional(rec):
+    assert rec._normalize_score(0.93) == 93.0
+
+
+def test_normalize_score_already_percent(rec):
+    assert rec._normalize_score(88.0) == 88.0
+
+
+def test_normalize_score_none(rec):
+    assert rec._normalize_score(None) == 0.0
+
+
+# ── Frigate last_recognized_face sensor reader (v6.66.0) ─────────────────────
+
+class _St:
+    def __init__(self, entity_id, state, **attrs):
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = attrs
+
+
+class _Hass:
+    def __init__(self, sensors):
+        self._sensors = sensors
+    @property
+    def states(self):
+        outer = self
+        class _S:
+            def async_all(self, domain):
+                return outer._sensors if domain == "sensor" else []
+        return _S()
+
+
+def test_read_face_sensors_names_known_person(rec):
+    hass = _Hass([
+        _St("sensor.dining_room_last_recognized_face", "Sam", score=0.91),
+        _St("sensor.backyard_last_recognized_face", "None"),
+        _St("sensor.some_other_sensor", "42"),
+    ])
+    found = rec.read_frigate_face_sensors(hass)
+    assert len(found) == 1
+    assert found[0]["name"] == "Sam"
+    assert found[0]["camera"] == "dining_room"
+    assert found[0]["camera_entity"] == "camera.dining_room"
+    assert found[0]["confidence"] == 91.0
+
+
+def test_read_face_sensors_skips_empty_states(rec):
+    # none / unknown / unavailable all mean "no known face right now"
+    hass = _Hass([
+        _St("sensor.a_last_recognized_face", "none"),
+        _St("sensor.b_last_recognized_face", "unknown"),
+        _St("sensor.c_last_recognized_face", "unavailable"),
+    ])
+    assert rec.read_frigate_face_sensors(hass) == []
+
+
+def test_read_face_sensors_never_raises_on_bad_state(rec):
+    hass = _Hass([_St("sensor.x_last_recognized_face", None)])
+    assert rec.read_frigate_face_sensors(hass) == []    # no crash
+
+
+# ── who_do_you_see aggregates sensor + cache ─────────────────────────────────
+
+def test_who_do_you_see_from_sensor(rec):
+    rec._RECOGNITION_CACHE.clear()
+    hass = _Hass([_St("sensor.front_last_recognized_face", "Sam", score=0.95)])
+    res = rec.who_do_you_see(hass)
+    assert res["any"] is True
+    assert "Sam" in res["seen"]
+    assert res["detail"][0]["source"] == "frigate_sensor"
+
+
+def test_who_do_you_see_empty_when_nothing_recognized(rec):
+    rec._RECOGNITION_CACHE.clear()
+    hass = _Hass([_St("sensor.front_last_recognized_face", "None")])
+    res = rec.who_do_you_see(hass)
+    assert res["any"] is False
+    assert res["seen"] == []
+
+
+def test_context_string_includes_frigate_sensor(rec):
+    rec._RECOGNITION_CACHE.clear()
+    hass = _Hass([_St("sensor.dining_room_last_recognized_face", "Sam", score=0.9)])
+    s = rec.recognition_context_string(hass)
+    assert "Sam" in s
+    assert "dining room" in s
+
+
+# ── agent tool registration ──────────────────────────────────────────────────
+
+def test_who_do_you_see_tool_registered(load):
+    agent = load("agent")
+    names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
+    assert "who_do_you_see" in names
+    assert "who_do_you_see" in agent._TOOL_MAP

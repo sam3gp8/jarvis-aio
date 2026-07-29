@@ -795,6 +795,21 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "who_do_you_see",
+            "description": (
+                "Check who JARVIS currently recognizes by face, from Frigate's "
+                "face recognition (its last_recognized_face sensors) and recent "
+                "recognition events. Use when asked 'can you see me', 'do you "
+                "recognize me', 'who's at the <camera>', or 'who do you see'. "
+                "Returns the recognized name(s) and which camera. Empty means no "
+                "known face is currently recognized."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "look_at_camera",
             "description": (
                 "Look at a camera right now and answer a specific visual "
@@ -1777,6 +1792,16 @@ async def _exec_system_diagnostics(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_who_do_you_see(hass: HomeAssistant, args: dict) -> str:
+    """Report who JARVIS currently recognizes by face (v6.66.0)."""
+    try:
+        from . import recognition
+        res = await hass.async_add_executor_job(recognition.who_do_you_see, hass)
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc), "seen": [], "any": False})
+
+
 async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
     """Vision query: snapshot a camera and answer a question about it (v6.58.0).
     Powers on-demand visual checks and standing vision monitors. Reuses the
@@ -1899,6 +1924,7 @@ _TOOL_MAP = {
     "web_research":        _exec_web_research,
     "calendar_agenda":     _exec_calendar_agenda,
     "look_at_camera":      _exec_look_at_camera,
+    "who_do_you_see":      _exec_who_do_you_see,
     "system_diagnostics":  _exec_system_diagnostics,
     "set_mode":            _exec_set_mode,
     "energy_status":       _exec_energy_status,
