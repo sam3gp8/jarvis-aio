@@ -60,3 +60,50 @@ def test_residence_keys_specifically_writable():
                 "has_basement", "dormers_front", "dormers_rear",
                 "garage_bays", "chimney_side"):
         assert key in allow, f"{key} missing from PANEL_WRITABLE_KEYS"
+
+
+def _panel_data_config_keys() -> set[str]:
+    """Keys surfaced in ws_get_panel_data's `config` dict, read from the
+    "key": _runtime_opt(...) / "key": _get_... lines via regex. This is what the
+    panel reads back as d.config.KEY."""
+    js = _WEBSOCKET.read_text()
+    # crude but effective: any '"key":' inside the config block
+    m = re.search(r'"config":\s*\{(.*?)\n            \},', js, re.DOTALL)
+    if not m:
+        return set()
+    return set(re.findall(r'"([a-z0-9_]+)":', m.group(1)))
+
+
+def _panel_read_cfg_keys() -> set[str]:
+    """cfg-field keys the panel reads back via d.config?.KEY — a select/input
+    that saves AND is expected to reflect its saved value on re-render."""
+    js = _PANEL_JS.read_text()
+    return set(re.findall(r"d\.config\?\.([a-z0-9_]+)", js))
+
+
+def test_character_and_research_keys_surfaced_in_panel_data():
+    """Regression: banter_level, search_backend, searxng_url,
+    calendar_tight_gap_min, and recognition_source were SAVED but not returned
+    by get_panel_data, so their selects snapped back to defaults on re-render.
+    Pin them so this can't regress."""
+    surfaced = _panel_data_config_keys()
+    for key in ("banter_level", "search_backend", "searxng_url",
+                "calendar_tight_gap_min", "recognition_source"):
+        assert key in surfaced, (
+            f"{key} is missing from ws_get_panel_data's config block — the panel "
+            f"select will reset to its default on every re-render")
+
+
+def test_read_back_cfg_fields_are_surfaced():
+    """Every cfg-field the panel reads via d.config?.KEY must be surfaced in the
+    panel-data config block, or its control silently resets after saving. Guards
+    the whole bug class, not just the known keys."""
+    read = _panel_read_cfg_keys()
+    surfaced = _panel_data_config_keys()
+    # only enforce for keys that are ALSO saved as cfg-fields (round-trip fields)
+    saved = _panel_saved_keys()
+    round_trip = read & saved
+    missing = sorted(k for k in round_trip if k not in surfaced)
+    assert not missing, (
+        "these config keys are saved + read-back by the panel but not surfaced "
+        f"in get_panel_data, so they reset on re-render: {missing}")

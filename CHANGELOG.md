@@ -4,6 +4,26 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.65.0] — fix settings that reset after saving; pick your recognition source
+**Bug fix:** several Settings controls saved your choice but snapped back to
+the default on the next render — most visibly the JARVIS Character banter level
+(pick "Full — MCU JARVIS," watch it revert to "Dry"). The save was working
+fine; the problem was that `get_panel_data` never sent these values back to the
+panel, so every re-render re-read the default. Fixed for the whole affected
+set: banter level, web-research backend, SearXNG URL, calendar tight-gap, and —
+found by the same regression test — the Residence model detail controls
+(stories, basement, dormers, garage bays, chimney, bedrooms, bathrooms), which
+had the identical latent bug (masked because the 3D house rebuild used the
+local value until a full refetch). Two new static guards now fail CI if any
+saved-and-read-back config key is missing from the panel-data payload, so this
+bug class can't return.
+
+**New:** a **face recognition source** selector in Settings → Cameras — choose
+Both (Double Take + Frigate), Frigate only (sub_label), or Double Take only.
+Previously both were always active when configured, which double-fired
+recognition events; now you pick. Person *detection* (which triggers camera
+analysis) runs regardless of the choice — only identity firing honors it.
+
 ## [6.64.0] — write in and delete goals from the panel
 The Goals panel is now fully manageable by hand. Previously you could only
 cancel an active goal (and only JARVIS or a voice command could create one).

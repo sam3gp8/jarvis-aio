@@ -182,12 +182,28 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
         )
         _LOGGER.info("JARVIS: face recognized — %s @ %s (%.1f%%)", name, camera, confidence)
 
+    # Recognition source selection (v6.64.1): 'both' (default), 'doubletake',
+    # or 'frigate'. Running both when both are configured causes duplicate
+    # recognition events, so let the user pick. This gates only which IDENTITY
+    # source fires jarvis_face_recognized — Frigate person *detection* (which
+    # triggers camera analysis) runs regardless.
     try:
-        unsub = await mqtt.async_subscribe(hass, MATCHES_TOPIC, _matches_handler)
-        unsubs.append(unsub)
-        _LOGGER.info("JARVIS: subscribed to %s for face recognition", MATCHES_TOPIC)
-    except Exception as exc:
-        _LOGGER.warning("JARVIS: could not subscribe to DoubleTake matches: %s", exc)
+        from . import jarvis_config
+        _rec_source = str(jarvis_config.get("recognition_source", "both") or "both").lower()
+    except Exception:
+        _rec_source = "both"
+    _use_doubletake = _rec_source in ("both", "doubletake")
+    _use_frigate_id = _rec_source in ("both", "frigate")
+
+    if _use_doubletake:
+        try:
+            unsub = await mqtt.async_subscribe(hass, MATCHES_TOPIC, _matches_handler)
+            unsubs.append(unsub)
+            _LOGGER.info("JARVIS: subscribed to %s for face recognition", MATCHES_TOPIC)
+        except Exception as exc:
+            _LOGGER.warning("JARVIS: could not subscribe to DoubleTake matches: %s", exc)
+    else:
+        _LOGGER.info("JARVIS: DoubleTake identity disabled (recognition_source=%s)", _rec_source)
 
     # Frigate person detection via MQTT
     FRIGATE_EVENTS_TOPIC = "frigate/events"
@@ -234,23 +250,26 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                 # If Frigate's own face recognition (or a +/- plus model)
                 # attached a sub_label, use it directly — no Double Take needed.
                 # sub_label is either "Name" or ["Name", score] across versions.
-                sub = after.get("sub_label")
-                sub_name, sub_conf = _parse_sub_label(sub)
-                if sub_name:
-                    remember_recognition(camera, sub_name, sub_conf)
-                    hass.bus.async_fire("jarvis_face_recognized", {
-                        "camera": camera,
-                        "camera_entity": camera_entity,
-                        "name": sub_name,
-                        "confidence": sub_conf,
-                        "is_unknown": sub_name.lower() in ("unknown", "unknown person"),
-                        "is_confident": sub_conf >= CONFIDENCE_THRESHOLD,
-                        "source": "frigate",
-                    })
-                    _LOGGER.info(
-                        "JARVIS: Frigate identified %s @ %s (%.1f%%) via sub_label",
-                        sub_name, camera, sub_conf,
-                    )
+                # Gated by recognition_source (v6.64.1): person detection above
+                # always runs, but identity firing honors the chosen source.
+                if _use_frigate_id:
+                    sub = after.get("sub_label")
+                    sub_name, sub_conf = _parse_sub_label(sub)
+                    if sub_name:
+                        remember_recognition(camera, sub_name, sub_conf)
+                        hass.bus.async_fire("jarvis_face_recognized", {
+                            "camera": camera,
+                            "camera_entity": camera_entity,
+                            "name": sub_name,
+                            "confidence": sub_conf,
+                            "is_unknown": sub_name.lower() in ("unknown", "unknown person"),
+                            "is_confident": sub_conf >= CONFIDENCE_THRESHOLD,
+                            "source": "frigate",
+                        })
+                        _LOGGER.info(
+                            "JARVIS: Frigate identified %s @ %s (%.1f%%) via sub_label",
+                            sub_name, camera, sub_conf,
+                        )
 
             except Exception as exc:
                 _LOGGER.debug("Frigate event parse error: %s", exc)

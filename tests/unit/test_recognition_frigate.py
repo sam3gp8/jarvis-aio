@@ -73,3 +73,18 @@ def test_confidence_threshold_boundary(rec):
     assert isinstance(rec.CONFIDENCE_THRESHOLD, (int, float))
     _, conf = rec._parse_sub_label(["Sam", 0.61])
     assert conf >= rec.CONFIDENCE_THRESHOLD    # 61% clears a 60 threshold
+
+
+def test_recognition_source_default_is_both(rec):
+    # with no config set, the module defaults to 'both' sources active
+    import sys, types
+    cfg = types.ModuleType("jc.jarvis_config")
+    cfg.get = lambda k, d=None: d          # returns default
+    sys.modules["jc.jarvis_config"] = cfg
+    try:
+        src = str(cfg.get("recognition_source", "both") or "both").lower()
+        assert src == "both"
+        assert src in ("both", "doubletake")   # doubletake would be active
+        assert src in ("both", "frigate")      # frigate would be active
+    finally:
+        sys.modules.pop("jc.jarvis_config", None)

@@ -673,6 +673,26 @@ async def ws_get_panel_data(
                 "vision_model":        str(_runtime_opt(hass, entry, "vision_model", "") or ""),
                 "camera_reasoning_provider": str(_runtime_opt(hass, entry, "camera_reasoning_provider", "groq") or "groq"),
                 "camera_reasoning_model":    str(_runtime_opt(hass, entry, "camera_reasoning_model", "") or ""),
+                # JARVIS Character & Research — these must be surfaced here or
+                # the panel's selects snap back to their defaults on every
+                # re-render even though the value was saved (v6.64.1 fix).
+                "banter_level":         _runtime_opt(hass, entry, "banter_level", 1),
+                "search_backend":       str(_runtime_opt(hass, entry, "search_backend", "duckduckgo") or "duckduckgo"),
+                "searxng_url":          str(_runtime_opt(hass, entry, "searxng_url", "") or ""),
+                "calendar_tight_gap_min": _runtime_opt(hass, entry, "calendar_tight_gap_min", 15),
+                "recognition_source":   str(_runtime_opt(hass, entry, "recognition_source", "both") or "both"),
+                # Residence model detail controls — same read-back requirement:
+                # these save fine but reset on re-render unless surfaced here.
+                "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
+                "floor_plan_sqft":      _runtime_opt(hass, entry, "floor_plan_sqft", ""),
+                "home_stories":         _runtime_opt(hass, entry, "home_stories", "1.5"),
+                "has_basement":         _runtime_opt(hass, entry, "has_basement", True),
+                "dormers_front":        _runtime_opt(hass, entry, "dormers_front", 2),
+                "dormers_rear":         _runtime_opt(hass, entry, "dormers_rear", 1),
+                "garage_bays":          _runtime_opt(hass, entry, "garage_bays", 3),
+                "chimney_side":         str(_runtime_opt(hass, entry, "chimney_side", "right") or "right"),
+                "home_bedrooms":        _runtime_opt(hass, entry, "home_bedrooms", ""),
+                "home_bathrooms":       _runtime_opt(hass, entry, "home_bathrooms", ""),
             },
         }
         connection.send_result(msg["id"], result)
@@ -1138,6 +1158,7 @@ PANEL_WRITABLE_KEYS = {
     "energy_mode_bump",          # list: modes that raise energy agency one step
     "biometrics_enabled",        # bool: read wearable context (opt-in) (v6.63.0)
     "biometric_entities",        # dict: explicit kind→entity_id overrides
+    "recognition_source",        # str: both | doubletake | frigate (v6.64.1)
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
