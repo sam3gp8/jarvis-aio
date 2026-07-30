@@ -4,6 +4,17 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.69.1] — encode the reasoning discipline in the agent prompt
+The agent's system prompt gains a compact "How you reason" section ahead of the
+tool-routing rules, encoding the investigate→verify→act discipline as explicit
+methodology: read actual state before concluding (the house is the source of
+truth, not expectations of it); separate observation from inference; run a
+cheap verification before consequential actions; confirm results after acting
+rather than assuming success; fail safe on thin evidence for anything
+irreversible; and say "I don't know" plainly rather than inventing. Four new
+static guard tests pin the section and its tenets so a future prompt rework
+can't silently drop them.
+
 ## [6.69.0] — snapshots in notifications, and escalate if no one answers
 Two safety additions building on the 6.68.0 intrusion work.
 
