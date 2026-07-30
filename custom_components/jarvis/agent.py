@@ -931,6 +931,24 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
             await hass.services.async_call("media_player", "volume_set", svc_data, blocking=True)
         elif action in action_map:
             svc_domain, svc_name = action_map[action]
+            # Voice-confirm sensitive actions (lock/unlock, garage, disarm) when
+            # enabled (v6.67.0). Fail-safe: if confirmation isn't affirmative,
+            # the action does NOT run. Native path can capture yes/no directly;
+            # gated path voices the prompt and defers to the follow-up turn.
+            try:
+                from . import voice_confirm
+                if voice_confirm.action_is_protected(hass, svc_domain, svc_name, entity_id):
+                    q = f"{action.replace('_', ' ')} {entity_id.split('.')[-1].replace('_', ' ')} — are you sure?"
+                    confirmed = await voice_confirm.confirm(hass, q, entity_id=entity_id)
+                    if not confirmed:
+                        return json.dumps({
+                            "status": "awaiting_confirmation",
+                            "entity_id": entity_id,
+                            "message": f"Asked for spoken confirmation before {action} "
+                                       f"on {entity_id}; not yet confirmed.",
+                        })
+            except Exception as _vc_exc:
+                _LOGGER.debug("voice_confirm gate skipped: %s", _vc_exc)
             await hass.services.async_call(svc_domain, svc_name, svc_data, blocking=True)
         else:
             return json.dumps({"error": f"Unknown action: {action}"})

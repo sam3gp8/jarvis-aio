@@ -72,6 +72,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_documents)
         websocket_api.async_register_command(hass, ws_semantic_search)
         websocket_api.async_register_command(hass, ws_diagnostics)
+        websocket_api.async_register_command(hass, ws_voice_confirm_test)
         websocket_api.async_register_command(hass, ws_mode)
         websocket_api.async_register_command(hass, ws_energy)
         websocket_api.async_register_command(hass, ws_biometrics)
@@ -681,6 +682,8 @@ async def ws_get_panel_data(
                 "searxng_url":          str(_runtime_opt(hass, entry, "searxng_url", "") or ""),
                 "calendar_tight_gap_min": _runtime_opt(hass, entry, "calendar_tight_gap_min", 15),
                 "recognition_source":   str(_runtime_opt(hass, entry, "recognition_source", "both") or "both"),
+                "voice_confirm_enabled": bool(_runtime_opt(hass, entry, "voice_confirm_enabled", False)),
+                "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
                 # Residence model detail controls — same read-back requirement:
                 # these save fine but reset on re-render unless surfaced here.
                 "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
@@ -1159,6 +1162,11 @@ PANEL_WRITABLE_KEYS = {
     "biometrics_enabled",        # bool: read wearable context (opt-in) (v6.63.0)
     "biometric_entities",        # dict: explicit kind→entity_id overrides
     "recognition_source",        # str: both | doubletake | frigate (v6.64.1)
+    "voice_confirm_enabled",      # bool: voice-confirm sensitive actions (v6.67.0)
+    "voice_confirm_mode",         # str: native | gated | auto
+    "voice_confirm_entities",     # list: extra entities to confirm / !exempt
+    "satellite_audio_out",        # dict/bool: satellites whose audio routes out
+    "satellite_start_action",     # dict: satellite → esphome start action
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
@@ -2009,6 +2017,27 @@ async def ws_mode(
     except Exception as exc:
         _LOGGER.exception("ws_mode failed: %s", exc)
         connection.send_error(msg["id"], "mode_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/voice_confirm_test",
+})
+@websocket_api.async_response
+async def ws_voice_confirm_test(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Fire the assist_satellite.announce test (v6.67.0) — the 'does it come out
+    the Nest?' check that decides whether native voice-confirm works. The user
+    listens and picks native vs gated based on whether they heard it."""
+    try:
+        from . import voice_confirm
+        res = await voice_confirm.announce_test(hass)
+        connection.send_result(msg["id"], res)
+    except Exception as exc:
+        _LOGGER.exception("ws_voice_confirm_test failed: %s", exc)
+        connection.send_error(msg["id"], "test_failed", str(exc))
 
 
 @websocket_api.websocket_command({

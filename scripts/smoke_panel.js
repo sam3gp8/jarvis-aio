@@ -38,7 +38,7 @@ const PANEL = {
     { id: "kitchen", name: "Kitchen", caps: ["sat", "spkr"], active: false, bedroom: false, lights_on: 0, lights_total: 0,
       temp: "71°F", humidity: null, temp_entity: "sensor.kitchen_temp", humidity_entity: null, last_motion: "12m" },
   ],
-  config: { banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
+  config: { banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", voice_confirm_enabled: true, voice_confirm_mode: "gated", cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
   suggestions: [
     { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{\"alias\":\"...\"}" },
   ],
@@ -101,6 +101,7 @@ const hass = {
         { name: "party", description: "Guests over." },
       ]}; }
     }
+    if (m.type === "jarvis/voice_confirm_test") return { ok: true, satellite: "assist_satellite.basement_jarvis", note: "Announce fired." };
     if (m.type === "jarvis/diagnostics") return {
       overall: "warn", summary: "3/4 core services healthy",
       services: [
@@ -384,6 +385,10 @@ setTimeout(async () => {
       el.shadowRoot.querySelector('[data-cfg-key="search_backend"]')?.value === "searxng"],
     ["recognition source selector present and reflects saved value",
       el.shadowRoot.querySelector('[data-cfg-key="recognition_source"]')?.value === "frigate"],
+    ["voice-confirm toggle + mode reflect saved values",
+      el.shadowRoot.querySelector('[data-cfg-key="voice_confirm_enabled"]')?.classList.contains("on")
+      && el.shadowRoot.querySelector('[data-cfg-key="voice_confirm_mode"]')?.value === "gated"],
+    ["voice-confirm test button present", !!el.shadowRoot.getElementById("vc-test")],
     ["name input placeholder is the HA name",
       el.shadowRoot.querySelector('.camset-name[data-cam="camera.front"]')?.getAttribute("placeholder") === "Front Door"],
     ["location chips render with resolved AUTO label",

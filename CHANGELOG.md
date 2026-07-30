@@ -4,6 +4,38 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.67.0] — voice-confirm sensitive actions, and ask out loud
+JARVIS can now hold a spoken back-and-forth for the moments that need it. Two
+opt-in capabilities, both in Settings → Voice Confirmation:
+
+**Voice-confirm sensitive actions.** Before JARVIS unlocks a door, opens the
+garage, or disarms the alarm, it asks out loud and waits for a spoken yes/no —
+the confirmation pattern HA built for exactly these. Fail-safe by design: if
+the answer isn't clearly affirmative (or anything goes wrong), the protected
+action does NOT run. Which actions count is sensible by default (lock/unlock,
+cover open, alarm disarm, security switch-off) and tunable per entity — add one
+to always confirm, or prefix with '!' to exempt it.
+
+**Open-ended follow-up.** JARVIS can ask a question aloud and listen for a free
+answer, passing conversation context so a bare "yes" or "the blue one" is
+understood.
+
+Two delivery paths, chosen by mode. **Native** uses HA's
+assist_satellite.ask_question / start_conversation, which sequence
+announce → wait → listen internally — this works when the satellite's own audio
+output routes to a real speaker. **Gated** is the fallback that fits JARVIS's
+ears-only satellites: it speaks the prompt through the room speaker (your Nest)
+via the normal announce path, waits for playback to finish (no echo), then
+reopens the mic on the satellite. **Auto** tries native and falls back. Because
+this hinges on where your satellite audio routes, there's a **Test Satellite
+Audio** button that fires a bare announce so you can hear which path your setup
+supports and pick accordingly.
+
+New voice_confirm.py module, jarvis/voice_confirm_test WebSocket command,
+who_do_you_see stays, and the Voice Confirmation panel with toggle, mode, and
+test. Protected-action gating is wired into control_device. 18 new tests
+(heavy on the fail-safe guarantee); tool surface unchanged at 33.
+
 ## [6.66.0] — JARVIS can actually see you now (Frigate face recognition, fixed)
 Ask JARVIS "can you recognize me?" and it can finally say yes. The problem: the
 Frigate-native identity added in 6.59.0 read a recognized name off the
