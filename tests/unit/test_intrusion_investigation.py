@@ -211,3 +211,38 @@ async def test_open_yard_gate_is_not_a_breach(safety, fake_hass, clock):
     fake_hass.states.set("cover.garage_door", "open", device_class="garage")
     first = await _intr(safety, fake_hass)
     assert len(first) == 1 and first[0]["type"] == "intrusion_investigating"
+
+
+# ── response-timeout escalation (v6.69.0) ────────────────────────────────────
+
+async def test_no_response_while_active_escalates(safety, fake_hass, clock, cc):
+    # motion starts (investigating), stays active, no one responds → after the
+    # response timeout, escalate to a full alert.
+    import sys
+    sys.modules.pop("jc.intrusion", None)          # ensure fresh call-off state
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.living_motion")
+    await _intr(safety, fake_hass)                  # investigating alert fired
+    # keep motion active and advance past the response timeout
+    clock["now"] += cc.INTRUSION_RESPONSE_TIMEOUT_SECS + 5
+    _motion(fake_hass, "binary_sensor.living_motion")   # still active now
+    out = await _intr(safety, fake_hass)
+    esc = [a for a in out if a.get("type") == "intrusion_confirmed"]
+    assert esc, "unanswered active intrusion should escalate after the timeout"
+    assert "no response" in esc[0]["message"].lower()
+
+
+async def test_acknowledge_holds_timeout_escalation(safety, fake_hass, clock, cc):
+    # if the user acknowledges ('I'm looking'), the no-response timeout is held.
+    from jc import intrusion as intr
+    intr.clear_calloff()
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.living_motion")
+    await _intr(safety, fake_hass)
+    intr.acknowledge("on my way")                  # user is handling it
+    clock["now"] += cc.INTRUSION_RESPONSE_TIMEOUT_SECS + 5
+    _motion(fake_hass, "binary_sensor.living_motion")
+    out = await _intr(safety, fake_hass)
+    esc = [a for a in out if a.get("type") == "intrusion_confirmed"]
+    assert not esc, "acknowledgement should hold the no-response escalation"
+    intr.clear_calloff()                            # cleanup

@@ -32,8 +32,28 @@ _MAX_SNAPSHOTS = 40           # keep the last N, prune older
 # Call-off state (module-level; the investigation itself lives in SafetyManager)
 _called_off_until = 0.0       # suppress escalation until this ts
 _CALLOFF_COOLDOWN = 600.0     # 10 min quiet after a false-alarm call-off
+_acknowledged_ts = 0.0        # user said "I see it, stand by" (not a false alarm)
+_ACK_WINDOW = 300.0           # an acknowledgement holds the auto-escalation this long
 _last_snapshot: dict = {}     # {path, url, camera, ts} of the most recent capture
 _false_alarms: list = []      # recent {ts, camera, area} for learning
+
+
+def acknowledge(reason: str = "") -> dict:
+    """User acknowledges the alert ('I see it', 'I'm looking', 'standby') WITHOUT
+    declaring it a false alarm. This holds the no-response auto-escalation for a
+    window — the user is handling it — but does NOT suppress evidence-based
+    escalation (if a person appears on camera, JARVIS still alerts). Never
+    raises."""
+    global _acknowledged_ts
+    _acknowledged_ts = time.time()
+    _LOGGER.info("JARVIS: intrusion acknowledged by user%s — holding auto-escalation",
+                 f" ({reason})" if reason else "")
+    return {"ok": True, "held_seconds": int(_ACK_WINDOW)}
+
+
+def is_acknowledged() -> bool:
+    """Whether a recent user acknowledgement is holding the no-response timeout."""
+    return (time.time() - _acknowledged_ts) < _ACK_WINDOW
 
 
 async def capture_snapshot(hass, camera_entity: str,
@@ -127,8 +147,9 @@ def is_called_off() -> bool:
 
 def clear_calloff() -> None:
     """Reset the suppression (e.g. on a genuinely new, unrelated trigger)."""
-    global _called_off_until
+    global _called_off_until, _acknowledged_ts
     _called_off_until = 0.0
+    _acknowledged_ts = 0.0
 
 
 def false_alarm_count(within_seconds: float = 86400.0) -> int:
@@ -143,6 +164,7 @@ def status() -> dict:
     return {
         "last_snapshot": _last_snapshot or None,
         "called_off": is_called_off(),
+        "acknowledged": is_acknowledged(),
         "suppressed_for": max(0, int(_called_off_until - time.time())),
         "false_alarms_24h": false_alarm_count(),
     }

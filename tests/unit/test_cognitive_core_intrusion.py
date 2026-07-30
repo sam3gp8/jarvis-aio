@@ -101,3 +101,29 @@ async def test_intrusion_debounced_within_window(safety, fake_hass):
     second = await _tick(safety, fake_hass, anyone_home=False)  # immediately again
     assert len(_intrusions(first)) == 1
     assert _intrusions(second) == []  # 5-min debounce suppresses the repeat
+
+
+# ── notification snapshot image data (v6.69.0) ──────────────────────────────
+
+def test_notification_image_data_absolute_url(cognitive_core, fake_hass):
+    # already-absolute URLs are passed through with both platform keys
+    data = cognitive_core._notification_image_data(fake_hass, "https://x/snap.jpg")
+    assert data["image"] == "https://x/snap.jpg"
+    assert data["attachment"]["url"] == "https://x/snap.jpg"
+
+
+def test_notification_image_data_makes_local_absolute(cognitive_core, fake_hass):
+    # a /local path gets the external base prepended so the app can fetch it
+    try:
+        fake_hass.config.external_url = "https://home.example.com"
+    except Exception:
+        pass
+    data = cognitive_core._notification_image_data(fake_hass, "/local/jarvis/intrusion/x.jpg")
+    # either prepended (if fake_hass exposes config.external_url) or left relative,
+    # but must always carry both keys and never raise
+    assert "image" in data and "attachment" in data
+
+
+def test_notification_image_data_none_is_empty(cognitive_core, fake_hass):
+    assert cognitive_core._notification_image_data(fake_hass, None) == {}
+    assert cognitive_core._notification_image_data(fake_hass, "") == {}

@@ -68,6 +68,12 @@ INTRUSION_SPREAD_ZONES = 2       # motion in this many zones ⇒ someone moving 
 INTRUSION_CLEAR_QUIET_SECS = 180 # motion quiet this long ⇒ nothing of note
 INTRUSION_MAX_INVESTIGATE_SECS = 600  # one zone this long, no spread ⇒ benign
 INTRUSION_SUSTAINED_SECS = 60    # multi-zone motion sustained this long (no breach location) ⇒ real
+# If the user doesn't respond to the initial "investigating" alert (neither
+# acknowledges nor calls it off) within this window AND the situation hasn't
+# cleared, escalate to a full alert anyway — an unanswered possible break-in
+# should fail toward alerting, not toward silently waiting. Configurable via
+# `intrusion_response_timeout` (v6.69.0).
+INTRUSION_RESPONSE_TIMEOUT_SECS = 120
 
 # ── Graduated autonomy (v5.9.07) ────────────────────────────────────────────
 # A suggestion that the user approves repeatedly earns the right to auto-apply.
@@ -565,9 +571,40 @@ class SafetyManager:
         except Exception:
             pass
 
-        if not inv["escalated"] and confirmed:
+        elapsed = now - inv["start"]
+
+        # Response-timeout escalation (v6.69.0): the initial "investigating"
+        # alert went out to notifications + voice. If the user hasn't responded
+        # (neither acknowledged nor called it off) within the response window,
+        # the situation is STILL ACTIVE (motion hasn't gone quiet), and it hasn't
+        # otherwise cleared, escalate anyway — an unanswered *ongoing* possible
+        # break-in fails toward alerting. Motion that started and then stopped
+        # still clears as benign below (a curtain flutter shouldn't escalate just
+        # because no one answered); the timeout only bites while something is
+        # actively still happening. An acknowledgement ("I'm looking") holds it;
+        # a false-alarm call-off (handled above) stops it entirely.
+        quiet_for = now - inv["last_motion"]
+        timed_out = False
+        if not inv["escalated"] and not confirmed:
+            try:
+                from . import intrusion as _intr
+                acknowledged = _intr.is_acknowledged()
+            except Exception:
+                acknowledged = False
+            try:
+                resp_timeout = float(self.config.get(
+                    "intrusion_response_timeout", INTRUSION_RESPONSE_TIMEOUT_SECS))
+            except (ValueError, TypeError):
+                resp_timeout = INTRUSION_RESPONSE_TIMEOUT_SECS
+            still_active = quiet_for < INTRUSION_CLEAR_QUIET_SECS
+            if not acknowledged and still_active and elapsed >= resp_timeout:
+                timed_out = True
+
+        if not inv["escalated"] and (confirmed or timed_out):
             inv["escalated"] = True
             honorific = self.config.get("honorific", "sir")
+            if timed_out and not confirmed:
+                reason = "no response to the security alert"
             # Grab a snapshot from the camera that saw the person (if any) so the
             # alert can show who triggered it.
             snap = None
@@ -603,8 +640,6 @@ class SafetyManager:
                 pass
             return action
 
-        quiet_for = now - inv["last_motion"]
-        elapsed = now - inv["start"]
         if not inv["escalated"] and (quiet_for > INTRUSION_CLEAR_QUIET_SECS
                                      or elapsed > INTRUSION_MAX_INVESTIGATE_SECS):
             self._investigation = None            # nothing of note
@@ -1981,10 +2016,11 @@ async def _emit_action(hass, config, action, sleeping):
 
         if (sleeping or in_quiet) and urgency != "critical":
             # Push to phone only (no spoken announcement)
+            _snap_url = action.get("snapshot_url")
             if notify_all:
-                await _notify_all_devices(hass, config, message, action_type)
+                await _notify_all_devices(hass, config, message, action_type, _snap_url)
             else:
-                await _push_notification(hass, config, message, action_type)
+                await _push_notification(hass, config, message, action_type, _snap_url)
         else:
             # Get announcement speakers from config
             ann_speakers = None
@@ -2025,10 +2061,11 @@ async def _emit_action(hass, config, action, sleeping):
 
             # Also push critical/high alerts to phones
             if urgency in ("critical", "high"):
+                _snap_url = action.get("snapshot_url")
                 if notify_all:
-                    await _notify_all_devices(hass, config, message, action_type)
+                    await _notify_all_devices(hass, config, message, action_type, _snap_url)
                 else:
-                    await _push_notification(hass, config, message, action_type)
+                    await _push_notification(hass, config, message, action_type, _snap_url)
 
     except Exception as exc:
         _LOGGER.warning("Cognitive: action routing failed: %s", exc)
@@ -2253,8 +2290,8 @@ async def request_lockdown(on: bool, reason: str = "requested", hass: HomeAssist
     return True
 
 
-async def _push_notification(hass, config, message, action_type):
-    """Push notification to phone."""
+async def _push_notification(hass, config, message, action_type, snapshot_url=None):
+    """Push notification to phone, with an optional snapshot image (v6.69.0)."""
     notify_svc = config.get("notify_service", "")
     if not notify_svc:
         return
@@ -2269,20 +2306,45 @@ async def _push_notification(hass, config, message, action_type):
             "intrusion_sleep": "JARVIS — Motion Detected",
             "lockdown": "JARVIS — House Secured",
         }
-        await hass.services.async_call(
-            svc_domain, svc_name,
-            {"message": message, "title": titles.get(action_type, "JARVIS")},
-            blocking=False,
-        )
+        data = {"message": message, "title": titles.get(action_type, "JARVIS")}
+        img_data = _notification_image_data(hass, snapshot_url)
+        if img_data:
+            data["data"] = img_data
+        await hass.services.async_call(svc_domain, svc_name, data, blocking=False)
     except Exception as exc:
         _LOGGER.debug("Cognitive: push notification failed: %s", exc)
 
 
-async def _notify_all_devices(hass, config, message, action_type):
+def _notification_image_data(hass, snapshot_url):
+    """Build the mobile_app notification `data` block that attaches an image.
+    iOS uses `attachment.url`; Android uses `image`. We set both so whichever
+    platform receives it renders the snapshot. Returns {} if no snapshot."""
+    if not snapshot_url:
+        return {}
+    # Make the /local path absolute so the companion app can fetch it off-LAN.
+    url = snapshot_url
+    try:
+        if url.startswith("/"):
+            base = ""
+            try:
+                base = str(hass.config.external_url or hass.config.internal_url or "").rstrip("/")
+            except Exception:
+                base = ""
+            if base:
+                url = base + url
+    except Exception:
+        pass
+    return {
+        "image": url,                       # Android
+        "attachment": {"url": url},         # iOS
+    }
+
+
+async def _notify_all_devices(hass, config, message, action_type, snapshot_url=None):
     """Push to EVERY connected device — every `notify.mobile_app_*` service the
     HA companion app registered — plus a persistent notification for confirmed
-    intrusions. Falls back to the single configured service if no per-device
-    services exist."""
+    intrusions. Attaches a snapshot image when provided (v6.69.0). Falls back to
+    the single configured service if no per-device services exist."""
     titles = {
         "freeze_critical": "JARVIS — Freeze Warning",
         "freeze_warning": "JARVIS — Temperature Alert",
@@ -2293,6 +2355,7 @@ async def _notify_all_devices(hass, config, message, action_type):
         "lockdown": "JARVIS — House Secured",
     }
     title = titles.get(action_type, "JARVIS")
+    img_data = _notification_image_data(hass, snapshot_url)
     sent = 0
     try:
         services = hass.services.async_services().get("notify", {})
@@ -2300,9 +2363,10 @@ async def _notify_all_devices(hass, config, message, action_type):
             if not name.startswith("mobile_app_"):
                 continue
             try:
-                await hass.services.async_call(
-                    "notify", name, {"message": message, "title": title},
-                    blocking=False)
+                payload = {"message": message, "title": title}
+                if img_data:
+                    payload["data"] = img_data
+                await hass.services.async_call("notify", name, payload, blocking=False)
                 sent += 1
             except Exception as exc:
                 _LOGGER.debug("notify.%s failed: %s", name, exc)
@@ -2311,7 +2375,7 @@ async def _notify_all_devices(hass, config, message, action_type):
 
     # Fall back to the configured single service if nothing device-specific fired.
     if sent == 0:
-        await _push_notification(hass, config, message, action_type)
+        await _push_notification(hass, config, message, action_type, snapshot_url)
 
     # Always-visible catch-all for a confirmed intrusion.
     if action_type == "intrusion_confirmed":

@@ -131,3 +131,47 @@ def test_dismiss_intrusion_tool_registered(load):
     names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
     assert "dismiss_intrusion" in names
     assert "dismiss_intrusion" in agent._TOOL_MAP
+
+
+# ── acknowledge (hold auto-escalation without cancelling) v6.69.0 ────────────
+
+def test_acknowledge_holds_escalation(intr):
+    assert intr.is_acknowledged() is False
+    res = intr.acknowledge("I'm looking")
+    assert res["ok"] is True
+    assert intr.is_acknowledged() is True
+
+
+def test_acknowledge_expires(intr, monkeypatch):
+    intr.acknowledge()
+    assert intr.is_acknowledged() is True
+    future = time.time() + intr._ACK_WINDOW + 5
+    monkeypatch.setattr(intr.time, "time", lambda: future)
+    assert intr.is_acknowledged() is False
+
+
+def test_acknowledge_is_not_calloff(intr):
+    # acknowledging must NOT suppress evidence-based escalation (not a false alarm)
+    intr.acknowledge()
+    assert intr.is_acknowledged() is True
+    assert intr.is_called_off() is False           # distinct states
+
+
+def test_clear_resets_acknowledge(intr):
+    intr.acknowledge()
+    intr.clear_calloff()
+    assert intr.is_acknowledged() is False
+
+
+def test_status_includes_acknowledged(intr):
+    st = intr.status()
+    assert "acknowledged" in st and st["acknowledged"] is False
+
+
+# ── acknowledge tool registration ────────────────────────────────────────────
+
+def test_acknowledge_tool_registered(load):
+    agent = load("agent")
+    names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
+    assert "acknowledge_alert" in names
+    assert "acknowledge_alert" in agent._TOOL_MAP

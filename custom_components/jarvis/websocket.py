@@ -685,6 +685,7 @@ async def ws_get_panel_data(
                 "recognition_source":   str(_runtime_opt(hass, entry, "recognition_source", "both") or "both"),
                 "voice_confirm_enabled": bool(_runtime_opt(hass, entry, "voice_confirm_enabled", False)),
                 "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
+                "intrusion_response_timeout": _runtime_opt(hass, entry, "intrusion_response_timeout", 120),
                 # Residence model detail controls — same read-back requirement:
                 # these save fine but reset on re-render unless surfaced here.
                 "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
@@ -1168,6 +1169,7 @@ PANEL_WRITABLE_KEYS = {
     "voice_confirm_entities",     # list: extra entities to confirm / !exempt
     "satellite_audio_out",        # dict/bool: satellites whose audio routes out
     "satellite_start_action",     # dict: satellite → esphome start action
+    "intrusion_response_timeout", # float: secs before unanswered alert escalates
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
@@ -2022,7 +2024,7 @@ async def ws_mode(
 
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/intrusion",
-    vol.Required("action"): vol.In(["status", "dismiss"]),
+    vol.Required("action"): vol.In(["status", "dismiss", "acknowledge"]),
     vol.Optional("reason"): str,
 })
 @websocket_api.async_response
@@ -2032,7 +2034,8 @@ async def ws_intrusion(
     msg: dict,
 ) -> None:
     """Intrusion snapshot + call-off for the panel (v6.68.0): report the last
-    snapshot and call-off state, or dismiss an active alert as a false alarm."""
+    snapshot and call-off state, dismiss an active alert as a false alarm, or
+    acknowledge it (hold auto-escalation without cancelling) (v6.69.0)."""
     try:
         from . import intrusion
         if msg["action"] == "dismiss":
@@ -2045,6 +2048,10 @@ async def ws_intrusion(
             except Exception:
                 pass
             jarvis_log("SAFETY", "Intrusion called off from panel (false alarm)")
+            connection.send_result(msg["id"], {**res, **intrusion.status()})
+        elif msg["action"] == "acknowledge":
+            res = intrusion.acknowledge(msg.get("reason", "panel"))
+            jarvis_log("SAFETY", "Intrusion acknowledged from panel (holding escalation)")
             connection.send_result(msg["id"], {**res, **intrusion.status()})
         else:
             connection.send_result(msg["id"], intrusion.status())

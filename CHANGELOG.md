@@ -4,6 +4,35 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.69.0] — snapshots in notifications, and escalate if no one answers
+Two safety additions building on the 6.68.0 intrusion work.
+
+**Snapshots ride the notifications now.** When JARVIS confirms an intruder on
+camera, the still it captures is attached to the push sent to every device —
+not just shown in the panel. Android gets it via `image`, iOS via
+`attachment.url`, so whichever phone you're on renders the snapshot inline; the
+local snapshot path is made absolute with your external URL so the companion
+app can fetch it off your network.
+
+**Unanswered alerts escalate on their own.** The initial "investigating" alert
+goes out to notifications and voice; if no one responds within a configurable
+window (default 2 minutes, tunable 1–10 min in the Intrusion panel) and the
+situation is still active, JARVIS escalates to the full alert automatically — an
+unanswered possible break-in should fail toward alerting, not toward silently
+waiting. There are now three ways to respond: **call off** (false alarm — stops
+everything), the new **acknowledge** ("I'm looking" / new acknowledge_alert
+tool and an "I'm looking (hold)" button — holds the auto-escalation because
+you're handling it, but JARVIS still escalates if a person appears on camera),
+and **no response** (the timeout fires).
+
+Care taken on the timeout: motion that starts and then stops still clears as
+benign — a curtain flutter or a pet that moved once won't escalate just because
+no one answered. The timeout only bites while something is actively still
+happening. New acknowledge_alert tool, jarvis/intrusion gains an acknowledge
+action, intrusion_response_timeout config, and the panel's hold button +
+timeout selector. 18 new tests (heavy on the still-active-vs-benign distinction
+and the notification image data); tool surface now 35.
+
 ## [6.68.0] — intruder snapshots, and call off a false alarm
 When JARVIS confirms an intrusion on camera, it now grabs a **snapshot** from
 that camera and attaches it to the alert — so the notification and the new

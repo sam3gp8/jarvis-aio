@@ -795,6 +795,26 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "acknowledge_alert",
+            "description": (
+                "Acknowledge an active security alert without calling it off — "
+                "'I see it', 'I'm looking', 'standby', 'give me a minute'. This "
+                "tells JARVIS the user is handling it, so it holds the automatic "
+                "escalation that would otherwise fire if no one responds. It does "
+                "NOT cancel the alert (use dismiss_intrusion for a false alarm), "
+                "and JARVIS will still escalate if a person appears on camera."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Optional note."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "dismiss_intrusion",
             "description": (
                 "Call off an active intrusion alert as a false alarm. Use when "
@@ -1834,6 +1854,18 @@ async def _exec_system_diagnostics(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_acknowledge_alert(hass: HomeAssistant, args: dict) -> str:
+    """Acknowledge an alert without calling it off — holds auto-escalation (v6.69.0)."""
+    try:
+        from . import intrusion
+        res = intrusion.acknowledge(args.get("reason", ""))
+        return json.dumps({"ok": True, **res,
+                           "message": "Acknowledged — holding the automatic alert. "
+                                      "I'll still escalate if I see a person on camera."})
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_dismiss_intrusion(hass: HomeAssistant, args: dict) -> str:
     """Call off an active intrusion as a false alarm (v6.68.0)."""
     try:
@@ -1992,6 +2024,7 @@ _TOOL_MAP = {
     "look_at_camera":      _exec_look_at_camera,
     "who_do_you_see":      _exec_who_do_you_see,
     "dismiss_intrusion":   _exec_dismiss_intrusion,
+    "acknowledge_alert":   _exec_acknowledge_alert,
     "system_diagnostics":  _exec_system_diagnostics,
     "set_mode":            _exec_set_mode,
     "energy_status":       _exec_energy_status,
