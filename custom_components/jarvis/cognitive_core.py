@@ -392,6 +392,13 @@ class SafetyManager:
         intrusion confirmation uses), OUTDOOR cameras are excluded — a delivery
         driver on the driveway cam is a doorstep event, not proof someone is
         inside the house."""
+        return self._person_camera_entity(indoor_only) is not None
+
+    def _person_camera_entity(self, indoor_only: bool = True) -> Optional[str]:
+        """Like _person_on_camera, but returns the CAMERA entity_id backing the
+        person-detecting binary_sensor (so we can snapshot it), or None. Maps
+        binary_sensor.<cam>_person → camera.<cam> when such a camera exists,
+        else returns the sensor's entity_id as a fallback handle."""
         from . import outdoor
         for st in self.hass.states.async_all("binary_sensor"):
             if st.state != "on":
@@ -405,8 +412,22 @@ class SafetyManager:
                 continue
             if indoor_only and outdoor.is_outdoor(self.hass, st.entity_id, fname):
                 continue
-            return True
-        return False
+            # derive a camera entity from the sensor slug, e.g.
+            # binary_sensor.dining_room_person → camera.dining_room
+            slug = st.entity_id.split(".", 1)[-1]
+            for suffix in ("_person", "_person_occupancy", "_occupancy"):
+                if slug.endswith(suffix):
+                    slug = slug[: -len(suffix)]
+                    break
+            cam = f"camera.{slug}"
+            if self.hass.states.get(cam) is not None:
+                return cam
+            # fall back: any camera whose name shares the area word
+            for cst in self.hass.states.async_all("camera"):
+                if slug.split("_")[0] in cst.entity_id:
+                    return cst.entity_id
+            return cam        # best-effort handle even if not yet resolvable
+        return None
 
     async def _check_intrusion(self, anyone_home: bool,
                                 sleeping: bool) -> Optional[dict]:
@@ -416,10 +437,18 @@ class SafetyManager:
         now = time.time()
         away = self._residents_away()
 
+        # A recent user "false alarm" call-off suppresses new intrusion alerts.
+        try:
+            from . import intrusion as _intr
+            if _intr.is_called_off():
+                return None
+        except Exception:
+            pass
+
         # Mid-investigation: keep watching, escalate at most once, stay quiet
         # otherwise. This is what stops the stream of repeat "motion" alerts.
         if self._investigation is not None:
-            return self._investigate_step(now, away, sleeping)
+            return await self._investigate_step(now, away, sleeping)
 
         if (now - self._last_intrusion_alert) < 300:
             return None
@@ -484,8 +513,8 @@ class SafetyManager:
 
         return None
 
-    def _investigate_step(self, now: float, away: bool,
-                          sleeping: bool) -> Optional[dict]:
+    async def _investigate_step(self, now: float, away: bool,
+                                sleeping: bool) -> Optional[dict]:
         """One tick of an active investigation: confirm, clear, or keep watching
         silently. Escalates only when activity forms a coherent route from the
         breach point (or a camera confirms a person). Motion unrelated to the
@@ -511,7 +540,8 @@ class SafetyManager:
         near_breach = bool(inv["zones"] & connected)
         spread = len(inv["zones"]) >= spread_needed
         sustained = bool(active) and (now - inv["start"]) >= INTRUSION_SUSTAINED_SECS
-        camera = self._person_on_camera()
+        cam_entity = self._person_camera_entity()
+        camera = cam_entity is not None
 
         if camera:
             confirmed, reason = True, "a person is on camera"
@@ -526,15 +556,52 @@ class SafetyManager:
             confirmed = spread and sustained
             reason = "sustained movement through the house while no one is home"
 
+        # User called it off as a false alarm → stand down, don't escalate.
+        try:
+            from . import intrusion as _intr
+            if _intr.is_called_off():
+                self._investigation = None
+                return None
+        except Exception:
+            pass
+
         if not inv["escalated"] and confirmed:
             inv["escalated"] = True
             honorific = self.config.get("honorific", "sir")
-            msg = (f"{honorific.title()}, intrusion confirmed — {reason}. "
-                   f"Alerting the house and every device.")
-            return {
+            # Grab a snapshot from the camera that saw the person (if any) so the
+            # alert can show who triggered it.
+            snap = None
+            if cam_entity:
+                try:
+                    from . import intrusion as _intr
+                    snap = await _intr.capture_snapshot(self.hass, cam_entity)
+                except Exception:
+                    snap = None
+            snap_note = " A snapshot is available." if snap else ""
+            msg = (f"{honorific.title()}, intrusion confirmed — {reason}.{snap_note} "
+                   f"Alerting the house and every device. Say 'it's a false alarm' "
+                   f"to call it off.")
+            action = {
                 "type": "intrusion_confirmed", "urgency": "critical",
                 "message": msg, "auto_act": True, "notify_all": True,
+                "can_dismiss": True,
             }
+            if snap:
+                action["snapshot_url"] = snap.get("url")
+                action["snapshot_path"] = snap.get("path")
+                action["camera"] = snap.get("camera")
+            # Fire an event carrying the snapshot so notification automations can
+            # attach the image.
+            try:
+                self.hass.bus.async_fire("jarvis_intrusion_confirmed", {
+                    "reason": reason,
+                    "snapshot_url": (snap or {}).get("url"),
+                    "snapshot_path": (snap or {}).get("path"),
+                    "camera": (snap or {}).get("camera"),
+                })
+            except Exception:
+                pass
+            return action
 
         quiet_for = now - inv["last_motion"]
         elapsed = now - inv["start"]

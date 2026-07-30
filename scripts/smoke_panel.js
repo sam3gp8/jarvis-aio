@@ -59,6 +59,8 @@ let _semanticEnabled = false;
 let _activeMode = "normal";
 let _energyAgency = "advisory";
 let _bioEnabled = false;
+let _intrCalledOff = false;
+const _intrSnap = { url: "/local/jarvis/intrusion/intrusion_dining_room_1730000000.jpg", camera: "camera.dining_room", ts: 1730000000, path: "/config/www/jarvis/intrusion/x.jpg" };
 const hass = {
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
   callWS: async (m) => {
@@ -100,6 +102,10 @@ const hass = {
         { name: "normal", description: "Default operation." },
         { name: "party", description: "Guests over." },
       ]}; }
+    }
+    if (m.type === "jarvis/intrusion") {
+      if (m.action === "dismiss") { _intrCalledOff = true; return { ok: true, last_snapshot: _intrSnap, called_off: true, suppressed_for: 600, false_alarms_24h: 1 }; }
+      return { last_snapshot: _intrSnap, called_off: _intrCalledOff, suppressed_for: _intrCalledOff ? 600 : 0, false_alarms_24h: _intrCalledOff ? 1 : 0 };
     }
     if (m.type === "jarvis/voice_confirm_test") return { ok: true, satellite: "assist_satellite.basement_jarvis", note: "Announce fired." };
     if (m.type === "jarvis/diagnostics") return {
@@ -560,6 +566,22 @@ setTimeout(async () => {
     ["after enable the banner reflects SEMANTIC (Ollama)", /SEMANTIC/.test(vbState2)],
     ["disable toggle offered once semantic active",
       vbBtn2 && /DISABLE/.test(vbBtn2.textContent)],
+  );
+
+  // ── Intrusion / Security panel (v6.68.0) ──
+  await el._fetchIntrusion();
+  const intrBody = el.shadowRoot.getElementById("intr-body")?.innerHTML || "";
+  const intrStatus = el.shadowRoot.getElementById("intr-status")?.textContent || "";
+  checks.push(
+    ["intrusion panel shows ARMED status", /ARMED/.test(intrStatus)],
+    ["intrusion panel renders the last snapshot image", /intrusion_dining_room/.test(intrBody) && /intr-img/.test(intrBody)],
+    ["intrusion call-off button present", !!el.shadowRoot.querySelector(".intr-dismiss")],
+  );
+  el.shadowRoot.querySelector(".intr-dismiss")?.click();
+  await new Promise(r => setTimeout(r, 20));
+  checks.push(
+    ["calling off intrusion flips status to CALLED OFF",
+      /CALLED OFF/.test(el.shadowRoot.getElementById("intr-status")?.textContent || "")],
   );
 
   // ── Wellbeing Context panel (v6.63.0) ──

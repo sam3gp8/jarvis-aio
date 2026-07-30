@@ -795,6 +795,30 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "dismiss_intrusion",
+            "description": (
+                "Call off an active intrusion alert as a false alarm. Use when "
+                "the user says 'it's a false alarm', 'that's me', 'cancel the "
+                "alarm', 'stand down', or otherwise indicates the flagged "
+                "intrusion isn't real. Stops further escalation, stands down the "
+                "investigation, and suppresses re-triggering for a cooldown "
+                "window. Records it so repeated benign triggers can be learned "
+                "from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional short reason (e.g. 'it was the cat').",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "who_do_you_see",
             "description": (
                 "Check who JARVIS currently recognizes by face, from Frigate's "
@@ -1810,6 +1834,30 @@ async def _exec_system_diagnostics(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_dismiss_intrusion(hass: HomeAssistant, args: dict) -> str:
+    """Call off an active intrusion as a false alarm (v6.68.0)."""
+    try:
+        from . import intrusion, cognitive_core
+        res = intrusion.dismiss_intrusion(args.get("reason", ""))
+        # Also clear any live investigation in the SafetyManager immediately.
+        try:
+            core = getattr(cognitive_core, "_CORE", None)
+            if core and getattr(core, "safety_mgr", None):
+                core.safety_mgr._investigation = None
+        except Exception:
+            pass
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("SAFETY", "Intrusion called off by user (false alarm)"
+                       + (f": {args.get('reason')}" if args.get("reason") else ""))
+        except Exception:
+            pass
+        return json.dumps({"ok": True, **res,
+                           "message": "Intrusion called off. Standing down."})
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_who_do_you_see(hass: HomeAssistant, args: dict) -> str:
     """Report who JARVIS currently recognizes by face (v6.66.0)."""
     try:
@@ -1943,6 +1991,7 @@ _TOOL_MAP = {
     "calendar_agenda":     _exec_calendar_agenda,
     "look_at_camera":      _exec_look_at_camera,
     "who_do_you_see":      _exec_who_do_you_see,
+    "dismiss_intrusion":   _exec_dismiss_intrusion,
     "system_diagnostics":  _exec_system_diagnostics,
     "set_mode":            _exec_set_mode,
     "energy_status":       _exec_energy_status,

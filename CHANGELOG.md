@@ -4,6 +4,31 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.68.0] — intruder snapshots, and call off a false alarm
+When JARVIS confirms an intrusion on camera, it now grabs a **snapshot** from
+that camera and attaches it to the alert — so the notification and the new
+Intrusion panel show who/what triggered it, not just "motion detected." The
+still is saved to a servable path and rides along on a new
+`jarvis_intrusion_confirmed` event (with `snapshot_url`), so your own
+notification automations can attach the image too.
+
+And you can **call off a false alarm.** Say "it's a false alarm," "that's me,"
+or "stand down" (new `dismiss_intrusion` tool), or hit the call-off button in
+the panel. This clears the active investigation, stops any further escalation,
+and suppresses re-triggering for a cooldown so the same benign motion doesn't
+immediately re-alarm — and it records the false alarm, so recurring harmless
+triggers can inform future tuning. The suppression is time-boxed, then the
+system re-arms on its own.
+
+Safety stays intact: the call-off only suppresses escalation for its cooldown
+window; a genuinely new, unrelated trigger after it expires alarms normally.
+The intrusion investigation now captures the person-detecting camera's entity
+(not just a yes/no), which is what makes the targeted snapshot possible. New
+intrusion.py module, dismiss_intrusion agent tool, jarvis/intrusion WebSocket
+command, and the Intrusion panel with the live snapshot and call-off. 12 new
+tests (heavy on the call-off suppression window and snapshot capture never
+raising); tool surface now 34.
+
 ## [6.67.0] — voice-confirm sensitive actions, and ask out loud
 JARVIS can now hold a spoken back-and-forth for the moments that need it. Two
 opt-in capabilities, both in Settings → Voice Confirmation:

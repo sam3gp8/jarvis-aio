@@ -73,6 +73,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_semantic_search)
         websocket_api.async_register_command(hass, ws_diagnostics)
         websocket_api.async_register_command(hass, ws_voice_confirm_test)
+        websocket_api.async_register_command(hass, ws_intrusion)
         websocket_api.async_register_command(hass, ws_mode)
         websocket_api.async_register_command(hass, ws_energy)
         websocket_api.async_register_command(hass, ws_biometrics)
@@ -2017,6 +2018,39 @@ async def ws_mode(
     except Exception as exc:
         _LOGGER.exception("ws_mode failed: %s", exc)
         connection.send_error(msg["id"], "mode_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/intrusion",
+    vol.Required("action"): vol.In(["status", "dismiss"]),
+    vol.Optional("reason"): str,
+})
+@websocket_api.async_response
+async def ws_intrusion(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Intrusion snapshot + call-off for the panel (v6.68.0): report the last
+    snapshot and call-off state, or dismiss an active alert as a false alarm."""
+    try:
+        from . import intrusion
+        if msg["action"] == "dismiss":
+            res = intrusion.dismiss_intrusion(msg.get("reason", "panel"))
+            try:
+                from . import cognitive_core
+                core = getattr(cognitive_core, "_CORE", None)
+                if core and getattr(core, "safety_mgr", None):
+                    core.safety_mgr._investigation = None
+            except Exception:
+                pass
+            jarvis_log("SAFETY", "Intrusion called off from panel (false alarm)")
+            connection.send_result(msg["id"], {**res, **intrusion.status()})
+        else:
+            connection.send_result(msg["id"], intrusion.status())
+    except Exception as exc:
+        _LOGGER.exception("ws_intrusion failed: %s", exc)
+        connection.send_error(msg["id"], "intrusion_failed", str(exc))
 
 
 @websocket_api.websocket_command({
