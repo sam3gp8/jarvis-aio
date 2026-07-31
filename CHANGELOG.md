@@ -4,6 +4,28 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.70.0] — first-run welcome, and a friendlier front door
+A new install now greets you instead of dropping you into a wall of settings. A
+dismissible **welcome card** appears on the Command Center for fresh setups with
+a short checklist of the high-value next steps — set an alert destination,
+connect cameras (optional), set up voice (optional), pick a personality level —
+each showing a live done/to-do state computed from your actual configuration,
+plus a progress bar, an "Open Settings" jump, and a "try asking JARVIS…" prompt.
+It hides itself once the essential step is done or you dismiss it (persisted, so
+it stays gone). The LLM key is still collected during the normal Add-Integration
+flow before the panel ever loads; this fills the "what now?" gap after that.
+
+The README is restructured so a newcomer sees value and a low on-ramp first: a
+"Quick start (5 minutes, no cameras required)" section up top, the deep
+Nest/go2rtc camera setup moved below Installation into a clearly-optional
+"Advanced setup" section, and Requirements split into the two things you
+actually need to begin versus optional add-ons. Content is the same; the order
+now front-loads getting started instead of advanced configuration.
+
+New onboarding state in the panel data, an onboarding welcome card with dismiss
++ settings-jump, and the onboarding_dismissed flag. 7 new tests; no new agent
+tools or LLM surface.
+
 ## [6.69.1] — encode the reasoning discipline in the agent prompt
 The agent's system prompt gains a compact "How you reason" section ahead of the
 tool-routing rules, encoding the investigate→verify→act discipline as explicit

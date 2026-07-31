@@ -395,6 +395,57 @@ def _get_camera_names() -> dict:
         return {}
 
 
+def _get_onboarding_state(hass: HomeAssistant, entry, current_notify: str) -> dict:
+    """Compute the first-run onboarding checklist (v6.70.0). Reports which
+    high-value setup steps are done so the panel can show a welcome card to new
+    users and hide it once they're set up or dismiss it. Guidance, not config —
+    the LLM key is already collected by the config flow before the panel loads;
+    this covers the 'what now?' gap after install."""
+    try:
+        from . import jarvis_config
+        dismissed = bool(jarvis_config.get("onboarding_dismissed", False))
+    except Exception:
+        dismissed = False
+    has_notify = bool(current_notify)
+    try:
+        has_cameras = len(_get_cameras(hass)) > 0
+    except Exception:
+        has_cameras = False
+    try:
+        from . import jarvis_config
+        banter_set = jarvis_config.get("banter_level", None) is not None
+    except Exception:
+        banter_set = False
+    try:
+        has_voice = any(
+            e.entity_id.startswith("assist_satellite.")
+            for e in hass.states.async_all("assist_satellite"))
+    except Exception:
+        has_voice = False
+    steps = [
+        {"id": "notify", "label": "Set an alert destination",
+         "hint": "Where JARVIS sends security alerts and notifications (your phone).",
+         "done": has_notify},
+        {"id": "cameras", "label": "Connect cameras (optional)",
+         "hint": "Nest/Frigate cameras enable doorbell analysis, package detection, the live floor plan.",
+         "done": has_cameras},
+        {"id": "voice", "label": "Set up voice (optional)",
+         "hint": "On HA OS/Supervised JARVIS installs the voice stack for you — or just talk to it in chat.",
+         "done": has_voice},
+        {"id": "banter", "label": "Pick a personality level",
+         "hint": "Plain, dry, or full MCU-JARVIS wit — Settings \u2192 Character.",
+         "done": banter_set},
+    ]
+    done_count = sum(1 for s in steps if s["done"])
+    return {
+        "dismissed": dismissed,
+        "show": (not dismissed) and (not has_notify or done_count < 2),
+        "steps": steps,
+        "done_count": done_count,
+        "total": len(steps),
+    }
+
+
 def _get_cameras(hass: HomeAssistant) -> list[dict]:
     """Camera entities for the picker/chips. `name` honours the JARVIS-only
     camera_names map (v6.48.0); `raw_name` keeps the HA friendly name so the
@@ -642,6 +693,7 @@ async def ws_get_panel_data(
                 "llm_base_url": str(_runtime_opt(hass, entry, "llm_base_url", "") or ""),
                 "notify_service": current_notify,
                 "notify_services_available": notify_services,
+                "onboarding": _get_onboarding_state(hass, entry, current_notify),
                 "sentinel_rules": _get_sentinel_rules(),
                 "disabled_sentinel_rules": _get_disabled_rules(hass, entry),
                 "observer_stats": _get_observer_stats(),
@@ -1170,6 +1222,7 @@ PANEL_WRITABLE_KEYS = {
     "satellite_audio_out",        # dict/bool: satellites whose audio routes out
     "satellite_start_action",     # dict: satellite → esphome start action
     "intrusion_response_timeout", # float: secs before unanswered alert escalates
+    "onboarding_dismissed",       # bool: user dismissed the first-run welcome card
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",

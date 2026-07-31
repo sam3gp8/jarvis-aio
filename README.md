@@ -21,6 +21,16 @@ JARVIS turns Home Assistant into a proactive household intelligence. It speaks i
 
 The guiding principle is **suggest, don't act** until you grant otherwise: JARVIS starts conservative, surfaces what it notices, and expands its autonomy only as you allow.
 
+## Quick start (5 minutes, no cameras required)
+
+JARVIS looks elaborate, but the floor is low — you can be talking to it in five minutes with nothing but Home Assistant and one free API key. Cameras, voice hardware, and local GPU inference are all **optional** upgrades you add later.
+
+1. **Install via HACS** — add this repo ([badge below](#installation)), install "JARVIS AI Assistant," restart Home Assistant.
+2. **Add the integration** — *Settings → Devices & Services → Add Integration → JARVIS*. Paste a [Groq API key](https://console.groq.com) (free tier, generous) — or leave it blank and point it at a local Ollama URL to run with no cloud account at all.
+3. **That's it.** JARVIS registers its conversation agent and appears in your sidebar. Ask it about your home, your calendar, or the outside world.
+
+Everything past this point — vision, doorbell analysis, the Iron Man HUD's live floor plan, proactive safety — layers on top as you connect cameras and voice. Nothing below is required to start. Jump to [Installation](#installation) for the full walkthrough.
+
 ## What it does
 
 **Voice & conversation.** A pluggable LLM brain (Groq, Gemini, OpenAI, Anthropic, or a local Ollama server) drives natural conversation through the Home Assistant voice pipeline, answered in a custom Piper TTS voice. Works with ESP32-S3 satellites, Wyoming, and Google speakers.
@@ -58,10 +68,43 @@ The guiding principle is **suggest, don't act** until you grant otherwise: JARVI
 
 ## Requirements
 
-- **Home Assistant** with [HACS](https://hacs.xyz) installed. HA OS / Supervised is recommended — the optional voice-stack auto-setup (Piper / Whisper / openWakeWord) uses the Supervisor; on HA Container/Core you'd add those yourself.
-- At least one **LLM API key** (Groq has a generous free tier and is the recommended starting point).
-- *Optional but recommended:* a Gemini API key for camera/vision reasoning, Nest cameras + doorbell, Frigate NVR, ESP32-S3 voice satellites, and a Piper TTS voice.
-- *For fully local inference:* a GPU box running Ollama (e.g. via a HAOS GPU AI setup) — point `llm_base_url` at it and JARVIS runs entirely on your own hardware, no cloud account required.
+**To start, you need exactly two things:**
+
+- **Home Assistant** with [HACS](https://hacs.xyz) installed.
+- **One LLM API key** — [Groq](https://console.groq.com) has a generous free tier and is the recommended starting point (or run fully local with Ollama, no key at all).
+
+**Optional add-ons** (each unlocks more, none required to begin):
+
+- *Voice* — HA OS / Supervised recommended; JARVIS auto-installs the Piper / Whisper / openWakeWord voice stack via the Supervisor. On Container/Core you'd add those yourself.
+- *Vision* — a Gemini API key for camera reasoning, plus Nest cameras/doorbell and/or Frigate NVR.
+- *Voice hardware* — ESP32-S3 satellites and a Piper TTS voice.
+- *Fully local inference* — a GPU box running Ollama; point `llm_base_url` at it and JARVIS runs entirely on your own hardware, no cloud account.
+
+## Installation
+
+**1. Add this repository to HACS.**
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=sam3gp8&repository=jarvis-aio&category=Integration)
+
+Click the badge above, or do it manually — in **HACS → ⋮ (top right) → Custom repositories**, add the URL below with category **Integration**:
+
+```
+https://github.com/sam3gp8/jarvis-aio
+```
+
+**2. Install "JARVIS AI Assistant"** from HACS, then restart Home Assistant.
+
+**3. Add the integration.** Go to **Settings → Devices & Services → Add Integration → JARVIS**. Enter a cloud API key (e.g. Groq), *or* leave it blank and enter a local LLM URL (e.g. `http://homeassistant.local:11434/v1`) to run Ollama with no cloud account. JARVIS registers its conversation agent and appears in the sidebar.
+
+**4. Set up voice (optional).** On Home Assistant OS / Supervised, JARVIS bootstraps the voice stack itself on first run — it installs and starts the **Piper**, **Whisper**, and **openWakeWord** add-ons, downloads the JARVIS voice, and creates an Assist pipeline with JARVIS as the conversation agent. On Container/Core installs (no Supervisor), install those pieces yourself and create the pipeline via Settings → Voice Assistants.
+
+**5. Fine-tune (optional).** Advanced routing, observer mode, camera watching, and the AI-model-per-role assignments are all configured from the JARVIS panel → **Settings**.
+
+> **Hard-refresh after updates.** The dashboard JavaScript is cached aggressively — after upgrading, refresh with `Ctrl+Shift+R` so the new panel loads.
+
+## Advanced setup — cameras & continuous streaming
+
+*Everything in this section is optional.* You need it only for the vision features (doorbell analysis, package detection, the HUD's live camera tiles). Skip it entirely if you're starting with voice and reasoning — you can come back when you want cameras.
 
 ### Nest cameras (prerequisite for camera intelligence)
 
@@ -107,28 +150,6 @@ go2rtc:
 This lives in `/config/jarvis/config.json` (merge it into the existing object — don't replace the file). JARVIS validates this on load, so a typo is sidelined with a notification rather than breaking the panel. Then open **Camera Watch → DIAG** on the camera: it should report `override → camera.eliana_restream` and a healthy full-size frame instead of a blank or black tile.
 
 > **Note:** go2rtc's Nest source is a third-party bridge and Google occasionally changes its auth behavior. If a restream ever drops, JARVIS automatically falls back to the original Nest entity — worst case is the pre-restream behavior, never worse.
-
-## Installation
-
-**1. Add this repository to HACS.**
-
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=sam3gp8&repository=jarvis-aio&category=Integration)
-
-Click the badge above, or do it manually — in **HACS → ⋮ (top right) → Custom repositories**, add the URL below with category **Integration**:
-
-```
-https://github.com/sam3gp8/jarvis-aio
-```
-
-**2. Install "JARVIS AI Assistant"** from HACS, then restart Home Assistant.
-
-**3. Add the integration.** Go to **Settings → Devices & Services → Add Integration → JARVIS**. Enter a cloud API key (e.g. Groq), *or* leave it blank and enter a local LLM URL (e.g. `http://homeassistant.local:11434/v1`) to run Ollama with no cloud account. JARVIS registers its conversation agent and appears in the sidebar.
-
-**4. Set up voice (optional).** On Home Assistant OS / Supervised, JARVIS bootstraps the voice stack itself on first run — it installs and starts the **Piper**, **Whisper**, and **openWakeWord** add-ons, downloads the JARVIS voice, and creates an Assist pipeline with JARVIS as the conversation agent. On Container/Core installs (no Supervisor), install those pieces yourself and create the pipeline via Settings → Voice Assistants.
-
-**5. Fine-tune (optional).** Advanced routing, observer mode, camera watching, and the AI-model-per-role assignments are all configured from the JARVIS panel → **Settings**.
-
-> **Hard-refresh after updates.** The dashboard JavaScript is cached aggressively — after upgrading, refresh with `Ctrl+Shift+R` so the new panel loads.
 
 ## Configuration highlights
 

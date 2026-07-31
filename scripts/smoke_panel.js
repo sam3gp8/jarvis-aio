@@ -38,6 +38,12 @@ const PANEL = {
     { id: "kitchen", name: "Kitchen", caps: ["sat", "spkr"], active: false, bedroom: false, lights_on: 0, lights_total: 0,
       temp: "71°F", humidity: null, temp_entity: "sensor.kitchen_temp", humidity_entity: null, last_motion: "12m" },
   ],
+  onboarding: { dismissed: false, show: true, done_count: 1, total: 4, steps: [
+    { id: "notify", label: "Set an alert destination", hint: "phone", done: true },
+    { id: "cameras", label: "Connect cameras (optional)", hint: "nest", done: false },
+    { id: "voice", label: "Set up voice (optional)", hint: "voice", done: false },
+    { id: "banter", label: "Pick a personality level", hint: "wit", done: false },
+  ] },
   config: { banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
   suggestions: [
     { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{\"alias\":\"...\"}" },
@@ -207,6 +213,11 @@ setTimeout(async () => {
     // ── Command Center tab (default) ──
     ["stylesheet injected", html.includes("<style>") && html.includes("--cyan:") && html.includes("#00f2fe")],
     ["dashboard grid present", !!sr.querySelector(".grid")],
+    ["onboarding welcome card shows for new users", !!sr.querySelector(".onboarding-card")],
+    ["onboarding shows step progress + checklist",
+      /1\/4 done/.test(sr.querySelector(".ob-progress")?.textContent || "") && sr.querySelectorAll(".ob-step").length === 4],
+    ["onboarding marks done steps", !!sr.querySelector(".ob-step.ob-done")],
+    ["onboarding has dismiss + settings-jump", !!sr.querySelector("#ob-dismiss") && !!sr.querySelector(".ob-go[data-tab-jump]")],
     ["Residence tab button present", !!sr.querySelector('[data-tab="residence"]')],
     ["Camera Watch module present", !!sr.querySelector(".c-camera") && !!sr.querySelector("#cam-feed")],
     ["camera owns center (residence moved out of dashboard)", !sr.querySelector("#house3d-scene")],

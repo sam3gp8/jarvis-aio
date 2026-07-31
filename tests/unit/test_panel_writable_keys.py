@@ -107,3 +107,22 @@ def test_read_back_cfg_fields_are_surfaced():
     assert not missing, (
         "these config keys are saved + read-back by the panel but not surfaced "
         f"in get_panel_data, so they reset on re-render: {missing}")
+
+
+def test_onboarding_state_wired_into_panel_data():
+    # the first-run onboarding block must be present in get_panel_data (v6.70.0)
+    js = _WEBSOCKET.read_text()
+    assert '"onboarding": _get_onboarding_state(' in js
+    assert "def _get_onboarding_state(" in js
+
+
+def test_onboarding_dismissed_is_writable():
+    # the dismiss button persists onboarding_dismissed via update_config
+    assert "onboarding_dismissed" in _allowlist()
+
+
+def test_onboarding_steps_cover_key_setup():
+    # the checklist should name the high-value post-install steps
+    js = _WEBSOCKET.read_text()
+    for step_id in ('"notify"', '"cameras"', '"voice"', '"banter"'):
+        assert step_id in js, f"onboarding missing step {step_id}"
