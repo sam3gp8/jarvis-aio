@@ -44,7 +44,7 @@ const PANEL = {
     { id: "voice", label: "Set up voice (optional)", hint: "voice", done: false },
     { id: "banter", label: "Pick a personality level", hint: "wit", done: false },
   ] },
-  config: { banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
+  config: { floor_plan_address: "123 Example St, Springfield IL", banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
   suggestions: [
     { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{\"alias\":\"...\"}" },
   ],
@@ -293,7 +293,7 @@ setTimeout(async () => {
     ["garage renders 3 doors", r.querySelectorAll("#res-iso svg polygon.gdoor").length === 3],
     ["occupied stat wired (n / total)", /\d+\s*\/\s*\d+/.test((r.getElementById("res-occ") || {}).textContent || "")],
     ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
-    ["property data-merge banner present", !!r.querySelector(".res-banner") && /MYRTLE/.test(r.querySelector("#res-addr")?.textContent || "")],
+    ["property banner reflects configured address (no hardcoded personal default)", !!r.querySelector(".res-banner") && /123 Example St/.test(r.querySelector("#res-addr")?.textContent || "")],
     ["banner stats populated (sqft + bed/bath)", /\d/.test(r.querySelector("#res-sqft")?.textContent || "") && /\d/.test(r.querySelector("#res-bb")?.textContent || "")],
     ["sqft estimate sane (<= 5000)", (() => { const m = (r.querySelector("#res-sqft")?.textContent || "").replace(/[^\d]/g, ""); return m && Number(m) <= 5000; })()],
     ["style tag reflects template", /CAPE COD/.test(r.querySelector("#res-style-tag")?.textContent || "")],

@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.70.1] — remove hardcoded sample address from the Residence tab
+The Residence tab displayed a specific street address as its default when none
+was configured — baked into the property banner, a fallback, an input
+placeholder, and a development harness file. Replaced with neutral placeholders
+("ADDRESS NOT SET", a generic "123 Main St" example) so a fresh install shows no
+real address until you enter your own. The address you set still lives only in
+your local config, as before.
+
 ## [6.70.0] — first-run welcome, and a friendlier front door
 A new install now greets you instead of dropping you into a wall of settings. A
 dismissible **welcome card** appears on the Command Center for fresh setups with

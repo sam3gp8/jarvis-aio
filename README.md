@@ -76,7 +76,7 @@ Everything past this point — vision, doorbell analysis, the Iron Man HUD's liv
 **Optional add-ons** (each unlocks more, none required to begin):
 
 - *Voice* — HA OS / Supervised recommended; JARVIS auto-installs the Piper / Whisper / openWakeWord voice stack via the Supervisor. On Container/Core you'd add those yourself.
-- *Vision* — a Gemini API key for camera reasoning, plus Nest cameras/doorbell and/or Frigate NVR.
+- *Vision* — a Gemini API key for camera reasoning, plus cameras. Any HA camera works; **Frigate** is the recommended backbone (detection + snapshots), and Nest cameras/doorbells are supported through it.
 - *Voice hardware* — ESP32-S3 satellites and a Piper TTS voice.
 - *Fully local inference* — a GPU box running Ollama; point `llm_base_url` at it and JARVIS runs entirely on your own hardware, no cloud account.
 
@@ -106,7 +106,17 @@ https://github.com/sam3gp8/jarvis-aio
 
 *Everything in this section is optional.* You need it only for the vision features (doorbell analysis, package detection, the HUD's live camera tiles). Skip it entirely if you're starting with voice and reasoning — you can come back when you want cameras.
 
-### Nest cameras (prerequisite for camera intelligence)
+### How JARVIS uses cameras
+
+JARVIS doesn't require any *specific* camera brand — it works with **any camera Home Assistant exposes** as a `camera.*` entity, pulling stills via the standard image API. But it's built to lean on **[Frigate](https://frigate.video)** as the backbone, and that's the recommended setup:
+
+- **Frigate is the funnel.** Its on-camera object detection for people and packages (fired over MQTT) is far more reliable than a vision model guessing at a raw feed, and its event snapshots are high-resolution and cropped to the detection. JARVIS listens to `frigate/events`, consumes those snapshots directly, and its face recognition reads Frigate's `tracked_object_update` / `last_recognized_face` channels. If you run cameras at all, running them through Frigate is what makes the vision features sharp.
+- **Nest is a supported source, not a requirement.** JARVIS can consume Nest cameras and doorbells too — but Google's cameras need extra plumbing (below) because of how their stream API behaves. If you have Nest gear, route it *into* Frigate via go2rtc and you get the best of both: Nest's doorbell events plus Frigate's detection and durable frames.
+- **Any other camera** (generic RTSP, local ONVIF, etc.) works via the standard snapshot path with no special setup — add it to Frigate for detection, or let JARVIS pull stills directly.
+
+The rest of this section is the **Nest-specific** setup. If you don't use Nest, you can skip it entirely — point Frigate at your cameras and you're done.
+
+### Nest cameras (only if you use Nest)
 
 JARVIS consumes Nest cameras and doorbells **through the official [Google Nest integration](https://www.home-assistant.io/integrations/nest/)** — it does not (and legally cannot) talk to Google's Smart Device Management API with its own credentials, because Google binds SDM access to *your* Google account and Device Access project. One-time setup:
 
@@ -114,9 +124,9 @@ JARVIS consumes Nest cameras and doorbells **through the official [Google Nest i
 2. **Credentials in HA** — add your OAuth Client ID + Secret under *Settings → Devices & Services → Application Credentials*, then add the **Google Nest** integration and authorize it. Your cameras and doorbell appear as `camera.*` entities.
 3. **That's it for JARVIS** — it auto-detects Nest-platform cameras and uses the right frame source for each event (event media, stream-wake, or its own snapshot path). Battery/WebRTC-only Nest cameras can't produce ordinary still images while idle; the JARVIS panel handles this automatically by escalating to its own snapshot tier, so the tile shows frames instead of going blank.
 
-### Continuous streaming for Google Nest cameras (recommended)
+### Continuous streaming for Nest cameras (recommended if you use Nest)
 
-Google's SDM API hands out **WebRTC/RTSP stream URLs that expire every ~5 minutes** and won't reliably produce a still image while a camera is idle. That's fine for the occasional glance, but it means live tiles can stall and 24/7 NVR recording (Frigate) chokes. The durable fix — and the one JARVIS is built to lean on — is to **restream each Nest camera through [go2rtc](https://github.com/AlexxIT/go2rtc)**, which speaks Google's SDM protocol natively, transparently renews the expiring stream, and republishes a rock-solid RTSP/WebRTC feed that Home Assistant, Frigate, and JARVIS all consume like any local camera. If you already run **Frigate**, you already have a go2rtc instance — it's bundled.
+Google's SDM API hands out **WebRTC/RTSP stream URLs that expire every ~5 minutes** and won't reliably produce a still image while a camera is idle. That's fine for the occasional glance, but it means live tiles can stall and 24/7 NVR recording (Frigate) chokes. The durable fix — and the one JARVIS is built to lean on — is to **restream each Nest camera through [go2rtc](https://github.com/AlexxIT/go2rtc)**, which speaks Google's SDM protocol natively, transparently renews the expiring stream, and republishes a rock-solid RTSP/WebRTC feed that Home Assistant, Frigate, and JARVIS all consume like any local camera. **If you already run Frigate, you already have a go2rtc instance — it's bundled** — which is the other reason Frigate is the recommended backbone: it's doing double duty as both your detector and your Nest restreamer.
 
 **1. Point go2rtc at your Nest account.** In your go2rtc (or Frigate) config, add a `nest:` source per camera. You need five values, all from the same Device Access setup you did above:
 
