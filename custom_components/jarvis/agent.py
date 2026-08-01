@@ -1039,6 +1039,11 @@ async def _exec_get_entity_state(hass: HomeAssistant, args: dict) -> str:
                 "entity_id": eid,
                 "state": state.state,
                 "attributes": useful,
+                # When the state last changed / was last written — lets JARVIS
+                # answer "when did this turn on?" by reading history instead of
+                # (wrongly) acting on a question about the past.
+                "last_changed": state.last_changed.isoformat() if state.last_changed else None,
+                "last_updated": state.last_updated.isoformat() if state.last_updated else None,
             })
         else:
             results.append({"entity_id": eid, "error": "not found"})
@@ -2335,6 +2340,19 @@ async def run_agent(
         f"anything irreversible. (6) If you don't know, say so plainly; an honest "
         f"gap beats an invented answer. Reason step-by-step internally; report "
         f"conclusions, not your scratchpad.\n\n"
+        f"### Questions are not commands — this is critical\n"
+        f"A question about a device is NOT a request to change it. If the user "
+        f"asks WHEN, WHY, WHETHER, or HOW something happened — 'when did you turn "
+        f"on the nightstand?', 'why is the lamp on?', 'did you lock the door?', "
+        f"'is the light on?' — they want an ANSWER, not an action. NEVER call a "
+        f"turn-on / turn-off / set tool to answer a question about the past or "
+        f"present state. To answer 'when/why did X turn on', call get_entity_state "
+        f"on X and read its last_changed timestamp; report that. Only act when the "
+        f"user gives an actual instruction ('turn on the lamp', 'lock the door'). "
+        f"If a sentence contains device words but is phrased as a question, it is "
+        f"a question. When unsure whether it's a question or a command, ask — do "
+        f"not act. Re-issuing an action the user is questioning (turning on a "
+        f"light they just asked you about) is a serious error.\n\n"
         f"## Critical rules\n"
         f"1. ALWAYS use search_entities first if you're unsure of an entity_id. "
         f"Never guess entity_ids — search for them.\n"

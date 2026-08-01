@@ -38,3 +38,18 @@ def test_prompt_keeps_entity_search_rule():
     # rule 1 (search, never guess entity_ids) predates the methodology section
     # and must survive alongside it
     assert "Never guess entity_ids" in AGENT_SRC
+
+
+def test_prompt_has_questions_are_not_commands_rule():
+    # v6.70.2: questions about the past must not trigger actions
+    assert "Questions are not commands" in AGENT_SRC
+    assert "A question about a device is NOT a request to change it" in AGENT_SRC
+    # must point at the real mechanism for answering "when did X turn on"
+    assert "last_changed" in AGENT_SRC
+
+
+def test_get_entity_state_returns_last_changed():
+    # the rule tells the model to read last_changed; the tool must actually
+    # return it, or the instruction is hollow
+    assert '"last_changed"' in AGENT_SRC
+    assert "state.last_changed.isoformat()" in AGENT_SRC

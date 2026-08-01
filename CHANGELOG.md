@@ -4,6 +4,30 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.70.2] — stop acting on questions; fix the diagnostics download
+Two bug fixes.
+
+**Questions no longer trigger actions.** Asking "when did you turn on the
+nightstand and why?" could cause JARVIS to turn the light on — treating a
+question about the past as a command in the present, then repeating it each time
+you asked again. Two changes stop this: the agent prompt now carries an explicit,
+prominent rule that a question about a device (when/why/whether/how) is never a
+request to change it — it answers by reading state instead of acting — and
+get_entity_state now returns each entity's last_changed / last_updated
+timestamp, so "when did this turn on?" is a question JARVIS can actually answer
+by looking rather than guessing. Real device commands ("turn on the lamp") work
+exactly as before.
+
+**The Download Diagnostics button works.** The integration page's diagnostics
+download failed with "File wasn't available on site" because the integration
+never exposed Home Assistant's diagnostics entry point. It now produces a useful,
+credential-redacted dump — config, service health, cognitive/connectivity
+status, and entity counts — with all API keys, tokens, and the address stripped
+before anything is written.
+
+9 new tests, heavy on the diagnostics redaction (nothing sensitive reaches the
+file) and the questions-are-not-commands prompt guard.
+
 ## [6.70.1] — remove hardcoded sample address from the Residence tab
 The Residence tab displayed a specific street address as its default when none
 was configured — baked into the property banner, a fallback, an input
