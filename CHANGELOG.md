@@ -4,6 +4,35 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.71.0] — real-time hazard monitor: earthquakes, severe weather, disasters
+JARVIS now watches for natural hazards near home and speaks up the same way it
+does for anything else. Three free, no-key government/agency feeds, polled every
+10 minutes, scoped to your location:
+
+- **Earthquakes** — USGS, filtered to a radius around home and a minimum
+  magnitude (default 300 km / M2.5), so you hear about a real nearby quake, not
+  micro-tremors or events across the world.
+- **Severe weather** — the National Weather Service's active alerts for your
+  exact point, filtered to genuinely notable severities (Extreme / Severe by
+  default) so a tornado or flash-flood warning alerts but a minor advisory
+  doesn't.
+- **Natural disasters** — NASA's Earth Observatory tracker for wildfires,
+  volcanic activity, and severe storms within range of home.
+
+Location defaults to the coordinates Home Assistant already knows, with an
+optional lat/long override in the panel. Each feed dedups on stable event IDs so
+a standing event never re-alerts, and a feed that can't be reached is skipped
+quietly — a failed fetch is never turned into a false alarm. Alerts push to your
+phone and speak through your speakers like every other JARVIS alert.
+
+New: a hazard_report agent tool ("any earthquakes nearby?", "are there weather
+warnings?"), a Hazard Monitor panel card (master switch, per-feed toggles,
+location override, radius/magnitude tuning, and a Scan Now button that runs a
+live read-only check), the jarvis/hazard WS command, and the config to drive it.
+Off by default — enable it in Settings. Crime monitoring is intentionally left
+as a future opt-in, since there's no clean location-specific crime source to
+build on. 35 new tests.
+
 ## [6.70.3] — service health stops crying wolf
 The System Diagnostics panel was reporting core services as DOWN when they were
 actually working — a synthetic health poke that missed once (for example, an

@@ -98,6 +98,16 @@ const hass = {
       ], advice: ["Heads up — Dryer and Oven are running at 9.2 kW, over your peak."] };
       if (m.action === "set_agency") { _energyAgency = m.agency; return { watts: 9200, kw: 9.2, over_peak: true, agency: m.agency, configured_agency: m.agency, running: [], advice: [] }; }
     }
+    if (m.type === "jarvis/hazard") {
+      if (m.action === "status") return { enabled: true, center: [40.77, -75.61], using_override: false,
+        quake_radius_km: 300, quake_min_mag: 2.5, disaster_radius_km: 300,
+        feeds: { earthquakes: true, weather: true, disasters: true } };
+      if (m.action === "scan") return { ok: true, center: [40.77, -75.61],
+        earthquakes: [{ id: "q1", mag: 3.4, place: "12km N of town", dist_km: 12 }],
+        weather: [{ id: "w1", event: "Tornado Warning", severity: "Extreme", area: "Lehigh, PA" }],
+        disasters: [{ id: "d1", title: "Wildfire", category: "Wildfires", dist_km: 40 }],
+        counts: { earthquakes: 1, weather: 1, disasters: 1 } };
+    }
     if (m.type === "jarvis/mode") {
       if (m.action === "status") return { active: _activeMode, since: 0, reason: "", description: "Default operation.", overrides: {}, available: [
         { name: "normal", description: "Default operation." },
@@ -655,6 +665,33 @@ setTimeout(async () => {
     ["diagnostics overall summary rendered", /HEALTHY|WARN|DOWN/i.test(diagOverall)],
     ["diagnostics run-check button present", !!el.shadowRoot.getElementById("diag-refresh")],
   );
+
+  // ── Multi-Hazard Monitor panel (v6.71.0) ──
+  await el._wireHazard();
+  const hazLoc = el.shadowRoot.getElementById("haz-loc")?.textContent || "";
+  const hazOverall = el.shadowRoot.getElementById("hazard-overall")?.textContent || "";
+  checks.push(
+    ["hazard card present with enable toggle", !!el.shadowRoot.querySelector('[data-cfg-key="hazard_monitor_enabled"]')],
+    ["hazard card has three feed toggles",
+      !!el.shadowRoot.querySelector('[data-cfg-key="hazard_quakes_on"]') &&
+      !!el.shadowRoot.querySelector('[data-cfg-key="hazard_weather_on"]') &&
+      !!el.shadowRoot.querySelector('[data-cfg-key="hazard_disasters_on"]')],
+    ["hazard card has location override inputs",
+      !!el.shadowRoot.querySelector('[data-cfg-key="hazard_lat"]') &&
+      !!el.shadowRoot.querySelector('[data-cfg-key="hazard_lon"]')],
+    ["hazard status resolves the monitoring center", /40\.77/.test(hazLoc)],
+    ["hazard overall reflects enabled state", /ON|OFF/.test(hazOverall)],
+    ["hazard scan-now button present", !!el.shadowRoot.getElementById("haz-scan")],
+  );
+  // exercise a live scan render
+  const hazScanBtn = el.shadowRoot.getElementById("haz-scan");
+  if (hazScanBtn) {
+    hazScanBtn.click();
+    await new Promise(r => setTimeout(r, 30));
+    const hazBody = el.shadowRoot.getElementById("haz-body")?.textContent || "";
+    checks.push(["hazard scan renders quake + weather + disaster",
+      /M3\.4/.test(hazBody) && /Tornado/.test(hazBody) && /Wildfire/.test(hazBody)]);
+  }
 
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }

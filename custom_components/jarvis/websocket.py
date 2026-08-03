@@ -76,6 +76,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_intrusion)
         websocket_api.async_register_command(hass, ws_mode)
         websocket_api.async_register_command(hass, ws_energy)
+        websocket_api.async_register_command(hass, ws_hazard)
         websocket_api.async_register_command(hass, ws_biometrics)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
@@ -738,6 +739,15 @@ async def ws_get_panel_data(
                 "voice_confirm_enabled": bool(_runtime_opt(hass, entry, "voice_confirm_enabled", False)),
                 "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
                 "intrusion_response_timeout": _runtime_opt(hass, entry, "intrusion_response_timeout", 120),
+                # Hazard monitor controls — same read-back requirement (v6.71.0)
+                "hazard_monitor_enabled": bool(_runtime_opt(hass, entry, "hazard_monitor_enabled", False)),
+                "hazard_lat":             _runtime_opt(hass, entry, "hazard_lat", ""),
+                "hazard_lon":             _runtime_opt(hass, entry, "hazard_lon", ""),
+                "hazard_quakes_on":       bool(_runtime_opt(hass, entry, "hazard_quakes_on", True)),
+                "hazard_weather_on":      bool(_runtime_opt(hass, entry, "hazard_weather_on", True)),
+                "hazard_disasters_on":    bool(_runtime_opt(hass, entry, "hazard_disasters_on", True)),
+                "hazard_quake_radius_km": _runtime_opt(hass, entry, "hazard_quake_radius_km", 300),
+                "hazard_quake_min_mag":   _runtime_opt(hass, entry, "hazard_quake_min_mag", 2.5),
                 # Residence model detail controls — same read-back requirement:
                 # these save fine but reset on re-render unless surfaced here.
                 "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
@@ -1223,6 +1233,16 @@ PANEL_WRITABLE_KEYS = {
     "satellite_start_action",     # dict: satellite → esphome start action
     "intrusion_response_timeout", # float: secs before unanswered alert escalates
     "onboarding_dismissed",       # bool: user dismissed the first-run welcome card
+    # Multi-hazard monitor (v6.71.0)
+    "hazard_monitor_enabled",     # bool: master on/off for hazard polling
+    "hazard_lat",                 # float|"": location override latitude
+    "hazard_lon",                 # float|"": location override longitude
+    "hazard_quakes_on",           # bool: earthquake feed
+    "hazard_weather_on",          # bool: NWS severe-weather feed
+    "hazard_disasters_on",        # bool: NASA EONET disaster feed
+    "hazard_quake_radius_km",     # float: earthquake radius
+    "hazard_quake_min_mag",       # float: min magnitude to alert
+    "hazard_disaster_radius_km",  # float: disaster radius
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",
@@ -2042,6 +2062,32 @@ async def ws_energy(
     except Exception as exc:
         _LOGGER.exception("ws_energy failed: %s", exc)
         connection.send_error(msg["id"], "energy_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/hazard",
+    vol.Required("action"): vol.In(["status", "scan"]),
+})
+@websocket_api.async_response
+async def ws_hazard(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Multi-hazard monitor for the panel (v6.71.0): 'status' returns config +
+    the resolved monitoring center; 'scan' runs a live read-only check of all
+    feeds so the user can confirm it's wired to their area (does not alert or
+    consume dedup)."""
+    try:
+        from . import hazard_monitor
+        if msg["action"] == "scan":
+            res = await hazard_monitor.scan_now(hass)
+        else:
+            res = await hazard_monitor.status(hass)
+        connection.send_result(msg["id"], res)
+    except Exception as exc:
+        _LOGGER.exception("ws_hazard failed: %s", exc)
+        connection.send_error(msg["id"], "hazard_failed", str(exc))
 
 
 @websocket_api.websocket_command({

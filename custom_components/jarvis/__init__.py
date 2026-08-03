@@ -277,6 +277,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS: health sweep registration failed: %s", exc)
 
+    # Multi-hazard monitor (v6.71.0): polls USGS/NWS/EONET every 10 min for new
+    # nearby significant events, scoped to home coordinates (or a panel override).
+    # No-op unless the user enables it; each feed fails safe (never fabricates).
+    HAZARD_INTERVAL = timedelta(minutes=10)
+
+    async def _hazard_tick(_now) -> None:
+        try:
+            from . import hazard_monitor
+            honorific = entry.options.get(CONF_HONORIFIC, entry.data.get(CONF_HONORIFIC, DEFAULT_HONORIFIC))
+            res = await hazard_monitor.periodic_check(hass, honorific)
+            if res.get("fired"):
+                _LOGGER.debug("JARVIS hazard sweep: %s", res)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS hazard tick error: %s", exc)
+
+    try:
+        camera_unsubs.append(async_track_time_interval(hass, _hazard_tick, HAZARD_INTERVAL))
+        _LOGGER.info("JARVIS: multi-hazard monitor active (sweep every %s min)",
+                     int(HAZARD_INTERVAL.total_seconds() // 60))
+    except Exception as exc:
+        _LOGGER.debug("JARVIS: hazard monitor registration failed: %s", exc)
+
     # Register DoubleTake MQTT face recognition listener
     recognition_unsubs = await register_recognition_listener(hass)
 

@@ -746,6 +746,24 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "hazard_report",
+            "description": (
+                "Report real-time natural-hazard and severe-weather activity "
+                "near home — recent nearby earthquakes (USGS), active severe "
+                "weather alerts (NWS), and natural disasters like wildfires or "
+                "volcanic activity (NASA EONET). Use when asked 'any "
+                "earthquakes nearby', 'are there weather warnings', 'any "
+                "wildfires near us', 'is it safe outside', or for a general "
+                "hazard check. Scoped to the home location. Reports what's "
+                "currently active; it does not re-announce (that's the "
+                "background monitor's job)."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_mode",
             "description": (
                 "Switch JARVIS's operational mode — a high-level state that "
@@ -1824,6 +1842,16 @@ async def _exec_energy_status(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_hazard_report(hass: HomeAssistant, args: dict) -> str:
+    """Live nearby hazard scan — earthquakes, severe weather, disasters (v6.71.0)."""
+    try:
+        from . import hazard_monitor
+        res = await hazard_monitor.scan_now(hass)
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
     """Switch the operational mode (Directive Layer, v6.61.0)."""
     try:
@@ -2033,6 +2061,7 @@ _TOOL_MAP = {
     "system_diagnostics":  _exec_system_diagnostics,
     "set_mode":            _exec_set_mode,
     "energy_status":       _exec_energy_status,
+    "hazard_report":       _exec_hazard_report,
     "wellbeing_context":   _exec_wellbeing_context,
     "search_documents":    _exec_search_documents,
     "ingest_documents":    _exec_ingest_documents,
