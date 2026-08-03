@@ -620,6 +620,17 @@ class JarvisAgent(conversation.ConversationEntity):
             user_input.text[:60], device_id,
         )
 
+        # Transcribed voice text arriving here means STT just worked (HA's
+        # pipeline transcribed speech and routed it to us). Record it as a real
+        # STT success so the health panel reflects reality, not a synthetic poke
+        # (v6.70.3). Only voice-originated turns count — device_id present.
+        if device_id and (user_input.text or "").strip():
+            try:
+                from .diagnostics.service_health import record_usage
+                record_usage("stt", True)
+            except Exception:
+                pass
+
         # ── v5.7.01: Multi-wake dedup ────────────────────────────────────
         # If another satellite already processed this exact text within
         # the dedup window, return the cached response WITHOUT routing

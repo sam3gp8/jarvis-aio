@@ -4,6 +4,33 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.70.3] — service health stops crying wolf
+The System Diagnostics panel was reporting core services as DOWN when they were
+actually working — a synthetic health poke that missed once (for example, an
+embedding model unloaded from VRAM at idle, or a speech engine that only goes
+available on demand) flipped the service to an alarming red, even though real
+use succeeded moments before. Reworked the health model so it reflects reality:
+
+- **Three states instead of two.** OK (verified working), IDLE (reachable but
+  not recently exercised, or a synthetic poke missed — shown calmly, never red),
+  and DOWN (reserved for a genuine failure during real use). A cold model or an
+  idle engine now reads IDLE, not DOWN.
+- **Only real use can mark something DOWN.** The actual call sites report their
+  outcomes — a real document ingest/search for embeddings, a transcribed voice
+  turn for STT, an agent call for the LLM, a spoken announcement for TTS — and
+  only a genuine-use failure turns a service red. The synthetic probe can set OK
+  or IDLE but never DOWN.
+- **Probes tolerate a transient miss.** Health checks retry a couple times
+  before concluding, so a momentary blip (like a model loading on demand)
+  doesn't alarm.
+- **Hourly background sweep.** The health check now re-runs itself hourly,
+  gently — reachability only, never alarming on its own — so the panel stays
+  current without opening it.
+
+This directly fixes the false "Embeddings DOWN" and "STT DOWN" readings when both
+were functioning. 20 new/updated tests covering the three-state logic, the
+real-usage tracking, and probe retry.
+
 ## [6.70.2] — stop acting on questions; fix the diagnostics download
 Two bug fixes.
 

@@ -160,7 +160,7 @@ async def test_embed_returns_none_without_base(emb, fake_hass, monkeypatch):
 
 async def test_probe_ok_reports_dim(emb, fake_hass, monkeypatch):
     monkeypatch.setattr(emb, "_ollama_base", lambda: "http://ollama.local:11434")
-    async def _one(hass, text): return [0.0] * 768
+    async def _one(hass, text, _is_probe=False): return [0.0] * 768
     monkeypatch.setattr(emb, "embed_one", _one)
     res = await emb.probe(fake_hass)
     assert res["ok"] is True and res["dim"] == 768

@@ -217,5 +217,15 @@ async def async_announce(
             "tts", "speak", service_data,
             target={"entity_id": tts_entity}, blocking=False,
         )
+        try:
+            from .diagnostics.service_health import record_usage
+            record_usage("tts", True)
+        except Exception:
+            pass
     except Exception as exc:
         _LOGGER.warning("JARVIS TTS failed (%s): %s", context, exc)
+        try:
+            from .diagnostics.service_health import record_usage
+            record_usage("tts", False, str(exc)[:120])
+        except Exception:
+            pass

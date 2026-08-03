@@ -193,10 +193,14 @@ def search_vectors(query_vec: list[float], k: int = 4) -> list[dict]:
 
 # ── Ollama embedding calls (async, aiohttp — no new deps) ────────────────────
 
-async def embed_texts(hass, texts: list[str]) -> Optional[list[list[float]]]:
+async def embed_texts(hass, texts: list[str], _is_probe: bool = False) -> Optional[list[list[float]]]:
     """Embed a list of strings via Ollama. Returns list of vectors, or None on
     any failure (caller falls back to keyword). Uses /api/embed (batch), with a
-    fallback to the legacy /api/embeddings per-item for older Ollama."""
+    fallback to the legacy /api/embeddings per-item for older Ollama.
+
+    Real ingest/search calls report their outcome to service_health so a genuine
+    failure marks embeddings DOWN; the synthetic probe (_is_probe=True) does not
+    self-report (a probe miss must never cry wolf)."""
     base = _ollama_base()
     if not base or not texts:
         return None
@@ -210,9 +214,22 @@ async def embed_texts(hass, texts: list[str]) -> Optional[list[list[float]]]:
         batch = texts[i:i + _EMBED_BATCH]
         vecs = await _embed_batch(session, base, model, batch)
         if vecs is None:
+            if not _is_probe:
+                _record_health(False, "Ollama embed call returned no vectors")
             return None
         out.extend(vecs)
+    if not _is_probe:
+        _record_health(True)
     return out
+
+
+def _record_health(ok: bool, detail: str = "") -> None:
+    """Report a real embedding outcome to service_health (never raises)."""
+    try:
+        from .diagnostics.service_health import record_usage
+        record_usage("embeddings", ok, detail)
+    except Exception:
+        pass
 
 
 async def _embed_batch(session, base, model, batch) -> Optional[list[list[float]]]:
@@ -256,20 +273,22 @@ async def _embed_batch(session, base, model, batch) -> Optional[list[list[float]
     return out
 
 
-async def embed_one(hass, text: str) -> Optional[list[float]]:
+async def embed_one(hass, text: str, _is_probe: bool = False) -> Optional[list[float]]:
     """Embed a single query string. None on failure."""
-    res = await embed_texts(hass, [text])
+    res = await embed_texts(hass, [text], _is_probe=_is_probe)
     return res[0] if res else None
 
 
 async def probe(hass) -> dict:
     """Check whether embeddings are reachable — for the Settings status/test.
-    Returns {"ok", "model", "base", "dim"?, "error"?}. Never raises."""
+    Returns {"ok", "model", "base", "dim"?, "error"?}. Never raises. This is a
+    SYNTHETIC poke — it does not record usage health (a probe miss must never
+    mark the service DOWN; only real ingest/search failures do)."""
     base = _ollama_base()
     if not base:
         return {"ok": False, "error": "no Ollama base URL configured "
                                       "(set llm_base_url to your Ollama host)"}
-    vec = await embed_one(hass, "jarvis embedding health check")
+    vec = await embed_one(hass, "jarvis embedding health check", _is_probe=True)
     if not vec:
         return {"ok": False, "model": _model(), "base": base,
                 "error": "Ollama did not return an embedding — is the embed "

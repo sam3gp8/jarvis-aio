@@ -257,6 +257,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS: package monitor registration failed: %s", exc)
 
+    # Hourly gentle service-health sweep (v6.70.3): re-runs the core-dependency
+    # checks on its own so the panel stays current without the user opening it.
+    # It's reachability-only and never alarms — a synthetic miss yields IDLE, and
+    # only a real-usage failure (recorded by the actual call sites) shows DOWN.
+    HEALTH_INTERVAL = timedelta(hours=1)
+
+    async def _health_tick(_now) -> None:
+        try:
+            from .diagnostics import run_service_health
+            res = await run_service_health(hass)
+            _LOGGER.debug("JARVIS hourly health: %s", res.get("summary"))
+        except Exception as exc:
+            _LOGGER.debug("JARVIS health tick error: %s", exc)
+
+    try:
+        camera_unsubs.append(async_track_time_interval(hass, _health_tick, HEALTH_INTERVAL))
+        _LOGGER.info("JARVIS: hourly service-health sweep active")
+    except Exception as exc:
+        _LOGGER.debug("JARVIS: health sweep registration failed: %s", exc)
+
     # Register DoubleTake MQTT face recognition listener
     recognition_unsubs = await register_recognition_listener(hass)
 

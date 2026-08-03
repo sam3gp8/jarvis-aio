@@ -72,43 +72,73 @@ def test_redact_leaves_plain_url(sh):
 
 # ── TTS/STT entity checks ────────────────────────────────────────────────────
 
-def test_speech_no_engine_present_is_down(sh):
+def test_speech_no_engine_present_is_idle_not_down(sh):
+    # v6.70.3: no engine registered is a setup gap shown calmly (IDLE), not a
+    # scary red DOWN — only a real transcription failure marks DOWN.
+    sh._USAGE.clear()
     hass = _Hass({"tts": []})
     out = sh._check_speech_entity(hass, "tts", "TTS", "auto")
-    assert out["status"] == "down"
-    assert "no tts engine" in out["detail"]
+    assert out["status"] == "idle"
 
 
 def test_speech_auto_picks_available(sh):
+    sh._USAGE.clear()
     hass = _Hass({"stt": [_State("stt.whisper", "idle")]})
     out = sh._check_speech_entity(hass, "stt", "STT", "auto")
     assert out["status"] == "ok"
     assert out["entity"] == "stt.whisper"
 
 
-def test_speech_auto_all_unavailable_is_down(sh):
+def test_speech_auto_all_unavailable_is_idle_not_down(sh):
+    # engines present but idle/unavailable → IDLE (they come available on
+    # demand), NOT down. This was the STT false-alarm bug.
+    sh._USAGE.clear()
     hass = _Hass({"tts": [_State("tts.piper", "unavailable")]})
     out = sh._check_speech_entity(hass, "tts", "TTS", "auto")
+    assert out["status"] == "idle"
+
+
+def test_speech_recent_real_use_beats_unavailable(sh):
+    # if a real transcription just succeeded, unavailable entities still read OK
+    sh._USAGE.clear()
+    sh.record_usage("stt", True)
+    hass = _Hass({"stt": [_State("stt.whisper", "unavailable")]})
+    out = sh._check_speech_entity(hass, "stt", "STT", "auto")
+    assert out["status"] == "ok"
+
+
+def test_speech_real_failure_marks_down(sh):
+    # a REAL stt failure during use is authoritative → DOWN
+    sh._USAGE.clear()
+    sh.record_usage("stt", False, "transcription timed out")
+    hass = _Hass({"stt": [_State("stt.whisper", "idle")]})
+    out = sh._check_speech_entity(hass, "stt", "STT", "auto")
     assert out["status"] == "down"
+    assert "transcription timed out" in out["detail"]
 
 
 def test_speech_specific_engine_available(sh):
+    sh._USAGE.clear()
     hass = _Hass({"tts": [_State("tts.piper", "idle"), _State("tts.cloud", "idle")]})
     out = sh._check_speech_entity(hass, "tts", "TTS", "tts.piper")
     assert out["status"] == "ok" and out["entity"] == "tts.piper"
 
 
 def test_speech_specific_engine_missing_is_warn(sh):
+    sh._USAGE.clear()
     hass = _Hass({"tts": [_State("tts.cloud", "idle")]})
     out = sh._check_speech_entity(hass, "tts", "TTS", "tts.piper")
     assert out["status"] == "warn"
     assert "not found" in out["detail"]
 
 
-def test_speech_specific_engine_unavailable_is_down(sh):
+def test_speech_specific_engine_unavailable_is_idle_not_down(sh):
+    # v6.70.3: a configured engine reading unavailable is IDLE (comes available
+    # on demand), not DOWN — unless a real request failed.
+    sh._USAGE.clear()
     hass = _Hass({"stt": [_State("stt.whisper", "unavailable")]})
     out = sh._check_speech_entity(hass, "stt", "STT", "stt.whisper")
-    assert out["status"] == "down"
+    assert out["status"] == "idle"
 
 
 # ── aggregate overall status ─────────────────────────────────────────────────
@@ -155,3 +185,124 @@ def test_system_diagnostics_tool_registered(load):
     names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
     assert "system_diagnostics" in names
     assert "system_diagnostics" in agent._TOOL_MAP
+
+
+# ── real-usage outcome tracking (v6.70.3) ────────────────────────────────────
+
+def test_record_usage_success_then_ok(sh):
+    sh._USAGE.clear()
+    sh.record_usage("embeddings", True)
+    assert sh._recently_used_ok("embeddings") is True
+    assert sh._recent_real_failure("embeddings") is None
+
+
+def test_record_usage_failure_marks_recent_failure(sh):
+    sh._USAGE.clear()
+    sh.record_usage("embeddings", False, "boom")
+    assert sh._recent_real_failure("embeddings") == "boom"
+
+
+def test_success_after_failure_clears_it(sh):
+    sh._USAGE.clear()
+    sh.record_usage("embeddings", False, "boom")
+    sh.record_usage("embeddings", True)          # a later success clears the fail
+    assert sh._recent_real_failure("embeddings") is None
+
+
+def test_real_failure_expires(sh, monkeypatch):
+    sh._USAGE.clear()
+    sh.record_usage("stt", False, "old failure")
+    # jump past the DOWN window
+    import time as _t
+    future = _t.time() + sh._REAL_FAIL_TTL + 10
+    monkeypatch.setattr(sh.time, "time", lambda: future)
+    assert sh._recent_real_failure("stt") is None   # no longer alarming
+
+
+def test_recent_use_window_expires(sh, monkeypatch):
+    sh._USAGE.clear()
+    sh.record_usage("llm", True)
+    import time as _t
+    future = _t.time() + sh._RECENT_USE_TTL + 10
+    monkeypatch.setattr(sh.time, "time", lambda: future)
+    assert sh._recently_used_ok("llm") is False
+
+
+def test_unknown_key_is_neutral(sh):
+    sh._USAGE.clear()
+    assert sh._recent_real_failure("nope") is None
+    assert sh._recently_used_ok("nope") is False
+
+
+async def test_retry_async_tolerates_transient_miss(sh):
+    # first call misses, second succeeds → returns the success (no false DOWN)
+    calls = {"n": 0}
+    async def _flaky():
+        calls["n"] += 1
+        return {"ok": calls["n"] >= 2}
+    res = await sh._retry_async(_flaky, attempts=3, delay=0)
+    assert res["ok"] is True
+    assert calls["n"] == 2
+
+
+async def test_retry_async_all_miss_returns_last(sh):
+    async def _always_miss():
+        return {"ok": False, "error": "still cold"}
+    res = await sh._retry_async(_always_miss, attempts=2, delay=0)
+    assert res["ok"] is False
+
+
+# ── embeddings check: no more false DOWN (v6.70.3) ───────────────────────────
+
+def _install_emb_stub(monkeypatch, probe_result):
+    """Install a stub jc.embeddings that _check_embeddings will import. Sets BOTH
+    sys.modules AND the jc package attribute, because `from .. import embeddings`
+    reads the package attribute when present. monkeypatch restores both."""
+    import sys, types
+    emb = types.ModuleType("jc.embeddings")
+    emb.is_enabled = lambda: True
+    async def _probe(h): return probe_result
+    emb.probe = _probe
+    monkeypatch.setitem(sys.modules, "jc.embeddings", emb)
+    if "jc" in sys.modules:
+        monkeypatch.setattr(sys.modules["jc"], "embeddings", emb, raising=False)
+    return emb
+
+
+async def test_embeddings_probe_miss_is_idle_not_down(sh, monkeypatch):
+    # semantic enabled, probe keeps missing, no real usage → IDLE (was DOWN)
+    sh._USAGE.clear()
+    _install_emb_stub(monkeypatch, {"ok": False, "error": "cold"})
+    out = await sh._check_embeddings(_Hass({}))
+    assert out["status"] == "idle"
+
+
+async def test_embeddings_probe_miss_but_recent_use_is_ok(sh, monkeypatch):
+    sh._USAGE.clear()
+    sh.record_usage("embeddings", True)          # real embed worked recently
+    _install_emb_stub(monkeypatch, {"ok": False, "error": "model idle"})
+    out = await sh._check_embeddings(_Hass({}))
+    assert out["status"] == "ok"               # recent real success wins
+
+
+async def test_embeddings_real_failure_is_down(sh, monkeypatch):
+    sh._USAGE.clear()
+    sh.record_usage("embeddings", False, "ingest failed")
+    _install_emb_stub(monkeypatch, {"ok": True, "model": "nomic", "dim": 768})
+    out = await sh._check_embeddings(_Hass({}))
+    # a real failure is authoritative even if the probe now succeeds
+    assert out["status"] == "down"
+    assert "ingest failed" in out["detail"]
+
+
+async def test_overall_idle_services_not_alarming(sh, monkeypatch):
+    # a mix of ok + idle should be overall OK (idle never alarms)
+    async def _llm(h): return {"name": "LLM", "key": "llm", "status": "ok", "detail": ""}
+    async def _emb(h): return {"name": "Embeddings", "key": "embeddings", "status": "idle", "detail": ""}
+    monkeypatch.setattr(sh, "_check_llm", _llm)
+    monkeypatch.setattr(sh, "_check_embeddings", _emb)
+    monkeypatch.setattr(sh, "_check_tts", lambda h: {"name": "TTS", "key": "tts", "status": "idle", "detail": ""})
+    monkeypatch.setattr(sh, "_check_stt", lambda h: {"name": "STT", "key": "stt", "status": "ok", "detail": ""})
+    res = await sh.run_service_health(_Hass({}))
+    assert res["overall"] == "ok"              # NOT down — idle is fine
+    assert "idle" in res["summary"]

@@ -2433,6 +2433,12 @@ async def run_agent(
             result = await hass.async_add_executor_job(
                 client.chat, working, tools or None, 1024, temperature,
             )
+            # A real agent call round-tripped → LLM is genuinely up.
+            try:
+                from .diagnostics.service_health import record_usage
+                record_usage("llm", True)
+            except Exception:
+                pass
         except Exception as exc:
             if _is_tool_format_error(exc):
                 # The model is reachable but emitted malformed tool syntax —
