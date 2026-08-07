@@ -764,6 +764,50 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "activity_history",
+            "description": (
+                "Read Home Assistant's actual recorded history — what has "
+                "happened in the home over a time window. Two lenses via 'kind': "
+                "'history' gives the device timeline and counts (every state "
+                "change with timestamps) for an entity or area — use for 'when "
+                "did the front door open?', 'how many times did the garage open "
+                "today?', 'what was the thermostat overnight?'. 'logbook' gives "
+                "the readable activity narrative — use for 'what happened while I "
+                "was out?', 'what's been going on in the house?'. This reads HA's "
+                "real records, not a guess. Specify 'entity' (name or entity_id) "
+                "or 'area', and 'hours' to look back (default 24)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["history", "logbook"],
+                        "description": "'history' for the device timeline/counts, "
+                                       "'logbook' for the readable narrative.",
+                    },
+                    "entity": {
+                        "type": "string",
+                        "description": "Entity name or entity_id to look up "
+                                       "(e.g. 'front door', 'binary_sensor.garage').",
+                    },
+                    "area": {
+                        "type": "string",
+                        "description": "Area/room name to look up all entities in "
+                                       "(history kind only).",
+                    },
+                    "hours": {
+                        "type": "number",
+                        "description": "How many hours back to look (default 24).",
+                    },
+                },
+                "required": ["kind"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_mode",
             "description": (
                 "Switch JARVIS's operational mode — a high-level state that "
@@ -1852,6 +1896,24 @@ async def _exec_hazard_report(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_activity_history(hass: HomeAssistant, args: dict) -> str:
+    """Read HA's recorded history or logbook — 'what has happened' (v6.72.0)."""
+    try:
+        from . import activity_history
+        kind = str(args.get("kind", "history") or "history").lower()
+        entity = args.get("entity")
+        area = args.get("area")
+        hours = args.get("hours", 24)
+        if kind == "logbook":
+            res = await activity_history.logbook(hass, entity=entity, hours=hours)
+        else:
+            res = await activity_history.entity_history(
+                hass, entity=entity, area=area, hours=hours)
+        return json.dumps(res)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
     """Switch the operational mode (Directive Layer, v6.61.0)."""
     try:
@@ -2062,6 +2124,7 @@ _TOOL_MAP = {
     "set_mode":            _exec_set_mode,
     "energy_status":       _exec_energy_status,
     "hazard_report":       _exec_hazard_report,
+    "activity_history":    _exec_activity_history,
     "wellbeing_context":   _exec_wellbeing_context,
     "search_documents":    _exec_search_documents,
     "ingest_documents":    _exec_ingest_documents,

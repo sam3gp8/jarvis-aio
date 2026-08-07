@@ -4,6 +4,27 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.72.0] — JARVIS can read Home Assistant's activity history
+JARVIS can now answer "what's been happening in the house?" from Home
+Assistant's own records — not just its last-known state or its private pattern
+log. A new activity_history tool reads HA's native history and logbook through
+two lenses:
+
+- **Device history** — the recorder timeline for an entity or a whole area over
+  a window: every state change with timestamps, plus a count. Ask "when did the
+  front door open?", "how many times did the garage open today?", "what was the
+  thermostat doing overnight?" and JARVIS reads the real record.
+- **Logbook** — HA's readable activity narrative over a window, optionally for
+  one entity. Ask "what happened while I was out?" or "what's been going on?"
+  and JARVIS summarizes the actual logbook.
+
+Recorder and logbook internals vary by HA version, so every query is wrapped
+defensively and run through the recorder's own executor — a miss returns an
+empty result with a note, never an error and never a fabricated event, in
+keeping with the rest of JARVIS. Queries are bounded (entity breadth, row
+counts, and look-back windows are capped) so a broad question can't drag the
+recorder. Conversational only — no panel changes. 11 new tests.
+
 ## [6.71.0] — real-time hazard monitor: earthquakes, severe weather, disasters
 JARVIS now watches for natural hazards near home and speaks up the same way it
 does for anything else. Three free, no-key government/agency feeds, polled every
