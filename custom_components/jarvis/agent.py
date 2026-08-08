@@ -808,6 +808,41 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "weather_forecast",
+            "description": (
+                "Get the WEATHER FORECAST — what the weather will do later, not "
+                "the current time. Use this for any question about future "
+                "weather: 'what time is it supposed to rain?', 'when will it "
+                "rain?', 'what's the forecast?', 'will it snow tonight?', 'do I "
+                "need a jacket tomorrow?', 'how hot will it get?'. IMPORTANT: a "
+                "question containing 'what time' that is about WEATHER (rain, "
+                "snow, storms) is a forecast question — answer it with this "
+                "tool, never with the current clock time. Returns upcoming "
+                "periods with their time, condition, temperature, and "
+                "precipitation so you can say when rain is expected."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["hourly", "daily", "twice_daily"],
+                        "description": "'hourly' for today/when-will-it-rain "
+                                       "questions (default), 'daily' for the "
+                                       "multi-day outlook.",
+                    },
+                    "entity_id": {
+                        "type": "string",
+                        "description": "Optional specific weather.* entity; "
+                                       "defaults to the first one found.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_mode",
             "description": (
                 "Switch JARVIS's operational mode — a high-level state that "
@@ -1896,6 +1931,80 @@ async def _exec_hazard_report(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+async def _exec_weather_forecast(hass: HomeAssistant, args: dict) -> str:
+    """Hourly/daily forecast from a HA weather entity (v6.75.0). JARVIS could
+    previously only see CURRENT conditions, so 'what time is it supposed to
+    rain?' had no real answer and the model fell back to HA's clock intent.
+    This exposes the actual forecast."""
+    try:
+        kind = str(args.get("kind", "hourly") or "hourly").lower()
+        if kind not in ("hourly", "daily", "twice_daily"):
+            kind = "hourly"
+        # pick the requested entity, else the first weather.* entity
+        eid = args.get("entity_id")
+        if not eid:
+            for s in hass.states.async_all("weather"):
+                eid = s.entity_id
+                break
+        if not eid:
+            return json.dumps({"error": "no weather entity is configured in "
+                                        "Home Assistant"})
+        try:
+            res = await hass.services.async_call(
+                "weather", "get_forecasts",
+                {"entity_id": eid, "type": kind},
+                blocking=True, return_response=True,
+            )
+        except Exception as exc:
+            # some entities don't support every forecast type
+            if kind != "daily":
+                try:
+                    res = await hass.services.async_call(
+                        "weather", "get_forecasts",
+                        {"entity_id": eid, "type": "daily"},
+                        blocking=True, return_response=True,
+                    )
+                    kind = "daily"
+                except Exception:
+                    return json.dumps({"error": f"forecast unavailable: {exc}"})
+            else:
+                return json.dumps({"error": f"forecast unavailable: {exc}"})
+
+        entries = []
+        try:
+            data = (res or {}).get(eid, {})
+            for f in (data.get("forecast") or [])[:24]:
+                entry = {
+                    "datetime": f.get("datetime"),
+                    "condition": f.get("condition"),
+                    "temperature": f.get("temperature"),
+                }
+                # precipitation fields vary by integration — include what exists
+                for k in ("precipitation", "precipitation_probability",
+                          "templow", "wind_speed", "humidity"):
+                    if f.get(k) is not None:
+                        entry[k] = f.get(k)
+                entries.append(entry)
+        except Exception as exc:
+            return json.dumps({"error": f"could not read forecast: {exc}"})
+
+        cur = hass.states.get(eid)
+        return json.dumps({
+            "entity_id": eid,
+            "type": kind,
+            "current": {
+                "condition": cur.state if cur else None,
+                "temperature": (cur.attributes.get("temperature") if cur else None),
+            },
+            "forecast": entries,
+            "note": ("Each entry's 'datetime' is when that forecast period "
+                     "begins; use condition/precipitation to say WHEN rain is "
+                     "expected."),
+        })
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 async def _exec_activity_history(hass: HomeAssistant, args: dict) -> str:
     """Read HA's recorded history or logbook — 'what has happened' (v6.72.0)."""
     try:
@@ -2125,6 +2234,7 @@ _TOOL_MAP = {
     "energy_status":       _exec_energy_status,
     "hazard_report":       _exec_hazard_report,
     "activity_history":    _exec_activity_history,
+    "weather_forecast":    _exec_weather_forecast,
     "wellbeing_context":   _exec_wellbeing_context,
     "search_documents":    _exec_search_documents,
     "ingest_documents":    _exec_ingest_documents,
@@ -2445,6 +2555,13 @@ async def run_agent(
         f"a question. When unsure whether it's a question or a command, ask — do "
         f"not act. Re-issuing an action the user is questioning (turning on a "
         f"light they just asked you about) is a serious error.\n\n"
+        f"### 'What time' is not always the clock\n"
+        f"If a question asks WHAT TIME something WEATHER-related will happen — "
+        f"'what time is it supposed to rain?', 'when will it snow?', 'what time "
+        f"does the storm get here?' — that is a FORECAST question. Call "
+        f"weather_forecast and answer with when the weather is expected. NEVER "
+        f"answer it with the current clock time. Give the clock only when the "
+        f"user actually asks for the current time ('what time is it?').\n\n"
         f"## Critical rules\n"
         f"1. ALWAYS use search_entities first if you're unsure of an entity_id. "
         f"Never guess entity_ids — search for them.\n"

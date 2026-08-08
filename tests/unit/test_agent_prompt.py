@@ -53,3 +53,17 @@ def test_get_entity_state_returns_last_changed():
     # return it, or the instruction is hollow
     assert '"last_changed"' in AGENT_SRC
     assert "state.last_changed.isoformat()" in AGENT_SRC
+
+
+def test_prompt_routes_weather_time_questions_to_forecast():
+    # v6.75.0: "what time is it supposed to rain" must go to the forecast, not
+    # the clock (the model was answering with the current time)
+    assert "'What time' is not always the clock" in AGENT_SRC
+    assert "weather_forecast" in AGENT_SRC
+    assert "NEVER" in AGENT_SRC and "current clock time" in AGENT_SRC
+
+
+def test_weather_forecast_tool_registered():
+    assert '"name": "weather_forecast"' in AGENT_SRC
+    assert '"weather_forecast":' in AGENT_SRC          # in _TOOL_MAP
+    assert "_exec_weather_forecast" in AGENT_SRC

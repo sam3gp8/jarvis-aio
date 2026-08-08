@@ -4,6 +4,23 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.75.0] — weather forecasts, so "what time is it supposed to rain?" works
+Asking when it would rain returned the current clock time instead of a forecast.
+The cause: JARVIS had no forecast capability at all — it could see current
+conditions but nothing about what the weather would do later — so a question
+phrased "what time…" matched Home Assistant's built-in current-time intent and
+answered with the clock.
+
+Added a weather_forecast tool that pulls the real hourly, daily, or twice-daily
+outlook from your Home Assistant weather entity, including each period's time,
+condition, temperature, and precipitation, so JARVIS can say *when* rain is
+expected. Falls back to the daily forecast when an entity doesn't provide hourly
+data, and reports a clear message when no weather entity is configured.
+
+The agent prompt also now states plainly that a "what time" question about
+weather is a forecast question and must never be answered with the clock — the
+current time is only for when you actually ask for it. 9 new tests.
+
 ## [6.74.0] — intrusion detection traces the route inward from the entry point
 The remaining source of false "intrusion confirmed" alerts. Confirmation fired
 when motion appeared in two zones and one of them was near the breach — which is
