@@ -4,6 +4,34 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.74.0] — intrusion detection traces the route inward from the entry point
+The remaining source of false "intrusion confirmed" alerts. Confirmation fired
+when motion appeared in two zones and one of them was near the breach — which is
+not a route. Motion that simply lingered at an open window (an AC unit running in
+it, a curtain moving) satisfied "near the breach," and an unanswered alert then
+escalated it to a full house alarm.
+
+Detection is now directional. A real intruder enters at the breach and moves
+*inward* — entry, then deeper rooms. JARVIS now computes each room's distance
+from the point of entry using the floor plan and tracks how far motion actually
+propagates inward:
+
+- Motion must reach a configurable depth of rooms **from** the breach (default 2)
+  to confirm an intrusion. Motion that lingers at or beside the entry never
+  confirms, no matter how long it continues.
+- An unanswered alert with no confirming inward route no longer reports itself as
+  a confirmed intrusion. It sends a softer notice instead — JARVIS says it
+  flagged activity near the entry, couldn't reach you, and has *not* confirmed
+  anyone moving through the house — with the snapshot attached.
+- A person confirmed on camera by JARVIS's own vision still escalates
+  immediately, independent of the motion route.
+- Houses without a mapped floor plan fall back to the previous behavior, so
+  nothing regresses for unmapped setups.
+
+New: hops_from_breach room-distance mapping, intrusion_inward_depth config, and
+the intrusion_unresolved alert type. 6 new tests, including one that pins the
+core fix — motion pinging only the breach room can never confirm an intrusion.
+
 ## [6.73.1] — declare the logbook dependency (hassfest/HACS validation)
 The 6.72.0 activity-history work imported Home Assistant's logbook component but
 didn't declare it in the manifest, which failed hassfest's dependency check in

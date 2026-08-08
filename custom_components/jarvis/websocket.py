@@ -1245,6 +1245,7 @@ PANEL_WRITABLE_KEYS = {
     "hazard_quake_min_mag",       # float: min magnitude to alert
     "hazard_disaster_radius_km",  # float: disaster radius
     "intrusion_vision_confirm",   # bool: verify Frigate person detection with JARVIS vision before escalating
+    "intrusion_inward_depth",     # int: rooms deep from breach motion must reach to confirm
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",

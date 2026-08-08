@@ -215,9 +215,12 @@ async def test_open_yard_gate_is_not_a_breach(safety, fake_hass, clock):
 
 # ── response-timeout escalation (v6.69.0) ────────────────────────────────────
 
-async def test_no_response_while_active_escalates(safety, fake_hass, clock, cc):
+async def test_no_response_while_active_sends_soft_alert(safety, fake_hass, clock, cc):
     # motion starts (investigating), stays active, no one responds → after the
-    # response timeout, escalate to a full alert.
+    # response timeout with NO confirming inward route, JARVIS sends a SOFT
+    # "couldn't reach you, please check" alert — NOT a full "intrusion confirmed"
+    # alarm. This is the v6.74.0 fix: unanswered lingering motion with no real
+    # route through the house must not masquerade as a confirmed intrusion.
     import sys
     sys.modules.pop("jc.intrusion", None)          # ensure fresh call-off state
     _away(fake_hass)
@@ -227,9 +230,13 @@ async def test_no_response_while_active_escalates(safety, fake_hass, clock, cc):
     clock["now"] += cc.INTRUSION_RESPONSE_TIMEOUT_SECS + 5
     _motion(fake_hass, "binary_sensor.living_motion")   # still active now
     out = await _intr(safety, fake_hass)
-    esc = [a for a in out if a.get("type") == "intrusion_confirmed"]
-    assert esc, "unanswered active intrusion should escalate after the timeout"
-    assert "no response" in esc[0]["message"].lower()
+    # must NOT be a full confirmed intrusion (no inward route was traced)
+    assert [a for a in out if a.get("type") == "intrusion_confirmed"] == []
+    # must be the soft unresolved check-in instead
+    soft = [a for a in out if a.get("type") == "intrusion_unresolved"]
+    assert soft, "unanswered active motion with no route should send a soft alert"
+    assert "couldn't reach you" in soft[0]["message"].lower() \
+        or "not confirmed" in soft[0]["message"].lower()
 
 
 async def test_acknowledge_holds_timeout_escalation(safety, fake_hass, clock, cc):
@@ -320,3 +327,84 @@ async def test_vision_confirm_rejects_non_camera_handle(safety, fake_hass):
     # a non-camera fallback handle (binary_sensor.*) can't be snapshotted → None
     res = await safety._confirm_person_with_vision("binary_sensor.kitchen_person")
     assert res is None
+
+
+# ── directional inward-progression confirmation (v6.74.0) ────────────────────
+# A real intruder enters at the breach and moves INWARD to deeper rooms. Motion
+# that lingers at/near the entry (AC unit in an open window, curtain) must NOT
+# confirm; only motion reaching the configured depth FROM the breach does.
+
+def _breach_with_hops(safety, monkeypatch, hops, breach="kitchen"):
+    """Set up an investigation with a known breach + room-depth map."""
+    monkeypatch.setattr(safety, "_breach_area", lambda e: breach)
+    monkeypatch.setattr(safety, "_open_entry", lambda: "binary_sensor.kitchen_window")
+    monkeypatch.setattr(safety, "_alarm_armed", lambda: True)   # corroboration
+    monkeypatch.setattr(safety, "_motion_key", lambda eid: eid.split(".")[-1].replace("_motion", ""))
+    import sys
+    rg = sys.modules.get("jc.residence_graph")
+    if rg is None:
+        import importlib
+        rg = importlib.import_module("jc.residence_graph")
+    monkeypatch.setattr(rg, "adjacent_areas", lambda h, c, a: set())
+    monkeypatch.setattr(rg, "hops_from_breach", lambda h, c, a: hops)
+
+
+async def test_motion_lingering_at_breach_does_not_confirm(safety, fake_hass, clock, monkeypatch, cc):
+    # hops: breach room = 0. Motion only ever at the breach → never inward → no
+    # confirmation, no matter how long (the AC-window false alarm).
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    _breach_with_hops(safety, monkeypatch, {"kitchen": 0})
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("binary_sensor.kitchen_window", "on", device_class="window")
+    fake_hass.states.set("binary_sensor.kitchen_motion", "on", device_class="motion")
+    await _intr(safety, fake_hass)                      # investigating
+    # keep pinging ONLY the breach room for a long time
+    for _ in range(5):
+        clock["now"] += 30
+        fake_hass.states.set("binary_sensor.kitchen_motion", "on", device_class="motion")
+        out = await _intr(safety, fake_hass)
+        assert [a for a in out if a.get("type") == "intrusion_confirmed"] == [], \
+            "motion lingering at the breach must never confirm an intrusion"
+
+
+async def test_motion_progressing_inward_confirms(safety, fake_hass, clock, monkeypatch, cc):
+    # hops: kitchen=0 (breach), hall=1, living=2. Motion propagates inward to
+    # depth 2 → confirms a real route (default intrusion_inward_depth=2).
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    _breach_with_hops(safety, monkeypatch, {"kitchen": 0, "hall": 1, "living": 2})
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("binary_sensor.kitchen_window", "on", device_class="window")
+    fake_hass.states.set("binary_sensor.kitchen_motion", "on", device_class="motion")
+    await _intr(safety, fake_hass)                      # investigating at breach
+    # motion moves inward: hall (depth 1) …
+    clock["now"] += 20
+    fake_hass.states.set("binary_sensor.kitchen_motion", "off", device_class="motion")
+    fake_hass.states.set("binary_sensor.hall_motion", "on", device_class="motion")
+    await _intr(safety, fake_hass)
+    # … then living room (depth 2) → reaches required depth → confirm
+    clock["now"] += 20
+    fake_hass.states.set("binary_sensor.hall_motion", "off", device_class="motion")
+    fake_hass.states.set("binary_sensor.living_motion", "on", device_class="motion")
+    out = await _intr(safety, fake_hass)
+    assert any(a.get("type") == "intrusion_confirmed" for a in out), \
+        "motion reaching the required inward depth should confirm a real intrusion"
+
+
+async def test_inward_depth_is_configurable(safety, fake_hass, clock, monkeypatch, cc):
+    # with intrusion_inward_depth=1, reaching just one room in confirms
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    safety.config["intrusion_inward_depth"] = 1
+    _breach_with_hops(safety, monkeypatch, {"kitchen": 0, "hall": 1})
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("binary_sensor.kitchen_window", "on", device_class="window")
+    fake_hass.states.set("binary_sensor.kitchen_motion", "on", device_class="motion")
+    await _intr(safety, fake_hass)
+    clock["now"] += 20
+    fake_hass.states.set("binary_sensor.kitchen_motion", "off", device_class="motion")
+    fake_hass.states.set("binary_sensor.hall_motion", "on", device_class="motion")
+    out = await _intr(safety, fake_hass)
+    assert any(a.get("type") == "intrusion_confirmed" for a in out), \
+        "with depth=1, reaching an adjacent room should confirm"

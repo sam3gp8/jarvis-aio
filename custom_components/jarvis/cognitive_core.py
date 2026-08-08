@@ -65,6 +65,9 @@ LOW_TEMP_AWAY_F = 62             # heating running while away → efficiency fla
 # One alert, then investigate silently until it's a confirmed intrusion or
 # confirmed benign — never a stream of "motion detected" repeats.
 INTRUSION_SPREAD_ZONES = 2       # motion in this many zones ⇒ someone moving through
+INTRUSION_INWARD_DEPTH = 2       # rooms deep from the breach motion must reach to
+                                 # confirm a real inward route (v6.74.0);
+                                 # configurable via intrusion_inward_depth
 INTRUSION_CLEAR_QUIET_SECS = 180 # motion quiet this long ⇒ nothing of note
 INTRUSION_MAX_INVESTIGATE_SECS = 600  # one zone this long, no spread ⇒ benign
 INTRUSION_SUSTAINED_SECS = 60    # multi-zone motion sustained this long (no breach location) ⇒ real
@@ -481,9 +484,14 @@ class SafetyManager:
             # concluded to be an intrusion on its own — that discernment is what
             # avoids false alarms.
             connected = {breach_area} if breach_area else set()
+            hops = {}
             try:
                 from . import residence_graph
                 connected |= residence_graph.adjacent_areas(
+                    self.hass, self.config, breach_area)
+                # Depth of every room from the breach, so we can tell inward
+                # (entry → deeper) motion from motion that lingers at the entry.
+                hops = residence_graph.hops_from_breach(
                     self.hass, self.config, breach_area)
             except Exception:
                 pass
@@ -492,11 +500,14 @@ class SafetyManager:
             # a valid entry point — alert once and watch, rather than ignore it.
             self._last_intrusion_alert = now
             start_zone = self._motion_key(eid)
+            # deepest room motion has reached so far (breach itself = 0)
+            start_depth = hops.get(start_zone, 0) if hops else 0
             self._investigation = {
                 "start": now, "last_motion": now,
                 "zones": {start_zone}, "path": [start_zone], "escalated": False,
                 "breach_area": breach_area, "breach_name": breach_name,
                 "connected": connected,
+                "hops": hops, "max_depth": start_depth,
             }
             ctx = (f" ({breach_name} open)" if breach_name else
                    " (alarm armed)" if armed else "")
@@ -602,12 +613,43 @@ class SafetyManager:
                 if z not in inv["zones"]:
                     inv["path"].append(z)         # record the route, in order
             inv["zones"] |= active
+            # Track how far INWARD from the breach motion has reached. A real
+            # intruder's motion propagates entry → deeper rooms; motion that just
+            # lingers at the entry never increases this. (v6.74.0)
+            hops = inv.get("hops") or {}
+            if hops:
+                for z in active:
+                    d = hops.get(z)
+                    if d is not None and d > inv.get("max_depth", 0):
+                        inv["max_depth"] = d
 
         spread_needed = self.config.get("intrusion_spread_zones", INTRUSION_SPREAD_ZONES)
         connected = inv.get("connected") or set()
         near_breach = bool(inv["zones"] & connected)
         spread = len(inv["zones"]) >= spread_needed
         sustained = bool(active) and (now - inv["start"]) >= INTRUSION_SUSTAINED_SECS
+
+        # Directional inward progression (v6.74.0): a real intruder enters at the
+        # breach and moves INWARD to progressively deeper rooms. Motion that
+        # merely lingers at/near the entry (an AC unit in the open window, a
+        # curtain) never propagates inward, so it must NOT confirm. We require
+        # motion to have reached a configurable depth of rooms FROM the breach.
+        try:
+            need_depth = int(self.config.get("intrusion_inward_depth",
+                                             INTRUSION_INWARD_DEPTH))
+        except (ValueError, TypeError):
+            need_depth = INTRUSION_INWARD_DEPTH
+        hops = inv.get("hops") or {}
+        max_depth = inv.get("max_depth", 0)
+        # inward progression only means something if we have a room-depth map;
+        # when we do, require reaching need_depth rooms in. When we don't (no
+        # floor plan), fall back to the old spread+near_breach heuristic so a
+        # user without a mapped house still gets protection.
+        if hops:
+            inward = max_depth >= need_depth
+        else:
+            inward = spread and near_breach
+
         cam_entity = self._person_camera_entity()
         camera = cam_entity is not None
 
@@ -619,14 +661,14 @@ class SafetyManager:
                 confirmed, reason = True, "a person is on camera (confirmed by vision)"
             elif vision is False:
                 # Frigate said person, JARVIS's eyes say no → false positive.
-                # Do NOT escalate on the camera signal; fall through to the
-                # movement-based logic (a real intruder still moving through the
-                # house will confirm that way).
+                # Do NOT escalate on the camera signal; require a real inward
+                # route through the house instead (v6.74.0).
                 _LOGGER.info("intrusion: Frigate person on %s NOT confirmed by "
-                             "vision — treating as false positive", cam_entity)
+                             "vision — requiring inward motion route", cam_entity)
                 if inv.get("breach_area"):
-                    confirmed = spread and near_breach
-                    reason = "someone is moving through the house from the point of entry"
+                    confirmed = inward
+                    reason = ("someone is moving inward through the house from "
+                              "the point of entry")
                 else:
                     confirmed = spread and sustained
                     reason = "sustained movement through the house while no one is home"
@@ -636,10 +678,11 @@ class SafetyManager:
                 # real alert. Fail toward safety.
                 confirmed, reason = True, "a person is on camera"
         elif inv.get("breach_area"):
-            # Entry point known: require the activity to reach it or an adjacent
-            # room AND to be moving through — a genuine intrusion route.
-            confirmed = spread and near_breach
-            reason = "someone is moving through the house from the point of entry"
+            # Entry point known: require motion to have travelled INWARD from the
+            # breach (a genuine intrusion route), not merely lingered near it.
+            confirmed = inward
+            reason = ("someone is moving inward through the house from the "
+                      "point of entry")
         else:
             # No location on the breach — be conservative: sustained multi-room
             # movement, not a momentary blip.
@@ -684,13 +727,15 @@ class SafetyManager:
             if not acknowledged and still_active and elapsed >= resp_timeout:
                 timed_out = True
 
-        if not inv["escalated"] and (confirmed or timed_out):
+        # A confirmed intrusion (real inward route, or a person confirmed on
+        # camera) fires the full critical alarm. A timeout WITHOUT that evidence
+        # no longer masquerades as a confirmed intrusion — instead it sends a
+        # softer "couldn't reach you, please check" notice. This is the fix for
+        # false "intrusion confirmed" alerts firing on unanswered lingering
+        # motion with no real route through the house (v6.74.0).
+        if not inv["escalated"] and confirmed:
             inv["escalated"] = True
             honorific = self.config.get("honorific", "sir")
-            if timed_out and not confirmed:
-                reason = "no response to the security alert"
-            # Grab a snapshot from the camera that saw the person (if any) so the
-            # alert can show who triggered it.
             snap = None
             if cam_entity:
                 try:
@@ -711,11 +756,47 @@ class SafetyManager:
                 action["snapshot_url"] = snap.get("url")
                 action["snapshot_path"] = snap.get("path")
                 action["camera"] = snap.get("camera")
-            # Fire an event carrying the snapshot so notification automations can
-            # attach the image.
             try:
                 self.hass.bus.async_fire("jarvis_intrusion_confirmed", {
                     "reason": reason,
+                    "snapshot_url": (snap or {}).get("url"),
+                    "snapshot_path": (snap or {}).get("path"),
+                    "camera": (snap or {}).get("camera"),
+                })
+            except Exception:
+                pass
+            return action
+
+        if not inv["escalated"] and timed_out:
+            # Unanswered, still some motion, but NO confirming inward route.
+            # Don't cry "intrusion confirmed" — send a soft check-in instead.
+            inv["escalated"] = True            # don't repeat this either
+            honorific = self.config.get("honorific", "sir")
+            snap = None
+            if cam_entity:
+                try:
+                    from . import intrusion as _intr
+                    snap = await _intr.capture_snapshot(self.hass, cam_entity)
+                except Exception:
+                    snap = None
+            snap_note = " A snapshot is available." if snap else ""
+            where = inv.get("breach_name") or "the point of entry"
+            msg = (f"{honorific.title()}, I flagged possible activity near {where} "
+                   f"and couldn't reach you, but I have not confirmed anyone moving "
+                   f"through the house.{snap_note} Please check when you can — say "
+                   f"'it's a false alarm' to clear it.")
+            action = {
+                "type": "intrusion_unresolved", "urgency": "high",
+                "message": msg, "auto_act": True, "notify_all": True,
+                "can_dismiss": True,
+            }
+            if snap:
+                action["snapshot_url"] = snap.get("url")
+                action["snapshot_path"] = snap.get("path")
+                action["camera"] = snap.get("camera")
+            try:
+                self.hass.bus.async_fire("jarvis_intrusion_unresolved", {
+                    "reason": "no response; unconfirmed activity",
                     "snapshot_url": (snap or {}).get("url"),
                     "snapshot_path": (snap or {}).get("path"),
                     "camera": (snap or {}).get("camera"),

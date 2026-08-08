@@ -107,3 +107,43 @@ def adjacent_areas(hass, config: dict, breach_area: Optional[str]) -> set:
         return set()
     neighbors = adj.get(_area_slug(hass, breach_area), set())
     return _rooms_to_areas(hass, neighbors)
+
+
+def hops_from_breach(hass, config: dict, breach_area: Optional[str]) -> dict:
+    """BFS distance (in rooms) of every HA area from the breach area, per the
+    floor plan (v6.74.0). {area_id: hops} with the breach at 0, its neighbors at
+    1, their neighbors at 2, and so on. This is what lets intrusion detection
+    trace motion propagating INWARD from the point of entry (a real intruder
+    moves entry → deeper rooms) rather than confirming on motion that merely
+    lingers at the entry. Empty when there's no plan or the breach doesn't map."""
+    if not breach_area:
+        return {}
+    adj = room_adjacency(config)
+    if not adj:
+        return {}
+    start = _area_slug(hass, breach_area)
+    if start not in adj and not any(start in v for v in adj.values()):
+        # breach room isn't in the graph — can't compute depth
+        return {}
+    # BFS over room slugs
+    depth: dict = {start: 0}
+    frontier = [start]
+    while frontier:
+        nxt = []
+        for room in frontier:
+            for neigh in adj.get(room, set()):
+                if neigh not in depth:
+                    depth[neigh] = depth[room] + 1
+                    nxt.append(neigh)
+        frontier = nxt
+    # map room-slug depths back to HA area_ids
+    out: dict = {}
+    try:
+        from homeassistant.helpers import area_registry as ar
+        for area in ar.async_get(hass).async_list_areas():
+            s = slug(area.name)
+            if s in depth:
+                out[area.id] = depth[s]
+    except Exception:
+        pass
+    return out

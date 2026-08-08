@@ -47,3 +47,34 @@ def test_slug(rg):
 
 def test_adjacent_areas_no_breach(rg, fake_hass):
     assert rg.adjacent_areas(fake_hass, {}, None) == set()
+
+
+# ── hops_from_breach: inward-distance BFS (v6.74.0) ──────────────────────────
+
+def test_hops_from_breach_empty_without_breach(rg):
+    assert rg.hops_from_breach(None, {}, None) == {}
+
+
+def test_room_adjacency_and_bfs_depth(rg, monkeypatch):
+    # a simple linear house: kitchen — hall — living — bedroom
+    adj = {"kitchen": {"hall"}, "hall": {"kitchen", "living"},
+           "living": {"hall", "bedroom"}, "bedroom": {"living"}}
+    monkeypatch.setattr(rg, "room_adjacency", lambda cfg: adj)
+    monkeypatch.setattr(rg, "_area_slug", lambda h, a: a)
+
+    # fake area registry: area_id == slug for simplicity
+    class _Area:
+        def __init__(self, name): self.id = name; self.name = name
+    import sys, types
+    ar = types.SimpleNamespace(
+        async_get=lambda h: types.SimpleNamespace(
+            async_list_areas=lambda: [_Area(n) for n in adj]))
+    helpers = sys.modules.setdefault("homeassistant.helpers", types.ModuleType("homeassistant.helpers"))
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.area_registry", ar)
+    monkeypatch.setattr(helpers, "area_registry", ar, raising=False)
+
+    hops = rg.hops_from_breach(None, {}, "kitchen")
+    assert hops.get("kitchen") == 0
+    assert hops.get("hall") == 1
+    assert hops.get("living") == 2
+    assert hops.get("bedroom") == 3
