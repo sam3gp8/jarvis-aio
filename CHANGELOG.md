@@ -4,6 +4,33 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.76.0] — intrusion log with snapshots, and training from your labels
+Every intrusion event is now recorded to a reviewable log with its snapshot —
+what JARVIS flagged, where, when, which rooms the motion touched, how far it
+travelled inward, and the still it captured. The log survives restarts.
+
+A new Intrusion Log panel shows the history and lets you mark each event **real**
+or **false alarm**. Those labels are the training signal: when a
+location-and-time pattern has been called a false alarm three times, JARVIS stops
+firing the low-confidence alerts for it — the initial "investigating" ping and
+the unanswered "unresolved" notice both go quiet for that pattern.
+
+The safety limits on that learning are strict:
+
+- **A confirmed intrusion is never damped.** A person confirmed on camera by
+  JARVIS's own vision, or motion tracing a real inward route from the point of
+  entry, always fires the full alert regardless of what has been learned.
+- **The investigation always runs.** Damping silences the notification, not the
+  watching — if a damped pattern turns into a real inward route, it escalates
+  normally.
+- **One "real" label cancels damping entirely** for that pattern. If a genuine
+  intrusion ever happened somewhere, JARVIS will not learn to ignore it.
+- **Labels expire** after 30 days, so a stale pattern stops suppressing.
+
+New jarvis/intrusion log, label, and learning actions. 18 new tests, including
+ones that pin the safety rules — a confirmed intrusion still alerts through
+maximum damping, and a single real label restores full alerting.
+
 ## [6.75.0] — weather forecasts, so "what time is it supposed to rain?" works
 Asking when it would rain returned the current clock time instead of a forecast.
 The cause: JARVIS had no forecast capability at all — it could see current

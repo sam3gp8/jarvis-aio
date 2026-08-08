@@ -2126,8 +2126,12 @@ async def ws_mode(
 
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/intrusion",
-    vol.Required("action"): vol.In(["status", "dismiss", "acknowledge"]),
+    vol.Required("action"): vol.In(["status", "dismiss", "acknowledge",
+                                    "log", "label", "learning"]),
     vol.Optional("reason"): str,
+    vol.Optional("event_id"): str,
+    vol.Optional("label"): vol.Any(str, None),
+    vol.Optional("limit"): int,
 })
 @websocket_api.async_response
 async def ws_intrusion(
@@ -2155,6 +2159,22 @@ async def ws_intrusion(
             res = intrusion.acknowledge(msg.get("reason", "panel"))
             jarvis_log("SAFETY", "Intrusion acknowledged from panel (holding escalation)")
             connection.send_result(msg["id"], {**res, **intrusion.status()})
+        elif msg["action"] == "log":
+            # Reviewable event history with snapshots (v6.76.0)
+            connection.send_result(msg["id"], {
+                "events": intrusion.get_log(msg.get("limit", 50)),
+                "learning": intrusion.learning_summary(),
+            })
+        elif msg["action"] == "label":
+            # The training signal: mark an event real or false
+            res = intrusion.label_event(msg.get("event_id", ""),
+                                        msg.get("label"))
+            jarvis_log("SAFETY", f"Intrusion event labelled: "
+                                 f"{msg.get('event_id')} = {msg.get('label')}")
+            connection.send_result(msg["id"], {
+                **res, "learning": intrusion.learning_summary()})
+        elif msg["action"] == "learning":
+            connection.send_result(msg["id"], intrusion.learning_summary())
         else:
             connection.send_result(msg["id"], intrusion.status())
     except Exception as exc:

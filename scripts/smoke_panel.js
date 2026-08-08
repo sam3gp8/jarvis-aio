@@ -121,6 +121,16 @@ const hass = {
       ]}; }
     }
     if (m.type === "jarvis/intrusion") {
+      if (m.action === "log") return { events: [
+        { id: "evt_1", ts: 1786000000, kind: "confirmed", reason: "person on camera",
+          breach: "kitchen window", breach_area: "kitchen", camera: "camera.kitchen",
+          snapshot_url: "/local/jarvis/intrusion/a.jpg", label: null },
+        { id: "evt_2", ts: 1785999000, kind: "unresolved", reason: "no response",
+          breach: "kitchen window", breach_area: "kitchen", snapshot_url: "", label: "false" },
+      ], learning: { events: 2, labeled: 1, patterns: {}, damped_patterns: ["kitchen|4"], min_false_to_damp: 3 } };
+      if (m.action === "label") return { ok: true, id: m.event_id, label: m.label,
+        learning: { events: 2, labeled: 2, patterns: {}, damped_patterns: [], min_false_to_damp: 3 } };
+      if (m.action === "learning") return { events: 2, labeled: 1, patterns: {}, damped_patterns: [], min_false_to_damp: 3 };
       if (m.action === "dismiss") { _intrCalledOff = true; return { ok: true, last_snapshot: _intrSnap, called_off: true, suppressed_for: 600, false_alarms_24h: 1 }; }
       if (m.action === "acknowledge") { _intrAck = true; return { ok: true, last_snapshot: _intrSnap, called_off: _intrCalledOff, acknowledged: true, suppressed_for: 0, false_alarms_24h: 0 }; }
       return { last_snapshot: _intrSnap, called_off: _intrCalledOff, acknowledged: _intrAck, suppressed_for: _intrCalledOff ? 600 : 0, false_alarms_24h: _intrCalledOff ? 1 : 0 };
@@ -664,6 +674,22 @@ setTimeout(async () => {
     ["diagnostics shows per-service detail", /reachable/.test(diagBody)],
     ["diagnostics overall summary rendered", /HEALTHY|WARN|DOWN/i.test(diagOverall)],
     ["diagnostics run-check button present", !!el.shadowRoot.getElementById("diag-refresh")],
+  );
+
+  // ── Intrusion Log + training (v6.76.0) ──
+  await el._wireIntrusionLog();
+  const ilogBody = el.shadowRoot.getElementById("ilog-body")?.textContent || "";
+  const ilogSide = el.shadowRoot.getElementById("ilog-learn")?.textContent || "";
+  checks.push(
+    ["intrusion log card present", !!el.shadowRoot.getElementById("ilog-body")],
+    ["intrusion log renders events", /kitchen window/.test(ilogBody)],
+    ["intrusion log shows event kinds", !!el.shadowRoot.querySelector(".ilog-confirmed") && !!el.shadowRoot.querySelector(".ilog-unresolved")],
+    ["intrusion log shows snapshot image", !!el.shadowRoot.querySelector(".ilog-snap")],
+    ["intrusion log has real/false label buttons",
+      !!el.shadowRoot.querySelector(".ilog-real") && !!el.shadowRoot.querySelector(".ilog-false")],
+    ["existing label is reflected", !!el.shadowRoot.querySelector(".ilog-false.ilog-on")],
+    ["learned-benign summary surfaces", /learned 1 benign pattern/i.test(ilogBody)],
+    ["label counter in header", /1\/2 LABELLED/.test(ilogSide)],
   );
 
   // ── Multi-Hazard Monitor panel (v6.71.0) ──

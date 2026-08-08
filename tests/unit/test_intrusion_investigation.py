@@ -408,3 +408,54 @@ async def test_inward_depth_is_configurable(safety, fake_hass, clock, monkeypatc
     out = await _intr(safety, fake_hass)
     assert any(a.get("type") == "intrusion_confirmed" for a in out), \
         "with depth=1, reaching an adjacent room should confirm"
+
+
+# ── learned damping never suppresses a CONFIRMED intrusion (v6.76.0) ─────────
+
+async def test_learned_damping_never_suppresses_confirmed(safety, fake_hass, clock, monkeypatch, cc):
+    """SAFETY: even when a pattern is heavily labelled a false alarm, a genuine
+    confirmed intrusion (real inward route) must still fire the full alert."""
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    # force the learning to say "damp this pattern"
+    import importlib
+    intr = importlib.import_module("jc.intrusion")
+    monkeypatch.setattr(intr, "should_damp_weak_alert", lambda a, c: True)
+    monkeypatch.setattr(intr, "record_event", lambda *a, **k: {})
+
+    _breach_with_hops(safety, monkeypatch, {"kitchen": 0, "hall": 1, "living": 2})
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("binary_sensor.kitchen_window", "on", device_class="window")
+    fake_hass.states.set("binary_sensor.kitchen_motion", "on", device_class="motion")
+    await _intr(safety, fake_hass)                    # initial ping (damped)
+    # a real inward route develops anyway
+    clock["now"] += 20
+    fake_hass.states.set("binary_sensor.kitchen_motion", "off", device_class="motion")
+    fake_hass.states.set("binary_sensor.hall_motion", "on", device_class="motion")
+    await _intr(safety, fake_hass)
+    clock["now"] += 20
+    fake_hass.states.set("binary_sensor.hall_motion", "off", device_class="motion")
+    fake_hass.states.set("binary_sensor.living_motion", "on", device_class="motion")
+    out = await _intr(safety, fake_hass)
+    assert any(a.get("type") == "intrusion_confirmed" for a in out), \
+        "learned damping must NEVER suppress a confirmed intrusion"
+
+
+async def test_learned_damping_silences_initial_ping(safety, fake_hass, clock, monkeypatch, cc):
+    """A damped pattern stays quiet on the low-confidence initial alert, while
+    still opening the investigation underneath."""
+    import sys, importlib
+    sys.modules.pop("jc.intrusion", None)
+    intr = importlib.import_module("jc.intrusion")
+    monkeypatch.setattr(intr, "should_damp_weak_alert", lambda a, c: True)
+    monkeypatch.setattr(intr, "record_event", lambda *a, **k: {})
+
+    _breach_with_hops(safety, monkeypatch, {"kitchen": 0})
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("binary_sensor.kitchen_window", "on", device_class="window")
+    fake_hass.states.set("binary_sensor.kitchen_motion", "on", device_class="motion")
+    out = await _intr(safety, fake_hass)
+    assert [a for a in out if a.get("type") == "intrusion_investigating"] == [], \
+        "damped pattern should not fire the initial ping"
+    assert safety._investigation is not None, \
+        "the investigation must still run underneath the damping"

@@ -514,6 +514,26 @@ class SafetyManager:
             msg = (f"{honorific.title()}, motion at {where} while no one is "
                    f"home{ctx}. Investigating from the point of entry — I'll alert "
                    f"the house and every device only if it's a real intrusion.")
+            # Learned damping (v6.76.0): if this location/time pattern has been
+            # repeatedly labelled a false alarm, stay QUIET on this initial
+            # low-confidence ping. The investigation still runs underneath, so a
+            # real inward route still confirms and alarms — learning can only
+            # silence the weak alert, never a confirmed intrusion.
+            damped = False
+            try:
+                from . import intrusion as _intr
+                damped = _intr.should_damp_weak_alert(breach_area, None)
+                _intr.record_event(
+                    "investigating", reason=("damped (learned benign)" if damped
+                                             else "motion while away"),
+                    breach=breach_name, breach_area=breach_area,
+                    zones=[start_zone], max_depth=start_depth)
+            except Exception:
+                pass
+            if damped:
+                _LOGGER.info("intrusion: initial alert damped for learned-benign "
+                             "pattern at %s (still investigating)", breach_area)
+                return None
             return {
                 "type": "intrusion_investigating", "urgency": "high",
                 "message": msg, "auto_act": True, "entity_id": eid,
@@ -765,6 +785,18 @@ class SafetyManager:
                 })
             except Exception:
                 pass
+            # Log it for review/labeling. A CONFIRMED intrusion is never damped
+            # by learning — it always alerts (v6.76.0).
+            try:
+                from . import intrusion as _intr
+                _intr.record_event(
+                    "confirmed", reason=reason,
+                    breach=inv.get("breach_name"), breach_area=inv.get("breach_area"),
+                    camera=cam_entity, snapshot=snap,
+                    zones=sorted(inv.get("zones") or []),
+                    max_depth=inv.get("max_depth"))
+            except Exception:
+                pass
             return action
 
         if not inv["escalated"] and timed_out:
@@ -772,6 +804,16 @@ class SafetyManager:
             # Don't cry "intrusion confirmed" — send a soft check-in instead.
             inv["escalated"] = True            # don't repeat this either
             honorific = self.config.get("honorific", "sir")
+            # Learned damping applies here too: this is a LOW-CONFIDENCE alert
+            # (nothing was confirmed), so a pattern repeatedly labelled a false
+            # alarm stays quiet (v6.76.0).
+            damped_soft = False
+            try:
+                from . import intrusion as _intr
+                damped_soft = _intr.should_damp_weak_alert(
+                    inv.get("breach_area"), cam_entity)
+            except Exception:
+                damped_soft = False
             snap = None
             if cam_entity:
                 try:
@@ -779,6 +821,22 @@ class SafetyManager:
                     snap = await _intr.capture_snapshot(self.hass, cam_entity)
                 except Exception:
                     snap = None
+            try:
+                from . import intrusion as _intr
+                _intr.record_event(
+                    "unresolved",
+                    reason=("damped (learned benign)" if damped_soft
+                            else "no response; unconfirmed activity"),
+                    breach=inv.get("breach_name"), breach_area=inv.get("breach_area"),
+                    camera=cam_entity, snapshot=snap,
+                    zones=sorted(inv.get("zones") or []),
+                    max_depth=inv.get("max_depth"))
+            except Exception:
+                pass
+            if damped_soft:
+                _LOGGER.info("intrusion: unresolved alert damped for "
+                             "learned-benign pattern at %s", inv.get("breach_area"))
+                return None
             snap_note = " A snapshot is available." if snap else ""
             where = inv.get("breach_name") or "the point of entry"
             msg = (f"{honorific.title()}, I flagged possible activity near {where} "
