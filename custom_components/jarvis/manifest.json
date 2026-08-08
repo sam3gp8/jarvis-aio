@@ -8,7 +8,8 @@
     "camera",
     "mqtt",
     "assist_pipeline",
-    "recorder"
+    "recorder",
+    "logbook"
   ],
   "codeowners": [
     "@sam3gp8"
@@ -29,5 +30,5 @@
     "anthropic>=0.39.0",
     "pypdf>=4.0.0"
   ],
-  "version": "6.73.0"
+  "version": "6.73.1"
 }

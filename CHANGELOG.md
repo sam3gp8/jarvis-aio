@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.73.1] — declare the logbook dependency (hassfest/HACS validation)
+The 6.72.0 activity-history work imported Home Assistant's logbook component but
+didn't declare it in the manifest, which failed hassfest's dependency check in
+CI. Added logbook to after_dependencies (alongside recorder, which was already
+there) — JARVIS uses the logbook when it's present but doesn't require it to
+start. Also added a test that checks every imported HA component is declared in
+the manifest, so this class of validation failure is caught locally by pytest
+instead of after a push.
+
 ## [6.73.0] — intrusions confirmed by JARVIS's own eyes, not just Frigate
 Fixes the intrusion false alarms. Frigate's person detection was being trusted
 as sufficient proof of an intruder — the moment Frigate's person sensor went on,
