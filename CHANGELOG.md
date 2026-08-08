@@ -4,6 +4,29 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.73.0] — intrusions confirmed by JARVIS's own eyes, not just Frigate
+Fixes the intrusion false alarms. Frigate's person detection was being trusted
+as sufficient proof of an intruder — the moment Frigate's person sensor went on,
+JARVIS escalated to a full alert. But Frigate false-positives on shadows,
+headlights, reflections, and the like, so those became false intrusion alarms.
+
+Now Frigate's person sensor is treated as a *trigger to look*, not proof. Before
+escalating, JARVIS snapshots the flagged camera and asks its own vision model
+whether a person is actually there:
+
+- Vision confirms a person → escalate, as before.
+- Vision says no person (empty room, shadow, light, reflection) → treat Frigate's
+  signal as a false positive and don't escalate on it. A real intruder still
+  moving through the house is caught by the movement-based logic instead.
+- Vision can't run or is unsure → fall back to the previous behavior (trust the
+  camera), so a broken vision path never *suppresses* a real alert. It fails
+  toward safety, never toward silence.
+
+The check is on by default with a toggle in the Intrusion panel ("Confirm Frigate
+person with JARVIS vision before alarming") for anyone who wants Frigate-only
+behavior. Uses your configured vision provider/model. 5 new tests covering
+confirm / deny / inconclusive / kill-switch.
+
 ## [6.72.0] — JARVIS can read Home Assistant's activity history
 JARVIS can now answer "what's been happening in the house?" from Home
 Assistant's own records — not just its last-known state or its private pattern

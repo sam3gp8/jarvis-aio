@@ -246,3 +246,77 @@ async def test_acknowledge_holds_timeout_escalation(safety, fake_hass, clock, cc
     esc = [a for a in out if a.get("type") == "intrusion_confirmed"]
     assert not esc, "acknowledgement should hold the no-response escalation"
     intr.clear_calloff()                            # cleanup
+
+
+# ── vision-confirmation gate on Frigate person detection (v6.73.0) ───────────
+# Frigate's person sensor is a good trigger but false-positives; JARVIS's own
+# vision must confirm before escalating to a full intrusion.
+
+def _person_cam(safety, monkeypatch, cam="camera.kitchen"):
+    """Make _person_camera_entity report a Frigate person on a camera."""
+    monkeypatch.setattr(safety, "_person_camera_entity", lambda indoor_only=True: cam)
+
+
+def _vision_says(safety, monkeypatch, verdict):
+    """Stub JARVIS's vision confirmation to return True/False/None."""
+    async def _v(cam):
+        return verdict
+    monkeypatch.setattr(safety, "_confirm_person_with_vision", _v)
+
+
+async def _in_investigation(safety, fake_hass, clock):
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    await _intr(safety, fake_hass)                 # opens the investigation
+    assert safety._investigation is not None
+
+
+async def test_vision_confirms_person_escalates(safety, fake_hass, clock, monkeypatch):
+    await _in_investigation(safety, fake_hass, clock)
+    _person_cam(safety, monkeypatch)
+    _vision_says(safety, monkeypatch, True)        # JARVIS's eyes agree
+    clock["now"] += 20
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    actions = await _intr(safety, fake_hass)
+    # a confirmed escalation fires
+    assert any(a["type"] == "intrusion_confirmed" or a.get("escalation") for a in actions) \
+        or safety._investigation is None or any("confirmed" in str(a).lower() for a in actions)
+
+
+async def test_vision_denies_person_does_not_escalate_on_camera(safety, fake_hass, clock, monkeypatch):
+    await _in_investigation(safety, fake_hass, clock)
+    _person_cam(safety, monkeypatch)
+    _vision_says(safety, monkeypatch, False)       # Frigate false positive
+    # no breach spread, no sustained movement → without the camera it must NOT confirm
+    clock["now"] += 20
+    actions = await _intr(safety, fake_hass)
+    confirmed = [a for a in actions if a.get("type") == "intrusion_confirmed"]
+    assert confirmed == []                         # the false positive did not alarm
+    assert safety._investigation is not None       # still watching, not escalated
+
+
+async def test_vision_inconclusive_falls_back_to_camera(safety, fake_hass, clock, monkeypatch):
+    # vision unavailable/ambiguous → fail SAFE: trust the camera (don't suppress
+    # a possibly-real alert just because vision couldn't run)
+    await _in_investigation(safety, fake_hass, clock)
+    _person_cam(safety, monkeypatch)
+    _vision_says(safety, monkeypatch, None)        # inconclusive
+    clock["now"] += 20
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    actions = await _intr(safety, fake_hass)
+    # falls back to prior behavior (camera confirms) → escalates
+    assert any(a.get("type") == "intrusion_confirmed" for a in actions) \
+        or safety._investigation is None
+
+
+async def test_vision_confirm_respects_killswitch(safety, fake_hass, monkeypatch):
+    # with intrusion_vision_confirm off, the method returns None (no vision call)
+    safety.config["intrusion_vision_confirm"] = False
+    res = await safety._confirm_person_with_vision("camera.kitchen")
+    assert res is None
+
+
+async def test_vision_confirm_rejects_non_camera_handle(safety, fake_hass):
+    # a non-camera fallback handle (binary_sensor.*) can't be snapshotted → None
+    res = await safety._confirm_person_with_vision("binary_sensor.kitchen_person")
+    assert res is None

@@ -739,6 +739,7 @@ async def ws_get_panel_data(
                 "voice_confirm_enabled": bool(_runtime_opt(hass, entry, "voice_confirm_enabled", False)),
                 "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
                 "intrusion_response_timeout": _runtime_opt(hass, entry, "intrusion_response_timeout", 120),
+                "intrusion_vision_confirm": bool(_runtime_opt(hass, entry, "intrusion_vision_confirm", True)),
                 # Hazard monitor controls — same read-back requirement (v6.71.0)
                 "hazard_monitor_enabled": bool(_runtime_opt(hass, entry, "hazard_monitor_enabled", False)),
                 "hazard_lat":             _runtime_opt(hass, entry, "hazard_lat", ""),
@@ -1243,6 +1244,7 @@ PANEL_WRITABLE_KEYS = {
     "hazard_quake_radius_km",     # float: earthquake radius
     "hazard_quake_min_mag",       # float: min magnitude to alert
     "hazard_disaster_radius_km",  # float: disaster radius
+    "intrusion_vision_confirm",   # bool: verify Frigate person detection with JARVIS vision before escalating
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",

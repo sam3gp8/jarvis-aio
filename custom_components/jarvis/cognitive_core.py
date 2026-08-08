@@ -519,6 +519,68 @@ class SafetyManager:
 
         return None
 
+    async def _confirm_person_with_vision(self, cam_entity: str) -> Optional[bool]:
+        """Second opinion on Frigate's person detection (v6.73.0). Frigate's
+        person sensor is a good TRIGGER but false-positives (shadows, headlights,
+        reflections, pets), so before escalating to a full intrusion we snapshot
+        the camera and ask JARVIS's OWN vision model whether a person is actually
+        there. Returns:
+          True  — vision confirms a person (escalate)
+          False — vision says no person (Frigate false-positive; don't escalate)
+          None  — vision couldn't run/was inconclusive (fall back to prior
+                  behavior, so a broken vision path never SUPPRESSES a real alert)
+        """
+        if not cam_entity or not str(cam_entity).startswith("camera."):
+            return None
+        # Respect a config kill-switch: some users may want Frigate-only.
+        if not self.config.get("intrusion_vision_confirm", True):
+            return None
+        try:
+            from .camera import async_analyze_camera, _FakeCall
+            honorific = self.config.get("honorific", "sir")
+            prompt = (
+                "Security check. Look at this indoor camera frame. Is there a "
+                "PERSON (a human being) actually present in the frame right now? "
+                "Answer strictly: reply 'PERSON: YES' if a real person is clearly "
+                "visible, or 'PERSON: NO' if there is no person (e.g. it is an "
+                "empty room, a shadow, a light, a reflection, a pet, or an "
+                "object). Do not guess — if you cannot clearly see a person, "
+                "answer NO."
+            )
+            fc = _FakeCall({"entity_id": cam_entity, "prompt": prompt,
+                            "announce": False})
+            groq_client = getattr(self, "groq_client", None) or getattr(self, "_groq", None)
+            res = await async_analyze_camera(
+                self.hass, fc, groq_client, honorific, None, [], gate_announce=True)
+            text = ""
+            if isinstance(res, dict):
+                text = (res.get("analysis") or res.get("description")
+                        or res.get("message") or "")
+            text = str(text).lower()
+            if not text:
+                return None                       # inconclusive → fall back
+            # explicit signal first
+            if "person: yes" in text:
+                return True
+            if "person: no" in text:
+                return False
+            # heuristic fallback on the free text
+            neg = any(p in text for p in (
+                "no person", "not a person", "no one", "nobody", "empty",
+                "no people", "there is no", "cannot see a person",
+                "don't see a person", "no human"))
+            pos = any(p in text for p in (
+                "a person", "person is", "someone is", "an intruder",
+                "a man", "a woman", "a human", "people are"))
+            if neg and not pos:
+                return False
+            if pos and not neg:
+                return True
+            return None                           # ambiguous → fall back
+        except Exception as exc:
+            _LOGGER.debug("intrusion: vision confirm failed: %s", exc)
+            return None                           # never suppress on error
+
     async def _investigate_step(self, now: float, away: bool,
                                 sleeping: bool) -> Optional[dict]:
         """One tick of an active investigation: confirm, clear, or keep watching
@@ -550,7 +612,29 @@ class SafetyManager:
         camera = cam_entity is not None
 
         if camera:
-            confirmed, reason = True, "a person is on camera"
+            # Frigate flagged a person — but Frigate false-positives, so get a
+            # second opinion from JARVIS's OWN vision before escalating (v6.73.0).
+            vision = await self._confirm_person_with_vision(cam_entity)
+            if vision is True:
+                confirmed, reason = True, "a person is on camera (confirmed by vision)"
+            elif vision is False:
+                # Frigate said person, JARVIS's eyes say no → false positive.
+                # Do NOT escalate on the camera signal; fall through to the
+                # movement-based logic (a real intruder still moving through the
+                # house will confirm that way).
+                _LOGGER.info("intrusion: Frigate person on %s NOT confirmed by "
+                             "vision — treating as false positive", cam_entity)
+                if inv.get("breach_area"):
+                    confirmed = spread and near_breach
+                    reason = "someone is moving through the house from the point of entry"
+                else:
+                    confirmed = spread and sustained
+                    reason = "sustained movement through the house while no one is home"
+            else:
+                # Vision inconclusive/unavailable → fall back to prior behavior
+                # (trust the camera) so a broken vision path never suppresses a
+                # real alert. Fail toward safety.
+                confirmed, reason = True, "a person is on camera"
         elif inv.get("breach_area"):
             # Entry point known: require the activity to reach it or an adjacent
             # room AND to be moving through — a genuine intrusion route.
