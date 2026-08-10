@@ -676,6 +676,23 @@ setTimeout(async () => {
     ["diagnostics run-check button present", !!el.shadowRoot.getElementById("diag-refresh")],
   );
 
+  // ── every config toggle must be WIRED, not just rendered (v6.76.1) ──
+  // A button with data-cfg-key but no data-cfg-val is inert: the click handler
+  // scopes to [data-cfg-key][data-cfg-val], so it renders fine and does nothing.
+  const inertToggles = [...el.shadowRoot.querySelectorAll("button[data-cfg-key]")]
+    .filter(b => !b.hasAttribute("data-cfg-val"))
+    .map(b => b.getAttribute("data-cfg-key"));
+  checks.push(
+    ["no inert config toggles (every button has data-cfg-val)",
+      inertToggles.length === 0 || `inert: ${inertToggles.join(", ")}`],
+    ["hazard master toggle is wired",
+      !!el.shadowRoot.querySelector('button[data-cfg-key="hazard_monitor_enabled"][data-cfg-val]')],
+    ["hazard feed toggles are wired",
+      !!el.shadowRoot.querySelector('button[data-cfg-key="hazard_quakes_on"][data-cfg-val]') &&
+      !!el.shadowRoot.querySelector('button[data-cfg-key="hazard_weather_on"][data-cfg-val]') &&
+      !!el.shadowRoot.querySelector('button[data-cfg-key="hazard_disasters_on"][data-cfg-val]')],
+  );
+
   // ── Intrusion Log + training (v6.76.0) ──
   await el._wireIntrusionLog();
   const ilogBody = el.shadowRoot.getElementById("ilog-body")?.textContent || "";

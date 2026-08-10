@@ -4,6 +4,18 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.76.1] — the Hazard Monitor and vision-confirm switches actually toggle
+The Hazard Monitor's on/off switch and its three feed switches, plus the
+intrusion vision-confirmation switch, rendered correctly but did nothing when
+clicked. They were built with a button class that has no click handler — the
+panel's toggle handler only binds to buttons carrying the value to write, which
+these were missing. Converted all five to the panel's standard toggle, so they
+save and take effect.
+
+Added a smoke check that fails if any config button is rendered without the
+attribute that makes it clickable, since an inert control looks completely
+normal and passed every previous check.
+
 ## [6.76.0] — intrusion log with snapshots, and training from your labels
 Every intrusion event is now recorded to a reviewable log with its snapshot —
 what JARVIS flagged, where, when, which rooms the motion touched, how far it
