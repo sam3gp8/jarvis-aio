@@ -342,7 +342,7 @@ async def periodic_check(hass, honorific: str = "sir") -> dict:
             tts = tts_helper.find_best_tts_entity(hass)
             spk = audio_routing.speakers_in_area(hass, None)
             if tts and spk:
-                await tts_helper.async_announce(hass, tts, spk, message, context="hazard")
+                await tts_helper.async_announce(hass, message, tts, spk, context="hazard")
         except Exception:
             pass
 

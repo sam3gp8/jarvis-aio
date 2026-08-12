@@ -4,6 +4,24 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.78.1] — scheduled briefings actually run
+The morning and evening briefings fired on schedule but produced nothing. The
+scheduler passed the wrong name for the language-model client — one that exists
+in the service handlers but not where the scheduler lives — so every run raised
+an error immediately, and the handler logged it at debug level, which meant the
+failure never surfaced anywhere you'd see it. Fixed the reference, and raised
+that logging to a warning so a briefing that fails says so.
+
+Also corrected the hazard monitor's spoken alert, which passed its arguments in
+the wrong order and would have announced the wrong thing.
+
+Both were invisible to the existing checks, so the audit gained a third gate:
+it now resolves names statically and fails on any reference to something that
+doesn't exist in scope. A plain syntax check accepts that kind of error happily
+— it only appears at runtime, and only if something is listening. The gate
+catches the original bug exactly. 4 new tests, including one that guards every
+spoken-alert call site against the argument-order mistake.
+
 ## [6.78.0] — briefings that arrive on their own
 JARVIS could already deliver a spoken briefing, but only when something called
 the service. It now runs them itself, morning and evening, at times you set.

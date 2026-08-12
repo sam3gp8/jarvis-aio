@@ -67,3 +67,45 @@ def test_panel_briefing_toggles_are_wired():
 
 def test_panel_has_manual_trigger():
     assert "brief-now" in PANEL and "_wireBriefings" in PANEL
+
+
+# ── v6.78.1 regression guards ────────────────────────────────────────────────
+
+def test_scheduler_uses_the_real_llm_client_name():
+    """The scheduled briefing must reference llm_client (which exists in
+    async_setup_entry), not groq_client (a parameter of _register_services).
+    Referencing the wrong name raised NameError on every scheduled run and was
+    swallowed by the handler's except."""
+    assert "async_briefing(hass, call, llm_client," in INIT
+    # and the wrong name must not appear inside the setup-scope scheduler
+    sched = INIT.split("Scheduled briefings", 1)[1].split("def _register_services", 1)[0]
+    assert "groq_client" not in sched
+
+
+def test_briefing_failures_are_logged_visibly():
+    """A scheduled briefing that fails must warn, not whisper at debug — the
+    debug level is what hid the NameError."""
+    sched = INIT.split("Scheduled briefings", 1)[1].split("def _register_services", 1)[0]
+    assert "_LOGGER.warning" in sched
+    assert 'briefing failed' in sched
+
+
+def test_hazard_announce_argument_order():
+    """async_announce is (hass, text, tts_entity, speakers) — the hazard monitor
+    passed (hass, tts, speakers, text), which would speak the wrong thing."""
+    hz = (COMP / "hazard_monitor.py").read_text()
+    assert "async_announce(hass, message, tts, spk" in hz
+
+
+def test_all_announce_callers_pass_text_second():
+    """Guard the whole class: every async_announce call site must pass the text
+    as the second positional argument."""
+    import re
+    bad = []
+    for py in COMP.glob("*.py"):
+        for m in re.finditer(r"async_announce\(\s*hass,\s*([A-Za-z_][\w\.\[\]\"']*)", py.read_text()):
+            arg = m.group(1)
+            # a TTS entity or speaker list in the text slot is the bug signature
+            if arg in ("tts", "tts_entity", "spk", "speakers"):
+                bad.append(f"{py.name}: async_announce(hass, {arg}, ...)")
+    assert not bad, f"wrong async_announce argument order: {bad}"

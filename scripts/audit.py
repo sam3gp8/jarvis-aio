@@ -159,6 +159,36 @@ def import_gate(files: list[pathlib.Path]) -> list[str]:
     return problems
 
 
+def undefined_names_gate(files: list[pathlib.Path]) -> list[str]:
+    """Catch references to names that don't exist in scope (v6.78.1).
+
+    py_compile happily accepts a NameError inside a nested function — it's only
+    raised at runtime, and if the caller wraps it in `except Exception` it fails
+    silently forever. That is exactly how a scheduled briefing shipped calling an
+    undefined `groq_client`. pyflakes resolves scopes statically and catches it.
+
+    Skipped (not failed) when pyflakes isn't installed, so the gate never blocks
+    a machine that lacks it."""
+    try:
+        from pyflakes.api import check
+        from pyflakes.reporter import Reporter
+    except Exception:
+        return []
+    import io
+    problems: list[str] = []
+    for f in files:
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            check(f.read_text(), str(f), Reporter(out, err))
+        except Exception:
+            continue
+        for line in out.getvalue().splitlines():
+            # only undefined names — unused imports/vars are style, not bugs
+            if "undefined name" in line:
+                problems.append(line.strip())
+    return problems
+
+
 def main() -> int:
     root = _component_dir()
     if not root.is_dir():
@@ -168,6 +198,7 @@ def main() -> int:
 
     compile_problems = compile_gate(files)
     import_problems = import_gate(files)
+    undefined_problems = undefined_names_gate(files)
 
     print(f"COMPILE  : {'OK (' + str(len(files)) + ' modules)' if not compile_problems else 'FAIL'}")
     for p in compile_problems:
@@ -175,8 +206,11 @@ def main() -> int:
     print(f"IMPORTS  : {'OK' if not import_problems else 'FAIL'}")
     for p in import_problems:
         print(f"  ✗ {p}")
+    print(f"NAMES    : {'OK' if not undefined_problems else 'FAIL'}")
+    for p in undefined_problems:
+        print(f"  ✗ {p}")
 
-    if compile_problems or import_problems:
+    if compile_problems or import_problems or undefined_problems:
         print("\nAUDIT FAILED")
         return 1
     print("\nAUDIT CLEAN")

@@ -358,10 +358,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # morning looks back overnight; evening looks back over the day
                 "hours": 12 if kind == "morning" else 14,
             })
-            await async_briefing(hass, call, groq_client, honorific, tts, spk)
+            await async_briefing(hass, call, llm_client, honorific, tts, spk)
             _LOGGER.info("JARVIS: delivered %s briefing", kind)
         except Exception as exc:
-            _LOGGER.debug("JARVIS %s briefing failed: %s", kind, exc)
+            # A scheduled briefing failing must be VISIBLE — this was
+            # previously debug-level, which hid a NameError entirely.
+            _LOGGER.warning("JARVIS %s briefing failed: %s", kind, exc)
 
     async def _morning_briefing(_now) -> None:
         await _run_briefing("morning")
