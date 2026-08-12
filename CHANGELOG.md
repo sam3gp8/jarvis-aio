@@ -4,6 +4,36 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.77.0] — per-person routines that work with more than one person home
+The pattern analyzer has been learning per-person routines for a while, but it
+was starved: a state change was only attributed to someone when *exactly one
+person was home*, and any event it couldn't pin down was discarded. In a house
+with a family in it, that meant most of the day produced no usable data and
+per-person routines stayed thin.
+
+Attribution is now room-aware and probabilistic:
+
+- **Room-scoped identity.** Sole occupancy of the *house* is rare; sole occupancy
+  of a *room* is common. When the camera recognition for the room an event
+  happened in shows one person, that event is attributed to them — even with
+  several people home. Recognitions older than five minutes stop counting, and a
+  room with two people in it contributes a weaker vote to each.
+- **Proximity.** Device trackers and BLE room-presence that resolve to the
+  event's area add a nearest-person vote.
+- **Confidence instead of certainty.** Every attribution now stores how sure it
+  was. A clear front-runner that didn't quite clear the confidence bar is
+  recorded with low confidence rather than thrown away; a genuine tie still
+  stays unknown, because inventing attribution would poison the routines.
+- **The analyzer weighs by confidence.** Patterns are scored by summed
+  confidence rather than raw counts, and a dominant "unknown" bucket no longer
+  kills a pattern outright — it's skipped, and the named attributions are
+  ranked among themselves. Commands keep full weight, since the conversation
+  path already runs the full identity resolver.
+
+New person_confidence column on state_changes (migrated automatically), and
+identity gains room and proximity vote tiers plus a confidence-carrying
+quick_identify. 11 new tests.
+
 ## [6.76.1] — the Hazard Monitor and vision-confirm switches actually toggle
 The Hazard Monitor's on/off switch and its three feed switches, plus the
 intrusion vision-confirmation switch, rendered correctly but did nothing when

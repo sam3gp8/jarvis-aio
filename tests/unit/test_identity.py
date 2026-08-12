@@ -163,3 +163,87 @@ def test_quick_person_disabled_is_unknown(identity, cfg, sigs, fake_hass):
     cfg["identity_enabled"] = False
     sigs["home"] = ["Sam"]
     assert identity.quick_person(fake_hass) == "unknown"
+
+
+# ── room-scoped + proximity attribution (v6.77.0) ────────────────────────────
+# The point: in a multi-occupant house, sole-occupancy of the HOUSE is rare but
+# sole-occupancy of a ROOM is common. These make per-person routines possible.
+
+class _Rec:
+    """Stub recognition module: who_is_where + last_seen_at."""
+    def __init__(self, seen, meta=None):
+        self._seen = seen
+        self._meta = meta or {}
+    def who_is_where(self, hass): return self._seen
+    def last_seen_at(self, hass, cam):
+        return self._meta.get(cam, {"confidence": 0.9, "age_seconds": 10.0})
+
+
+def _stub_room(identity, monkeypatch, seen, cam_areas, meta=None):
+    import sys, types
+    rec = _Rec(seen, meta)
+    rmod = types.SimpleNamespace(who_is_where=rec.who_is_where,
+                                 last_seen_at=rec.last_seen_at)
+    amod = types.SimpleNamespace(entity_area=lambda h, e: cam_areas.get(e))
+    monkeypatch.setitem(sys.modules, "jc.recognition", rmod)
+    monkeypatch.setitem(sys.modules, "jc.audio_routing", amod)
+    monkeypatch.setattr(sys.modules["jc"], "recognition", rmod, raising=False)
+    monkeypatch.setattr(sys.modules["jc"], "audio_routing", amod, raising=False)
+
+
+def test_room_votes_sole_person_in_room(identity, monkeypatch):
+    _stub_room(identity, monkeypatch, {"camera.elianas_room": "Eliana"},
+               {"camera.elianas_room": "elianas_room"})
+    votes = identity._room_votes(None, "elianas_room", __import__("time").time())
+    assert "Eliana" in votes
+    assert votes["Eliana"] >= identity._W_ROOM_SOLE * 0.25
+
+
+def test_room_votes_ignore_other_rooms(identity, monkeypatch):
+    _stub_room(identity, monkeypatch, {"camera.kitchen": "Sam"},
+               {"camera.kitchen": "kitchen"})
+    # event happened in the bedroom; the kitchen sighting must not count
+    assert identity._room_votes(None, "bedroom", __import__("time").time()) == {}
+
+
+def test_room_votes_expire(identity, monkeypatch):
+    _stub_room(identity, monkeypatch, {"camera.kitchen": "Sam"},
+               {"camera.kitchen": "kitchen"},
+               meta={"camera.kitchen": {"confidence": 0.9,
+                                        "age_seconds": identity._ROOM_FRESH_SECS + 60}})
+    assert identity._room_votes(None, "kitchen", __import__("time").time()) == {}
+
+
+def test_room_votes_multiple_people_weigh_less(identity, monkeypatch):
+    _stub_room(identity, monkeypatch,
+               {"camera.a": "Sam", "camera.b": "Eliana"},
+               {"camera.a": "living", "camera.b": "living"})
+    votes = identity._room_votes(None, "living", __import__("time").time())
+    assert set(votes) == {"Sam", "Eliana"}
+    assert max(votes.values()) < identity._W_ROOM_SOLE
+
+
+def test_room_votes_no_area_is_empty(identity):
+    assert identity._room_votes(None, None, 0.0) == {}
+
+
+def test_quick_identify_carries_confidence(identity, monkeypatch):
+    monkeypatch.setattr(identity, "_home_people", lambda h: ["Sam"])
+    out = identity.quick_identify(None)
+    assert out.person == "Sam"
+    assert out.confidence > 0
+    assert "Sam" in out.candidates
+
+
+def test_quick_identify_ambiguous_returns_candidates(identity, monkeypatch):
+    # several people home, no room signal → unknown, but candidates preserved
+    monkeypatch.setattr(identity, "_home_people", lambda h: ["Sam", "Eliana"])
+    out = identity.quick_identify(None)
+    assert out.person == identity.UNKNOWN
+    assert set(out.candidates) == {"Sam", "Eliana"}
+
+
+def test_quick_person_still_returns_a_string(identity, monkeypatch):
+    # back-compat: external callers of quick_person keep working
+    monkeypatch.setattr(identity, "_home_people", lambda h: ["Sam"])
+    assert identity.quick_person(None) == "Sam"

@@ -46,6 +46,14 @@ _W_SOLE_OCCUPANT = 0.6
 _W_HOME_PRIOR = 0.15
 _W_FACE = 0.8
 _W_VOICE = 0.9
+# Room-scoped attribution (v6.77.0): when a room's own presence/recognition
+# says exactly one person is in it, an event in THAT room is very likely theirs
+# even with several people home. This is the signal that unlocks per-person
+# routines in a multi-occupant house, where sole-occupancy almost never holds.
+_W_ROOM_SOLE = 0.75      # only this person detected in the event's room
+_W_ROOM_PRESENT = 0.30   # this person is among those detected in the room
+_W_PROXIMITY = 0.35      # nearest-person by device/BLE proximity to the area
+_ROOM_FRESH_SECS = 300.0 # room recognition older than this stops counting
 _FACE_RECENCY_WINDOW = 300.0  # seconds; a face older than this carries no weight
 
 
@@ -141,6 +149,93 @@ def _face_votes(hass: HomeAssistant, now: float) -> dict:
 
 # ── resolve ──────────────────────────────────────────────────────────────────
 
+def _room_votes(hass: HomeAssistant, area_id: Optional[str], now: float) -> dict:
+    """Who is detected in THIS room right now → {name: weight} (v6.77.0).
+
+    Uses camera face recognition mapped to areas: if the only person recently
+    recognised in the event's room is Eliana, a light change in that room is
+    almost certainly hers even if three people are home. This is what makes
+    per-person attribution work in a multi-occupant house — sole-occupancy
+    across the whole house is rare; sole-occupancy of a ROOM is common."""
+    votes: dict = {}
+    if not area_id:
+        return votes
+    try:
+        from . import recognition, audio_routing
+        seen = recognition.who_is_where(hass) or {}   # {camera_entity: name}
+        in_room: dict = {}
+        for cam, name in seen.items():
+            if not name or name == UNKNOWN:
+                continue
+            try:
+                cam_area = audio_routing.entity_area(hass, cam)
+            except Exception:
+                cam_area = None
+            if cam_area != area_id:
+                continue
+            rec = recognition.last_seen_at(hass, cam) or {}
+            age = float(rec.get("age_seconds", 0.0))
+            if age > _ROOM_FRESH_SECS:
+                continue
+            conf = float(rec.get("confidence", 0.7))
+            recency = max(0.0, 1.0 - (age / _ROOM_FRESH_SECS))
+            in_room[name] = max(in_room.get(name, 0.0), conf * recency)
+        if not in_room:
+            return votes
+        # exactly one person seen in the room ⇒ strong; several ⇒ weaker each
+        weight = _W_ROOM_SOLE if len(in_room) == 1 else _W_ROOM_PRESENT
+        for name, strength in in_room.items():
+            votes[name] = weight * max(0.25, strength)
+    except Exception as exc:
+        _LOGGER.debug("identity: room votes failed: %s", exc)
+    return votes
+
+
+def _proximity_votes(hass: HomeAssistant, area_id: Optional[str]) -> dict:
+    """Nearest-person by device/BLE proximity to the event's area (v6.77.0).
+
+    Reads device_tracker entities that report an area or a BLE-proxy room
+    (e.g. Bermuda/ESPresense style trackers whose state names a room). Only
+    contributes when a tracker actually resolves to the same area."""
+    votes: dict = {}
+    if not area_id:
+        return votes
+    try:
+        from . import audio_routing
+        for st in hass.states.async_all("device_tracker"):
+            name = (st.attributes.get("friendly_name") or "").strip()
+            owner = st.attributes.get("person") or _owner_from_tracker(hass, st.entity_id)
+            who = owner or name
+            if not who:
+                continue
+            # a tracker whose STATE is a room name, or whose entity sits in the area
+            state_area = str(st.state or "").strip().lower().replace(" ", "_")
+            try:
+                ent_area = audio_routing.entity_area(hass, st.entity_id)
+            except Exception:
+                ent_area = None
+            if state_area and state_area == str(area_id).lower():
+                votes[normalize(who)] = max(votes.get(normalize(who), 0.0), _W_PROXIMITY)
+            elif ent_area and ent_area == area_id:
+                votes[normalize(who)] = max(votes.get(normalize(who), 0.0),
+                                            _W_PROXIMITY * 0.6)
+    except Exception as exc:
+        _LOGGER.debug("identity: proximity votes failed: %s", exc)
+    return votes
+
+
+def _owner_from_tracker(hass: HomeAssistant, tracker_id: str) -> Optional[str]:
+    """Find which person entity claims this device_tracker."""
+    try:
+        for st in hass.states.async_all("person"):
+            devs = st.attributes.get("device_trackers") or []
+            if tracker_id in devs:
+                return st.attributes.get("friendly_name") or st.entity_id.split(".")[-1]
+    except Exception:
+        pass
+    return None
+
+
 def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
             area_id: Optional[str] = None, now: Optional[float] = None) -> Identification:
     """
@@ -169,6 +264,18 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
     for name, w in _face_votes(hass, now).items():
         votes[name] += w
         methods.add("face")
+
+    # Tier 2b — ROOM-SCOPED signals (v6.77.0). resolve() has always accepted an
+    # area_id; now it uses it. Who is in the room where the event happened is
+    # the strongest practical signal in a multi-occupant house.
+    for name, w in _room_votes(hass, area_id, now).items():
+        votes[normalize(name)] += w
+        methods.add("room")
+
+    # Tier 2c — device/BLE proximity to that room
+    for name, w in _proximity_votes(hass, area_id).items():
+        votes[name] += w
+        methods.add("proximity")
 
     # Tier 3 — voice fingerprint (optional, GPU)
     if bool(_cfg("identity_voice_fingerprint", False)):
@@ -202,22 +309,42 @@ def resolve_subject(hass: HomeAssistant, **kwargs) -> str:
     return subject_for(resolve(hass, **kwargs))
 
 
-def quick_person(hass: HomeAssistant) -> str:
+def quick_person(hass: HomeAssistant, area_id: Optional[str] = None) -> str:
     """
-    Cheap presence-only identity for high-volume callers (e.g. the
-    state-change listener, which fires far more often than commands and
-    can't afford face/voice tier lookups per event). Sole-occupant only —
-    no face, no voice, no confidence math. Multiple people home, or nobody
-    home, or the identity system disabled ⇒ UNKNOWN, same as resolve()
-    would land on anyway once ambiguity kicks in.
+    Cheap identity for high-volume callers (the state-change listener). As of
+    v6.77.0 this is ROOM-AWARE: pass the event's area_id and room-scoped
+    presence/recognition is used, so attribution works in a multi-occupant house
+    instead of only when exactly one person is home. Falls back to the old
+    sole-occupant behaviour when no area is known or nothing resolves.
     """
+    return quick_identify(hass, area_id).person
+
+
+def quick_identify(hass: HomeAssistant, area_id: Optional[str] = None) -> Identification:
+    """Room-aware identity WITH confidence and candidates (v6.77.0).
+
+    Returns a full Identification so callers can store partial certainty
+    ("probably Sam, 0.62") instead of discarding everything short of certain.
+    Deliberately skips the expensive voice tier — this runs on every state
+    change — but does use presence, face, room, and proximity signals."""
     if not bool(_cfg("identity_enabled", True)):
-        return UNKNOWN
+        return Identification(UNKNOWN, 0.0, "disabled")
     try:
+        if area_id:
+            # full fusion (minus voice, which resolve() gates behind config)
+            ident = resolve(hass, area_id=area_id)
+            if ident.known:
+                return ident
+            # keep the candidates/confidence even when below threshold, so the
+            # analyzer can still weigh a probable attribution
+            return ident
         home = _home_people(hass)
-    except Exception:
-        return UNKNOWN
-    # Raw display name, matching resolve().person's format — commands.person
-    # is stored the same way (via conversation.py), so the analyzer can
-    # correlate state_changes.person and commands.person directly.
-    return home[0] if len(home) == 1 else UNKNOWN
+        if len(home) == 1:
+            return Identification(home[0], _W_SOLE_OCCUPANT, "sole_occupant",
+                                  {home[0]: _W_SOLE_OCCUPANT})
+        if len(home) > 1:
+            cands = {n: _W_HOME_PRIOR for n in home}
+            return Identification(UNKNOWN, 0.0, "ambiguous_home", cands)
+    except Exception as exc:
+        _LOGGER.debug("identity: quick_identify failed: %s", exc)
+    return Identification(UNKNOWN, 0.0, "no_signal")

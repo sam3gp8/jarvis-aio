@@ -117,8 +117,54 @@ def test_listener_stamps_unknown_with_no_presence_signal(cc, core_state):
 
 
 def test_listener_stamps_known_person_when_home(cc, core_state, load, monkeypatch):
+    # v6.77.0: the listener now uses the room-aware quick_identify, which
+    # carries confidence as well as the name.
     identity = load("identity")
-    monkeypatch.setattr(identity, "quick_person", lambda hass: "Sam")
+    monkeypatch.setattr(identity, "quick_identify",
+                        lambda hass, area=None: identity.Identification(
+                            "Sam", 0.6, "sole_occupant", {"Sam": 0.6}))
+
+    ev = _event(cc, "light.den", "off", "on")
+    cc._on_state_changed(ev)
+
+    with sqlite3.connect(core_state.state_logger._db_path) as conn:
+        row = conn.execute(
+            "SELECT person, person_confidence FROM state_changes "
+            "WHERE entity_id='light.den'"
+        ).fetchone()
+    assert row is not None and row[0] == "Sam"
+    assert row[1] == pytest.approx(0.6)
+
+
+def test_listener_records_probable_person_below_threshold(cc, core_state, load, monkeypatch):
+    """v6.77.0: a clear front-runner that didn't clear the confidence bar is
+    recorded WITH low confidence rather than discarded as unknown — this is what
+    lets a multi-occupant house build per-person routines at all."""
+    identity = load("identity")
+    monkeypatch.setattr(identity, "quick_identify",
+                        lambda hass, area=None: identity.Identification(
+                            identity.UNKNOWN, 0.0, "low_confidence",
+                            {"Eliana": 0.42, "Sam": 0.10}))
+
+    ev = _event(cc, "light.den", "off", "on")
+    cc._on_state_changed(ev)
+
+    with sqlite3.connect(core_state.state_logger._db_path) as conn:
+        row = conn.execute(
+            "SELECT person, person_confidence FROM state_changes "
+            "WHERE entity_id='light.den'"
+        ).fetchone()
+    assert row[0] == "Eliana"          # the clear front-runner is kept
+    assert 0 < row[1] < 0.45           # but flagged as uncertain
+
+
+def test_listener_keeps_unknown_when_candidates_are_tied(cc, core_state, load, monkeypatch):
+    """A genuine coin-flip must stay unknown — we don't invent attribution."""
+    identity = load("identity")
+    monkeypatch.setattr(identity, "quick_identify",
+                        lambda hass, area=None: identity.Identification(
+                            identity.UNKNOWN, 0.0, "low_confidence",
+                            {"Eliana": 0.30, "Sam": 0.28}))
 
     ev = _event(cc, "light.den", "off", "on")
     cc._on_state_changed(ev)
@@ -127,7 +173,7 @@ def test_listener_stamps_known_person_when_home(cc, core_state, load, monkeypatc
         row = conn.execute(
             "SELECT person FROM state_changes WHERE entity_id='light.den'"
         ).fetchone()
-    assert row is not None and row[0] == "Sam"
+    assert row[0] == "unknown"
 
 
 def test_listener_survives_identity_failure(cc, core_state, load, monkeypatch):

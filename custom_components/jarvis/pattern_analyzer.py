@@ -484,31 +484,58 @@ class PatternAnalyzer:
         "commands" (match on text+hour). Defensive: an unmigrated DB
         missing the `person` column just falls back to household (None).
         """
+        # v6.77.0: weight each event by how CONFIDENT the attribution was, so a
+        # room-scoped "probably Eliana (0.62)" contributes proportionally instead
+        # of being thrown away. Commands keep full weight — the conversation path
+        # runs the full identity resolver, so those attributions are strong.
         try:
             if table == "state_changes":
                 rows = conn.execute("""
-                    SELECT person, COUNT(*) as cnt FROM state_changes
+                    SELECT person, COUNT(*) as cnt,
+                           SUM(COALESCE(NULLIF(person_confidence, 0), 0.5)) as wt
+                    FROM state_changes
                     WHERE entity_id = ? AND new_state = ? AND hour = ?
                         AND timestamp > datetime('now', '-30 days')
-                    GROUP BY person ORDER BY cnt DESC
+                    GROUP BY person ORDER BY wt DESC
                 """, (entity, state, hour)).fetchall()
             else:
                 rows = conn.execute("""
-                    SELECT person, COUNT(*) as cnt FROM commands
+                    SELECT person, COUNT(*) as cnt, COUNT(*) * 1.0 as wt
+                    FROM commands
                     WHERE text = ? AND hour = ?
                         AND timestamp > datetime('now', '-30 days')
-                    GROUP BY person ORDER BY cnt DESC
+                    GROUP BY person ORDER BY wt DESC
                 """, (text, hour)).fetchall()
         except Exception:
-            return None
+            # older DB without the confidence column — fall back to raw counts
+            try:
+                if table == "state_changes":
+                    rows = conn.execute("""
+                        SELECT person, COUNT(*) as cnt, COUNT(*) * 1.0 as wt
+                        FROM state_changes
+                        WHERE entity_id = ? AND new_state = ? AND hour = ?
+                            AND timestamp > datetime('now', '-30 days')
+                        GROUP BY person ORDER BY wt DESC
+                    """, (entity, state, hour)).fetchall()
+                else:
+                    return None
+            except Exception:
+                return None
 
         if not rows:
             return None
-        total = sum(r["cnt"] for r in rows)
-        top = rows[0]
-        if not top["person"] or top["person"] == "unknown" or total <= 0:
+        # Ignore the unknown bucket rather than aborting on it: previously a
+        # dominant 'unknown' killed the whole pattern, so multi-occupant houses
+        # (where sole-occupancy rarely holds) never produced per-person routines.
+        named = [r for r in rows if r["person"] and r["person"] != "unknown"]
+        if not named:
             return None
-        if (top["cnt"] / total >= PERSON_DOMINANCE_RATIO
+        total = sum(float(r["wt"] or 0.0) for r in named)
+        top = named[0]
+        top_wt = float(top["wt"] or 0.0)
+        if total <= 0:
+            return None
+        if (top_wt / total >= PERSON_DOMINANCE_RATIO
                 and top["cnt"] >= MIN_OCCURRENCES):
             return top["person"]
         return None

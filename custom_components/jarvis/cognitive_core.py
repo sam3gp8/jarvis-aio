@@ -1756,7 +1756,8 @@ class StateLogger:
                         hour INTEGER,
                         day_of_week INTEGER,
                         triggered_by TEXT DEFAULT 'system',
-                        person TEXT DEFAULT 'unknown'
+                        person TEXT DEFAULT 'unknown',
+                        person_confidence REAL DEFAULT 0.0
                     );
                     CREATE INDEX IF NOT EXISTS idx_sc_entity
                         ON state_changes(entity_id);
@@ -1814,6 +1815,14 @@ class StateLogger:
                         "ADD COLUMN person TEXT DEFAULT 'unknown'")
                     conn.commit()
                     _LOGGER.info("Pattern DB: migrated state_changes.person")
+                # v6.77.0: store HOW SURE we are of the attribution, so the
+                # analyzer can use probable matches instead of discarding
+                # everything that isn't certain.
+                if "person_confidence" not in cols:
+                    conn.execute("ALTER TABLE state_changes "
+                                 "ADD COLUMN person_confidence REAL DEFAULT 0.0")
+                    conn.commit()
+                    _LOGGER.info("Pattern DB: migrated state_changes.person_confidence")
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_sc_person "
                     "ON state_changes(person)")
@@ -1824,7 +1833,8 @@ class StateLogger:
     def log_state_change(self, entity_id: str, old_state: str,
                           new_state: str, area_id: str = "",
                           triggered_by: str = "system",
-                          person: str = "unknown"):
+                          person: str = "unknown",
+                          person_confidence: float = 0.0):
         """Record a state change for pattern analysis."""
         import sqlite3
         # Skip noisy domains
@@ -1843,11 +1853,12 @@ class StateLogger:
                 conn.execute(
                     "INSERT INTO state_changes "
                     "(timestamp, entity_id, domain, old_state, new_state, "
-                    "area_id, hour, day_of_week, triggered_by, person) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "area_id, hour, day_of_week, triggered_by, person, "
+                    "person_confidence) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (now.isoformat(), entity_id, domain, old_state,
                      new_state, area_id, now.hour, now.weekday(),
-                     triggered_by, person),
+                     triggered_by, person, float(person_confidence or 0.0)),
                 )
         except Exception:
             pass
@@ -1974,13 +1985,30 @@ def _on_state_changed(event: Event) -> None:
     # treatment on the much lower-volume conversation path).
     if _CORE.state_logger:
         person = "unknown"
+        person_conf = 0.0
         try:
             from . import identity
-            person = identity.quick_person(_CORE.hass)
+            # v6.77.0: room-aware — pass the area the event happened in so
+            # room-scoped presence/recognition and proximity can attribute it
+            # even when several people are home.
+            ident = identity.quick_identify(_CORE.hass, area_id)
+            person = ident.person
+            person_conf = ident.confidence
+            # Probabilistic fallback: if no single person cleared the bar but
+            # one candidate clearly leads, record them WITH the low confidence
+            # rather than throwing the event away as 'unknown'.
+            if person == identity.UNKNOWN and ident.candidates:
+                ranked = sorted(ident.candidates.items(),
+                                key=lambda kv: kv[1], reverse=True)
+                if len(ranked) == 1 or (len(ranked) > 1
+                                        and ranked[0][1] > ranked[1][1] * 1.5):
+                    person = ranked[0][0]
+                    person_conf = min(0.44, float(ranked[0][1]))
         except Exception:
             pass
         _CORE.state_logger.log_state_change(
             entity_id, old_val, new_val, area_id, person=person,
+            person_confidence=person_conf,
         )
 
 
