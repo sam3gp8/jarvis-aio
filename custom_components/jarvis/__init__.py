@@ -9,7 +9,8 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (async_track_time_interval,
+                                          async_track_time_change)
 
 from .const import (
     CONF_API_KEY,
@@ -298,6 +299,87 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                      int(HAZARD_INTERVAL.total_seconds() // 60))
     except Exception as exc:
         _LOGGER.debug("JARVIS: hazard monitor registration failed: %s", exc)
+
+    # ── Scheduled briefings (v6.78.0) ─────────────────────────────────────────
+    # JARVIS delivers its own morning and evening briefing at configured clock
+    # times. Off by default; enable per-briefing in Settings. Each run reuses the
+    # same content engine as the jarvis.briefing service, so what you hear is
+    # identical to calling it by hand.
+    class _SchedCall:
+        """Minimal ServiceCall stand-in for a scheduled (non-service) run."""
+        def __init__(self, data: dict):
+            self.data = data
+
+    def _brief_cfg(key, default):
+        try:
+            from . import jarvis_config
+            v = jarvis_config.get(key, default)
+            return v if v is not None else default
+        except Exception:
+            return default
+
+    def _parse_hhmm(value, fallback_h, fallback_m):
+        try:
+            h, m = str(value).split(":")[:2]
+            h, m = int(h), int(m)
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                return h, m
+        except Exception:
+            pass
+        return fallback_h, fallback_m
+
+    async def _run_briefing(kind: str) -> None:
+        """Deliver a scheduled briefing if it's enabled and someone's home."""
+        try:
+            if not bool(_brief_cfg(f"briefing_{kind}_enabled", False)):
+                return
+            # Don't talk to an empty house unless explicitly allowed.
+            if bool(_brief_cfg("briefing_require_home", True)):
+                try:
+                    from .presence import get_presence_summary
+                    people = get_presence_summary(hass).get("people", [])
+                    if people and not any(p.get("state") == "home" for p in people):
+                        _LOGGER.debug("JARVIS: skipping %s briefing — nobody home", kind)
+                        return
+                except Exception:
+                    pass
+            honorific = entry.options.get(CONF_HONORIFIC,
+                                          entry.data.get(CONF_HONORIFIC, DEFAULT_HONORIFIC))
+            tts = _get_tts(hass, entry, context="briefing")
+            spk = _get_speakers(hass, entry)
+            call = _SchedCall({
+                "announce": True,
+                "include_weather": bool(_brief_cfg("briefing_include_weather", True)),
+                "include_calendar": bool(_brief_cfg("briefing_include_calendar", True)),
+                "include_presence": bool(_brief_cfg("briefing_include_presence", True)),
+                "include_events": bool(_brief_cfg("briefing_include_events", True)),
+                "include_energy": bool(_brief_cfg("briefing_include_energy", True)),
+                "include_hazards": bool(_brief_cfg("briefing_include_hazards", True)),
+                # morning looks back overnight; evening looks back over the day
+                "hours": 12 if kind == "morning" else 14,
+            })
+            await async_briefing(hass, call, groq_client, honorific, tts, spk)
+            _LOGGER.info("JARVIS: delivered %s briefing", kind)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS %s briefing failed: %s", kind, exc)
+
+    async def _morning_briefing(_now) -> None:
+        await _run_briefing("morning")
+
+    async def _evening_briefing(_now) -> None:
+        await _run_briefing("evening")
+
+    try:
+        mh, mm = _parse_hhmm(_brief_cfg("briefing_morning_time", "07:30"), 7, 30)
+        eh, em = _parse_hhmm(_brief_cfg("briefing_evening_time", "19:30"), 19, 30)
+        camera_unsubs.append(async_track_time_change(
+            hass, _morning_briefing, hour=mh, minute=mm, second=0))
+        camera_unsubs.append(async_track_time_change(
+            hass, _evening_briefing, hour=eh, minute=em, second=0))
+        _LOGGER.info("JARVIS: briefings scheduled (morning %02d:%02d, evening %02d:%02d)",
+                     mh, mm, eh, em)
+    except Exception as exc:
+        _LOGGER.debug("JARVIS: briefing scheduler registration failed: %s", exc)
 
     # Register DoubleTake MQTT face recognition listener
     recognition_unsubs = await register_recognition_listener(hass)

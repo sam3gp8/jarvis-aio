@@ -740,6 +740,17 @@ async def ws_get_panel_data(
                 "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
                 "intrusion_response_timeout": _runtime_opt(hass, entry, "intrusion_response_timeout", 120),
                 "intrusion_vision_confirm": bool(_runtime_opt(hass, entry, "intrusion_vision_confirm", True)),
+                # Scheduled briefings (v6.78.0)
+                "briefing_morning_enabled": bool(_runtime_opt(hass, entry, "briefing_morning_enabled", False)),
+                "briefing_evening_enabled": bool(_runtime_opt(hass, entry, "briefing_evening_enabled", False)),
+                "briefing_morning_time": _runtime_opt(hass, entry, "briefing_morning_time", "07:30"),
+                "briefing_evening_time": _runtime_opt(hass, entry, "briefing_evening_time", "19:30"),
+                "briefing_require_home": bool(_runtime_opt(hass, entry, "briefing_require_home", True)),
+                "briefing_include_weather": bool(_runtime_opt(hass, entry, "briefing_include_weather", True)),
+                "briefing_include_calendar": bool(_runtime_opt(hass, entry, "briefing_include_calendar", True)),
+                "briefing_include_events": bool(_runtime_opt(hass, entry, "briefing_include_events", True)),
+                "briefing_include_energy": bool(_runtime_opt(hass, entry, "briefing_include_energy", True)),
+                "briefing_include_hazards": bool(_runtime_opt(hass, entry, "briefing_include_hazards", True)),
                 # Hazard monitor controls — same read-back requirement (v6.71.0)
                 "hazard_monitor_enabled": bool(_runtime_opt(hass, entry, "hazard_monitor_enabled", False)),
                 "hazard_lat":             _runtime_opt(hass, entry, "hazard_lat", ""),
@@ -1246,6 +1257,18 @@ PANEL_WRITABLE_KEYS = {
     "hazard_disaster_radius_km",  # float: disaster radius
     "intrusion_vision_confirm",   # bool: verify Frigate person detection with JARVIS vision before escalating
     "intrusion_inward_depth",     # int: rooms deep from breach motion must reach to confirm
+    # Scheduled briefings (v6.78.0)
+    "briefing_morning_enabled",   # bool: deliver a morning briefing
+    "briefing_evening_enabled",   # bool: deliver an evening briefing
+    "briefing_morning_time",      # str "HH:MM"
+    "briefing_evening_time",      # str "HH:MM"
+    "briefing_require_home",      # bool: skip when nobody is home
+    "briefing_include_weather",
+    "briefing_include_calendar",
+    "briefing_include_presence",
+    "briefing_include_events",
+    "briefing_include_energy",
+    "briefing_include_hazards",
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",

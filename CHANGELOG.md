@@ -4,6 +4,26 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.78.0] — briefings that arrive on their own
+JARVIS could already deliver a spoken briefing, but only when something called
+the service. It now runs them itself, morning and evening, at times you set.
+
+A new Briefings panel gives each one an on/off switch and a time, plus toggles
+for what goes in: weather and the day's forecast, your calendar, what happened
+overnight, notable power draw, and — new to the briefing — any active hazards
+near home, so a severe-weather warning or a nearby wildfire is part of the
+morning summary rather than something you have to go looking for. There's a
+"brief me now" button for a one-off.
+
+Both briefings are off by default; JARVIS doesn't start talking on a schedule
+until you ask it to. By default it also stays quiet when nobody is home, rather
+than narrating the day to an empty house. The morning briefing looks back
+overnight and the evening one across the day, and both reuse the same content
+engine as the jarvis.briefing service, so a scheduled briefing says exactly what
+a manual one would.
+
+9 new tests.
+
 ## [6.77.0] — per-person routines that work with more than one person home
 The pattern analyzer has been learning per-person routines for a while, but it
 was starved: a state change was only attributed to someone when *exactly one

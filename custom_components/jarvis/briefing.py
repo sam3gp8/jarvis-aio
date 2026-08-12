@@ -190,6 +190,29 @@ async def async_briefing(
         if energy:
             context_lines.append(f"High power draw: {', '.join(energy)}.")
 
+    # Active natural hazards near home (v6.78.0) — earthquakes, severe weather
+    # warnings, wildfires. Read-only scan; silent when nothing is active.
+    if call.data.get("include_hazards", True):
+        try:
+            from . import hazard_monitor
+            hz = await hazard_monitor.scan_now(hass)
+            if hz.get("ok"):
+                bits = []
+                for q in hz.get("earthquakes", []) or []:
+                    mag = q.get("mag")
+                    magtxt = f"magnitude {mag:.1f}" if isinstance(mag, (int, float)) else "an earthquake"
+                    bits.append(f"{magtxt} quake {q.get('dist_km')} km away ({q.get('place')})")
+                for w in hz.get("weather", []) or []:
+                    bits.append(f"{w.get('severity')} weather alert: {w.get('event')}"
+                                + (f" for {w.get('area')}" if w.get("area") else ""))
+                for d in hz.get("disasters", []) or []:
+                    bits.append(f"{d.get('category')}: {d.get('title')} "
+                                f"{d.get('dist_km')} km away")
+                if bits:
+                    context_lines.append("Active hazards nearby: " + "; ".join(bits) + ".")
+        except Exception:
+            pass
+
     # Camera detection summary from proactive briefing system
     try:
         from .proactive_briefing import get_snapshot_summary
