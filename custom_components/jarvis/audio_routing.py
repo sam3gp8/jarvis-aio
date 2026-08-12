@@ -540,10 +540,18 @@ def broadcast_target(
             return [broadcast_group]
 
     # Fallback — every speaker that isn't a satellite
-    return [
-        s for s in _entities_by_domain(hass, "media_player")
-        if not s.startswith("assist_satellite.")
-    ]
+    # Skip targets that can never render audio (v6.78.2). tts.speak carries the
+    # whole list in one call, so a single unavailable entity used to fail the
+    # entire broadcast — an off TV could silence the morning briefing.
+    out = []
+    for s in _entities_by_domain(hass, "media_player"):
+        if s.startswith("assist_satellite."):
+            continue
+        st = hass.states.get(s)
+        if st is not None and st.state in ("unavailable", "unknown"):
+            continue
+        out.append(s)
+    return out
 
 
 # ─── Bedroom / sleep detection helpers ───────────────────────────────────────

@@ -4,6 +4,24 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.78.2] — one dead speaker no longer silences the whole house
+Briefings requested from the panel produced nothing, while asking out loud in a
+room worked. The difference was how many speakers each path targets. A spoken
+reply goes to the one speaker in the room you're standing in; a briefing is a
+broadcast, and broadcasts went to every media player in the house as a single
+request. That request succeeds or fails as a unit — so one target that couldn't
+accept it, an off television or a stale cast device, failed the whole thing and
+nobody heard anything.
+
+Two changes. Broadcasts now skip players that are unavailable, since they can
+never render audio anyway. And if a broadcast still fails, JARVIS retries each
+speaker individually, so the reachable ones hear the briefing and the log names
+the ones that didn't. What used to be all-or-nothing now degrades to
+whoever-can-hear-it.
+
+7 new tests, including the exact case: one dead speaker alongside a working one,
+and the working one still plays.
+
 ## [6.78.1] — scheduled briefings actually run
 The morning and evening briefings fired on schedule but produced nothing. The
 scheduler passed the wrong name for the language-model client — one that exists

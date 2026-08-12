@@ -223,9 +223,37 @@ async def async_announce(
         except Exception:
             pass
     except Exception as exc:
-        _LOGGER.warning("JARVIS TTS failed (%s): %s", context, exc)
+        # One bad target must not silence everyone (v6.78.2). A single
+        # tts.speak carrying the whole speaker list fails as a unit, so a
+        # broadcast to every media_player in the house died entirely if one
+        # of them (an off TV, a stale Cast entity) rejected the call — while
+        # a room-routed reply to a single speaker worked fine. Retry
+        # per-speaker so the reachable ones still hear it.
+        _LOGGER.warning("JARVIS TTS batch failed (%s): %s — retrying per speaker",
+                        context, exc)
+        delivered, failed = 0, []
+        for spk in list(speakers):
+            try:
+                one = dict(service_data)
+                one["media_player_entity_id"] = [spk]
+                await hass.services.async_call(
+                    "tts", "speak", one,
+                    target={"entity_id": tts_entity}, blocking=False,
+                )
+                delivered += 1
+            except Exception as sub:
+                failed.append(f"{spk}: {str(sub)[:60]}")
         try:
             from .diagnostics.service_health import record_usage
-            record_usage("tts", False, str(exc)[:120])
+            if delivered:
+                record_usage("tts", True)
+            else:
+                record_usage("tts", False, str(exc)[:120])
         except Exception:
             pass
+        if delivered:
+            _LOGGER.info("JARVIS TTS delivered to %d/%d speaker(s); failed: %s",
+                         delivered, len(list(speakers)), failed or "none")
+        else:
+            _LOGGER.warning("JARVIS TTS failed on every speaker (%s): %s",
+                            context, failed)
