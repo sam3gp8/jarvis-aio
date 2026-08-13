@@ -4,6 +4,25 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.80.0] — suggestions show their reasoning, not just their conclusion
+When JARVIS proposed an automation, the panel showed a one-line description, a
+confidence number, and approve/dismiss. You had to trust it. The evidence that
+justified the suggestion — which entity, what time, how many days running, which
+person — was computed and then thrown away before it reached you.
+
+That evidence now carries all the way through. Each suggestion in the panel shows
+what JARVIS actually observed: the routine it noticed, how many times over the
+last month, how consistent it was, and who it was tied to — laid out as the
+reasoning behind the proposal. The pattern type is labelled, the entities
+involved are listed, confidence is a colour-graded bar, and the generated
+automation is one click away under "see the automation." Approving becomes an
+informed decision instead of a leap of faith.
+
+Nothing about the detection changed — this surfaces reasoning the analyzer was
+already doing. New pattern_type, entity_ids, and details columns on the
+suggestions table (migrated automatically), a pure explainer that turns pattern
+evidence into a human "why," and a rebuilt review card. 11 new tests.
+
 ## [6.79.0] — documents ingest themselves
 Dropping a manual or receipt into the documents folder used to require pressing
 Scan in the panel before JARVIS could answer questions about it. It now picks up

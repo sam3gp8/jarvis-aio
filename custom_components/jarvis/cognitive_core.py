@@ -1788,7 +1788,10 @@ class StateLogger:
                         confidence REAL DEFAULT 0.0,
                         pattern_count INTEGER DEFAULT 0,
                         approved_at TEXT,
-                        dismissed_at TEXT
+                        dismissed_at TEXT,
+                        pattern_type TEXT DEFAULT '',
+                        entity_ids TEXT DEFAULT '',
+                        details TEXT DEFAULT '{}'
                     );
 
                     CREATE TABLE IF NOT EXISTS person_patterns (
@@ -1827,6 +1830,18 @@ class StateLogger:
                     "CREATE INDEX IF NOT EXISTS idx_sc_person "
                     "ON state_changes(person)")
                 conn.commit()
+                # v6.80.0: carry the EVIDENCE behind a suggestion through to the
+                # panel — which pattern, which entities, and the observation
+                # details — so reviewing a suggestion shows *why*, not just what.
+                scols = {row[1] for row in
+                         conn.execute("PRAGMA table_info(suggestions)")}
+                for col, ddl in (("pattern_type", "TEXT DEFAULT ''"),
+                                 ("entity_ids", "TEXT DEFAULT ''"),
+                                 ("details", "TEXT DEFAULT '{}'")):
+                    if col not in scols:
+                        conn.execute(f"ALTER TABLE suggestions ADD COLUMN {col} {ddl}")
+                        conn.commit()
+                        _LOGGER.info("Pattern DB: migrated suggestions.%s", col)
         except Exception as exc:
             _LOGGER.warning("Pattern DB init failed: %s", exc)
 

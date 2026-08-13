@@ -170,6 +170,63 @@ def service_for(entity_id: str, state: str) -> Optional[dict]:
     return None
 
 
+def explain_suggestion(pattern_type: str, details: dict, count: int) -> dict:
+    """Turn a suggestion's evidence into a human 'why' for the review UI
+    (v6.80.0). Returns {headline, evidence:[...]} — the observations that led to
+    the proposal, so approving is an informed choice rather than a leap. Pure,
+    never raises."""
+    d = details or {}
+    ev: list[str] = []
+    headline = ""
+    try:
+        if pattern_type == "time_routine":
+            hour = d.get("hour")
+            state = d.get("state")
+            consistency = d.get("consistency")
+            person = d.get("person")
+            when = f"{int(hour):02d}:00" if hour is not None else "a regular time"
+            headline = f"A daily routine around {when}"
+            if state is not None:
+                ev.append(f"Observed turning {state} near {when}")
+            ev.append(f"Happened {count} times in the last 30 days")
+            if consistency is not None:
+                ev.append(f"Consistent on about {int(float(consistency) * 100)}% of days")
+            if person:
+                ev.append(f"Specifically when {person} is home")
+        elif pattern_type == "sequence":
+            headline = "One action reliably follows another"
+            first = d.get("first") or d.get("trigger")
+            then = d.get("then") or d.get("action")
+            if first and then:
+                ev.append(f"After {first}, {then} usually follows")
+            ev.append(f"Seen {count} times in 30 days")
+            if d.get("window_seconds"):
+                ev.append(f"Usually within {int(d['window_seconds'])}s")
+        elif pattern_type == "repeated_command":
+            headline = "A command you give often"
+            cmd = d.get("command") or d.get("text")
+            if cmd:
+                ev.append(f"You've asked '{cmd}' {count} times")
+            if d.get("hour") is not None:
+                ev.append(f"Most often around {int(d['hour']):02d}:00")
+        elif pattern_type == "temp_pref":
+            headline = "A temperature preference"
+            if d.get("target") is not None:
+                ev.append(f"Set to {d['target']}° repeatedly")
+            ev.append(f"Observed {count} times")
+        elif pattern_type == "presence":
+            headline = "A presence-linked pattern"
+            ev.append(f"Correlated {count} times over 30 days")
+        else:
+            headline = "A learned pattern"
+            ev.append(f"Observed {count} times in 30 days")
+    except Exception:
+        headline = headline or "A learned pattern"
+        if not ev:
+            ev.append(f"Observed {count} times")
+    return {"headline": headline, "evidence": ev}
+
+
 class PatternAnalyzer:
     """Analyzes accumulated state change data for behavioral patterns."""
 
@@ -706,9 +763,13 @@ class PatternAnalyzer:
 
             conn.execute(
                 "INSERT INTO suggestions (created, description, automation_yaml, "
-                "confidence, pattern_count, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+                "confidence, pattern_count, pattern_type, entity_ids, details, "
+                "status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
                 (datetime.now().isoformat(), pattern.description,
-                 auto_yaml, pattern.confidence, pattern.occurrences),
+                 auto_yaml, pattern.confidence, pattern.occurrences,
+                 pattern.pattern_type,
+                 json.dumps(pattern.entity_ids or []),
+                 json.dumps(pattern.details or {})),
             )
             conn.commit()
             conn.close()

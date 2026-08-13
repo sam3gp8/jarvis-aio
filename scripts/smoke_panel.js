@@ -46,7 +46,10 @@ const PANEL = {
   ] },
   config: { floor_plan_address: "123 Example St, Springfield IL", banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
   suggestions: [
-    { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{\"alias\":\"...\"}" },
+    { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{}",
+      pattern_type: "time_routine", entities: ["light.porch"],
+      why_headline: "A daily routine around 18:00",
+      evidence: ["Observed turning on near 18:00", "Happened 6 times in the last 30 days", "Consistent on about 82% of days"] },
   ],
   goals: [
     { id: 1, title: "Guest prep", outcome: "House ready for guests by Saturday", status: "active",
@@ -513,6 +516,15 @@ setTimeout(async () => {
   checks.push(
     ["suggestion card renders with approve button",
       !!sugCard && !!sugCard.querySelector(".sug-approve")],
+    ["suggestion shows the why headline",
+      !!sugCard && /A daily routine around 18:00/.test(sugCard.textContent)],
+    ["suggestion shows observed evidence",
+      !!sugCard && /What JARVIS observed/.test(sugCard.textContent)
+        && /Happened 6 times/.test(sugCard.textContent)],
+    ["suggestion shows a typed pattern chip",
+      !!sugCard && !!sugCard.querySelector(".sug-type")],
+    ["suggestion shows the entity involved",
+      !!sugCard && /light\.porch/.test(sugCard.textContent)],
   );
   sugCard?.querySelector(".sug-approve")?.click();
   await new Promise(r => setTimeout(r, 20));

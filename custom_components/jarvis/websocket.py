@@ -841,18 +841,35 @@ def _get_doorbell_training() -> dict:
 
 def _get_suggestions() -> list[dict]:
     """Pending automation suggestions from the pattern engine, panel-shaped.
+    Includes the EVIDENCE behind each one (v6.80.0) so review shows why.
     Never raises."""
     try:
-        from .pattern_analyzer import get_analyzer
+        import json as _json
+        from .pattern_analyzer import get_analyzer, explain_suggestion
         out = []
         for s in get_analyzer().get_pending_suggestions():
+            ptype = s.get("pattern_type", "") or ""
+            try:
+                details = _json.loads(s.get("details") or "{}")
+            except Exception:
+                details = {}
+            try:
+                entities = _json.loads(s.get("entity_ids") or "[]")
+            except Exception:
+                entities = []
+            count = s.get("pattern_count", 0) or 0
+            why = explain_suggestion(ptype, details, count)
             out.append({
                 "id": s.get("id"),
                 "created": s.get("created", ""),
                 "description": s.get("description", ""),
                 "yaml": s.get("automation_yaml", ""),
                 "confidence": round(float(s.get("confidence", 0) or 0), 2),
-                "count": s.get("pattern_count", 0),
+                "count": count,
+                "pattern_type": ptype,
+                "entities": entities,
+                "why_headline": why.get("headline", ""),
+                "evidence": why.get("evidence", []),
             })
         return out
     except Exception:
