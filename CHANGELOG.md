@@ -4,6 +4,18 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.80.1] — embeddings failures say why, and how to fix them
+The embeddings health check could report "Ollama embed call returned no vectors"
+— true, but not a diagnosis. That message covers a model that isn't pulled, an
+unreachable host, and an HTTP error alike, and they need different fixes.
+
+The failure reason is now specific and actionable. A missing model says which
+model and gives the exact command to pull it; an unreachable host says so; an
+HTTP error carries the status. The same specific reason shows in the System
+Diagnostics status and in the Settings embed-test button, and it clears the
+moment a real embedding succeeds. 4 new tests covering the model-not-pulled,
+empty-200, sticky-error-clears, and probe paths.
+
 ## [6.80.0] — suggestions show their reasoning, not just their conclusion
 When JARVIS proposed an automation, the panel showed a one-line description, a
 confidence number, and approve/dismiss. You had to trust it. The evidence that

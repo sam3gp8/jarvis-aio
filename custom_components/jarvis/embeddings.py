@@ -32,6 +32,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _DB_PATH = "/config/jarvis.db"
 _DEFAULT_MODEL = "nomic-embed-text"
+# Holds the most specific reason the last embed attempt failed, so the health
+# status can say *why* (model not pulled / unreachable / HTTP error) instead of
+# a generic "no vectors". Single-element list = mutable module-level cell.
+_EMBED_LAST_ERROR: list[str] = [""]
 _TIMEOUT = 60            # embedding a batch on a cold model can be slow
 _EMBED_BATCH = 32        # chunks per /api/embed call
 
@@ -215,10 +219,12 @@ async def embed_texts(hass, texts: list[str], _is_probe: bool = False) -> Option
         vecs = await _embed_batch(session, base, model, batch)
         if vecs is None:
             if not _is_probe:
-                _record_health(False, "Ollama embed call returned no vectors")
+                reason = _EMBED_LAST_ERROR[0] or "Ollama embed call returned no vectors"
+                _record_health(False, reason)
             return None
         out.extend(vecs)
     if not _is_probe:
+        _EMBED_LAST_ERROR[0] = ""      # success clears the sticky error
         _record_health(True)
     return out
 
@@ -235,6 +241,7 @@ def _record_health(ok: bool, detail: str = "") -> None:
 async def _embed_batch(session, base, model, batch) -> Optional[list[list[float]]]:
     import aiohttp
     # Preferred: /api/embed (batch), Ollama >= 0.2.0
+    _last_reason = ""
     try:
         async with session.post(
             f"{base}/api/embed",
@@ -246,9 +253,24 @@ async def _embed_batch(session, base, model, batch) -> Optional[list[list[float]
                 embs = data.get("embeddings")
                 if embs and len(embs) == len(batch):
                     return embs
-            elif resp.status != 404:
+                # 200 but empty — almost always the model isn't pulled
+                err = (data or {}).get("error")
+                _last_reason = (f"model '{model}' returned no embeddings"
+                                + (f" ({err})" if err else
+                                   f" — is '{model}' pulled? run: ollama pull {model}"))
+            elif resp.status == 404:
+                _last_reason = (f"model '{model}' not found on Ollama "
+                                f"(404) — run: ollama pull {model}")
+            else:
+                body = ""
+                try:
+                    body = (await resp.text())[:120]
+                except Exception:
+                    pass
+                _last_reason = f"Ollama /api/embed HTTP {resp.status}: {body}"
                 _LOGGER.debug("ollama /api/embed HTTP %s", resp.status)
     except Exception as exc:
+        _last_reason = f"Ollama /api/embed unreachable: {str(exc)[:100]}"
         _LOGGER.debug("ollama /api/embed failed: %s", exc)
 
     # Fallback: legacy /api/embeddings (single prompt per call)
@@ -261,14 +283,21 @@ async def _embed_batch(session, base, model, batch) -> Optional[list[list[float]
                 timeout=aiohttp.ClientTimeout(total=_TIMEOUT),
             ) as resp:
                 if resp.status != 200:
+                    if resp.status == 404 and not _last_reason:
+                        _last_reason = (f"model '{model}' not found — "
+                                        f"run: ollama pull {model}")
+                    _EMBED_LAST_ERROR[0] = _last_reason or f"HTTP {resp.status}"
                     return None
                 data = await resp.json(content_type=None)
                 emb = data.get("embedding")
                 if not emb:
+                    _EMBED_LAST_ERROR[0] = _last_reason or (
+                        f"model '{model}' returned no embedding")
                     return None
                 out.append(emb)
         except Exception as exc:
             _LOGGER.debug("ollama /api/embeddings failed: %s", exc)
+            _EMBED_LAST_ERROR[0] = _last_reason or f"unreachable: {str(exc)[:100]}"
             return None
     return out
 
@@ -290,7 +319,8 @@ async def probe(hass) -> dict:
                                       "(set llm_base_url to your Ollama host)"}
     vec = await embed_one(hass, "jarvis embedding health check", _is_probe=True)
     if not vec:
+        specific = _EMBED_LAST_ERROR[0]
         return {"ok": False, "model": _model(), "base": base,
-                "error": "Ollama did not return an embedding — is the embed "
-                         "model pulled? Try: ollama pull " + _model()}
+                "error": specific or ("Ollama did not return an embedding — is "
+                         "the embed model pulled? Try: ollama pull " + _model())}
     return {"ok": True, "model": _model(), "base": base, "dim": len(vec)}

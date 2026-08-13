@@ -110,6 +110,7 @@ class _FakeResp:
     async def __aenter__(self): return self
     async def __aexit__(self, *a): return False
     async def json(self, content_type=None): return self._payload
+    async def text(self): return str(self._payload)
 
 
 class _FakeSession:
@@ -178,3 +179,76 @@ def test_document_tools_still_registered(load):
     agent = load("agent")
     names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
     assert {"search_documents", "ingest_documents"} <= names
+
+
+# ── actionable failure diagnostics (v6.80.1) ─────────────────────────────────
+# "no vectors" is not a diagnosis. A real failure must say WHY — model not
+# pulled, unreachable, HTTP error — so the fix is obvious from the status line.
+
+async def test_missing_model_gives_pull_hint(emb, fake_hass, monkeypatch):
+    monkeypatch.setattr(emb, "_ollama_base", lambda: "http://ollama.local:11434")
+    monkeypatch.setattr(emb, "_model", lambda: "nomic-embed-text")
+
+    def handler(url, payload):
+        # both endpoints 404 → model isn't pulled
+        return _FakeResp(404, {})
+
+    import homeassistant.helpers.aiohttp_client as ac
+    monkeypatch.setattr(ac, "async_get_clientsession",
+                        lambda h: _FakeSession(handler), raising=False)
+
+    emb._EMBED_LAST_ERROR[0] = ""
+    vecs = await emb.embed_texts(fake_hass, ["x"])
+    assert vecs is None
+    reason = emb._EMBED_LAST_ERROR[0].lower()
+    assert "nomic-embed-text" in reason
+    assert "pull" in reason                         # actionable hint present
+
+
+async def test_empty_200_gives_pull_hint(emb, fake_hass, monkeypatch):
+    # some Ollama versions return 200 with an empty embeddings array when the
+    # model isn't loaded — this was the exact "no vectors" case in the field
+    monkeypatch.setattr(emb, "_ollama_base", lambda: "http://ollama.local:11434")
+    monkeypatch.setattr(emb, "_model", lambda: "nomic-embed-text")
+
+    def handler(url, payload):
+        if url.endswith("/api/embed"):
+            return _FakeResp(200, {"embeddings": []})   # 200 but empty
+        return _FakeResp(404, {})                       # legacy also gone
+
+    import homeassistant.helpers.aiohttp_client as ac
+    monkeypatch.setattr(ac, "async_get_clientsession",
+                        lambda h: _FakeSession(handler), raising=False)
+
+    emb._EMBED_LAST_ERROR[0] = ""
+    assert await emb.embed_texts(fake_hass, ["x"]) is None
+    assert "nomic-embed-text" in emb._EMBED_LAST_ERROR[0]
+
+
+async def test_success_clears_sticky_error(emb, fake_hass, monkeypatch):
+    monkeypatch.setattr(emb, "_ollama_base", lambda: "http://ollama.local:11434")
+    emb._EMBED_LAST_ERROR[0] = "a stale earlier failure"
+
+    def handler(url, payload):
+        n = len(payload.get("input", [payload.get("prompt")]))
+        return _FakeResp(200, {"embeddings": [[0.1, 0.2]] * n})
+
+    import homeassistant.helpers.aiohttp_client as ac
+    monkeypatch.setattr(ac, "async_get_clientsession",
+                        lambda h: _FakeSession(handler), raising=False)
+
+    vecs = await emb.embed_texts(fake_hass, ["ok"])
+    assert vecs is not None
+    assert emb._EMBED_LAST_ERROR[0] == ""           # cleared on success
+
+
+async def test_probe_surfaces_specific_error(emb, fake_hass, monkeypatch):
+    monkeypatch.setattr(emb, "_ollama_base", lambda: "http://ollama.local:11434")
+    monkeypatch.setattr(emb, "_model", lambda: "nomic-embed-text")
+    async def _one(hass, text, _is_probe=False):
+        emb._EMBED_LAST_ERROR[0] = "model 'nomic-embed-text' not found — run: ollama pull nomic-embed-text"
+        return None
+    monkeypatch.setattr(emb, "embed_one", _one)
+    res = await emb.probe(fake_hass)
+    assert res["ok"] is False
+    assert "pull" in res["error"].lower()
