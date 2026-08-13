@@ -300,6 +300,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS: hazard monitor registration failed: %s", exc)
 
+    # Automatic document ingestion (v6.79.0): pick up files dropped into
+    # /config/jarvis/documents (and any configured watch folders) without needing
+    # the manual Scan button. Incremental — only new/changed files are ingested,
+    # so this never re-embeds the whole library on a timer.
+    DOCS_SCAN_INTERVAL = timedelta(minutes=10)
+
+    async def _docs_tick(_now) -> None:
+        try:
+            from . import documents
+            res = await documents.auto_ingest_new(hass)
+            watch = await documents.scan_watch_folders(hass)
+            n = (res.get("new_files", 0) or 0) + (watch.get("new_files", 0) or 0)
+            if n:
+                _LOGGER.info("JARVIS: auto-ingested %d new document(s)", n)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS docs auto-ingest error: %s", exc)
+
+    try:
+        camera_unsubs.append(async_track_time_interval(hass, _docs_tick, DOCS_SCAN_INTERVAL))
+        _LOGGER.info("JARVIS: document auto-ingest active (scan every %s min)",
+                     int(DOCS_SCAN_INTERVAL.total_seconds() // 60))
+    except Exception as exc:
+        _LOGGER.debug("JARVIS: docs auto-ingest registration failed: %s", exc)
+
     # ── Scheduled briefings (v6.78.0) ─────────────────────────────────────────
     # JARVIS delivers its own morning and evening briefing at configured clock
     # times. Off by default; enable per-briefing in Settings. Each run reuses the

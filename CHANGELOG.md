@@ -4,6 +4,23 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.79.0] — documents ingest themselves
+Dropping a manual or receipt into the documents folder used to require pressing
+Scan in the panel before JARVIS could answer questions about it. It now picks up
+new files on its own. Every ten minutes JARVIS checks the documents folder — and
+any watch folders you've configured — and ingests anything new.
+
+The scan is incremental: it tracks each file's modification time and ingests a
+file only when it's new or has changed, so it never re-embeds the whole library
+on a timer. Drop a PDF in, and within a few minutes you can ask about it; edit
+one, and the change is picked up on the next scan. Unsupported file types and
+oversized files are skipped, and a failure to read one file never stops the
+rest.
+
+This was the one genuinely missing piece from several rounds of looking over the
+codebase — the ingestion pipeline, mtime tracking, and watch-folder scanning all
+existed already; what was missing was running them on a schedule. 6 new tests.
+
 ## [6.78.2] — one dead speaker no longer silences the whole house
 Briefings requested from the panel produced nothing, while asking out loud in a
 room worked. The difference was how many speakers each path targets. A spoken

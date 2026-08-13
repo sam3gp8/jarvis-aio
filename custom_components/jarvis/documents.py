@@ -440,6 +440,63 @@ def _cfg(key: str, default):
         return default
 
 
+async def auto_ingest_new(hass) -> dict:
+    """Ingest only NEW or CHANGED files in DOCS_DIR (v6.79.0).
+
+    ingest_directory_async re-embeds the whole folder every call, which is fine
+    for a manual rescan but would hammer Ollama if run on a timer. This variant
+    tracks each file's mtime in document_watch_seen (the same table the watch
+    folders use) and ingests a file only when it's new or its mtime changed —
+    so dropping a manual into /config/jarvis/documents gets picked up
+    automatically on the next scheduled scan, without re-embedding everything.
+    Never raises."""
+    import sqlite3
+    docs = Path(DOCS_DIR)
+    if not docs.is_dir():
+        return {"ok": True, "new_files": 0, "note": "docs dir absent"}
+
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("CREATE TABLE IF NOT EXISTS document_watch_seen ("
+                     "path TEXT PRIMARY KEY, mtime REAL, ingested TEXT)")
+        conn.commit()
+        seen = {r[0]: r[1] for r in
+                conn.execute("SELECT path, mtime FROM document_watch_seen")}
+        conn.close()
+    except Exception:
+        seen = {}
+
+    results = []
+    for f in sorted(docs.iterdir()):
+        try:
+            if not f.is_file() or f.suffix.lower() not in _SUPPORTED:
+                continue
+            st = f.stat()
+            if st.st_size > _MAX_FILE_MB * 1_000_000:
+                continue
+            key = str(f)
+            mtime = st.st_mtime
+            if key in seen and abs(seen[key] - mtime) < 1.0:
+                continue                       # already ingested this version
+            res = await save_and_ingest_upload_from_path(hass, key)
+            results.append({"source": f.name, **res})
+            if res.get("ok"):
+                try:
+                    conn = sqlite3.connect(_DB_PATH)
+                    conn.execute("INSERT OR REPLACE INTO document_watch_seen "
+                                 "(path, mtime, ingested) VALUES (?, ?, ?)",
+                                 (key, mtime, datetime.utcnow().isoformat()))
+                    conn.commit()
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception as exc:
+            _LOGGER.debug("auto-ingest of %s failed: %s", f, exc)
+
+    ingested = sum(1 for r in results if r.get("ok"))
+    return {"ok": True, "new_files": ingested, "files": results}
+
+
 async def scan_watch_folders(hass) -> dict:
     """Ingest any NEW supported files found in configured watch folders (e.g. a
     Downloads or Drive-sync folder). Tracks what's been seen so re-scans only
