@@ -718,6 +718,69 @@ def predict_departure(hass, now: float = None) -> list:
     return out
 
 
+# ── Routine-start anticipation (v6.85.0) ──────────────────────────
+ROUTINE_START_CONF_MIN = 0.65   # only surface reasonably-confident routines
+ROUTINE_START_TOL_MIN = 30      # fire within this many minutes past the usual time
+
+
+def predict_routine_start(hass, now: float = None) -> list:
+    """Routine-start anticipation ("you usually start X around now"). Reads the
+    per-person routine store and, when it's about the usual time for a confident
+    time-based routine AND that person is currently home, surfaces it once.
+    Gated by routine_alerts_enabled. One prompt per routine per day. Never raises.
+    """
+    import json as _json
+    now = now or time.time()
+    out = []
+    try:
+        from . import jarvis_config
+        if not bool(jarvis_config.get("routine_alerts_enabled", True)):
+            return out
+        from . import person_patterns
+        routines = person_patterns.read()
+        if not routines:
+            return out
+        try:
+            from . import identity
+            home = {identity.normalize(n) for n in identity._home_people(hass)}
+        except Exception:
+            home = set()
+        today = _local_day(now)
+        now_dt = datetime.datetime.fromtimestamp(now)
+        now_min = now_dt.hour * 60 + now_dt.minute
+        for r in routines:
+            person = r.get("person")
+            if not person or person not in home:
+                continue  # only prompt when that person is actually home
+            if float(r.get("confidence") or 0.0) < ROUTINE_START_CONF_MIN:
+                continue
+            try:
+                data = _json.loads(r.get("data") or "{}")
+            except Exception:
+                data = {}
+            hour = data.get("hour")
+            if hour is None:
+                continue  # no time-of-day — can't anticipate a start
+            delta = now_min - int(hour) * 60
+            if not (0 <= delta <= ROUTINE_START_TOL_MIN):
+                continue  # only as we reach the usual time, not long after
+            desc = str(r.get("description") or "").strip()
+            if not desc:
+                continue
+            key = "routine:%s:%s" % (person, r.get("id") or desc)
+            if _RECUR_ALERTED.get(key) == today:
+                continue
+            _RECUR_ALERTED[key] = today
+            out.append({
+                "type": "anticipation_routine", "urgency": "low",
+                "message": "Around this time you usually %s." % desc,
+                "pattern_key": key, "offer": False,
+            })
+    except Exception as exc:
+        _LOGGER.debug("predict_routine_start error: %s", exc)
+    return out
+
+
 def predict_presence(hass, now: float = None) -> list:
     """
     Presence-routine overdue checks: 'usually out by HH:MM but still home' and

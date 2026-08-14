@@ -330,18 +330,23 @@ def quick_identify(hass: HomeAssistant, area_id: Optional[str] = None) -> Identi
     if not bool(_cfg("identity_enabled", True)):
         return Identification(UNKNOWN, 0.0, "disabled")
     try:
+        room_ident = None
         if area_id:
             # full fusion (minus voice, which resolve() gates behind config)
-            ident = resolve(hass, area_id=area_id)
-            if ident.known:
-                return ident
-            # keep the candidates/confidence even when below threshold, so the
-            # analyzer can still weigh a probable attribution
-            return ident
+            room_ident = resolve(hass, area_id=area_id)
+            if room_ident.known:
+                return room_ident
+            # room resolution inconclusive — fall through to whole-home presence
+            # so a sole occupant is still attributed (v6.85.0). Returning
+            # 'unknown' here starved single-person homes of attribution, so no
+            # per-person routines ever formed.
         home = _home_people(hass)
         if len(home) == 1:
             return Identification(home[0], _W_SOLE_OCCUPANT, "sole_occupant",
                                   {home[0]: _W_SOLE_OCCUPANT})
+        # multi-occupant: keep the room's probable candidates if resolve found any
+        if room_ident is not None and room_ident.candidates:
+            return room_ident
         if len(home) > 1:
             cands = {n: _W_HOME_PRIOR for n in home}
             return Identification(UNKNOWN, 0.0, "ambiguous_home", cands)

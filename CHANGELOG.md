@@ -4,6 +4,31 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.85.0] — person-level routines, unstarved
+JARVIS learns per-person routines and now speaks them: "around this time you
+usually start the coffee." But first it had to actually *have* them — and it
+did not, for a subtle reason. Every state change is stamped with whoever is
+likely responsible, and that attribution has a sole-occupant shortcut ("only one
+person home, so it is them") — except the shortcut was only reached when the
+event carried no room, and JARVIS always passes the room now. So on a
+single-person home, room resolution came back inconclusive and the event was
+filed as "unknown," which meant the routine detector — which needs several
+occurrences attributed to a *named* person — never had anything to work with.
+The store was fine; it was starved.
+
+The fix lets a sole occupant be attributed even when the room is known: if room
+resolution is inconclusive but exactly one person is home, it is them.
+Multi-person room logic is unchanged. This is forward-looking — history already
+filed as "unknown" cannot be re-attributed — so routines materialize after about
+a week of newly-attributed behavior, then surface as gentle "you usually start X
+now" prompts through the same gated announce path as the rest of JARVIS's
+anticipation, and only when that person is actually home.
+
+The per-person routine store also gets its own home: a dedicated
+`person_patterns.py` module owns the table, the upsert, and the read, with the
+pattern analyzer and the Memory panel delegating to it. 18 new tests cover the
+store, the attribution fix, and the routine prompts.
+
 ## [6.84.0] — anticipation: "leave now, sir"
 JARVIS now watches the clock against your calendar and tells you when it's time
 to head out. For the nearest upcoming timed event it warns once — "heads up, the

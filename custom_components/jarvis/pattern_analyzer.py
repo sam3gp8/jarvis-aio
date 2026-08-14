@@ -671,73 +671,24 @@ class PatternAnalyzer:
         return written
 
     def _store_person_pattern(self, pattern: DetectedPattern) -> bool:
-        """
-        Upsert a person-owned pattern into person_patterns — the dedicated
-        per-person routine store (separate from the household suggestions/
-        knowledge flow) that a future Routines panel card reads from.
-        Deterministic key (person, pattern_type, description) so
-        re-analysis refreshes in place rather than duplicating.
-        """
+        """Upsert a person-owned routine into the person_patterns store (now
+        owned by the person_patterns module). Deterministic key
+        (person, pattern_type, description) so re-analysis refreshes in place."""
         person = pattern.details.get("person")
         if not person:
             return False
-        try:
-            from . import identity
-            person = identity.normalize(person)
-        except Exception:
-            pass
-        try:
-            conn = sqlite3.connect(self._db)
-            existing = conn.execute(
-                "SELECT id FROM person_patterns "
-                "WHERE person = ? AND pattern_type = ? AND description = ?",
-                (person, pattern.pattern_type, pattern.description),
-            ).fetchone()
-            now_iso = datetime.now().isoformat()
-            if existing:
-                conn.execute(
-                    "UPDATE person_patterns SET confidence = ?, occurrences = ?, "
-                    "last_seen = ?, data = ? WHERE id = ?",
-                    (pattern.confidence, pattern.occurrences, now_iso,
-                     json.dumps(pattern.details), existing[0]),
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO person_patterns "
-                    "(person, pattern_type, description, data, confidence, "
-                    "last_seen, occurrences) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (person, pattern.pattern_type, pattern.description,
-                     json.dumps(pattern.details), pattern.confidence,
-                     now_iso, pattern.occurrences),
-                )
-            conn.commit()
-            conn.close()
-            return True
-        except Exception as exc:
-            _LOGGER.debug("person_patterns store failed: %s", exc)
-            return False
+        from . import person_patterns
+        return person_patterns.store(
+            person, pattern.pattern_type, pattern.description,
+            data=pattern.details, confidence=pattern.confidence,
+            occurrences=pattern.occurrences, db_path=self._db,
+        )
 
     def get_person_patterns(self, person: Optional[str] = None) -> list[dict]:
-        """Read stored per-person routines, optionally filtered to one
-        person (matched on the already-normalized id, e.g. 'sam')."""
-        conn = self._connect()
-        if not conn:
-            return []
-        try:
-            if person:
-                rows = conn.execute(
-                    "SELECT * FROM person_patterns WHERE person = ? "
-                    "ORDER BY confidence DESC", (person,)
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM person_patterns ORDER BY person, confidence DESC"
-                ).fetchall()
-            return [dict(r) for r in rows]
-        except Exception:
-            return []
-        finally:
-            conn.close()
+        """Read stored per-person routines (person_patterns module), optionally
+        filtered to one person (matched on the already-normalized id)."""
+        from . import person_patterns
+        return person_patterns.read(person, db_path=self._db)
 
     def _store_suggestion(self, pattern: DetectedPattern) -> bool:
         """Store a pattern as a suggestion in the DB. Returns True if new."""
