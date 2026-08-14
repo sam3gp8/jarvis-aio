@@ -218,7 +218,7 @@ class JarvisOptionsFlow(OptionsFlow):
         """Landing menu — jump to any section directly."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["core", "routing", "observer", "identity"],
+            menu_options=["core", "routing", "observer", "identity", "email"],
         )
 
     async def async_step_core(self, user_input: dict[str, Any] | None = None) -> dict:
@@ -306,6 +306,31 @@ class JarvisOptionsFlow(OptionsFlow):
                     min=0.0, max=1.0, step=0.05, mode=selector.NumberSelectorMode.SLIDER)),
         })
         return self.async_show_form(step_id="identity", data_schema=schema)
+
+    async def async_step_email(self, user_input: dict[str, Any] | None = None) -> dict:
+        """Email — read-only IMAP inbox access. The password lives in HA
+        secrets.yaml (imap_secret_key), never in the panel config."""
+        if user_input is not None:
+            return await self._save_section(user_input)
+        schema = vol.Schema({
+            vol.Optional("imap_enabled", description=self._sv("imap_enabled", False)):
+                selector.BooleanSelector(),
+            vol.Optional("imap_host", description=self._sv("imap_host", "")):
+                selector.TextSelector(),
+            vol.Optional("imap_port", description=self._sv("imap_port", 993)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=1, max=65535, step=1, mode=selector.NumberSelectorMode.BOX)),
+            vol.Optional("imap_user", description=self._sv("imap_user", "")):
+                selector.TextSelector(),
+            vol.Optional("imap_folder", description=self._sv("imap_folder", "INBOX")):
+                selector.TextSelector(),
+            vol.Optional("imap_ssl", description=self._sv("imap_ssl", True)):
+                selector.BooleanSelector(),
+            vol.Optional("imap_secret_key",
+                         description=self._sv("imap_secret_key", "jarvis_imap_password")):
+                selector.TextSelector(),
+        })
+        return self.async_show_form(step_id="email", data_schema=schema)
 
     async def _save_section(self, user_input: dict[str, Any]) -> dict:
         """Persist one section's values to runtime config + entry options, then

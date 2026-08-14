@@ -28,7 +28,8 @@
           "core": "Core — persona, directive, conversation model",
           "routing": "Routing — bedroom areas, broadcast group, notify service",
           "observer": "Observer — proactive awareness (needs a Gemini key)",
-          "identity": "Identity — per-person recognition"
+          "identity": "Identity — per-person recognition",
+          "email": "Email — read-only inbox (password via secrets.yaml)"
         }
       },
       "core": {
@@ -83,6 +84,19 @@
           "identity_enabled": "Uses who's home + recent camera face recognition. No GPU required.",
           "identity_voice_fingerprint": "Leave off unless you have a GPU server running a voice-ID model.",
           "identity_min_confidence": "Higher = more cautious; stays neutral when unsure."
+        }
+      },
+      "email": {
+        "title": "JARVIS — Email",
+        "description": "Read-only inbox access. The IMAP password is read from Home Assistant's secrets.yaml — add it there under the key below (default jarvis_imap_password); it is never stored in the panel config.",
+        "data": {
+          "imap_enabled": "Enable email reading",
+          "imap_host": "IMAP host (e.g. imap.gmail.com)",
+          "imap_port": "IMAP port (SSL: 993)",
+          "imap_user": "IMAP username / email address",
+          "imap_folder": "Mailbox folder (default INBOX)",
+          "imap_ssl": "Use SSL (recommended)",
+          "imap_secret_key": "secrets.yaml key holding the password"
         }
       }
     }

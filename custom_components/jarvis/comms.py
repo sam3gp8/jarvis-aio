@@ -2,10 +2,9 @@
 JARVIS Communication Agent (v6.51.0).
 
 The blueprint's "Communication Agent": proactively surface calendar conflicts
-and upcoming commitments. Email is deliberately NOT touched here — reading a
-user's inbox from inside the HA process is a privacy/security weight this home
-butler shouldn't carry; anyone who wants it can expose specific mail via an HA
-sensor and JARVIS will read that like any other entity.
+and upcoming commitments. This module handles calendars only; read-only email
+access lives in mail.py (v6.81.0) — fetched on request via IMAP and sanitized,
+superseding the earlier stance that the inbox should not be read in-process.
 
 What this does, using the `calendar.*` entities HA already provides (Google
 Calendar, CalDAV, Local Calendar, etc.):

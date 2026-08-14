@@ -24,7 +24,7 @@ _REDACT_KEYS = {
     "api_key", "groq_api_key", "gemini_api_key", "anthropic_api_key",
     "openai_api_key", "llm_api_key", "token", "access_token", "refresh_token",
     "client_secret", "client_id", "password", "secret", "notify_service",
-    "floor_plan_address",
+    "floor_plan_address", "imap_user",
 }
 
 

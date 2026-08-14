@@ -4,6 +4,30 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.81.0] — read-only email, native to the integration, credentials in secrets.yaml
+Ask JARVIS to check your email and it now can. A new `read_email` tool reads the
+most recent messages from your inbox over IMAP — "anything important come in?",
+"summarize the inbox", "any unread from the office?" — and answers in JARVIS's
+voice. It runs entirely inside the integration: no separate mail server, no
+add-on, no new dependency, just the Python standard library with the blocking
+IMAP session handed to the executor so the event loop never stalls.
+
+Reading is read-only, and provably so. The mailbox is opened with EXAMINE rather
+than SELECT, bodies are fetched with BODY.PEEK so nothing is ever marked read,
+and the module contains no delete, move, or flag code at all — a test asserts the
+source stays free of those verbs so it can't regress. Fetched mail is treated as
+untrusted: every subject and body is HTML-stripped, length-capped, has common
+prompt-injection phrasing declawed, and is handed to the model wrapped as data to
+summarize, never as instructions to follow.
+
+Credentials move where they belong. The IMAP password is read from Home
+Assistant's secrets.yaml (add it under `jarvis_imap_password`) through a new
+read-only resolver — it is never written into the panel config. The non-secret
+connection settings (host, port, username, folder, SSL) live under Settings →
+Configure → Email like any other option. A missing or malformed secrets file
+degrades to a clear error instead of taking setup down. 25 new tests cover the
+resolver, the read-only guarantees, the sanitizer, and credential resolution.
+
 ## [6.80.1] — embeddings failures say why, and how to fix them
 The embeddings health check could report "Ollama embed call returned no vectors"
 — true, but not a diagnosis. That message covers a model that isn't pulled, an
