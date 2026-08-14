@@ -4,6 +4,23 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.86.0] — memory that threads across sessions
+JARVIS now picks up where you left off. Until now each conversation started
+cold, remembering only the last twenty messages of the current session; anything
+from yesterday, or from before the last restart, was gone. It had all been saved
+to disk the whole time — it just was not read back. Now, when a fresh
+conversation begins, JARVIS seeds it with a bounded slice of recent history (the
+last day or two, capped) so "what did we decide about the thermostat?" or "finish
+that list from earlier" lands with context instead of a blank stare.
+
+The threading is deliberately conservative: it seeds once per conversation, only
+when the in-session window is empty (so it never double-counts the turn you are
+in the middle of), reaches back a configurable window (48 hours, twelve turns by
+default), and truncates long turns to keep the context lean. Memory is unified
+across the home rather than split per satellite, so continuity follows you from
+room to room. 9 new tests cover the shaping, the bounded DB read, and the
+configuration.
+
 ## [6.85.0] — person-level routines, unstarved
 JARVIS learns per-person routines and now speaks them: "around this time you
 usually start the coffee." But first it had to actually *have* them — and it

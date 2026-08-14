@@ -273,6 +273,7 @@ class JarvisAgent(conversation.ConversationEntity):
             sw_version="4.0.0",
         )
         self._histories: dict[str, list[dict]] = {}
+        self._threaded: set = set()   # conversations already seeded from history
         self._fallback_idx = 0
 
         # Pull the shared LLM provider from hass.data (created in async_setup_entry).
@@ -471,6 +472,22 @@ class JarvisAgent(conversation.ConversationEntity):
         if len(h) > MAX_HISTORY:
             self._histories[cid] = h[-MAX_HISTORY:]
         return self._histories[cid]
+
+    async def _maybe_seed_history(self, cid: str, history: list) -> None:
+        """Seed a fresh conversation with recent cross-session history, once,
+        so JARVIS continues where you left off across sessions (v6.86.0)."""
+        if cid in self._threaded:
+            return
+        self._threaded.add(cid)
+        if history:
+            return  # window already holds this session's turns — don't reseed
+        from . import memory_thread
+        enabled, hours, limit = memory_thread.config()
+        if not enabled:
+            return
+        seeded = await memory_thread.load_recent(self.hass, hours, limit)
+        if seeded:
+            history[:0] = seeded  # prepend prior context ahead of this turn
 
     # ── HA LLM tool integration ───────────────────────────────────────────────
 
@@ -714,6 +731,7 @@ class JarvisAgent(conversation.ConversationEntity):
         await _ensure_persona_loaded(self.hass)
         persona   = self._persona()
         history   = self._history(cid)
+        await self._maybe_seed_history(cid, history)
 
         history.append({"role": "user", "content": user_input.text})
         save_message("user", user_input.text, device_id=cid)
