@@ -4,6 +4,22 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.87.0] — one situational picture, not a device list
+JARVIS's reasoning now starts from what is actually happening, not just what it
+can control. The context it reads before every complex request used to be a
+static inventory — areas, entity counts, aliases. Now, alongside that, it
+composites a live situational snapshot: the time, who is home and where, the
+weather, the next couple of calendar events (and any conflict between them),
+current power draw, and a line of recent activity. So "should I turn the heat
+down?" is answered against "it is 9pm, nobody is in the living room, and you are
+drawing 6 kW," not in a vacuum.
+
+Each signal is gathered from what JARVIS already tracks — presence, calendar,
+energy, weather, the observer's recent-events buffer — and each is independently
+guarded, so a missing weather entity or an unconfigured power meter simply drops
+out of the picture rather than breaking it. 12 new tests cover the composite and
+each signal.
+
 ## [6.86.0] — memory that threads across sessions
 JARVIS now picks up where you left off. Until now each conversation started
 cold, remembering only the last twenty messages of the current session; anything

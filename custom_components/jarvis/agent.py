@@ -2665,6 +2665,16 @@ async def run_agent(
     home_context = await hass.async_add_executor_job(
         _build_home_context, hass,
     )
+    # v6.87.0: composite the live situational signals (presence, weather,
+    # calendar, energy, recent activity) into one picture so judgments are
+    # grounded in what is happening now, not just the static device inventory.
+    situation_now = ""
+    try:
+        from . import situation
+        situation_now = await hass.async_add_executor_job(situation.snapshot, hass)
+    except Exception:
+        situation_now = ""
+    situation_block = f"## Situation now\n{situation_now}\n\n" if situation_now else ""
     # Inject cognitive core status
     cog_status = ""
     try:
@@ -2689,6 +2699,7 @@ async def run_agent(
     system_prompt = (
         f"{persona}\n\n"
         f"## Current home state\n{home_context}\n\n"
+        f"{situation_block}"
         f"{cog_status}\n\n"
         f"## Tools\n"
         f"You have tools to control devices, query states, search entities, "
