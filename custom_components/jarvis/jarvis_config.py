@@ -137,6 +137,32 @@ def get_all() -> dict:
         return dict(_cache_dict())
 
 
+def effective_config(entry=None) -> dict:
+    """The single source of truth for runtime config (v6.82.0).
+
+    Merges the HA config entry (data, then options) with the panel config
+    (config.json), letting the panel win — but only where the panel sets a
+    meaningful (non-empty) value, so a blank panel field can't wipe a real
+    credential carried on the entry. Use this for ALL provider/model/key
+    resolution (boot client, conversation, agent, observer) so no two code
+    paths can disagree about which LLM to run.
+
+    Blocking on first access (loads config.json); from async code call via the
+    executor: await hass.async_add_executor_job(jarvis_config.effective_config, entry)
+    Tolerates entry=None (returns just the panel config).
+    """
+    cfg = get_all()
+    merged: dict = {}
+    if entry is not None:
+        merged.update(dict(getattr(entry, "data", None) or {}))
+        merged.update(dict(getattr(entry, "options", None) or {}))
+    for k, v in cfg.items():
+        if v is None or v == "":
+            continue      # a blank panel value must not clobber the entry
+        merged[k] = v
+    return merged
+
+
 def set(key: str, value: Any) -> None:
     """Set a config value and persist to disk."""
     global _loaded

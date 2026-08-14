@@ -84,19 +84,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             current_version, new_version,
         )
 
-    api_key   = entry.data[CONF_API_KEY]
     honorific = entry.options.get(CONF_HONORIFIC, entry.data.get(CONF_HONORIFIC, DEFAULT_HONORIFIC))
 
-    # ── LLM provider (defaults to groq for existing installs) ───────────────
-    llm_provider_name = entry.options.get(
-        "llm_provider", entry.data.get("llm_provider", "groq")
-    )
-    llm_model = entry.options.get(
-        "model", entry.data.get("model", "llama-3.3-70b-versatile")
-    )
-    llm_base_url = entry.options.get(
-        "llm_base_url", entry.data.get("llm_base_url", "")
-    ) or None
+    # ── LLM provider — resolved from the single source of truth (jarvis_config
+    # wins over stale entry data/options) so the boot client, conversation, and
+    # agent never diverge on which model to run. ───────────────────────────
+    from . import jarvis_config as _jc
+    _eff = await hass.async_add_executor_job(_jc.effective_config, entry)
+    api_key           = _eff.get(CONF_API_KEY, "") or entry.data.get(CONF_API_KEY, "")
+    llm_provider_name = _eff.get("llm_provider", "groq")
+    llm_model         = _eff.get("model", "llama-3.3-70b-versatile")
+    llm_base_url      = _eff.get("llm_base_url", "") or None
 
     try:
         llm_client = await hass.async_add_executor_job(

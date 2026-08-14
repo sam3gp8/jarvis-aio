@@ -4,6 +4,26 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.82.0] — one source of truth for which model runs
+JARVIS now resolves its LLM provider, model, and credentials from a single
+authoritative place, ending a class of drift where different parts of the
+integration could each pick a different model. A new resolver treats the panel's
+saved settings (config.json) as the source of truth, layering them over the Home
+Assistant config entry so the panel always wins — but only where it holds a real
+value, so a blank field can never wipe a key the entry is carrying.
+
+Before this, the startup LLM client and the conversation fallback read the
+provider and key straight from the config entry, which can hold stale values
+from an earlier setup — enough to instantiate an impossible pairing like a cloud
+provider with a local model name while the panel showed something else. Those two
+paths now go through the resolver, matching the agent and observer, which already
+honored the panel. Whatever the panel shows under AI Models is what every part of
+JARVIS runs.
+
+6 new tests cover the resolver: the panel winning over stale entry data and
+options, blank panel values leaving entry credentials intact, entry options
+outranking entry data when the panel is silent, and tolerance of a missing entry.
+
 ## [6.81.0] — read-only email, native to the integration, credentials in secrets.yaml
 Ask JARVIS to check your email and it now can. A new `read_email` tool reads the
 most recent messages from your inbox over IMAP — "anything important come in?",

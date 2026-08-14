@@ -282,15 +282,17 @@ class JarvisAgent(conversation.ConversationEntity):
         self._client = shared.get("client")
         if self._client is None:
             # Fallback — create a provider directly (should only happen in unusual
-            # setup order cases; the shared client is normally always present)
+            # setup order cases; the shared client is normally always present).
+            # Resolve from the single source of truth so this cannot diverge from
+            # the panel (jarvis_config wins over stale entry data/options).
             from .llm_provider import create_provider as _cp
-            provider_name = entry.options.get("llm_provider",
-                            entry.data.get("llm_provider", "groq"))
-            base_url = entry.options.get("llm_base_url",
-                            entry.data.get("llm_base_url", "")) or None
+            from . import jarvis_config as _jc
+            _eff = _jc.effective_config(entry)
+            provider_name = _eff.get("llm_provider", "groq")
+            base_url = _eff.get("llm_base_url", "") or None
             self._client = _cp(
                 provider_name,
-                entry.data[CONF_API_KEY],
+                _eff.get(CONF_API_KEY, "") or entry.data.get(CONF_API_KEY, ""),
                 self._model(),
                 base_url,
             )
