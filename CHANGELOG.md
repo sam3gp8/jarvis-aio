@@ -4,6 +4,24 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.84.0] — anticipation: "leave now, sir"
+JARVIS now watches the clock against your calendar and tells you when it's time
+to head out. For the nearest upcoming timed event it warns once — "heads up, the
+dentist at Main St begins in about 20 minutes; you'll want to head out" — timed
+so you are not late. Lead time comes from a travel-time sensor (Waze or Google
+Travel Time, if you have pointed JARVIS at one via `departure_travel_sensor`)
+plus a small buffer, or a configurable default (`departure_lead_minutes`, 30 by
+default) when you have not. The alert rides the same gated announce path as the
+rest of JARVIS's proactive awareness — it speaks when you are around and pushes
+quietly when you are not — and only fires while proactive awareness and the
+local cognition layer are on.
+
+This slots into the existing anticipation engine, which already flags things
+unusual for the time of day; departure was the one piece of the "leave now, sir"
+instinct that was not there yet. 8 new tests cover the timing (alert only once
+it is actually time to leave), the travel-sensor lead, all-day and out-of-horizon
+events, the once-per-event-per-day guard, and the off switch.
+
 ## [6.83.0] — ephemeral sub-agents, and credentials that live in secrets.yaml
 JARVIS can now spin up a focused sub-agent for a complex slice of a request. Ask
 for something multi-step and self-contained — "gather this week's schedule and

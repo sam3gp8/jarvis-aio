@@ -83,6 +83,7 @@ def gather_events(hass) -> list[dict]:
             "start": start,
             "end": end or (start + timedelta(hours=1)),
             "all_day": bool(a.get("all_day")),
+            "location": a.get("location"),
             "active": st.state == "on",
         })
     return out

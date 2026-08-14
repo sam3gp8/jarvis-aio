@@ -647,6 +647,77 @@ def sample_presence(hass, now: float = None) -> int:
     return seen
 
 
+# ── Leave-time / departure anticipation (v6.84.0) ───────────────────────
+DEFAULT_DEPART_LEAD_MIN = 30    # prep+travel lead when no travel sensor is set
+DEPART_PREP_BUFFER_MIN = 5      # added to a travel-time sensor's minutes
+DEPART_LOOKAHEAD_H = 3          # only consider events starting within N hours
+
+
+def predict_departure(hass, now: float = None) -> list:
+    """Leave-time anticipation ("leave now, sir"): for the nearest upcoming
+    timed calendar event, warn once when it's time to head out. Lead time is a
+    configured travel-time sensor (Waze/Google Travel Time, in minutes) plus a
+    small buffer, or a configurable default. Returns action dicts for the gated
+    announce path. One alert per event per day. Never raises.
+    """
+    now = now or time.time()
+    out = []
+    try:
+        from . import jarvis_config
+        if not bool(jarvis_config.get("departure_alerts_enabled", True)):
+            return out
+        try:
+            lead_default = int(jarvis_config.get("departure_lead_minutes",
+                               DEFAULT_DEPART_LEAD_MIN) or DEFAULT_DEPART_LEAD_MIN)
+        except Exception:
+            lead_default = DEFAULT_DEPART_LEAD_MIN
+        travel_entity = str(jarvis_config.get("departure_travel_sensor", "") or "").strip()
+        travel_min = None
+        if travel_entity and hass is not None:
+            tst = hass.states.get(travel_entity)
+            if tst is not None and tst.state not in _DEAD_STATES:
+                try:
+                    travel_min = float(tst.state)
+                except Exception:
+                    travel_min = None
+
+        from . import comms
+        events = [e for e in comms.gather_events(hass)
+                  if e.get("start") and not e.get("all_day")]
+        events.sort(key=lambda e: e["start"])
+
+        now_dt = datetime.datetime.fromtimestamp(now)
+        today = _local_day(now)
+        for ev in events:
+            start_dt = ev["start"]
+            if start_dt <= now_dt:
+                continue
+            if (start_dt - now_dt) > datetime.timedelta(hours=DEPART_LOOKAHEAD_H):
+                break  # sorted — nothing closer beyond the horizon
+            lead = (travel_min + DEPART_PREP_BUFFER_MIN) if travel_min is not None else lead_default
+            leave_at = start_dt - datetime.timedelta(minutes=lead)
+            if now_dt < leave_at:
+                continue  # not time to leave yet
+            title = ev.get("title") or "an event"
+            key = "depart:%s:%s" % (title, start_dt.strftime("%Y%m%d%H%M"))
+            if _RECUR_ALERTED.get(key) == today:
+                continue
+            _RECUR_ALERTED[key] = today
+            mins_to = max(0, int((start_dt - now_dt).total_seconds() // 60))
+            loc = ev.get("location")
+            loc_str = (" at %s" % loc) if loc else ""
+            out.append({
+                "type": "anticipation_departure", "urgency": "low",
+                "message": ("Heads up — %s%s begins in about %d minutes; "
+                            "you'll want to head out." % (title, loc_str, mins_to)),
+                "pattern_key": key, "offer": False,
+            })
+            break  # one departure alert per tick — the nearest event
+    except Exception as exc:
+        _LOGGER.debug("predict_departure error: %s", exc)
+    return out
+
+
 def predict_presence(hass, now: float = None) -> list:
     """
     Presence-routine overdue checks: 'usually out by HH:MM but still home' and
