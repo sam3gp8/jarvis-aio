@@ -66,6 +66,55 @@ Everything past this point — vision, doorbell analysis, the Iron Man HUD's liv
 <sub>Visuals reflect the panel's actual design system. The live dashboard renders in your browser inside Home Assistant.</sub>
 </div>
 
+## Full capability reference
+
+Everything JARVIS can do today, by domain. In conversation these surface as
+tools the agent invokes on its own; most also have a panel control.
+
+**Conversation & delegation**
+- Natural voice/text conversation through the Home Assistant pipeline, in the MCU-JARVIS persona with a tunable banter level.
+- **Ephemeral sub-agents** (`delegate_task`) — for a complex, self-contained slice of a request, JARVIS spins up a focused in-process sub-agent with a minimal objective, a curated read-only tool subset, and a small turn budget, then folds the result back. Sub-agents can't actuate or recurse; depth is capped. On a single-GPU host they run serially, so the win is a tight focused context, not parallelism.
+
+**Devices, scenes & home state**
+- Control one device or many at once, run scenes and scripts, and execute multi-step plans (`control_device`, `bulk_control`, `run_scene_or_script`, `execute_plan`).
+- Query live state, search entities, list a room's devices, and summarize the whole home (`get_entity_state`, `search_entities`, `get_area_devices`, `get_home_summary`).
+- Read Home Assistant's recorded history and logbook — "what happened while I was out" (`activity_history`).
+
+**Schedule & communications**
+- Read household `calendar.*` entities, surface upcoming events, and flag overlaps and tight back-to-back transitions (`calendar_agenda`).
+- **Read-only email** (`read_email`) — check the inbox over IMAP, read-only by construction (opens with EXAMINE, fetches with BODY.PEEK, never marks/moves/deletes); fetched mail is sanitized and treated as untrusted. The password lives in `secrets.yaml`.
+- Scheduled morning/evening **briefings** — weather, calendar, overnight events, energy, and active hazards, occupancy-gated.
+
+**Web & your documents**
+- Look up the outside world (`web_research`) — DuckDuckGo out of the box, or a self-hosted SearXNG.
+- Answer from your own manuals and receipts (`search_documents`, `ingest_documents`) — keyword out of the box, or Ollama-embedded semantic search.
+
+**Cameras & vision**
+- Look at a camera on demand and describe it (`look_at_camera`); report who's recognized at the door (`who_do_you_see`).
+- Automatic doorbell-press analysis, package/mail detection, and silent visitor learning over Nest and Frigate feeds.
+
+**Awareness, diagnostics & energy**
+- Report the cognitive core's state, connectivity, and a full self-diagnostic (`cognitive_status`, `connectivity_status`, `system_diagnostics`); reason about the root cause of a fault (`root_cause`).
+- Whole-home energy: current draw, peak awareness, and load advice with tunable agency (`energy_status`).
+
+**Weather & hazards**
+- Local forecast (`weather_forecast`) and a live multi-hazard report — nearby earthquakes (USGS), severe weather (NWS), and disasters (NASA EONET) (`hazard_report`).
+
+**Safety & security**
+- Proactive monitoring for freezing pipes, smoke/CO/water, unauthorized entry, and nighttime lockdown — occupancy-gated so enforcement only happens when it should.
+- Confirm or dismiss intrusion events and acknowledge alerts by voice (`dismiss_intrusion`, `acknowledge_alert`); optional voice-confirmation before sensitive actions like unlocking.
+
+**Modes, memory, goals & suggestions**
+- Set operational modes, including custom ones (`set_mode`), and tune how much JARVIS acts on its own (`manage_autonomy`).
+- Remember facts you tell it (`remember`); open and track standing goals (`create_goal`, `update_goal`, `manage_goals`) and schedule follow-ups (`schedule_followup`, `manage_followups`).
+- Review, approve, or dismiss the automations it proposes from observed patterns (`review_suggestions`, `approve_suggestion`, `dismiss_suggestion`).
+- Mute a noisy entity from awareness, or force it back in (`ignore_entity`, `unignore_entity`); read opt-in wearable/wellbeing context (`wellbeing_context`).
+
+**Resilience & privacy**
+- The **Local Mind** replicates the full decision procedure offline, so JARVIS stays sharp with no internet at all.
+- All LLM credentials live in Home Assistant's `secrets.yaml`, never in plaintext panel config; any existing plaintext keys are relocated automatically and safely (verify-before-strip) on upgrade.
+- A single config resolver makes the panel the one source of truth for which model every part of JARVIS runs.
+
 ## Requirements
 
 **To start, you need exactly two things:**
@@ -175,7 +224,7 @@ This lives in `/config/jarvis/config.json` (merge it into the existing object �
 
 ## Architecture
 
-JARVIS is a **Home Assistant custom integration** (domain `jarvis`, ~47 Python modules) installed via HACS into `custom_components/jarvis/`. It runs in-process: it registers the conversation agent and voice pipeline and serves the custom dashboard panel directly. State and learned behavior persist under `/config/jarvis/` (a SQLite `patterns.db`, the curated `knowledge.db`, the reasoning cache, the doorbell-training dataset, and lockdown state) so JARVIS keeps getting smarter across restarts.
+JARVIS is a **Home Assistant custom integration** (domain `jarvis`, ~86 Python modules) installed via HACS into `custom_components/jarvis/`. It runs in-process: it registers the conversation agent and voice pipeline and serves the custom dashboard panel directly. State and learned behavior persist under `/config/jarvis/` (a SQLite `patterns.db`, the curated `knowledge.db`, the reasoning cache, the doorbell-training dataset, and lockdown state) so JARVIS keeps getting smarter across restarts.
 
 The reasoning pipeline is layered for resilience and cost: local templates → learned cache → (cloud, or soon a local model) → the **Local Mind** offline brain as the floor beneath everything. A connectivity breaker guards cloud calls, and every local decision logs its reasoning chain to the dashboard's log view.
 
@@ -195,7 +244,7 @@ What leaves your network is only what you choose: requests to whichever LLM prov
 
 ## Roadmap
 
-**Shipped recently** — local GPU inference (Ollama on a dedicated GPU box, so the reasoning chain runs templates → cache → local model → cloud), web research + calendar awareness, the MCU-JARVIS persona with a banter valve, per-camera rename and indoor/outdoor designation, go2rtc restream overrides with end-to-end camera diagnostics, real-time WebSocket entity subscriptions, area sparklines, entity drill-down cards, and log/feed search. See [CHANGELOG.md](CHANGELOG.md) for the full history.
+**Shipped recently** — read-only email, ephemeral sub-agents, credentials in `secrets.yaml` with safe auto-relocation, single-source model config, local GPU inference (Ollama on a dedicated GPU box, so the reasoning chain runs templates → cache → local model → cloud), web research + calendar awareness, the MCU-JARVIS persona with a banter valve, per-camera rename and indoor/outdoor designation, go2rtc restream overrides with end-to-end camera diagnostics, real-time WebSocket entity subscriptions, area sparklines, entity drill-down cards, and log/feed search. See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 **On the horizon:**
 

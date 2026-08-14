@@ -480,6 +480,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.debug("Config restore: %s", exc)
 
     # Register services — guard against double-registration on reload
+    # Move any plaintext LLM credentials into secrets.yaml (v6.83.0). Safe:
+    # verify-before-strip; config.json is left untouched on any failure.
+    try:
+        from . import ha_secrets as _hs
+        await _hs.relocate_plaintext_credentials(hass)
+    except Exception as exc:
+        _LOGGER.debug("Credential relocation: %s", exc)
+
     _register_services(hass, entry, llm_client, sentinel)
 
     # Reload services when options change

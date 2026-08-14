@@ -691,6 +691,40 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "delegate_task",
+            "description": (
+                "Spin up a focused sub-agent for a self-contained slice of a "
+                "complex request — it works the objective with a narrow set of "
+                "read-only tools and reports back. Use for multi-step sub-goals "
+                "that benefit from a clean, focused context (e.g. gathering the "
+                "week's schedule and weather together). Sub-agents are read-only: "
+                "they cannot control devices or change settings — do that yourself "
+                "with the result. Do not delegate trivial single-tool lookups."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "objective": {
+                        "type": "string",
+                        "description": "The self-contained goal for the sub-agent, stated plainly.",
+                    },
+                    "capability": {
+                        "type": "string",
+                        "enum": ["scheduling", "inbox", "home_state", "diagnostics", "research", "environment"],
+                        "description": "Which curated read-only tool group the sub-agent gets.",
+                    },
+                    "max_turns": {
+                        "type": "integer",
+                        "description": "Optional cap on the sub-agent's tool steps (default 6, max 6).",
+                    },
+                },
+                "required": ["objective", "capability"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_email",
             "description": (
                 "Read the most recent messages from the household email inbox "
@@ -2514,6 +2548,91 @@ def _is_connectivity_error(exc: Exception) -> bool:
     ))
 
 
+# ── Ephemeral sub-agents (delegate_task, v6.83.0) ────────────────────────────
+# JARVIS can spin up a scoped, single-purpose sub-agent for a complex slice of a
+# request: a nested run_agent invocation — in-process, no separate process —
+# handed a minimal objective, a curated read-only tool subset, and a small turn
+# budget. On one GPU these run serially, so the value is a narrow focused context
+# (less drift), not parallelism. Sub-agents cannot actuate, write persistent
+# stores, or recurse: those tools are denied and depth is capped.
+
+MAX_DELEGATION_DEPTH = 1        # parent (depth 0) may delegate; a sub-agent may not
+_DELEGATION_MAX_TURNS = 6       # hard cap on a sub-agent's tool-loop iterations
+
+# Curated capability groups -> the read-only tools a sub-agent of that kind gets.
+CAPABILITY_GROUPS: dict = {
+    "scheduling":  {"calendar_agenda", "read_email", "weather_forecast", "get_home_summary"},
+    "inbox":       {"read_email", "calendar_agenda"},
+    "home_state":  {"get_entity_state", "search_entities", "get_area_devices",
+                    "get_home_summary", "activity_history"},
+    "diagnostics": {"system_diagnostics", "cognitive_status", "connectivity_status",
+                    "energy_status", "activity_history", "get_entity_state", "root_cause"},
+    "research":    {"web_research", "search_documents", "search_entities"},
+    "environment": {"weather_forecast", "hazard_report"},
+}
+
+# Never granted to a sub-agent, even if a group lists one (defense in depth):
+# actuators, persistent-store writers, management, and delegate_task itself.
+_SUBAGENT_DENY: set = {
+    "control_device", "bulk_control", "run_scene_or_script", "execute_plan",
+    "set_mode", "dismiss_intrusion", "acknowledge_alert",
+    "ignore_entity", "unignore_entity",
+    "create_goal", "update_goal", "manage_goals",
+    "schedule_followup", "manage_followups",
+    "approve_suggestion", "dismiss_suggestion", "review_suggestions",
+    "manage_autonomy", "remember", "ingest_documents",
+    "delegate_task",
+}
+
+
+def _resolve_capability(capability: str) -> set:
+    """Capability group name -> tool-name set a sub-agent may use, always minus
+    the denylist. Unknown group -> empty set."""
+    return CAPABILITY_GROUPS.get(str(capability or ""), set()) - _SUBAGENT_DENY
+
+
+def _scoped_tool_list(allowed_tools: Optional[set]) -> list:
+    """Full JARVIS_TOOLS, or — for a scoped sub-agent — only the named subset."""
+    if allowed_tools is None:
+        return list(JARVIS_TOOLS)
+    return [t for t in JARVIS_TOOLS
+            if t.get("function", {}).get("name") in allowed_tools]
+
+
+async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
+                         api_key: str, model: str, base_url, config, depth: int) -> str:
+    """Run one ephemeral sub-agent for a delegated objective. Returns a JSON
+    string (result or error) for the parent's tool-result slot. Never raises."""
+    objective = str(args.get("objective", "")).strip()
+    capability = str(args.get("capability", "")).strip()
+    if not objective:
+        return json.dumps({"error": "delegate_task needs an objective"})
+    if depth >= MAX_DELEGATION_DEPTH:
+        return json.dumps({"error": "delegation depth limit reached — a sub-agent "
+                                    "cannot delegate further; handle this directly"})
+    allowed = _resolve_capability(capability)
+    if not allowed:
+        return json.dumps({"error": "unknown capability '%s'. Options: %s"
+                                    % (capability, ", ".join(sorted(CAPABILITY_GROUPS)))})
+    try:
+        turns = int(args.get("max_turns", _DELEGATION_MAX_TURNS) or _DELEGATION_MAX_TURNS)
+    except Exception:
+        turns = _DELEGATION_MAX_TURNS
+    turns = max(1, min(turns, _DELEGATION_MAX_TURNS))
+    try:
+        result = await run_agent(
+            hass,
+            messages=[{"role": "user", "content": objective}],
+            persona=persona, provider_name=provider_name, api_key=api_key,
+            model=model, base_url=base_url, config=config,
+            allowed_tools=allowed, max_iterations=turns, depth=depth + 1,
+        )
+        return json.dumps({"capability": capability, "objective": objective,
+                           "result": result})
+    except Exception as exc:
+        return json.dumps({"error": "sub-agent failed: %s" % exc})
+
+
 async def run_agent(
     hass: HomeAssistant,
     *,
@@ -2527,6 +2646,9 @@ async def run_agent(
     user_input: Optional[Any] = None,
     temperature: float = 0.7,
     config: Optional[dict] = None,
+    allowed_tools: Optional[set] = None,
+    max_iterations: Optional[int] = None,
+    depth: int = 0,
 ) -> str:
     """
     Run the JARVIS agentic LLM loop (v5.7.07).
@@ -2671,9 +2793,11 @@ async def run_agent(
         hass, full_messages, provider_name, api_key, model, base_url,
     )
 
-    # Build tool list: custom JARVIS tools + HA LLM API tools
-    tools = list(JARVIS_TOOLS)
-    if hass_api:
+    # Build tool list: custom JARVIS tools + HA LLM API tools. A scoped
+    # sub-agent (allowed_tools set) gets only its curated subset and no HA API
+    # tools — the whole point of delegation is a narrow surface.
+    tools = _scoped_tool_list(allowed_tools)
+    if hass_api and allowed_tools is None:
         tools.extend(_ha_tools_to_openai_format(hass_api.tools))
 
     # Create provider with fallback
@@ -2686,7 +2810,10 @@ async def run_agent(
 
     working = list(full_messages)
 
-    for iteration in range(MAX_TOOL_ITERATIONS):
+    _cap = MAX_TOOL_ITERATIONS
+    if max_iterations is not None:
+        _cap = max(1, min(int(max_iterations), MAX_TOOL_ITERATIONS))
+    for iteration in range(_cap):
         try:
             result = await hass.async_add_executor_job(
                 client.chat, working, tools or None, 1024, temperature,
@@ -2836,9 +2963,17 @@ async def run_agent(
 
         # Execute tools
         for call in tool_calls:
-            result_str = await _execute_tool(
-                hass, call["name"], call["args"], hass_api, user_input,
-            )
+            if call["name"] == "delegate_task":
+                result_str = await _run_delegated(
+                    hass, call["args"],
+                    persona=persona, provider_name=provider_name,
+                    api_key=api_key, model=model, base_url=base_url,
+                    config=config, depth=depth,
+                )
+            else:
+                result_str = await _execute_tool(
+                    hass, call["name"], call["args"], hass_api, user_input,
+                )
             working.append({
                 "role": "tool",
                 "tool_call_id": call.get("id", ""),

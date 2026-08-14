@@ -160,7 +160,9 @@ def effective_config(entry=None) -> dict:
         if v is None or v == "":
             continue      # a blank panel value must not clobber the entry
         merged[k] = v
-    return merged
+    # Credentials live in secrets.yaml and win over config/entry (v6.83.0).
+    from . import ha_secrets
+    return ha_secrets.overlay_credentials(merged)
 
 
 def set(key: str, value: Any) -> None:

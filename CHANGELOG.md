@@ -4,6 +4,32 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.83.0] — ephemeral sub-agents, and credentials that live in secrets.yaml
+JARVIS can now spin up a focused sub-agent for a complex slice of a request. Ask
+for something multi-step and self-contained — "gather this week's schedule and
+the weather for it" — and it delegates that to an in-process sub-agent with a
+minimal objective, a curated read-only tool set, and a small turn budget, then
+folds the result back into the main answer. It is not a separate process and it
+is not parallel — on one machine the point is a tight, focused context the model
+reasons over cleanly, with less drift. Sub-agents are read-only and cannot
+recurse: actuators, anything that writes a persistent store, and delegation
+itself are denied, and depth is capped.
+
+LLM credentials move out of plaintext. API keys previously sat in the panel's
+config.json; they now belong in Home Assistant's secrets.yaml, resolved
+everywhere JARVIS builds a model client — and secrets.yaml wins. On upgrade, any
+plaintext key still in config.json is relocated automatically and safely: JARVIS
+writes it to secrets.yaml, re-reads to confirm it is durable, and only then
+removes the plaintext copy. If anything about that fails, config.json is left
+exactly as it was, so a key can never be lost and auth can never break. The
+writer backs up the file and preserves everything else in it.
+
+The README now carries a full capability reference — every agent tool, grouped
+by domain, alongside the features they back. 26 new tests cover the delegation
+machinery (capability scoping, the denylist, the depth cap, nested-invocation
+wiring) and the credential path (the safe writer, the secrets overlay, and
+verify-before-strip relocation).
+
 ## [6.82.0] — one source of truth for which model runs
 JARVIS now resolves its LLM provider, model, and credentials from a single
 authoritative place, ending a class of drift where different parts of the

@@ -854,9 +854,12 @@ class JarvisAgent(conversation.ConversationEntity):
                     jarvis_log("AGENT", f"LLM needed (complexity={complexity}): {user_input.text[:60]}")
                     # Complex request — use LLM agent (Groq/Gemini fallback)
                     from .agent import run_agent
+                    from . import ha_secrets as _hs
                     provider_name = self._rt_opt("llm_provider", "groq")
                     api_key_val = (
-                        self._rt_opt("api_key", "")
+                        await self.hass.async_add_executor_job(
+                            _hs.get_secret_sync, "jarvis_api_key", "")
+                        or self._rt_opt("api_key", "")
                         or self.entry.data.get("api_key", "")
                     )
                     model_val = self._rt_opt(CONF_MODEL, DEFAULT_MODEL)
