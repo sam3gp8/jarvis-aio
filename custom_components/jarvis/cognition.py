@@ -649,16 +649,41 @@ def sample_presence(hass, now: float = None) -> int:
 
 # ── Leave-time / departure anticipation (v6.84.0) ───────────────────────
 DEFAULT_DEPART_LEAD_MIN = 30    # prep+travel lead when no travel sensor is set
-DEPART_PREP_BUFFER_MIN = 5      # added to a travel-time sensor's minutes
+DEPART_PREP_BUFFER_MIN = 5      # added to the computed travel-time minutes
 DEPART_LOOKAHEAD_H = 3          # only consider events starting within N hours
 
 
-def predict_departure(hass, now: float = None) -> list:
+def _current_origin(hass):
+    """Where the user is now, for travel time: a configured origin entity, else
+    the first person with GPS coordinates, else home (v6.89.0)."""
+    try:
+        from . import jarvis_config
+        ent = str(jarvis_config.get("departure_origin_entity", "") or "").strip()
+        if ent:
+            st = hass.states.get(ent)
+            if st is not None:
+                c = _entity_coords(st)
+                if c:
+                    return c
+        for st in hass.states.async_all("person"):
+            c = _entity_coords(st)
+            if c:
+                return c
+    except Exception:
+        pass
+    return _home_coords(hass)
+
+
+async def predict_departure(hass, now: float = None) -> list:
     """Leave-time anticipation ("leave now, sir"): for the nearest upcoming
-    timed calendar event, warn once when it's time to head out. Lead time is a
-    configured travel-time sensor (Waze/Google Travel Time, in minutes) plus a
-    small buffer, or a configurable default. Returns action dicts for the gated
-    announce path. One alert per event per day. Never raises.
+    timed calendar event, warn once when it's time to head out.
+
+    Travel time is computed from device tracking (your live location) to the
+    event's geocoded location via open-source geocoding + routing (Nominatim +
+    OSRM, keyless) — see travel.py. An explicit travel-time sensor is used
+    instead if you've set one; failing everything, a configurable default lead
+    is used. Returns action dicts for the gated announce path. One alert per
+    event per day. Async (does network); never raises.
     """
     now = now or time.time()
     out = []
@@ -671,15 +696,18 @@ def predict_departure(hass, now: float = None) -> list:
                                DEFAULT_DEPART_LEAD_MIN) or DEFAULT_DEPART_LEAD_MIN)
         except Exception:
             lead_default = DEFAULT_DEPART_LEAD_MIN
+        # optional explicit travel-time sensor override (minutes)
+        sensor_min = None
         travel_entity = str(jarvis_config.get("departure_travel_sensor", "") or "").strip()
-        travel_min = None
         if travel_entity and hass is not None:
             tst = hass.states.get(travel_entity)
             if tst is not None and tst.state not in _DEAD_STATES:
                 try:
-                    travel_min = float(tst.state)
+                    sensor_min = float(tst.state)
                 except Exception:
-                    travel_min = None
+                    sensor_min = None
+        osrm_url = str(jarvis_config.get("departure_osrm_url", "") or "").strip() or None
+        origin = _current_origin(hass)
 
         from . import comms
         events = [e for e in comms.gather_events(hass)
@@ -694,6 +722,12 @@ def predict_departure(hass, now: float = None) -> list:
                 continue
             if (start_dt - now_dt) > datetime.timedelta(hours=DEPART_LOOKAHEAD_H):
                 break  # sorted — nothing closer beyond the horizon
+            # travel minutes: explicit sensor > OSS route(origin -> location) > default
+            travel_min = sensor_min
+            loc = ev.get("location")
+            if travel_min is None and origin and loc:
+                from . import travel
+                travel_min = await travel.travel_minutes(hass, origin, loc, osrm_url)
             lead = (travel_min + DEPART_PREP_BUFFER_MIN) if travel_min is not None else lead_default
             leave_at = start_dt - datetime.timedelta(minutes=lead)
             if now_dt < leave_at:
@@ -704,7 +738,6 @@ def predict_departure(hass, now: float = None) -> list:
                 continue
             _RECUR_ALERTED[key] = today
             mins_to = max(0, int((start_dt - now_dt).total_seconds() // 60))
-            loc = ev.get("location")
             loc_str = (" at %s" % loc) if loc else ""
             out.append({
                 "type": "anticipation_departure", "urgency": "low",

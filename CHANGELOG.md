@@ -4,6 +4,24 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.89.0] — departure travel time goes open-source
+The "leave now, sir" anticipation no longer leans on Google Travel Time or Waze.
+Both are a poor fit here: Google's is a paid API, and both require a fixed origin
+and destination baked into the integration — so covering more than one
+destination would mean standing up a separate instance per place. Departure now
+works dynamically: it takes your live location from device tracking, geocodes the
+event's location with OpenStreetMap's Nominatim, and gets the drive time from
+OSRM — all keyless, with OSRM's endpoint configurable (`departure_osrm_url`) so
+you can point it at a self-hosted server.
+
+When there is no device fix, the event has no location, or a routing call fails,
+it falls back to the configurable fixed lead (`departure_lead_minutes`) exactly
+as before, so nothing regresses; an explicit travel-time sensor is still honored
+if you have set one. All network calls are async with a short timeout, and
+geocoding results are cached in-process. 20 tests cover the routing math, the
+geocode/route orchestration with the network mocked, and the departure logic end
+to end.
+
 ## [6.88.0] — continued conversation (turn-taking foundation)
 JARVIS can now hold a conversation open. When a response ends with a question or
 an offer to act — "which room did you mean?", "shall I schedule it?" — the

@@ -2182,8 +2182,8 @@ async def _tick():
                          + cognition.predict_overdue(hass, now_t)
                          + cognition.predict_presence(hass, now_t)
                          + cognition.predict_proximity(hass, now_t)
-                         + cognition.predict_departure(hass, now_t)
                          + cognition.predict_routine_start(hass, now_t))
+                preds += await cognition.predict_departure(hass, now_t)
                 for pred in preds:
                     actions.append(pred)
                     from .websocket import jarvis_log
