@@ -4,6 +4,24 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.88.0] — continued conversation (turn-taking foundation)
+JARVIS can now hold a conversation open. When a response ends with a question or
+an offer to act — "which room did you mean?", "shall I schedule it?" — the
+satellite keeps listening for your reply without a fresh wake word, so a
+back-and-forth flows naturally instead of "Jarvis..." every turn. A response
+that is just a statement ends the turn as before.
+
+The trigger is deliberately conservative (a trailing question or a clear offer,
+nothing more) and the whole behavior is off by default
+(`continued_conversation_enabled`), since natural turn-taking depends on your
+satellites' listen timing and is best switched on and tuned against real
+hardware. The continue signal is set defensively so it degrades gracefully on any
+Home Assistant core. 7 new tests cover the turn-taking heuristic and the switch.
+
+This is the in-process foundation; no-wake ambient response, barge-in,
+multi-satellite continuity, and reopen timing for external (Cast/Nest) speakers
+layer on top and are validated on the satellites themselves.
+
 ## [6.87.0] — one situational picture, not a device list
 JARVIS's reasoning now starts from what is actually happening, not just what it
 can control. The context it reads before every complex request used to be a

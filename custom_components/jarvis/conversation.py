@@ -1071,4 +1071,14 @@ class JarvisAgent(conversation.ConversationEntity):
             ir.async_set_speech("")  # silence satellite — Cast has it
         else:
             ir.async_set_speech(response_text)  # fallback: satellite speaks
-        return conversation.ConversationResult(response=ir, conversation_id=cid)
+        result = conversation.ConversationResult(response=ir, conversation_id=cid)
+        # v6.88.0: keep listening for a follow-up when JARVIS invited one, so
+        # natural turn-taking works without a new wake word. Set defensively —
+        # older HA cores may not carry the field.
+        try:
+            from . import continued_conversation as _cc
+            if _cc.enabled() and _cc.should_continue(response_text):
+                result.continue_conversation = True
+        except Exception:
+            pass
+        return result
