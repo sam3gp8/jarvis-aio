@@ -226,7 +226,13 @@ class OllamaProvider(OpenAIProvider):
         # keep_alive + num_ctx are Ollama extensions passed through the
         # OpenAI-compatible endpoint; harmless no-ops on non-Ollama backends,
         # but only OllamaProvider sends them.
-        return {"keep_alive": OLLAMA_KEEP_ALIVE, "options": {"num_ctx": OLLAMA_NUM_CTX}}
+        # think=False: many local models (gemma3/4, qwen3, deepseek-r1) are
+        # reasoning models — their thinking goes to a separate "reasoning"
+        # field and "content" stays empty until it finishes. On a small token
+        # budget that means an empty answer, so we ask Ollama to skip thinking
+        # and answer directly. Harmless on non-reasoning models.
+        return {"keep_alive": OLLAMA_KEEP_ALIVE, "think": False,
+                "options": {"num_ctx": OLLAMA_NUM_CTX}}
 
 
 # ─── Anthropic ───────────────────────────────────────────────────────────────

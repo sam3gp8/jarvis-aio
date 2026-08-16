@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.98.0] — briefings work with reasoning models
+Some local models — including gemma4, qwen3, and deepseek-r1 — are reasoning
+models: they think in a separate channel and only produce their answer once the
+thinking finishes. On the briefing's small token budget the model spent it all
+thinking and returned an empty answer, so the briefing had nothing to say. JARVIS
+now asks the local model to answer directly instead of thinking out loud, and
+gives the briefing enough room to finish, so reasoning models produce a proper
+spoken briefing.
+
 ## [6.97.0] — briefings always speak, even when the model returns nothing
 Briefings were going silent because the language model kept returning an empty
 response, and the briefing skipped the announcement entirely when that happened.

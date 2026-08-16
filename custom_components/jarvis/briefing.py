@@ -253,7 +253,7 @@ async def async_briefing(
                     {"role": "system", "content": system},
                     {"role": "user", "content": f"Context:\n{context}"},
                 ],
-                max_tokens=400,
+                max_tokens=1500,
                 temperature=0.6,
             )
         )
