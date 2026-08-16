@@ -131,6 +131,16 @@ def _gather_overnight_events(hass: HomeAssistant, hours: int = 12) -> list[str]:
     return events
 
 
+def _plain_briefing(greeting: str, honorific: str, context_lines: list[str]) -> str:
+    """A deterministic briefing read straight from the gathered facts, used when
+    the language model returns nothing so the briefing still happens instead of
+    silently skipping."""
+    facts = [ln.strip() for ln in (context_lines or []) if ln and ln.strip()]
+    if not facts:
+        return f"{greeting}, {honorific}. Nothing notable to report."
+    return f"{greeting}, {honorific}. " + " ".join(facts)
+
+
 async def async_briefing(
     hass: HomeAssistant,
     call: ServiceCall,
@@ -247,10 +257,17 @@ async def async_briefing(
                 temperature=0.6,
             )
         )
-        briefing_text = result["text"].strip()
+        briefing_text = (result.get("text") or "").strip()
     except Exception as exc:
         _LOGGER.error("JARVIS briefing error: %s", exc)
-        briefing_text = f"{greeting}, {honorific}. I am having trouble compiling your briefing at the moment."
+        briefing_text = ""
+
+    # The model sometimes returns an empty completion (a local-model hiccup, or
+    # an unusual prompt). Rather than silently skip the announce, read the facts
+    # already gathered — a plain briefing beats no briefing.
+    if not briefing_text:
+        _LOGGER.warning("JARVIS briefing: empty model output — reading gathered facts instead")
+        briefing_text = _plain_briefing(greeting, honorific, context_lines)
 
     await hass.async_add_executor_job(
         save_message, "assistant", f"[Briefing] {briefing_text}", "briefing"

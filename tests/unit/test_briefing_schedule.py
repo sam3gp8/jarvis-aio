@@ -124,3 +124,10 @@ def test_briefing_tts_and_speakers_use_effective_config():
     assert "effective_config" in spk_body, "_get_speakers must use effective_config"
     # and must NOT resolve these keys from bare entry.options anymore
     assert "entry.options.get(CONF_TTS_ENGINE" not in tts_body
+
+
+def test_briefing_falls_back_on_empty_model_output():
+    # empty LLM output must NOT silently skip the announce — read the gathered
+    # facts instead so the briefing still happens (v6.97.0).
+    assert "_plain_briefing" in BRIEF
+    assert "empty model output" in BRIEF

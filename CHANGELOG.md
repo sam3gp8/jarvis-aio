@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.97.0] — briefings always speak, even when the model returns nothing
+Briefings were going silent because the language model kept returning an empty
+response, and the briefing skipped the announcement entirely when that happened.
+It now falls back to reading the facts it already gathered — time, weather, who
+is home, overnight events, open doors, calendar, energy, and active hazards — so
+you get a briefing instead of silence even if the model produces nothing.
+
 ## [6.96.0] — briefings reach the speakers again
 Scheduled and manual briefings went silent because the briefing service resolved
 its TTS engine and speakers from a config layer that is empty when all settings
