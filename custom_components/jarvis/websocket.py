@@ -423,19 +423,30 @@ def _get_onboarding_state(hass: HomeAssistant, entry, current_notify: str) -> di
             for e in hass.states.async_all("assist_satellite"))
     except Exception:
         has_voice = False
+    try:
+        from . import jarvis_config
+        briefings_on = (bool(jarvis_config.get("briefing_morning_enabled", False))
+                        or bool(jarvis_config.get("briefing_evening_enabled", False)))
+    except Exception:
+        briefings_on = False
     steps = [
         {"id": "notify", "label": "Set an alert destination",
          "hint": "Where JARVIS sends security alerts and notifications (your phone).",
-         "done": has_notify},
+         "jump": "Notifications", "done": has_notify},
         {"id": "cameras", "label": "Connect cameras (optional)",
          "hint": "Nest/Frigate cameras enable doorbell analysis, package detection, the live floor plan.",
-         "done": has_cameras},
+         "jump": "Cameras", "done": has_cameras},
         {"id": "voice", "label": "Set up voice (optional)",
          "hint": "On HA OS/Supervised JARVIS installs the voice stack for you — or just talk to it in chat.",
          "done": has_voice},
         {"id": "banter", "label": "Pick a personality level",
          "hint": "Plain, dry, or full MCU-JARVIS wit — Settings \u2192 Character.",
-         "done": banter_set},
+         "jump": "JARVIS Character", "done": banter_set},
+        {"id": "briefings", "label": "Turn on daily briefings",
+         "hint": "Morning and evening summaries of weather, calendar, overnight "
+                 "events, and energy, in Settings under Briefings. Anticipation "
+                 "and cross-session memory live under Anticipation and Memory.",
+         "jump": "Briefings", "done": briefings_on},
     ]
     done_count = sum(1 for s in steps if s["done"])
     return {

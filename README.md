@@ -242,19 +242,6 @@ What's stored, and where:
 
 What leaves your network is only what you choose: requests to whichever LLM provider (Groq/OpenAI/Anthropic) and vision model you configure, or nothing at all if you run everything locally through Ollama. Swap any provider for a local model to keep the whole pipeline on-premises. Sensitive integration credentials are held by Home Assistant, not JARVIS.
 
-## Roadmap
-
-**Shipped recently** — read-only email, ephemeral sub-agents, credentials in `secrets.yaml` with safe auto-relocation, single-source model config, local GPU inference (Ollama on a dedicated GPU box, so the reasoning chain runs templates → cache → local model → cloud), web research + calendar awareness, the MCU-JARVIS persona with a banter valve, per-camera rename and indoor/outdoor designation, go2rtc restream overrides with end-to-end camera diagnostics, real-time WebSocket entity subscriptions, area sparklines, entity drill-down cards, and log/feed search. See [CHANGELOG.md](CHANGELOG.md) for the full history.
-
-**On the horizon:**
-
-- **Pattern-driven automations** — the engine reads observed behavior from `patterns.db`, proposes automations, and now *installs* an approved suggestion straight into Home Assistant. It keeps improving as more per-person data accumulates and more pattern shapes become directly installable.
-- **Per-person routine inference** — the person-aware engine and `person_patterns` store are live; this is now a matter of real per-household-member data accumulating over a 1–2 year horizon to sharpen each baseline.
-
-With the Document RAG agent shipped, all twelve agents from the home-agent blueprint that belong in Home Assistant are now built. What remains above is data-accumulation, not new construction.
-
-See [CHANGELOG.md](CHANGELOG.md) for the full release history.
-
 ## Support
 
 If JARVIS makes your home a little smarter, you can support continued development:

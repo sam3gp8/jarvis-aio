@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.91.0] — onboarding steps jump to the right setting
+Each step in the welcome checklist now has a jump button that opens the Settings
+tab, scrolls to the exact card it refers to — alert destination, cameras,
+personality, or daily briefings — and briefly highlights it, instead of leaving
+you to find it.
+
 ## [6.90.0] — the new anticipation & memory settings, in the panel
 Everything the last several releases added — departure and routine alerts,
 cross-session memory, continued conversation — was configurable only by editing
