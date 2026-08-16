@@ -659,12 +659,18 @@ def _get_tts(hass: HomeAssistant, entry: ConfigEntry, context: str = "chat") -> 
     All other contexts use the regular engine (Piper or similar).
     """
     from .tts_helper import resolve_tts_for_context
+    # Effective config (jarvis_config wins). entry.options is empty when all
+    # config lives in the panel store, which previously left the briefing unable
+    # to resolve its TTS engine — so it silently bailed before announcing.
+    try:
+        from . import jarvis_config
+        cfg = jarvis_config.effective_config(entry)
+    except Exception:
+        cfg = {**dict(entry.data), **dict(entry.options)}
 
-    regular = entry.options.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)
-    premium = entry.options.get(CONF_TTS_PREMIUM_ENGINE, DEFAULT_TTS_PREMIUM_ENGINE)
-    premium_contexts = entry.options.get(
-        CONF_TTS_PREMIUM_CONTEXTS, DEFAULT_TTS_PREMIUM_CONTEXTS
-    )
+    regular = cfg.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)
+    premium = cfg.get(CONF_TTS_PREMIUM_ENGINE, DEFAULT_TTS_PREMIUM_ENGINE)
+    premium_contexts = cfg.get(CONF_TTS_PREMIUM_CONTEXTS, DEFAULT_TTS_PREMIUM_CONTEXTS)
 
     return resolve_tts_for_context(
         hass, context, regular, premium, premium_contexts
@@ -677,25 +683,40 @@ def _get_speakers(hass: HomeAssistant, entry: ConfigEntry) -> list[str]:
     Checks runtime_config.announcement_speakers first, falls back to
     broadcast_group from entry options/data.
     """
-    # Check runtime_config first (panel Settings → Announcement Speakers)
+    import json as _json
+
+    def _as_list(raw):
+        if not raw:
+            return None
+        try:
+            v = _json.loads(raw) if isinstance(raw, str) else raw
+            return v if isinstance(v, list) and v else None
+        except Exception:
+            return None
+
+    # Panel-live value first (runtime_config)
     try:
-        import json as _json
         data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
         rc = data.get("runtime_config", {}) if isinstance(data, dict) else {}
-        raw = rc.get("announcement_speakers")
-        if raw:
-            speakers = _json.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(speakers, list) and speakers:
-                _LOGGER.debug("Announcement speakers from panel config: %s", speakers)
-                return speakers
+        live = _as_list(rc.get("announcement_speakers"))
+        if live:
+            _LOGGER.debug("Announcement speakers from panel config: %s", live)
+            return live
     except Exception as exc:
         _LOGGER.debug("Error reading announcement_speakers: %s", exc)
 
-    # Fallback: broadcast_group from config
-    broadcast_group = entry.options.get(
-        CONF_BROADCAST_GROUP, entry.data.get(CONF_BROADCAST_GROUP, "")
-    ) or None
-    result = broadcast_target(hass, broadcast_group=broadcast_group)
+    # Authoritative effective config (jarvis_config wins). entry.options is empty
+    # when all config lives in the panel store — previously this fell through to
+    # an empty broadcast group, leaving announcements with no speakers.
+    try:
+        from . import jarvis_config
+        cfg = jarvis_config.effective_config(entry)
+    except Exception:
+        cfg = {**dict(entry.data), **dict(entry.options)}
+    speakers = _as_list(cfg.get("announcement_speakers"))
+    if speakers:
+        return speakers
+    result = broadcast_target(hass, broadcast_group=(cfg.get(CONF_BROADCAST_GROUP) or None))
     _LOGGER.debug("Announcement speakers from broadcast_group: %s", result)
     return result
 

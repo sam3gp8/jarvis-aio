@@ -111,3 +111,16 @@ def test_all_announce_callers_pass_text_second():
             if arg in ("tts", "tts_entity", "spk", "speakers"):
                 bad.append(f"{py.name}: async_announce(hass, {arg}, ...)")
     assert not bad, f"wrong async_announce argument order: {bad}"
+
+
+def test_briefing_tts_and_speakers_use_effective_config():
+    # Briefing TTS/speaker resolution must read the effective config
+    # (jarvis_config wins), not the empty entry.options — otherwise the
+    # announce silently bails before reaching TTS (v6.96.0).
+    tts_body = INIT[INIT.index("def _get_tts"):INIT.index("def _get_speakers")]
+    spk_start = INIT.index("def _get_speakers")
+    spk_body = INIT[spk_start:spk_start + 1400]
+    assert "effective_config" in tts_body, "_get_tts must use effective_config"
+    assert "effective_config" in spk_body, "_get_speakers must use effective_config"
+    # and must NOT resolve these keys from bare entry.options anymore
+    assert "entry.options.get(CONF_TTS_ENGINE" not in tts_body

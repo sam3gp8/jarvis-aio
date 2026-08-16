@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.96.0] — briefings reach the speakers again
+Scheduled and manual briefings went silent because the briefing service resolved
+its TTS engine and speakers from a config layer that is empty when all settings
+live in the panel. It fell back to defaults, could not find a TTS entity or a
+speaker, and stopped before playing anything. It now reads those settings from
+the same effective configuration everything else uses, so the briefing finds your
+engine and announcement speakers and plays. Voice-requested briefings, which
+reply through the requesting satellite, were never affected.
+
 ## [6.95.0] — briefings fire on uncertain presence; tidier settings layout
 Scheduled morning and evening briefings are meant to skip only when the house is
 empty, but the check treated any non-"home" presence — including "unknown" or
