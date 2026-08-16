@@ -4,6 +4,19 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.95.0] — briefings fire on uncertain presence; tidier settings layout
+Scheduled morning and evening briefings are meant to skip only when the house is
+empty, but the check treated any non-"home" presence — including "unknown" or
+unavailable — as empty, so a scheduled briefing would silently skip whenever
+presence was not a clean "home". It now skips only when every tracked person is
+explicitly away; if presence is uncertain, the briefing plays. Voice-requested
+briefings were never affected.
+
+Separately, the Settings tab laid its cards out in a fixed grid, so each row's
+height was set by its tallest card and shorter cards left large empty gaps
+beneath them. Cards now flow in a tighter column layout that packs them by
+height, so the tab fills the space instead of leaving holes.
+
 ## [6.94.0] — activity feed gains category icons
 Each event in the Activity Feed now shows a small icon for its kind — motion,
 doors, security, packages, energy, weather, cameras, briefings, and departures —

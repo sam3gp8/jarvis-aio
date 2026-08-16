@@ -357,11 +357,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 return
             # Don't talk to an empty house unless explicitly allowed.
             if bool(_brief_cfg("briefing_require_home", True)):
+                # Only skip when we are CONFIDENT the house is empty — every
+                # tracked person is explicitly away. Unknown/unavailable presence
+                # must not suppress the briefing (fail open); the old check
+                # silenced scheduled briefings whenever presence was not a clean
+                # "home".
                 try:
-                    from .presence import get_presence_summary
-                    people = get_presence_summary(hass).get("people", [])
-                    if people and not any(p.get("state") == "home" for p in people):
-                        _LOGGER.debug("JARVIS: skipping %s briefing — nobody home", kind)
+                    from .presence import everyone_confidently_away
+                    if everyone_confidently_away(hass):
+                        _LOGGER.debug("JARVIS: skipping %s briefing — everyone away", kind)
                         return
                 except Exception:
                     pass

@@ -25,9 +25,11 @@ def test_scheduler_defaults_are_off():
            'f"briefing_{kind}_enabled", False' in INIT
 
 
-def test_scheduler_skips_empty_house_by_default():
+def test_scheduler_skips_only_when_confidently_empty():
+    # require_home is honored, but via the fail-open helper so uncertain
+    # presence no longer silences scheduled briefings (v6.95.0).
     assert "briefing_require_home" in INIT
-    assert "nobody home" in INIT
+    assert "everyone_confidently_away" in INIT
 
 
 def test_time_parser_present_with_sane_defaults():

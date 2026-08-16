@@ -28,6 +28,22 @@ def _person_state(hass: HomeAssistant, entity_id: str) -> dict:
     }
 
 
+def everyone_confidently_away(hass) -> bool:
+    """True only when there are tracked people and EVERY one is explicitly away
+    (not_home/away). Unknown or unavailable presence returns False — fail open,
+    so actions like scheduled briefings are only suppressed when we are sure the
+    house is empty, not merely because presence is uncertain (v6.95.0)."""
+    try:
+        summ = get_presence_summary(hass)
+        people = summ.get("people", [])
+        if not people or summ.get("home_count", 0) > 0:
+            return False
+        return all(str(p.get("state", "")).lower() in ("not_home", "away")
+                   for p in people)
+    except Exception:
+        return False
+
+
 def get_presence_summary(hass: HomeAssistant) -> dict:
     """
     Return a summary of who's home and where.
