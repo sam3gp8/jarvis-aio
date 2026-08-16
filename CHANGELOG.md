@@ -4,6 +4,19 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.90.0] — the new anticipation & memory settings, in the panel
+Everything the last several releases added — departure and routine alerts,
+cross-session memory, continued conversation — was configurable only by editing
+config on disk. Now it has a home in the Settings tab: a new "Anticipation &
+Memory" card with toggles for departure alerts, routine alerts, memory
+threading, and continued conversation, plus the numeric knobs (departure lead
+time, the memory window and turn cap) and the optional open-source-routing fields
+(origin tracker, OSRM URL, travel sensor). Everything reads its current value and
+writes back through the panel like the rest of the settings.
+
+This is the first of the onboarding-and-UI polish pass. 4 new panel smoke
+assertions cover the card's presence and wiring.
+
 ## [6.89.0] — departure travel time goes open-source
 The "leave now, sir" anticipation no longer leans on Google Travel Time or Waze.
 Both are a poor fit here: Google's is a paid API, and both require a fixed origin

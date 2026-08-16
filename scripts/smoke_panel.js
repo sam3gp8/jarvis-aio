@@ -727,6 +727,12 @@ setTimeout(async () => {
   const hazOverall = el.shadowRoot.getElementById("hazard-overall")?.textContent || "";
   checks.push(
     ["hazard card present with enable toggle", !!el.shadowRoot.querySelector('[data-cfg-key="hazard_monitor_enabled"]')],
+    ["anticipation & memory card present", !!el.shadowRoot.querySelector('[data-cfg-key="departure_alerts_enabled"]')],
+    ["anticipation exposes memory + continued-conv toggles",
+      !!el.shadowRoot.querySelector('[data-cfg-key="memory_threading_enabled"]') &&
+      !!el.shadowRoot.querySelector('[data-cfg-key="continued_conversation_enabled"]')],
+    ["anticipation numeric config wired", !!el.shadowRoot.querySelector('[data-cfg-key="departure_lead_minutes"]')],
+    ["anticipation toggles carry data-cfg-val", !!el.shadowRoot.querySelector('[data-cfg-key="routine_alerts_enabled"][data-cfg-val]')],
     ["hazard card has three feed toggles",
       !!el.shadowRoot.querySelector('[data-cfg-key="hazard_quakes_on"]') &&
       !!el.shadowRoot.querySelector('[data-cfg-key="hazard_weather_on"]') &&
