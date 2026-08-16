@@ -152,7 +152,7 @@ async def test_aggregate_overall_down_when_any_active_down(sh, monkeypatch):
     monkeypatch.setattr(sh, "_check_stt", lambda h: {"name": "STT", "key": "stt", "status": "ok", "detail": ""})
     res = await sh.run_service_health(_Hass({}))
     assert res["overall"] == "down"
-    assert len(res["services"]) == 4
+    assert len(res["services"]) == 5
     # 'off' services excluded from the healthy count
     assert "healthy" in res["summary"]
 
@@ -175,7 +175,7 @@ async def test_aggregate_never_raises_on_check_error(sh, monkeypatch):
     monkeypatch.setattr(sh, "_check_tts", lambda h: (_ for _ in ()).throw(RuntimeError("x")))
     monkeypatch.setattr(sh, "_check_stt", lambda h: {"name": "STT", "key": "stt", "status": "ok", "detail": ""})
     res = await sh.run_service_health(_Hass({}))       # must not raise
-    assert "services" in res and len(res["services"]) == 4
+    assert "services" in res and len(res["services"]) == 5
 
 
 # ── agent tool registration ──────────────────────────────────────────────────
@@ -306,3 +306,38 @@ async def test_overall_idle_services_not_alarming(sh, monkeypatch):
     res = await sh.run_service_health(_Hass({}))
     assert res["overall"] == "ok"              # NOT down — idle is fine
     assert "idle" in res["summary"]
+
+
+# ── camera health check (v6.93.0) ────────────────────────────────────────────
+
+def test_cameras_none_is_off(sh):
+    r = sh._check_cameras(_Hass({"camera": []}))
+    assert r["status"] == "off" and "no cameras" in r["detail"]
+
+
+def test_cameras_all_available_ok(sh):
+    r = sh._check_cameras(_Hass({"camera": [
+        _State("camera.front", "idle"), _State("camera.back", "streaming")]}))
+    assert r["status"] == "ok" and "2 camera" in r["detail"]
+
+
+def test_cameras_some_unavailable_warn(sh):
+    r = sh._check_cameras(_Hass({"camera": [
+        _State("camera.front", "idle"), _State("camera.back", "unavailable")]}))
+    assert r["status"] == "warn" and "1/2" in r["detail"]
+
+
+def test_cameras_all_unavailable_warn(sh):
+    r = sh._check_cameras(_Hass({"camera": [_State("camera.front", "unavailable")]}))
+    assert r["status"] == "warn" and "all 1" in r["detail"]
+
+
+async def test_overall_includes_cameras(sh, monkeypatch):
+    async def _fake_async(hass):
+        return {"name": "x", "key": "x", "status": "off", "detail": ""}
+    monkeypatch.setattr(sh, "_check_llm", _fake_async)
+    monkeypatch.setattr(sh, "_check_embeddings", _fake_async)
+    monkeypatch.setattr(sh, "_check_tts", lambda hass: {"name": "TTS", "key": "tts", "status": "off", "detail": ""})
+    monkeypatch.setattr(sh, "_check_stt", lambda hass: {"name": "STT", "key": "stt", "status": "off", "detail": ""})
+    res = await sh.run_service_health(_Hass({"camera": [_State("camera.front", "idle")]}))
+    assert "cameras" in {s["key"] for s in res["services"]}

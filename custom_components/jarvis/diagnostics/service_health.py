@@ -313,6 +313,33 @@ def _redact(url: str) -> str:
     return url
 
 
+def _check_cameras(hass) -> dict:
+    """Camera availability — informational (a WARN, never the alarming DOWN),
+    since cameras are a feature, not the core brain. OFF when none are
+    configured (they're optional)."""
+    out = {"name": "Cameras", "key": "cameras", "status": _OFF, "detail": ""}
+    try:
+        states = hass.states.async_all("camera")
+    except Exception:
+        states = []
+    if not states:
+        out["detail"] = "no cameras configured (optional)"
+        return out
+    total = len(states)
+    down = [s.entity_id for s in states
+            if str(getattr(s, "state", "")).lower()
+            in ("unavailable", "unknown", "none", "")]
+    avail = total - len(down)
+    if not down:
+        out["status"] = _OK
+        out["detail"] = "%d camera(s) available" % total
+    else:
+        out["status"] = _WARN
+        out["detail"] = ("all %d camera(s) unavailable" % total if avail == 0
+                         else "%d/%d available, %d unavailable" % (avail, total, len(down)))
+    return out
+
+
 async def run_service_health(hass) -> dict:
     """Run all core dependency checks. Returns
     {overall, services: [...], summary}. Never raises."""
@@ -322,6 +349,7 @@ async def run_service_health(hass) -> dict:
         ("Embeddings", "embeddings", _check_embeddings, True),
         ("TTS", "tts", _check_tts, False),
         ("STT", "stt", _check_stt, False),
+        ("Cameras", "cameras", _check_cameras, False),
     ):
         try:
             services.append(await fn(hass) if is_async else fn(hass))

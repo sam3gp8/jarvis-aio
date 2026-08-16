@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.93.0] — the system self-test now covers cameras
+The "Run check" self-test under Settings → System Diagnostics now includes your
+cameras alongside the LLM, embeddings, and speech engines. It reports how many
+cameras are available and flags any that are unavailable, so one check tells you
+whether everything JARVIS relies on is up.
+
 ## [6.92.0] — setup checks the LLM connection before finishing
 When you enter a cloud API key or a local LLM URL during setup, JARVIS makes a
 quick test call before creating the integration. If the endpoint cannot be
