@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.94.0] — activity feed gains category icons
+Each event in the Activity Feed now shows a small icon for its kind — motion,
+doors, security, packages, energy, weather, cameras, briefings, and departures —
+so the feed reads at a glance instead of as a column of repeated text tags.
+
 ## [6.93.0] — the system self-test now covers cameras
 The "Run check" self-test under Settings → System Diagnostics now includes your
 cameras alongside the LLM, embeddings, and speech engines. It reports how many

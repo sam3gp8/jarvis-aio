@@ -271,6 +271,7 @@ setTimeout(async () => {
     ["area tiles are keyboard-focusable (drill-down affordance)", sr.querySelector('.area[data-area-id="garage"]')?.getAttribute('tabindex') === '0'],
     ["activity search box present", !!sr.getElementById("activity-search")],
     ["activity feed renders all mock entries", sr.querySelectorAll("#activity-feed .evt").length === 3],
+    ["activity feed rows carry category icons", sr.querySelectorAll("#activity-feed .evt .evt-icon").length === 3],
   ];
 
   // ── activity feed search: narrow, count, empty state, live-patch respect ──
