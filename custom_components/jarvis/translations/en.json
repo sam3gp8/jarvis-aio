@@ -13,7 +13,10 @@
       }
     },
     "error": {
-      "need_llm": "Enter either a cloud API key or a local LLM URL."
+      "need_llm": "Enter either a cloud API key or a local LLM URL.",
+      "cannot_connect": "Couldn't reach the LLM. Check the URL/endpoint is correct and the server (e.g. Ollama) is running.",
+      "invalid_auth": "The API key was rejected. Check the key and try again.",
+      "unknown": "Couldn't validate the LLM connection. Check the settings and try again."
     },
     "abort": {
       "already_configured": "JARVIS is already configured.",

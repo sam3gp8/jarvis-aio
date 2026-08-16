@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.92.0] — setup checks the LLM connection before finishing
+When you enter a cloud API key or a local LLM URL during setup, JARVIS makes a
+quick test call before creating the integration. If the endpoint cannot be
+reached or the key is rejected, setup shows the reason and lets you fix it,
+instead of installing and failing only once you try to use it.
+
 ## [6.91.0] — onboarding steps jump to the right setting
 Each step in the welcome checklist now has a jump button that opens the Settings
 tab, scrolls to the exact card it refers to — alert destination, cameras,

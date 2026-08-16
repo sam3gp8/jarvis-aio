@@ -497,3 +497,40 @@ def create_tier_provider(
         model=model,
         base_url=base_url,
     )
+
+
+def _classify_conn_error(exc) -> str:
+    """Map a provider/client exception to a config-flow error key."""
+    msg = str(exc).lower()
+    if any(t in msg for t in ("auth", "api key", "api_key", "401", "403",
+                              "unauthorized", "invalid key", "permission")):
+        return "invalid_auth"
+    if any(t in msg for t in ("connect", "timeout", "timed out", "refused",
+                              "resolve", "unreachable", "getaddrinfo",
+                              "name or service", "connection", "network")):
+        return "cannot_connect"
+    return "unknown"
+
+
+async def test_connection(hass, provider, api_key, model, base_url):
+    """Verify the LLM is reachable and the credentials work with a tiny chat
+    call, so setup can fail fast on a bad URL or key instead of installing into
+    a broken state. Returns None on success, else a config-flow error key
+    ('cannot_connect' | 'invalid_auth' | 'unknown'). Runs the blocking client in
+    the executor; never raises.
+    """
+    try:
+        client = create_provider(provider, api_key, model, base_url or None)
+    except Exception as exc:
+        return _classify_conn_error(exc)
+    if client is None:
+        return "cannot_connect"
+
+    def _ping():
+        return client.chat([{"role": "user", "content": "ping"}],
+                           tools=None, max_tokens=5)
+    try:
+        await hass.async_add_executor_job(_ping)
+        return None
+    except Exception as exc:
+        return _classify_conn_error(exc)

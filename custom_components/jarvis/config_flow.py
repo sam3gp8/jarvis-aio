@@ -101,20 +101,30 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
             if api_key or base_url:
                 # No cloud key + a local URL ⇒ run a local model (Ollama).
                 provider = "groq" if api_key else "ollama"
-                await self.async_set_unique_id(DOMAIN)
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title="JARVIS",
-                    data={
-                        CONF_API_KEY: api_key,
-                        CONF_MODEL: user_input.get(CONF_MODEL, DEFAULT_MODEL),
-                        CONF_HONORIFIC: user_input.get(CONF_HONORIFIC, DEFAULT_HONORIFIC),
-                        "llm_provider": provider,
-                        "llm_base_url": base_url,
-                        "schema_version": 7,
-                    },
-                )
-            errors["base"] = "need_llm"
+                model = user_input.get(CONF_MODEL, DEFAULT_MODEL)
+                # Validate the endpoint before committing, so a wrong URL or key
+                # fails here instead of installing into a broken state.
+                from .llm_provider import test_connection
+                conn_err = await test_connection(
+                    self.hass, provider, api_key, model, base_url or None)
+                if conn_err:
+                    errors["base"] = conn_err
+                else:
+                    await self.async_set_unique_id(DOMAIN)
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title="JARVIS",
+                        data={
+                            CONF_API_KEY: api_key,
+                            CONF_MODEL: model,
+                            CONF_HONORIFIC: user_input.get(CONF_HONORIFIC, DEFAULT_HONORIFIC),
+                            "llm_provider": provider,
+                            "llm_base_url": base_url,
+                            "schema_version": 7,
+                        },
+                    )
+            else:
+                errors["base"] = "need_llm"
 
         return self.async_show_form(
             step_id="user",
