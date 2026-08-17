@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.102.0] — the roof follows your home type
+The 3D residence now wears a roof shaped by the home style — gable, hip, or flat
+— sized to your floor plan's footprint, with dormers by count. A Cape Cod keeps
+its half-story with the upstairs tucked under the roof, a two-story wears the roof
+on top, and modern and apartment styles get a flat roof.
+
 ## [6.101.1] — the 3D house updates the moment you save the floor plan
 Saving (or importing and saving) the floor plan now refreshes the 3D residence
 right away instead of waiting for the next background sync, so your layout shows
