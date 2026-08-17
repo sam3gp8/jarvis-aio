@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.101.0] — the 3D house is built from your floor plan
+The 3D residence model is now generated from the rooms in the floor plan editor
+instead of a fixed built-in layout. Each room's real dimensions size and place it
+in the 3D view, and the footprint and exterior walls follow your rooms — so
+editing the floor plan changes the house.
+
 ## [6.100.0] — export and import your floor plan
 The floor plan editor can now export the current layout to a file and import a
 layout back in. Use Export to keep a backup before making changes, and Import to

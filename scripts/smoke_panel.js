@@ -319,7 +319,7 @@ setTimeout(async () => {
     ["residence tab renders iso scene", !!r.querySelector("#house3d-scene")],
     ["2D isometric SVG rendered", !!r.querySelector("#res-iso svg")],
     ["solid house drawn (svg polygons)", r.querySelectorAll("#res-iso svg polygon").length >= 15],
-    ["garage renders 3 doors", r.querySelectorAll("#res-iso svg polygon.gdoor").length === 3],
+    ["3D house is data-driven from editor rooms (feet)", (() => { const p = el._house3dPlan(); return !!(p && p["1f"] && p["1f"].length && p["1f"].some(rm => rm.w > 0 && rm.d > 0 && rm.name)); })()],
     ["occupied stat wired (n / total)", /\d+\s*\/\s*\d+/.test((r.getElementById("res-occ") || {}).textContent || "")],
     ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
     ["property banner reflects HA home location (not a hardcoded personal default)", !!r.querySelector(".res-banner") && /Springfield IL/.test(r.querySelector("#res-addr")?.textContent || "")],
