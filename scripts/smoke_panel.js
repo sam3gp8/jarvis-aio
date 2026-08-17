@@ -73,6 +73,7 @@ let _intrCalledOff = false;
 let _intrAck = false;
 const _intrSnap = { url: "/local/jarvis/intrusion/intrusion_dining_room_1730000000.jpg", camera: "camera.dining_room", ts: 1730000000, path: "/config/www/jarvis/intrusion/x.jpg" };
 const hass = {
+  config: { location_name: "Springfield IL", latitude: 39.78, longitude: -89.65 },
   states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
   callWS: async (m) => {
     if (m.type === "jarvis/get_panel_data") return PANEL;
@@ -321,7 +322,7 @@ setTimeout(async () => {
     ["garage renders 3 doors", r.querySelectorAll("#res-iso svg polygon.gdoor").length === 3],
     ["occupied stat wired (n / total)", /\d+\s*\/\s*\d+/.test((r.getElementById("res-occ") || {}).textContent || "")],
     ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
-    ["property banner reflects configured address (no hardcoded personal default)", !!r.querySelector(".res-banner") && /123 Example St/.test(r.querySelector("#res-addr")?.textContent || "")],
+    ["property banner reflects HA home location (not a hardcoded personal default)", !!r.querySelector(".res-banner") && /Springfield IL/.test(r.querySelector("#res-addr")?.textContent || "")],
     ["banner stats populated (sqft + bed/bath)", /\d/.test(r.querySelector("#res-sqft")?.textContent || "") && /\d/.test(r.querySelector("#res-bb")?.textContent || "")],
     ["sqft estimate sane (<= 5000)", (() => { const m = (r.querySelector("#res-sqft")?.textContent || "").replace(/[^\d]/g, ""); return m && Number(m) <= 5000; })()],
     ["style tag reflects template", /CAPE COD/.test(r.querySelector("#res-style-tag")?.textContent || "")],

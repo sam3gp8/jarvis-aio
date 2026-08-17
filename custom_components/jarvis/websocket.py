@@ -734,7 +734,6 @@ async def ws_get_panel_data(
                 "floor_plan_rooms": _get_runtime_json(hass, entry, "floor_plan_rooms", {}),
                 "floor_plan_bg": _get_runtime_json(hass, entry, "floor_plan_bg", {}),
                 "door_mapping": _get_runtime_json(hass, entry, "door_mapping", {}),
-                "floor_plan_address": _get_runtime_str(hass, entry, "floor_plan_address", ""),
                 # AI model selection (provider + model per role) — for the
                 # Settings "AI Models" section's live-fetched dropdowns.
                 "llm_provider":        str(_runtime_opt(hass, entry, "llm_provider", "groq") or "groq"),
@@ -1253,7 +1252,6 @@ PANEL_WRITABLE_KEYS = {
     "announcement_speakers",     # JSON list of cast entity IDs for announcements
     "floor_plan_rooms",          # JSON: floor plan room positions per floor
     "floor_plan_bg",             # JSON: base64 background images per floor
-    "floor_plan_address",        # string: address for OSM map overlay
     # Residence model (the 3D house on the Residence tab)
     "residence_style",           # str: home style template (cape_cod, ranch, …)
     "floor_plan_sqft",           # str/int: estimated square footage

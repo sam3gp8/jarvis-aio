@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.99.1] — floor plan editor fixes; address comes from Home Assistant
+Fixes the floor plan editor: adding a room now updates the canvas right away,
+switching floors works every time instead of only once, and the controls stay
+responsive after each change. The editor's separate address field and map
+overlay have been removed — JARVIS now uses the home location already configured
+in Home Assistant.
+
 ## [6.99.0] — real per-room dimensions in the floor plan editor
 The floor plan editor now works in real dimensions. Each room shows its size on
 the canvas, and selecting a room lets you set its exact width and length by
