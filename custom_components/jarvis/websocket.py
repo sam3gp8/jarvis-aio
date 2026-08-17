@@ -785,6 +785,7 @@ async def ws_get_panel_data(
                 # these save fine but reset on re-render unless surfaced here.
                 "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
                 "floor_plan_sqft":      _runtime_opt(hass, entry, "floor_plan_sqft", ""),
+                "floor_plan_units":     str(_runtime_opt(hass, entry, "floor_plan_units", "imperial") or "imperial"),
                 "home_stories":         _runtime_opt(hass, entry, "home_stories", "1.5"),
                 "has_basement":         _runtime_opt(hass, entry, "has_basement", True),
                 "dormers_front":        _runtime_opt(hass, entry, "dormers_front", 2),
@@ -1256,6 +1257,7 @@ PANEL_WRITABLE_KEYS = {
     # Residence model (the 3D house on the Residence tab)
     "residence_style",           # str: home style template (cape_cod, ranch, …)
     "floor_plan_sqft",           # str/int: estimated square footage
+    "floor_plan_units",          # "imperial" | "metric" for room dimensions
     "home_stories",              # str: number of stories (controls floor tabs)
     "has_basement",              # bool: whether to show the basement floor
     "dormers_front",             # int: front dormer count override

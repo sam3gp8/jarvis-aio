@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.99.0] — real per-room dimensions in the floor plan editor
+The floor plan editor now works in real dimensions. Each room shows its size on
+the canvas, and selecting a room lets you set its exact width and length by
+typing them. A units control switches the editor between imperial (feet) and
+metric (metres).
+
 ## [6.98.0] — briefings work with reasoning models
 Some local models — including gemma4, qwen3, and deepseek-r1 — are reasoning
 models: they think in a separate channel and only produce their answer once the

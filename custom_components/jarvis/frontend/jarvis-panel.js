@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v6.98.0 (session 2 · audio routing fix, areas with icons+codes)
+ * v6.99.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -512,7 +512,7 @@ class JarvisPanel extends HTMLElement {
     this._knowledge = { facts: [], stats: {} }; // curated memory tab state
     this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
-    this._logSearch = "";          // log text search (v6.98.0)
+    this._logSearch = "";          // log text search (v6.99.0)
     this._lastLogSearch = null;
     this._activitySearch = "";     // dashboard activity feed search (v6.43.x)
     this._currentFloor = "all";     // floor plan tab — 3D default shows all
@@ -538,20 +538,20 @@ class JarvisPanel extends HTMLElement {
     this._camStillTimer = null;
     this._camSubs = [];
     this._lastCamKey = "";         // entity|token of the attached stream
-    this._camMode = "stream";      // stream → still → jarvis (v6.98.0 fallback chain)
+    this._camMode = "stream";      // stream → still → jarvis (v6.99.0 fallback chain)
     this._camModeByEntity = {};    // remembered resolved mode, skips re-escalation
     this._camWatchdog = null;      // no-frame watchdog: hangs don't fire error events
     this._camWsTimer = null;       // WS-snapshot poll for cams both proxies fail on
-    // Real-time entity subscriptions (v6.98.0) — a native state_changed feed
+    // Real-time entity subscriptions (v6.99.0) — a native state_changed feed
     // that triggers a fast, throttled refresh instead of waiting on the poll.
     this._stateSubs = [];
     this._lastRealtimeFetch = 0;
     this._realtimeTrailing = null;
-    // Sparklines (v6.98.0) — slow-polled separately from live data since
+    // Sparklines (v6.99.0) — slow-polled separately from live data since
     // recorder history queries are heavier than the rest of the payload.
     this._sparklines = {};
     this._sparklineInterval = null;
-    // Area drill-down (v6.98.0) — id of the area currently expanded, or null.
+    // Area drill-down (v6.99.0) — id of the area currently expanded, or null.
     this._expandedArea = null;
   }
 
@@ -1090,7 +1090,7 @@ class JarvisPanel extends HTMLElement {
       config: live.config || {},
       onboarding: live.onboarding || null,
       doors: live.doors || {},
-      // v6.98.0: goals card. Also fixes suggestions, which _data() never
+      // v6.99.0: goals card. Also fixes suggestions, which _data() never
       // carried through from the raw payload — _renderSuggestions(d) has
       // been reading undefined since it was added.
       suggestions: live.suggestions || [],
@@ -1895,7 +1895,7 @@ class JarvisPanel extends HTMLElement {
   // Live presence -> per-room lit state for the model.
   // States: 'on' (area occupied), 'mmwave' (a presence/mmWave sensor is
   // actively detecting — stronger signal than a bare area flag), 'dom'
-  // (dominant room). mmWave overlays on top of plain occupancy (v6.98.0).
+  // (dominant room). mmWave overlays on top of plain occupancy (v6.99.0).
   _house3dLit() {
     const d = this._data();
     const lit = {};
@@ -1912,7 +1912,7 @@ class JarvisPanel extends HTMLElement {
     return lit;
   }
 
-  // mmWave presence overview (v6.98.0): live per-room sensor state, fetched
+  // mmWave presence overview (v6.99.0): live per-room sensor state, fetched
   // when the residence tab is shown and refreshed on the poll while it's open.
   async _fetchMmwave() {
     if (!this._hass) return;
@@ -1923,7 +1923,7 @@ class JarvisPanel extends HTMLElement {
       this._mmwave = { rooms: [], summary: {}, error: true };
     }
     this._renderMmwave();
-    // Fresh mmWave state feeds the floor-plan glow too (v6.98.0) — rebuild it
+    // Fresh mmWave state feeds the floor-plan glow too (v6.99.0) — rebuild it
     // so a room actively detected lights up on the house, not just the list.
     if (this._currentTab === 'residence') this._build3DHouse();
   }
@@ -2217,6 +2217,21 @@ class JarvisPanel extends HTMLElement {
     scene.addEventListener('touchstart', (e) => down(e), { passive: true });
   }
 
+  // ---- Floor-plan real dimensions (v6.99.0) ----
+  // Editor grid: a 50-unit major gridline = 10 ft, so 0.2 ft per unit. These
+  // real per-room dimensions are the source the 3D structure is built from.
+  _fpUnits() { return (this._data().config?.floor_plan_units === 'metric') ? 'metric' : 'imperial'; }
+  _fpUnitLabel() { return this._fpUnits() === 'metric' ? 'm' : 'ft'; }
+  _fpToReal(u) {
+    const ft = (u || 0) * 0.2;
+    return this._fpUnits() === 'metric' ? Math.round(ft * 0.3048 * 10) / 10 : Math.round(ft * 10) / 10;
+  }
+  _fpFromReal(v) {
+    const ft = this._fpUnits() === 'metric' ? (v / 0.3048) : v;
+    return Math.max(8, Math.round(ft / 0.2));
+  }
+  _fpDim(u) { return this._fpToReal(u) + (this._fpUnits() === 'metric' ? 'm' : "'"); }
+
   _renderFloorPlanEditor(d) {
     const plan = this._getEditingPlan();
     const floor = this._editorFloor || '1f';
@@ -2235,6 +2250,7 @@ class JarvisPanel extends HTMLElement {
     html += '<div style="display:flex;gap:6px;align-items:center;">';
     html += '<label class="ctrl" style="padding:5px 10px;font-size:9px;cursor:pointer;">Import BG <input type="file" accept="image/*" class="fp-import-img" style="display:none"/></label>';
     html += '<button class="ctrl" id="fp-add-room" style="padding:5px 10px;font-size:9px;">+ Add Room</button>';
+    html += '<button class="ctrl" id="fp-units" style="padding:5px 10px;font-size:9px;">Units: ' + (this._fpUnits() === 'metric' ? 'Metric' : 'Imperial') + '</button>';
     html += '</div>';
     html += '</div>';
 
@@ -2323,6 +2339,7 @@ class JarvisPanel extends HTMLElement {
       svg += '<g class="fp-drag-room" data-idx="' + i + '" style="cursor:move">';
       svg += '<rect x="' + rm.x + '" y="' + rm.y + '" width="' + rm.w + '" height="' + rm.h + '" rx="2" fill="rgba(0,242,254,0.06)" stroke="' + c + '" stroke-width="1" class="fp-drag-rect"/>';
       svg += '<text x="' + (rm.x + rm.w/2) + '" y="' + (rm.y + rm.h/2 + 2) + '" text-anchor="middle" fill="' + c + '" font-size="' + fs + '" font-family="Orbitron, monospace" letter-spacing="0.3" pointer-events="none">' + rm.name.toUpperCase() + '</text>';
+      if (rm.w > 30 && rm.h > 24) svg += '<text x="' + (rm.x + rm.w/2) + '" y="' + (rm.y + rm.h/2 + fs + 2.5) + '" text-anchor="middle" fill="' + c + '" opacity="0.6" font-size="' + (fs*0.72).toFixed(1) + '" font-family="JetBrains Mono, monospace" pointer-events="none">' + this._fpDim(rm.w) + ' \u00d7 ' + this._fpDim(rm.h) + '</text>';
       svg += '<rect x="' + (rm.x + rm.w - 8) + '" y="' + (rm.y + rm.h - 8) + '" width="8" height="8" fill="' + c + '" opacity="0.3" rx="1" class="fp-resize-handle" data-idx="' + i + '" style="cursor:nwse-resize"/>';
       svg += '</g>';
     }
@@ -2419,7 +2436,7 @@ class JarvisPanel extends HTMLElement {
              <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
            </button>`
         : '';
-      // v6.98.0: temp/humidity readout + sparkline, when the area has a sensor.
+      // v6.99.0: temp/humidity readout + sparkline, when the area has a sensor.
       const spark = this._sparklines?.[a.id] || {};
       const tempSpark = spark.temp ? this._sparklineSvg(spark.temp, 'var(--cyan-dim)') : '';
       const humSpark = spark.humidity ? this._sparklineSvg(spark.humidity, 'var(--green)') : '';
@@ -2621,7 +2638,7 @@ class JarvisPanel extends HTMLElement {
       ${this._renderDoorMapping(d)}
     </div>
 
-    <!-- mmWave presence overview (v6.98.0) -->
+    <!-- mmWave presence overview (v6.99.0) -->
     <div class="res-side panel mmwave-panel">
       <div class="head">
         <span>mmWave Presence</span>
@@ -2794,7 +2811,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- ANTICIPATION & MEMORY (v6.98.0) -->
+      <!-- ANTICIPATION & MEMORY (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Anticipation &amp; Memory</span>
@@ -3004,7 +3021,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- OPERATIONAL MODE (Directive Layer, v6.98.0) -->
+      <!-- OPERATIONAL MODE (Directive Layer, v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Operational Mode</span>
@@ -3014,7 +3031,7 @@ class JarvisPanel extends HTMLElement {
         <div class="mode-grid" id="mode-grid"></div>
       </div>
 
-      <!-- WELLBEING CONTEXT (v6.98.0) -->
+      <!-- WELLBEING CONTEXT (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Wellbeing Context</span>
@@ -3029,7 +3046,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- ENERGY MANAGEMENT (v6.98.0) -->
+      <!-- ENERGY MANAGEMENT (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Energy Management</span>
@@ -3047,7 +3064,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- SYSTEM DIAGNOSTICS (v6.98.0) -->
+      <!-- SYSTEM DIAGNOSTICS (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>System Diagnostics</span>
@@ -3062,7 +3079,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- MULTI-HAZARD MONITOR (v6.98.0) -->
+      <!-- MULTI-HAZARD MONITOR (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Hazard Monitor</span>
@@ -3096,7 +3113,7 @@ class JarvisPanel extends HTMLElement {
         <div class="haz-body" id="haz-body"></div>
       </div>
 
-      <!-- SCHEDULED BRIEFINGS (v6.98.0) -->
+      <!-- SCHEDULED BRIEFINGS (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Briefings</span>
@@ -3130,7 +3147,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- DOCUMENT LIBRARY (v6.98.0) -->
+      <!-- DOCUMENT LIBRARY (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Document Library</span>
@@ -3160,7 +3177,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- JARVIS CHARACTER + RESEARCH (v6.98.0) -->
+      <!-- JARVIS CHARACTER + RESEARCH (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>JARVIS Character &amp; Research</span>
@@ -3189,7 +3206,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- CAMERAS (names + location designation, v6.98.0 — moved from Command Center) -->
+      <!-- CAMERAS (names + location designation, v6.99.0 — moved from Command Center) -->
       <div class="panel">
         <div class="head">
           <span>Cameras</span>
@@ -3207,7 +3224,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- INTRUSION / SECURITY (v6.98.0) -->
+      <!-- INTRUSION / SECURITY (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Intrusion</span>
@@ -3219,7 +3236,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- INTRUSION LOG + TRAINING (v6.98.0) -->
+      <!-- INTRUSION LOG + TRAINING (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Intrusion Log</span>
@@ -3234,7 +3251,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- VOICE CONFIRMATION (v6.98.0) -->
+      <!-- VOICE CONFIRMATION (v6.99.0) -->
       <div class="panel">
         <div class="head">
           <span>Voice Confirmation</span>
@@ -3636,7 +3653,7 @@ class JarvisPanel extends HTMLElement {
         try {
           const res = await this._hass.callWS({ type: "jarvis/suggestion_action", suggestion_id: sid, action });
           if (action === "approve") {
-            // v6.98.0: approval now installs the automation into HA directly.
+            // v6.99.0: approval now installs the automation into HA directly.
             this._toast(res?.installed
               ? `✓ installed — "${res.alias || 'automation'}" is now live in Home Assistant`
               : `✓ approved — advisory only${res?.reason ? ` (${res.reason})` : ''}`, "ok");
@@ -3795,7 +3812,7 @@ class JarvisPanel extends HTMLElement {
       });
     });
 
-    // Voice Confirmation: announce test (v6.98.0)
+    // Voice Confirmation: announce test (v6.99.0)
     const vcTestBtn = this.shadowRoot?.getElementById("vc-test");
     if (vcTestBtn && !vcTestBtn._wired) {
       vcTestBtn._wired = true;
@@ -3820,7 +3837,7 @@ class JarvisPanel extends HTMLElement {
       });
     }
 
-    // Onboarding welcome card: dismiss + settings jump (v6.98.0)
+    // Onboarding welcome card: dismiss + settings jump (v6.99.0)
     const obDismiss = this.shadowRoot?.getElementById("ob-dismiss");
     obDismiss?.addEventListener("click", async () => {
       if (this._liveData?.onboarding) this._liveData.onboarding.show = false;
@@ -3834,7 +3851,7 @@ class JarvisPanel extends HTMLElement {
       this._currentTab = "settings";
       this._render();
     });
-    // Per-step jump: switch to Settings and scroll/flash the relevant card (v6.98.0)
+    // Per-step jump: switch to Settings and scroll/flash the relevant card (v6.99.0)
     this.shadowRoot?.querySelectorAll(".ob-step-go[data-ob-jump]").forEach(btn => {
       btn.addEventListener("click", () => {
         const title = btn.getAttribute("data-ob-jump") || "";
@@ -4130,6 +4147,21 @@ class JarvisPanel extends HTMLElement {
       });
     }
 
+    // Floor plan editor — Units toggle (v6.99.0)
+    const fpUnits = this.shadowRoot.querySelector("#fp-units");
+    if (fpUnits) {
+      fpUnits.addEventListener("click", async () => {
+        const next = this._fpUnits() === 'metric' ? 'imperial' : 'metric';
+        try {
+          await this._hass.callWS({ type: "jarvis/update_config", key: "floor_plan_units", value: next });
+          if (this._liveData && this._liveData.config) this._liveData.config.floor_plan_units = next;
+          const edWrap = this.shadowRoot.querySelector("#fp-editor-wrap");
+          if (edWrap) { edWrap.innerHTML = this._renderFloorPlanEditor(this._data()); this._wireFloorPlanDrag(); }
+          this._toast("Units: " + (next === 'metric' ? 'Metric (m)' : 'Imperial (ft)'), "ok");
+        } catch (err) { this._toast("\u2717 " + err, "err"); }
+      });
+    }
+
     // Floor plan editor — Load Map
     const fpMap = this.shadowRoot.querySelector("#fp-load-map");
     if (fpMap) {
@@ -4234,6 +4266,7 @@ class JarvisPanel extends HTMLElement {
     if (!rooms) return;
 
     let dragging = null;
+    let _infoIdx = -1;
     const infoEl = this.shadowRoot.querySelector("#fp-selected-info");
 
     function svgPoint(e) {
@@ -4244,7 +4277,28 @@ class JarvisPanel extends HTMLElement {
     }
 
     function updateInfo(rm) {
-      if (infoEl) infoEl.textContent = rm.name + '  X:' + rm.x + '  Y:' + rm.y + '  W:' + rm.w + '  H:' + rm.h + '  [' + rm.type + ']';
+      if (!infoEl || !rm) return;
+      const idx = rooms.indexOf(rm), uL = self._fpUnitLabel();
+      const ist = 'width:54px;background:var(--bg);border:1px solid var(--line);color:var(--cyan);border-radius:4px;padding:2px 4px;font-family:var(--font-mono);font-size:11px;';
+      if (idx !== _infoIdx) {
+        _infoIdx = idx;
+        infoEl.innerHTML = '<b>' + rm.name.toUpperCase() + '</b> \u00b7 ' + rm.type + ' \u00b7 '
+          + 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+          + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL;
+        infoEl.querySelectorAll('.fp-dim-in').forEach(inp => {
+          inp.addEventListener('change', () => {
+            const r = rooms[_infoIdx]; if (!r) return;
+            const v = parseFloat(inp.value); if (!(v > 0)) return;
+            if (inp.getAttribute('data-dim') === 'w') r.w = self._fpFromReal(v); else r.h = self._fpFromReal(v);
+            redraw();
+          });
+        });
+      }
+      const wIn = infoEl.querySelector('.fp-dim-in[data-dim="w"]');
+      const hIn = infoEl.querySelector('.fp-dim-in[data-dim="h"]');
+      const act = self.shadowRoot.activeElement;
+      if (wIn && act !== wIn) wIn.value = self._fpToReal(rm.w);
+      if (hIn && act !== hIn) hIn.value = self._fpToReal(rm.h);
     }
 
     function redraw() {
@@ -4380,7 +4434,7 @@ class JarvisPanel extends HTMLElement {
   }
 
   _camName(entity) {
-    // JARVIS-only display name (v6.98.0): camera_names map → picker name →
+    // JARVIS-only display name (v6.99.0): camera_names map → picker name →
     // entity tail. Mirrors server-side camera.display_name.
     const cfg = (this._liveData && this._liveData.config) || {};
     const custom = (cfg.camera_names || {})[entity];
@@ -4421,7 +4475,7 @@ class JarvisPanel extends HTMLElement {
     }
 
     // live MJPEG via HA's camera proxy; only (re)attach when entity, source,
-    // or token changes. src = the frame source (override-aware, v6.98.0).
+    // or token changes. src = the frame source (override-aware, v6.99.0).
     const src = this._camSource(entity);
     const tok = this._camToken(src);
     const key = entity + "|" + src + "|" + (tok || "");
@@ -4434,7 +4488,7 @@ class JarvisPanel extends HTMLElement {
       if (!img) {
         img = document.createElement("img");
         feed.prepend(img);
-        // Escalating fallback chain (v6.98.0): MJPEG stream → proxy stills →
+        // Escalating fallback chain (v6.99.0): MJPEG stream → proxy stills →
         // JARVIS backend snapshot. WebRTC-only Nest cams fail BOTH proxy
         // tiers (no MJPEG; no stills while idle), which used to leave the
         // tile blank in an error loop.
@@ -4442,7 +4496,7 @@ class JarvisPanel extends HTMLElement {
           if (this._camMode === "stream") this._camFallback(entity);
           else if (this._camMode === "still") this._camJarvisFallback(entity);
         });
-        // v6.98.0: a decoded frame proves the tier works only if it isn't
+        // v6.99.0: a decoded frame proves the tier works only if it isn't
         // BLACK — Nest MJPEG happily decodes an all-black stream.
         img.addEventListener("load", () => {
           if (img.naturalWidth > 0 && this._camWatchdog) {
@@ -4461,7 +4515,7 @@ class JarvisPanel extends HTMLElement {
       if (this._camModeByEntity[entity] === "jarvis") {
         this._camJarvisFallback(entity);
       } else {
-        // v6.98.0: no-frame watchdog. Nest WebRTC proxies typically HANG
+        // v6.99.0: no-frame watchdog. Nest WebRTC proxies typically HANG
         // (HTTP 200, zero frames) instead of erroring, so the error-driven
         // chain never fired. No decoded pixels within the window ⇒ escalate.
         this._armCamWatchdog(entity, img, "stream", 6000);
@@ -4504,7 +4558,7 @@ class JarvisPanel extends HTMLElement {
     }).join("");
   }
 
-  // ── Wellbeing Context (v6.98.0) ──
+  // ── Wellbeing Context (v6.99.0) ──
   async _fetchBio() {
     if (!this._hass) return;
     try {
@@ -4563,7 +4617,7 @@ class JarvisPanel extends HTMLElement {
     });
   }
 
-  // ── Energy Management (v6.98.0) ──
+  // ── Energy Management (v6.99.0) ──
   async _fetchEnergy() {
     if (!this._hass) return;
     try {
@@ -4629,8 +4683,8 @@ class JarvisPanel extends HTMLElement {
     });
   }
 
-  // ── Operational Mode (Directive Layer, v6.98.0) ──
-  // ── Intrusion / Security (v6.98.0) ──
+  // ── Operational Mode (Directive Layer, v6.99.0) ──
+  // ── Intrusion / Security (v6.99.0) ──
   async _fetchIntrusion() {
     if (!this._hass) return;
     // pull the configured response timeout so the select reflects the saved value
@@ -4719,7 +4773,7 @@ class JarvisPanel extends HTMLElement {
     });
   }
 
-  // ── Intrusion Log + training (v6.98.0) ──
+  // ── Intrusion Log + training (v6.99.0) ──
   async _wireIntrusionLog() {
     await this._fetchIntrusionLog();
     const btn = this.shadowRoot?.getElementById("ilog-refresh");
@@ -4849,7 +4903,7 @@ class JarvisPanel extends HTMLElement {
     this._fetchMode();
   }
 
-  // ── System Diagnostics — core service health (v6.98.0) ──
+  // ── System Diagnostics — core service health (v6.99.0) ──
   async _fetchDiagnostics() {
     if (!this._hass) return;
     try {
@@ -4899,8 +4953,8 @@ class JarvisPanel extends HTMLElement {
     });
   }
 
-  // ── Multi-Hazard Monitor — v6.98.0 ──
-  // ── Scheduled briefings — v6.98.0 ──
+  // ── Multi-Hazard Monitor — v6.99.0 ──
+  // ── Scheduled briefings — v6.99.0 ──
   _wireBriefings() {
     const btn = this.shadowRoot?.getElementById("brief-now");
     btn?.addEventListener("click", async () => {
@@ -4979,7 +5033,7 @@ class JarvisPanel extends HTMLElement {
     return html;
   }
 
-  // ── Document Library (RAG) — v6.98.0 ──
+  // ── Document Library (RAG) — v6.99.0 ──
   async _fetchDocLibrary() {
     if (!this._hass) return;
     try {
@@ -5155,7 +5209,7 @@ class JarvisPanel extends HTMLElement {
     });
   }
 
-  // ── Optional ChromaDB vector backend — v6.98.0 ──
+  // ── Optional ChromaDB vector backend — v6.99.0 ──
   async _fetchVectorBackend() {
     if (!this._hass) return;
     try {
@@ -5367,7 +5421,7 @@ class JarvisPanel extends HTMLElement {
     this._camWatchdog = setTimeout(() => {
       this._camWatchdog = null;
       if (this._activeCam !== entity || this._camMode !== expectMode) return;
-      // v6.98.0: pixels alone don't prove a working tier — a Nest MJPEG can
+      // v6.99.0: pixels alone don't prove a working tier — a Nest MJPEG can
       // decode a steady BLACK stream (naturalWidth > 0, nothing visible),
       // which defeated the original watchdog. Escalate on no-pixels OR a
       // near-black frame; an unsampleable frame gets the benefit of the doubt.
@@ -5427,7 +5481,7 @@ class JarvisPanel extends HTMLElement {
           hint("NO FRAME — camera idle or unreachable. For Nest: verify the Google Nest integration is loaded and events are enabled.");
         }
       } catch (err) {
-        // v6.98.0: don't swallow this — the most common cause is the WS
+        // v6.99.0: don't swallow this — the most common cause is the WS
         // command not existing because HA wasn't restarted after updating.
         const m = String(err?.message || err?.code || err || "");
         hint(/unknown|not.*found|invalid.*type/i.test(m)
@@ -6416,7 +6470,7 @@ class JarvisPanel extends HTMLElement {
   .h3d-lamp.static { cursor: default; }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
-  /* AREA READINGS + SPARKLINES (v6.98.0) */
+  /* AREA READINGS + SPARKLINES (v6.99.0) */
   .area-readings { display: flex; gap: 10px; flex-wrap: wrap; }
   .area-reading {
     display: inline-flex; align-items: center; gap: 5px;
@@ -6424,7 +6478,7 @@ class JarvisPanel extends HTMLElement {
   }
   .spark { width: 44px; height: 14px; flex-shrink: 0; opacity: 0.85; }
 
-  /* AREA DETAIL DRILL-DOWN (v6.98.0) */
+  /* AREA DETAIL DRILL-DOWN (v6.99.0) */
   .area-detail-overlay {
     position: fixed; inset: 0; z-index: 40;
     background: rgba(2, 6, 10, 0.75);
@@ -6481,7 +6535,7 @@ class JarvisPanel extends HTMLElement {
   .adm-row span:last-child { color: var(--text); }
   .area-light.adl { margin: 0; }
 
-  /* CAMERA DIAGNOSTICS (v6.98.0) */
+  /* CAMERA DIAGNOSTICS (v6.99.0) */
   .cam-diag-btn {
     font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.14em;
     padding: 2px 8px; margin-left: 10px; border-radius: 3px; cursor: pointer;
@@ -7704,7 +7758,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v6.98.0 ",
+  "%c JARVIS Panel %c v6.99.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );
