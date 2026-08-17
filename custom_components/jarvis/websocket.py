@@ -466,9 +466,10 @@ def _get_cameras(hass: HomeAssistant) -> list[dict]:
     names = _get_camera_names()
     try:
         from . import outdoor
-        from .camera import display_name
+        from .camera import display_name, _disabled_cameras
         indoor_list = outdoor._cfg_list("indoor_entities")
         outdoor_list = outdoor._cfg_list("outdoor_entities")
+        disabled = _disabled_cameras()
         for state in hass.states.async_all("camera"):
             friendly = state.attributes.get("friendly_name", state.entity_id)
             cams.append({
@@ -478,6 +479,7 @@ def _get_cameras(hass: HomeAssistant) -> list[dict]:
                 # v6.49.0: location designation for the whole cognitive stack
                 # (intrusion filter, notable-events, motion scan all consult
                 # outdoor.is_outdoor).
+                "enabled": state.entity_id not in disabled,
                 "outdoor": outdoor.is_outdoor(hass, state.entity_id, friendly),
                 "location_mode": outdoor.location_mode(
                     state.entity_id, indoor_list, outdoor_list),
@@ -785,6 +787,7 @@ async def ws_get_panel_data(
                 "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
                 "floor_plan_sqft":      _runtime_opt(hass, entry, "floor_plan_sqft", ""),
                 "floor_plan_units":     str(_runtime_opt(hass, entry, "floor_plan_units", "imperial") or "imperial"),
+                "disabled_cameras":     _get_runtime_json(hass, entry, "disabled_cameras", []),
                 "home_stories":         _runtime_opt(hass, entry, "home_stories", "1.5"),
                 "has_basement":         _runtime_opt(hass, entry, "has_basement", True),
                 "dormers_front":        _runtime_opt(hass, entry, "dormers_front", 2),
@@ -1256,6 +1259,7 @@ PANEL_WRITABLE_KEYS = {
     "residence_style",           # str: home style template (cape_cod, ranch, …)
     "floor_plan_sqft",           # str/int: estimated square footage
     "floor_plan_units",          # "imperial" | "metric" for room dimensions
+    "disabled_cameras",          # JSON list: camera entity_ids JARVIS must not use
     "home_stories",              # str: number of stories (controls floor tabs)
     "has_basement",              # bool: whether to show the basement floor
     "dormers_front",             # int: front dormer count override

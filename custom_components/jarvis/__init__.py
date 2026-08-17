@@ -770,16 +770,16 @@ def _register_services(
         honorific = entry.options.get(CONF_HONORIFIC, entry.data.get(CONF_HONORIFIC, DEFAULT_HONORIFIC))
         limit = int(call.data.get("limit", 40) or 40)
         from . import doorbell_training
-        from .camera import async_analyze_camera, _FakeCall
+        from .camera import async_analyze_camera, _FakeCall, active_cameras, active_camera_states
 
         # Resolve a doorbell camera entity for naming/attribution
         doorbell_entity = None
-        for st in hass.states.async_all("camera"):
+        for st in active_camera_states(hass):
             if any(k in st.entity_id for k in ("doorbell", "front_door")):
                 doorbell_entity = st.entity_id
                 break
         if doorbell_entity is None:
-            cams = [s.entity_id for s in hass.states.async_all("camera")]
+            cams = active_cameras(hass)
             doorbell_entity = cams[0] if cams else "camera.front_doorbell"
 
         async def _analyze_image(image_bytes, label):
@@ -1146,7 +1146,8 @@ def _register_services(
         diag["checks"].append({"check": "automation enabled", "ok": True})
 
         # Check 3: Do we have camera entities?
-        cameras = [s.entity_id for s in hass.states.async_all("camera")]
+        from .camera import active_cameras as _active_cams
+        cameras = _active_cams(hass)
         diag["checks"].append({"check": "cameras found", "ok": len(cameras) > 0, "cameras": cameras[:10]})
 
         # Check 4: Is jarvis.analyze_on_event registered?

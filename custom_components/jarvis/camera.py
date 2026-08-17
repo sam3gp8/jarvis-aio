@@ -206,6 +206,42 @@ async def _reason_about_scene(
 
 # ─── Utility: detect camera integration ──────────────────────────────────────
 
+def _disabled_cameras() -> set:
+    """Entity ids the user has switched OFF in Settings -> Cameras. These are
+    the cameras JARVIS must NOT use (v7.0.0)."""
+    try:
+        from . import jarvis_config
+        val = jarvis_config.get("disabled_cameras")
+        if isinstance(val, str) and val.strip():
+            import json
+            val = json.loads(val)
+        if isinstance(val, (list, tuple)):
+            return {str(x) for x in val}
+    except Exception:
+        pass
+    return set()
+
+
+def active_camera_states(hass) -> list:
+    """Camera states the user has enabled. No disabled entries => every camera;
+    all disabled => none. The single gate for every place JARVIS enumerates
+    cameras (event watch, cognition, package watch)."""
+    try:
+        disabled = _disabled_cameras()
+        return [s for s in hass.states.async_all("camera") if s.entity_id not in disabled]
+    except Exception:
+        return []
+
+
+def active_cameras(hass) -> list:
+    """Entity ids of the cameras the user has enabled."""
+    return [s.entity_id for s in active_camera_states(hass)]
+
+
+def camera_enabled(entity_id) -> bool:
+    return str(entity_id) not in _disabled_cameras()
+
+
 def _camera_integration(hass: HomeAssistant, entity_id: str) -> str:
     """
     Return 'frigate', 'nest', or 'other' based on which integration owns the

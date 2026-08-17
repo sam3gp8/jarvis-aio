@@ -412,6 +412,7 @@ setTimeout(async () => {
   checks.push(
     ["override reroutes stream URL to the twin", /camera_proxy_stream\/camera\.back/.test(ovImg?.src || "")],
     ["override uses the twin's token", /tok456/.test(ovImg?.src || "")],
+        ["camera settings expose enable/disable toggles (choose all/some/none)", (() => { const h = el._renderCameraSettings(el._data()); return /cam-enable-toggle/.test(h) && /id="cam-disable-all"/.test(h) && /cameras in use/.test(h); })()],
     ["strip shows the override mapping", /Front Door → back/.test(el.shadowRoot.getElementById("cam-strip")?.textContent || "")],
   );
   delete el._liveData.config.camera_overrides;

@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.0.0] — choose which cameras JARVIS uses
+You can now pick which cameras JARVIS uses. Under Settings -> Cameras, every
+camera has an on/off toggle, with Enable all and Disable all buttons — so you can
+use all of them, only some, or none. A disabled camera is left out of everything
+JARVIS does with cameras: event watching, doorbell and package detection, and the
+presence scan.
+
 ## [6.102.0] — the roof follows your home type
 The 3D residence now wears a roof shaped by the home style — gable, hip, or flat
 — sized to your floor plan's footprint, with dormers by count. A Cape Cod keeps

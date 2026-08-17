@@ -218,7 +218,8 @@ def watched_cameras(hass, configured=None) -> list[str]:
             return [configured] if hass.states.get(configured) else []
         return [c for c in configured if hass.states.get(c)]
     out = []
-    for st in hass.states.async_all("camera"):
+    from .camera import active_camera_states
+    for st in active_camera_states(hass):
         e = st.entity_id
         if any(k in e for k in ("doorbell", "front_door", "porch", "front")):
             out.append(e)

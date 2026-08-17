@@ -432,7 +432,8 @@ class SafetyManager:
             if self.hass.states.get(cam) is not None:
                 return cam
             # fall back: any camera whose name shares the area word
-            for cst in self.hass.states.async_all("camera"):
+            from .camera import active_camera_states
+            for cst in active_camera_states(self.hass):
                 if slug.split("_")[0] in cst.entity_id:
                     return cst.entity_id
             return cam        # best-effort handle even if not yet resolvable
