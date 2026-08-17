@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.101.1] — the 3D house updates the moment you save the floor plan
+Saving (or importing and saving) the floor plan now refreshes the 3D residence
+right away instead of waiting for the next background sync, so your layout shows
+up in the 3D house immediately.
+
 ## [6.101.0] — the 3D house is built from your floor plan
 The 3D residence model is now generated from the rooms in the floor plan editor
 instead of a fixed built-in layout. Each room's real dimensions size and place it
