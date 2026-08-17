@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [6.100.0] — export and import your floor plan
+The floor plan editor can now export the current layout to a file and import a
+layout back in. Use Export to keep a backup before making changes, and Import to
+restore a saved layout (review it on the canvas, then Save to apply). This makes
+it safe to experiment with the layout and return to a known-good version.
+
 ## [6.99.1] — floor plan editor fixes; address comes from Home Assistant
 Fixes the floor plan editor: adding a room now updates the canvas right away,
 switching floors works every time instead of only once, and the controls stay

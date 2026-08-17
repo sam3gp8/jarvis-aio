@@ -323,6 +323,7 @@ setTimeout(async () => {
     ["occupied stat wired (n / total)", /\d+\s*\/\s*\d+/.test((r.getElementById("res-occ") || {}).textContent || "")],
     ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
     ["property banner reflects HA home location (not a hardcoded personal default)", !!r.querySelector(".res-banner") && /Springfield IL/.test(r.querySelector("#res-addr")?.textContent || "")],
+    ["floor editor exposes export/import + units controls", (() => { const h = el._renderFloorPlanEditor(el._data()); return /id="fp-export"/.test(h) && /class="fp-import-layout"/.test(h) && /id="fp-units"/.test(h); })()],
     ["banner stats populated (sqft + bed/bath)", /\d/.test(r.querySelector("#res-sqft")?.textContent || "") && /\d/.test(r.querySelector("#res-bb")?.textContent || "")],
     ["sqft estimate sane (<= 5000)", (() => { const m = (r.querySelector("#res-sqft")?.textContent || "").replace(/[^\d]/g, ""); return m && Number(m) <= 5000; })()],
     ["style tag reflects template", /CAPE COD/.test(r.querySelector("#res-style-tag")?.textContent || "")],
