@@ -4,6 +4,10 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.6.0] — interior doors in the floor views
+Placed interior doors now render in the per-floor 3D views, on their room's wall,
+and show open or closed based on their mapped sensor.
+
 ## [7.5.0] — place your dormers
 Dormers can now be placed individually. On the 2nd-floor editor, add front or rear
 dormers and slide each one along the roof; the number you add sets how many render.
