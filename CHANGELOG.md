@@ -4,6 +4,10 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.8.2] — interior doors render in the floor view
+Fixes interior doors (like a kitchen door) not appearing in the per-floor 3D view
+when their room was matched — the room name is now compared case-insensitively.
+
 ## [7.8.1] — basement openings + upstairs window placement
 Basement exterior doors and windows now render on the 3D home — as walkout doors
 and grade-level windows — where before they didn't appear. Second-floor windows on
