@@ -4,6 +4,10 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.4.0] — garage doors show open or closed per bay
+Each garage door in the 3D home now reads its own mapped sensor and shows open
+(rolled up) or closed independently, using the per-bay sensor slots.
+
 ## [7.3.2] — bulkhead angle + upstairs window placement
 The bulkhead cellar door now sits at a shallower, more realistic angle and lower
 profile, so it no longer covers nearby windows. Second-floor windows now render
