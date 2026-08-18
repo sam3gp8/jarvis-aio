@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.3.1] — bulkhead cellar door + upstairs windows
+The cellar door now renders as a sloped bulkhead against the wall (Bilco-style)
+instead of a flat panel. Second-floor placed windows now render too — side windows
+on the gable ends and front/back windows on the roof.
+
 ## [7.3.0] — the 3D home shows your placed windows and doors
 The whole-house 3D view now draws the windows, exterior doors, and cellar door you
 placed in the editor, at their positions, and each door shows open or closed based
