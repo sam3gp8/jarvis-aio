@@ -4,6 +4,10 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.2.2] — highlight the opening you're mapping
+When you hover an opening's row or open its sensor dropdown, its marker on the
+floor plan lights up, so it's clear which window or door you're mapping.
+
 ## [7.2.1] — opening refinements
 Placed openings now use a dropdown of your door and window sensors instead of a
 text field. Interior doors are attached to a room and then to a wall of that room.
