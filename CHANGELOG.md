@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.9.0] — routines learn who, even before it's certain
+Observed behaviour is now attributed to the most likely person even when JARVIS
+isn't fully certain, instead of being dropped as "unknown" — so per-person routines
+accumulate and their owner firms up as recognition improves. Certainty still gates
+personalized actions; a genuine coin-flip between people stays unattributed.
+
 ## [7.8.3] — model list loads for Ollama without a base URL set
 The model picker now loads Ollama models using the default local endpoint when the
 LOCAL LLM URL field is blank, instead of failing with "base URL required." Setting

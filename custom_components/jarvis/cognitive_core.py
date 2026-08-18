@@ -2010,16 +2010,26 @@ def _on_state_changed(event: Event) -> None:
             ident = identity.quick_identify(_CORE.hass, area_id)
             person = ident.person
             person_conf = ident.confidence
-            # Probabilistic fallback: if no single person cleared the bar but
-            # one candidate clearly leads, record them WITH the low confidence
-            # rather than throwing the event away as 'unknown'.
+            # Best-guess attribution (v7.9.0): if no single person cleared the
+            # certainty bar, record the LEADING candidate anyway — with a
+            # confidence scaled by how decisively it leads — instead of dropping
+            # the event to 'unknown'. This lets per-person routines accumulate and
+            # their owner firm up as recognition improves (the pattern analyzer
+            # weights occurrences by this confidence). The strict threshold still
+            # gates high-certainty ACTIONS via identity.resolve(), not this
+            # high-volume telemetry. A genuine tie (no clear leader) stays unknown.
             if person == identity.UNKNOWN and ident.candidates:
                 ranked = sorted(ident.candidates.items(),
                                 key=lambda kv: kv[1], reverse=True)
-                if len(ranked) == 1 or (len(ranked) > 1
-                                        and ranked[0][1] > ranked[1][1] * 1.5):
+                top = float(ranked[0][1])
+                second = float(ranked[1][1]) if len(ranked) > 1 else 0.0
+                lead = (top - second) / top if top > 0 else 0.0
+                # Record the leader when it CLEARLY leads (looser than the old
+                # 1.5x gate, so more per-person routines accumulate) — but a genuine
+                # near-tie coin-flip stays 'unknown'; we don't invent attribution.
+                if top > 0 and (len(ranked) == 1 or lead >= 0.2):
                     person = ranked[0][0]
-                    person_conf = min(0.44, float(ranked[0][1]))
+                    person_conf = round(min(0.44, top * (0.4 + 0.6 * lead)), 3)
         except Exception:
             pass
         _CORE.state_logger.log_state_change(

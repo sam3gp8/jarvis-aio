@@ -176,6 +176,27 @@ def test_listener_keeps_unknown_when_candidates_are_tied(cc, core_state, load, m
     assert row[0] == "unknown"
 
 
+def test_listener_records_clear_leader_as_best_guess(cc, core_state, load, monkeypatch):
+    """A clear leader below the certainty bar is recorded as a low-confidence
+    best-guess (v7.9.0) so per-person routines accumulate and firm up."""
+    identity = load("identity")
+    monkeypatch.setattr(identity, "quick_identify",
+                        lambda hass, area=None: identity.Identification(
+                            identity.UNKNOWN, 0.0, "low_confidence",
+                            {"Sam": 0.30, "Eliana": 0.15}))
+
+    ev = _event(cc, "light.den", "off", "on")
+    cc._on_state_changed(ev)
+
+    with sqlite3.connect(core_state.state_logger._db_path) as conn:
+        row = conn.execute(
+            "SELECT person, person_confidence FROM state_changes "
+            "WHERE entity_id='light.den'"
+        ).fetchone()
+    assert row[0] == "Sam"
+    assert 0.0 < row[1] <= 0.44
+
+
 def test_listener_survives_identity_failure(cc, core_state, load, monkeypatch):
     identity = load("identity")
 
