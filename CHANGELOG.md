@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.7.0] — live 3D preview in the floor plan editor
+The floor plan editor now shows a live 3D view of your home above the canvas. It
+updates as you edit — adding or moving rooms, placing windows and doors, and
+positioning dormers — so you can see the model come together without leaving the
+editor.
+
 ## [7.6.0] — interior doors in the floor views
 Placed interior doors now render in the per-floor 3D views, on their room's wall,
 and show open or closed based on their mapped sensor.
