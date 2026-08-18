@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.3.0] — the 3D home shows your placed windows and doors
+The whole-house 3D view now draws the windows, exterior doors, and cellar door you
+placed in the editor, at their positions, and each door shows open or closed based
+on its mapped sensor. Homes without any placed openings keep the automatic
+per-room windows.
+
 ## [7.2.2] — highlight the opening you're mapping
 When you hover an opening's row or open its sensor dropdown, its marker on the
 floor plan lights up, so it's clear which window or door you're mapping.
