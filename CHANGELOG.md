@@ -4,6 +4,9 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.1.2] — gabled dormers
+Dormers on the 3D home now have proper gabled (peaked) roofs instead of a flat top.
+
 ## [7.1.1] — 3D home refinements
 The whole-house 3D view now gives an attached garage its own lower, shallower
 roofline, so a single-story garage reads correctly next to the taller main house.
