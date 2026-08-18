@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.8.1] — basement openings + upstairs window placement
+Basement exterior doors and windows now render on the 3D home — as walkout doors
+and grade-level windows — where before they didn't appear. Second-floor windows on
+the side walls now sit on the actual gable end instead of floating just inside it.
+
 ## [7.8.0] — pick the travel sensor and origin from a list
 The departure "Origin tracker" and "Travel sensor" settings are now dropdowns of
 your available entities — people and device trackers for the origin, and
