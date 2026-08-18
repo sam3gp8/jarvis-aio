@@ -1743,6 +1743,8 @@ async def _fetch_models(hass, provider: str, api_key: str, base_url: str) -> lis
         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     elif provider in ("ollama", "custom"):
         base = (base_url or "").rstrip("/")
+        if not base and provider == "ollama":
+            base = "http://homeassistant.local:11434/v1"   # same default as create_provider
         if not base:
             raise ValueError("base URL required for this provider")
         # Ollama exposes /api/tags; an OpenAI-compatible base exposes /v1/models.

@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.8.3] — model list loads for Ollama without a base URL set
+The model picker now loads Ollama models using the default local endpoint when the
+LOCAL LLM URL field is blank, instead of failing with "base URL required." Setting
+the URL is still recommended — it's what enables embeddings/semantic search.
+
 ## [7.8.2] — interior doors render in the floor view
 Fixes interior doors (like a kitchen door) not appearing in the per-floor 3D view
 when their room was matched — the room name is now compared case-insensitively.
