@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.2.1] — opening refinements
+Placed openings now use a dropdown of your door and window sensors instead of a
+text field. Interior doors are attached to a room and then to a wall of that room.
+A Cellar Door option was added, and each garage door has its own sensor mapping —
+one per bay.
+
 ## [7.2.0] — place windows and doors in the floor plan editor
 The floor plan editor now lets you place openings on each floor — windows,
 exterior doors, and interior doors. For each one, choose which wall it sits on and
