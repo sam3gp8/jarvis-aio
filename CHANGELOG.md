@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.3.2] — bulkhead angle + upstairs window placement
+The bulkhead cellar door now sits at a shallower, more realistic angle and lower
+profile, so it no longer covers nearby windows. Second-floor windows now render
+over the upstairs footprint (the main house) instead of over the garage.
+
 ## [7.3.1] — bulkhead cellar door + upstairs windows
 The cellar door now renders as a sloped bulkhead against the wall (Bilco-style)
 instead of a flat panel. Second-floor placed windows now render too — side windows
