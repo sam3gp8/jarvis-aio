@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.8.0] — pick the travel sensor and origin from a list
+The departure "Origin tracker" and "Travel sensor" settings are now dropdowns of
+your available entities — people and device trackers for the origin, and
+travel-time sensors for the travel sensor — instead of typing an entity id.
+
 ## [7.7.0] — live 3D preview in the floor plan editor
 The floor plan editor now shows a live 3D view of your home above the canvas. It
 updates as you edit — adding or moving rooms, placing windows and doors, and
