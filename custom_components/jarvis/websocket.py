@@ -787,6 +787,7 @@ async def ws_get_panel_data(
                 "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
                 "floor_plan_sqft":      _runtime_opt(hass, entry, "floor_plan_sqft", ""),
                 "floor_plan_units":     str(_runtime_opt(hass, entry, "floor_plan_units", "imperial") or "imperial"),
+                "floor_plan_elements":  _get_runtime_json(hass, entry, "floor_plan_elements", {}),
                 "disabled_cameras":     _get_runtime_json(hass, entry, "disabled_cameras", []),
                 "home_stories":         _runtime_opt(hass, entry, "home_stories", "1.5"),
                 "has_basement":         _runtime_opt(hass, entry, "has_basement", True),
@@ -1259,6 +1260,7 @@ PANEL_WRITABLE_KEYS = {
     "residence_style",           # str: home style template (cape_cod, ranch, …)
     "floor_plan_sqft",           # str/int: estimated square footage
     "floor_plan_units",          # "imperial" | "metric" for room dimensions
+    "floor_plan_elements",       # JSON: placed windows/doors per floor (+ sensor map)
     "disabled_cameras",          # JSON list: camera entity_ids JARVIS must not use
     "home_stories",              # str: number of stories (controls floor tabs)
     "has_basement",              # bool: whether to show the basement floor
