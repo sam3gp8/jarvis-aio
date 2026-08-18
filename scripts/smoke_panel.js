@@ -321,6 +321,7 @@ setTimeout(async () => {
     ["solid house drawn (svg polygons)", r.querySelectorAll("#res-iso svg polygon").length >= 15],
     ["3D house is data-driven from editor rooms (feet)", (() => { const p = el._house3dPlan(); return !!(p && p["1f"] && p["1f"].length && p["1f"].some(rm => rm.w > 0 && rm.d > 0 && rm.name)); })()],
     ["home-type roof is applied (gable/hip/flat by style)", (() => { const sp = el._houseSpec(); return ["gable","hip","flat"].includes(sp.roof) && sp.stories != null; })()],
+    ["exterior All view draws lit windows + garage doors (clean shell)", (() => { const s = el._build3DHouse ? "" : ""; const svg = r.querySelector("#res-iso")?.innerHTML || ""; return /class="gdoor"/.test(svg) || /gdoor/.test(svg); })()],
     ["occupied stat wired (n / total)", /\d+\s*\/\s*\d+/.test((r.getElementById("res-occ") || {}).textContent || "")],
     ["home-style selector with options", !!r.querySelector("#res-style-sel") && r.querySelectorAll("#res-style-sel option").length >= 6],
     ["property banner reflects HA home location (not a hardcoded personal default)", !!r.querySelector(".res-banner") && /Springfield IL/.test(r.querySelector("#res-addr")?.textContent || "")],

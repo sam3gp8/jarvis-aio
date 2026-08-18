@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.1.0] — the whole-house 3D view is a clean exterior again
+The "All" view of the 3D residence now shows the exterior of the home — walls, a
+home-type roof, dormers, garage doors, a chimney, and windows — with occupancy
+shown as lit windows, instead of a stack of interior room boxes. It is built from
+your floor plan and home style, so it reflects your actual home. Individual floor
+views still show that floor's rooms for editing.
+
 ## [7.0.0] — choose which cameras JARVIS uses
 You can now pick which cameras JARVIS uses. Under Settings -> Cameras, every
 camera has an on/off toggle, with Enable all and Disable all buttons — so you can
