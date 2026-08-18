@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.1.1] — 3D home refinements
+The whole-house 3D view now gives an attached garage its own lower, shallower
+roofline, so a single-story garage reads correctly next to the taller main house.
+Dormers sit properly on the roof instead of recessed and now also appear on the
+back slope, and a cellar door shows on homes that have a basement.
+
 ## [7.1.0] — the whole-house 3D view is a clean exterior again
 The "All" view of the 3D residence now shows the exterior of the home — walls, a
 home-type roof, dormers, garage doors, a chimney, and windows — with occupancy
