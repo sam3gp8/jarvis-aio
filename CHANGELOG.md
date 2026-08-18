@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.5.0] — place your dormers
+Dormers can now be placed individually. On the 2nd-floor editor, add front or rear
+dormers and slide each one along the roof; the number you add sets how many render.
+Homes without placed dormers keep the automatic evenly-spaced dormers from the
+home style.
+
 ## [7.4.0] — garage doors show open or closed per bay
 Each garage door in the 3D home now reads its own mapped sensor and shows open
 (rolled up) or closed independently, using the per-bay sensor slots.
