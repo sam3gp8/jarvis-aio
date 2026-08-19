@@ -4,6 +4,10 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.9.1] — disabled cameras no longer appear in Command Center
+Cameras you've disabled are now hidden from the Command Center — both the live
+camera selector and the "analyze now" dropdown — matching the rest of JARVIS.
+
 ## [7.9.0] — routines learn who, even before it's certain
 Observed behaviour is now attributed to the most likely person even when JARVIS
 isn't fully certain, instead of being dropped as "unknown" — so per-person routines
