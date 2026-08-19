@@ -468,7 +468,7 @@ def create_tier_provider(
         "review":       (DEFAULT_REVIEW_PROVIDER, DEFAULT_REVIEW_MODEL),
         "conversation": (
             config.get("llm_provider", "groq"),
-            config.get(CONF_MODEL, "llama-3.3-70b-versatile"),
+            config.get(CONF_MODEL, "openai/gpt-oss-120b"),
         ),
     }
 

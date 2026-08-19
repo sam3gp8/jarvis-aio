@@ -283,7 +283,7 @@ async def _trigger_briefing(
                 create_provider,
                 config.get("llm_provider", "groq"),
                 config.get("api_key", ""),
-                config.get("model", "llama-3.3-70b-versatile"),
+                config.get("model", "openai/gpt-oss-120b"),
                 config.get("llm_base_url"),
             )
 

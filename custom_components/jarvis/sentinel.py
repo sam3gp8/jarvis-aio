@@ -25,7 +25,7 @@ from .tts_helper import resolve_tts_entity, async_announce
 
 _LOGGER = logging.getLogger(__name__)
 
-SENTINEL_MODEL = "llama-3.3-70b-versatile"
+SENTINEL_MODEL = "openai/gpt-oss-120b"
 
 DEFAULT_RULES = [
     {

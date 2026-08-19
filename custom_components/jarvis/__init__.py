@@ -93,7 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _eff = await hass.async_add_executor_job(_jc.effective_config, entry)
     api_key           = _eff.get(CONF_API_KEY, "") or entry.data.get(CONF_API_KEY, "")
     llm_provider_name = _eff.get("llm_provider", "groq")
-    llm_model         = _eff.get("model", "llama-3.3-70b-versatile")
+    llm_model         = _eff.get("model", "openai/gpt-oss-120b")
     llm_base_url      = _eff.get("llm_base_url", "") or None
 
     try:

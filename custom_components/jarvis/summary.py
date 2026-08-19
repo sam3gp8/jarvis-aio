@@ -12,7 +12,7 @@ from .tts_helper import async_announce
 
 _LOGGER = logging.getLogger(__name__)
 
-SUMMARY_MODEL = "llama-3.3-70b-versatile"
+SUMMARY_MODEL = "openai/gpt-oss-120b"
 
 
 async def async_summarise(

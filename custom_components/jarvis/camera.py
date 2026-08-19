@@ -43,7 +43,7 @@ except ImportError:
 
 _LOGGER = logging.getLogger(__name__)
 
-VISION_MODEL = "llama-3.2-11b-vision-preview"
+VISION_MODEL = "qwen/qwen3.6-27b"
 
 # Minimum JPEG size — anything smaller is almost certainly a black/broken frame
 MIN_IMAGE_SIZE = 2_000  # ~2 KB
@@ -977,7 +977,7 @@ async def async_analyze_camera(
     # ── Camera-reasoning step: interpret the scene ────────────────────────────
     det_type = _guess_detection_type(prompt, analysis)
     rsn_provider = _cfg_opt(hass, "camera_reasoning_provider", "groq") or "groq"
-    rsn_model = _cfg_opt(hass, "camera_reasoning_model", "llama-3.3-70b-versatile") or "llama-3.3-70b-versatile"
+    rsn_model = _cfg_opt(hass, "camera_reasoning_model", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
     rsn_client = _make_client(hass, rsn_provider, rsn_model, groq_client)
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,

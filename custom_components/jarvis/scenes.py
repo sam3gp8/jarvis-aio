@@ -16,7 +16,7 @@ from .tts_helper import async_announce
 
 _LOGGER = logging.getLogger(__name__)
 
-SCENE_MODEL = "llama-3.3-70b-versatile"
+SCENE_MODEL = "openai/gpt-oss-120b"
 
 
 def _list_scenes(hass: HomeAssistant) -> list[dict]:

@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.9.2] — current Groq models + self-healing model selection
+Groq retired the models JARVIS shipped as defaults, so a fresh Groq setup failed to
+validate and camera vision returned errors. Two changes fix it: the defaults now use
+Groq's current lineup (openai/gpt-oss-120b for the agent, reasoning, and briefings;
+the multimodal qwen/qwen3.6-27b for camera vision), and — so this doesn't recur as
+providers rotate models — each model setting now checks the provider's live model
+list and switches to an available model if the saved one is gone (keeping vision on
+a multimodal model). Setups with a valid selected model are unaffected.
+
 ## [7.9.1] — disabled cameras no longer appear in Command Center
 Cameras you've disabled are now hidden from the Command Center — both the live
 camera selector and the "analyze now" dropdown — matching the rest of JARVIS.

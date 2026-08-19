@@ -58,11 +58,11 @@ DEFAULT_OBSERVER_QUIET_END    = "07:00"
 # and reasoning. This eliminates Gemini API cost for observer entirely.
 # Groq's free tier handles typical home event volumes.
 DEFAULT_CLASSIFIER_PROVIDER   = "groq"
-DEFAULT_CLASSIFIER_MODEL      = "llama-3.3-70b-versatile"
+DEFAULT_CLASSIFIER_MODEL      = "openai/gpt-oss-120b"
 DEFAULT_REASONING_PROVIDER    = "groq"
-DEFAULT_REASONING_MODEL       = "llama-3.3-70b-versatile"
+DEFAULT_REASONING_MODEL       = "openai/gpt-oss-120b"
 DEFAULT_REVIEW_PROVIDER       = "groq"
-DEFAULT_REVIEW_MODEL          = "llama-3.3-70b-versatile"
+DEFAULT_REVIEW_MODEL          = "openai/gpt-oss-120b"
 
 # Urgency levels
 URGENCY_LOW      = "low"
@@ -89,7 +89,7 @@ URGENCY_CEILINGS = {
     "motion":        URGENCY_LOW,
 }
 
-DEFAULT_MODEL              = "llama-3.3-70b-versatile"
+DEFAULT_MODEL              = "openai/gpt-oss-120b"
 DEFAULT_HONORIFIC          = "sir"
 DEFAULT_TTS_ENGINE         = "auto"
 DEFAULT_TTS_PREMIUM_ENGINE = ""
@@ -102,10 +102,9 @@ ALL_SPEAKERS_VALUE = "__all__"
 HONORIFIC_OPTIONS = ["sir", "ma'am", "boss", "friend"]
 
 MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
 ]
 
 ALL_TTS_CONTEXTS = [

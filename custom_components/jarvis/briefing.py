@@ -27,7 +27,7 @@ from .tts_helper import async_announce
 
 _LOGGER = logging.getLogger(__name__)
 
-BRIEFING_MODEL = "llama-3.3-70b-versatile"
+BRIEFING_MODEL = "openai/gpt-oss-120b"
 
 
 def _time_greeting() -> str:
