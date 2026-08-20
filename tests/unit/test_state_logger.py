@@ -212,3 +212,24 @@ def test_listener_survives_identity_failure(cc, core_state, load, monkeypatch):
             "SELECT person FROM state_changes WHERE entity_id='light.den'"
         ).fetchone()
     assert row is not None and row[0] == "unknown"
+
+
+def test_log_state_change_skips_noisy_domain_by_default(core_state):
+    """binary_sensor/device_tracker are excluded from pattern learning by default."""
+    core_state.state_logger.log_state_change("binary_sensor.garage_door_1", "off", "on")
+    with sqlite3.connect(core_state.state_logger._db_path) as conn:
+        rows = conn.execute(
+            "SELECT 1 FROM state_changes WHERE entity_id='binary_sensor.garage_door_1'"
+        ).fetchall()
+    assert rows == []
+
+
+def test_log_state_change_force_include_records_noisy_domain(core_state):
+    """force_include (the user opt-in) records a normally-skipped entity (v7.11.0)."""
+    core_state.state_logger.log_state_change(
+        "binary_sensor.garage_door_1", "off", "on", force_include=True)
+    with sqlite3.connect(core_state.state_logger._db_path) as conn:
+        rows = conn.execute(
+            "SELECT 1 FROM state_changes WHERE entity_id='binary_sensor.garage_door_1'"
+        ).fetchall()
+    assert len(rows) == 1

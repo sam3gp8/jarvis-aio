@@ -1850,18 +1850,20 @@ class StateLogger:
                           new_state: str, area_id: str = "",
                           triggered_by: str = "system",
                           person: str = "unknown",
-                          person_confidence: float = 0.0):
+                          person_confidence: float = 0.0,
+                          force_include: bool = False):
         """Record a state change for pattern analysis."""
         import sqlite3
-        # Skip noisy domains
         domain = entity_id.split(".")[0]
-        if domain in ("sensor", "binary_sensor", "weather", "sun",
-                       "update", "device_tracker"):
-            return  # Too noisy for pattern learning
-
         if domain in ("automation", "script", "scene", "input_boolean",
                        "input_number"):
             return  # Meta entities, not useful for patterns
+
+        # Noisy domains are skipped for pattern learning UNLESS the user opted
+        # this entity/group in (e.g. garage door contacts, presence) — v7.11.0.
+        if not force_include and domain in ("sensor", "binary_sensor", "weather",
+                                            "sun", "update", "device_tracker"):
+            return  # Too noisy for pattern learning
 
         now = datetime.now()
         try:
@@ -1957,6 +1959,28 @@ _CORE = _CoreState()
 # ── State Change Listener ──────────────────────────────────────────────────
 
 @callback
+def _pattern_opted_in(entity_id: str, device_class: str = "") -> bool:
+    """Whether a normally-excluded entity (door/window, presence) should still be
+    learned for routines — via a per-entity opt-in or a domain group toggle
+    (v7.11.0). Default is off; noisy domains stay filtered unless chosen."""
+    try:
+        from . import jarvis_config
+    except Exception:
+        return False
+    try:
+        incl = jarvis_config.get("pattern_include_entities", []) or []
+        if entity_id in incl:
+            return True
+        domain = entity_id.split(".")[0]
+        if domain == "binary_sensor" and jarvis_config.get("pattern_learn_doors", False):
+            return device_class in ("door", "window", "garage_door", "opening")
+        if domain in ("device_tracker", "person") and jarvis_config.get("pattern_learn_presence", False):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _on_state_changed(event: Event) -> None:
     """Log state changes and check ignore rules."""
     if not _CORE.running:
@@ -2032,9 +2056,16 @@ def _on_state_changed(event: Event) -> None:
                     person_conf = round(min(0.44, top * (0.4 + 0.6 * lead)), 3)
         except Exception:
             pass
+        _fi = False
+        try:
+            _dc = (new_state.attributes.get("device_class") or "") if new_state else ""
+            _fi = _pattern_opted_in(entity_id, _dc)
+        except Exception:
+            _fi = False
         _CORE.state_logger.log_state_change(
             entity_id, old_val, new_val, area_id, person=person,
             person_confidence=person_conf,
+            force_include=_fi,
         )
 
 

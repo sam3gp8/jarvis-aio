@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.11.0] — opt in doors, windows and presence to routine learning
+Routine learning still skips noisy door/window and presence signals by default, but
+you can now opt them in — a new Routine Learning card in Settings has toggles for
+learning door/window activity and presence/arrivals, plus a picker to add specific
+entities (like a garage-bay occupancy sensor) as routine triggers. This lets JARVIS
+build routines such as closing a garage door once a car is parked in its bay.
+
 ## [7.10.0] — state backup/restore + a routines guardrail
 Two additions. JARVIS can now back up and restore its own state — memory, patterns,
 knowledge, and config — via the jarvis.backup and jarvis.restore services, so a

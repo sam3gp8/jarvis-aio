@@ -696,6 +696,9 @@ async def ws_get_panel_data(
                 "announcements_enabled": announcements_on,
                 "sentinel_enabled": sentinel_on,
                 "observer_enabled": observer_enabled_cfg,
+                "pattern_learn_doors":     bool(_runtime_opt(hass, entry, "pattern_learn_doors", False)),
+                "pattern_learn_presence":  bool(_runtime_opt(hass, entry, "pattern_learn_presence", False)),
+                "pattern_include_entities": _get_runtime_json(hass, entry, "pattern_include_entities", []),
                 "cognition_enabled": bool(_runtime_opt(hass, entry, "cognition_enabled", True)),
                 "camera_auto_analyze": bool(_runtime_opt(hass, entry, "camera_auto_analyze", True)),
                 "camera_auto_analyze_motion": bool(_runtime_opt(hass, entry, "camera_auto_analyze_motion", False)),
@@ -1240,6 +1243,9 @@ PANEL_WRITABLE_KEYS = {
     "announcements_enabled",
     "sentinel_enabled",
     "observer_enabled",
+    "pattern_learn_doors",         # learn door/window activity for routines
+    "pattern_learn_presence",      # learn presence/arrivals for routines
+    "pattern_include_entities",    # JSON list: specific entities to always learn
     "notify_service",
     "departure_alerts_enabled",
     "routine_alerts_enabled",
