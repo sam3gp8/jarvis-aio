@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.10.0] — state backup/restore + a routines guardrail
+Two additions. JARVIS can now back up and restore its own state — memory, patterns,
+knowledge, and config — via the jarvis.backup and jarvis.restore services, so a
+device re-flash or migration doesn't lose it (back up, download the file, re-flash,
+restore, restart). And the diagnostics self-test now flags when the identity
+confidence bar is set so high that per-person routines can't attribute, with a
+suggested range.
+
 ## [7.9.2] — current Groq models + self-healing model selection
 Groq retired the models JARVIS shipped as defaults, so a fresh Groq setup failed to
 validate and camera vision returned errors. Two changes fix it: the defaults now use

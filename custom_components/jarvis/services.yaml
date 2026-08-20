@@ -573,3 +573,19 @@ forget:
       required: false
       selector:
         text:
+
+backup:
+  name: Back up JARVIS state
+  description: "Archive JARVIS's memory, patterns, knowledge and config into /config/jarvis_backups so a device re-flash or migration doesn't lose them. Download the resulting file before re-flashing."
+
+restore:
+  name: Restore JARVIS state
+  description: "Restore JARVIS's memory, patterns, knowledge and config from a backup archive. Uses the most recent backup unless one is named. Restart Home Assistant afterwards."
+  fields:
+    archive:
+      name: Archive file
+      description: "Optional. Filename (in /config/jarvis_backups) or absolute path of the backup to restore. Defaults to the most recent."
+      required: false
+      example: "jarvis-state-20260818-120000.tar.gz"
+      selector:
+        text:

@@ -340,6 +340,24 @@ def _check_cameras(hass) -> dict:
     return out
 
 
+def _check_routines(hass) -> dict:
+    """Config sanity: a very high identity-confidence bar starves per-person
+    routine attribution (few observations ever clear it), so surface it here."""
+    out = {"name": "Routines", "key": "routines", "status": _OK, "detail": ""}
+    try:
+        conf = float(_cfg("identity_min_confidence", 0.45))
+        if conf >= 0.85:
+            out["status"] = _WARN
+            out["detail"] = (f"identity confidence {conf:.2f} is very high \u2014 per-person "
+                             "routines rarely attribute; lower to ~0.5\u20130.6")
+        else:
+            out["detail"] = f"identity confidence {conf:.2f} \u2014 attribution active"
+    except Exception as exc:
+        out["status"] = _IDLE
+        out["detail"] = str(exc)[:80]
+    return out
+
+
 async def run_service_health(hass) -> dict:
     """Run all core dependency checks. Returns
     {overall, services: [...], summary}. Never raises."""
@@ -350,6 +368,7 @@ async def run_service_health(hass) -> dict:
         ("TTS", "tts", _check_tts, False),
         ("STT", "stt", _check_stt, False),
         ("Cameras", "cameras", _check_cameras, False),
+        ("Routines", "routines", _check_routines, False),
     ):
         try:
             services.append(await fn(hass) if is_async else fn(hass))

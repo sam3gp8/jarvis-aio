@@ -840,6 +840,35 @@ def _register_services(
         spk = _get_speakers(hass, entry)
         await async_briefing(hass, call, groq_client, honorific, tts, spk)
 
+    async def _jarvis_backup(call):
+        from .backup import create_backup
+        path = await hass.async_add_executor_job(create_backup, hass.config.path())
+        _LOGGER.info("JARVIS state backed up to %s", path)
+        await hass.services.async_call("persistent_notification", "create", {
+            "title": "JARVIS backup",
+            "message": (f"JARVIS state saved to:\n`{path}`\n\nDownload this file before "
+                        "re-flashing so memory, patterns and knowledge survive a wipe."),
+            "notification_id": "jarvis_backup",
+        }, blocking=False)
+
+    hass.services.async_register(DOMAIN, "backup", _jarvis_backup)
+
+    async def _jarvis_restore(call):
+        from .backup import restore_backup
+        archive = (call.data or {}).get("archive", "") or ""
+        path = await hass.async_add_executor_job(restore_backup, hass.config.path(), archive)
+        _LOGGER.info("JARVIS state restored from %s", path)
+        await hass.services.async_call("persistent_notification", "create", {
+            "title": "JARVIS restore",
+            "message": (f"JARVIS state restored from:\n`{path}`\n\nRestart Home Assistant "
+                        "to load the restored memory and patterns."),
+            "notification_id": "jarvis_restore",
+        }, blocking=False)
+
+    hass.services.async_register(
+        DOMAIN, "restore", _jarvis_restore,
+        schema=vol.Schema({vol.Optional("archive"): str}))
+
     hass.services.async_register(
         DOMAIN, "briefing", _briefing,
         schema=vol.Schema({
