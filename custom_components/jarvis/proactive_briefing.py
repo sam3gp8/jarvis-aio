@@ -230,8 +230,8 @@ async def _trigger_briefing(
         extra_context = f"{person_name} just arrived home. This is a welcome briefing."
     elif reason == "security":
         extra_context = (
-            f"Multiple security events detected in a short period. "
-            f"Summarize what happened and any concerns."
+            "Multiple security events detected in a short period. "
+            "Summarize what happened and any concerns."
         )
     elif reason == "scheduled":
         extra_context = "This is a scheduled briefing."

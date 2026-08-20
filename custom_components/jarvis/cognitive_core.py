@@ -1580,7 +1580,7 @@ class ProactiveManager:
                 "action_data": {"domain": "climate", "service": "set_preset_mode",
                                 "entity_ids": [s.entity_id],
                                 "service_data": {"preset_mode": "eco"}},
-                "pattern_key": f"hvac_eco_when_away",
+                "pattern_key": "hvac_eco_when_away",
             }
         return None
 
@@ -2733,11 +2733,11 @@ def _autonomous_done_message(offer: dict) -> str:
     ad = offer.get("action_data", {})
     n = len(ad.get("entity_ids", []))
     if t == "proactive_lights":
-        return f"I turned the lights on for you — it was dark and you were there."
+        return "I turned the lights on for you — it was dark and you were there."
     if t == "proactive_stale_light":
-        return f"I turned off a light left on in an empty room to save energy."
+        return "I turned off a light left on in an empty room to save energy."
     if t == "proactive_hvac":
-        return f"I set the climate back to eco — no one's home."
+        return "I set the climate back to eco — no one's home."
     return f"I handled {n} device(s) for you automatically."
 
 

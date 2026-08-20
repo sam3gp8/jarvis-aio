@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.11.1] — routine-learning entity picker fixes
+The "add specific entities" picker in Routine Learning is now a searchable field
+that fits the panel instead of an oversized dropdown, and entities you add now
+reliably appear in the list. Also includes a small internal cleanup.
+
 ## [7.11.0] — opt in doors, windows and presence to routine learning
 Routine learning still skips noisy door/window and presence signals by default, but
 you can now opt them in — a new Routine Learning card in Settings has toggles for
