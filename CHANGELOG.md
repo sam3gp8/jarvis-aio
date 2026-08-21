@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.16.0] — cased openings (open doorways) in the floor plan
+You can now place a cased opening — a doorway with no door, an open pass-through — in
+the floor-plan editor, alongside interior doors. Like an interior door it attaches to a
+room and a wall, but it has no sensor (it's always open). This models the open sightlines
+and flow between rooms (e.g. a living room open to a dining room), and lays the groundwork
+for the upcoming camera-coverage feature, which needs to know which spaces are visually
+connected.
+
 ## [7.15.0] — Lab & Movie mode room binding + Movie mood
 Lab and Movie can now be scoped to specific rooms from the Operational Mode card.
 Choose which room(s) Lab applies to, so its minimal-interruptions quiet covers just
