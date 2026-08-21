@@ -55,6 +55,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_add_knowledge)
         websocket_api.async_register_command(hass, ws_forget_knowledge)
         websocket_api.async_register_command(hass, ws_root_cause)
+        websocket_api.async_register_command(hass, ws_compute_camera_coverage)
         websocket_api.async_register_command(hass, ws_reload_appliances)
         websocket_api.async_register_command(hass, ws_search_memory)
         websocket_api.async_register_command(hass, ws_get_debug_log)
@@ -1653,6 +1654,33 @@ async def ws_root_cause(
     except Exception as exc:
         _LOGGER.exception("root_cause failed: %s", exc)
         connection.send_error(msg["id"], "root_cause_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/compute_camera_coverage",
+    vol.Required("camera"): dict,
+})
+@websocket_api.async_response
+async def ws_compute_camera_coverage(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Judge one camera's coverage (which rooms it can confirm + a human reason)
+    from the geometric candidates the panel supplies. Uses the reasoning LLM,
+    falling back to a geometry-only summary."""
+    try:
+        from . import camera_coverage, jarvis_config
+        entry = _get_entry(hass)
+        try:
+            config = jarvis_config.effective_config(entry) if entry else {}
+        except Exception:
+            config = {}
+        result = await camera_coverage.infer_coverage(hass, config, msg["camera"])
+        connection.send_result(msg["id"], result)
+    except Exception as exc:
+        _LOGGER.exception("compute_camera_coverage failed: %s", exc)
+        connection.send_error(msg["id"], "coverage_failed", str(exc))
 
 
 @websocket_api.websocket_command({

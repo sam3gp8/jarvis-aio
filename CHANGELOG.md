@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.19.0] — camera coverage: AI judgment + description (camera coverage, Phase 2b)
+The floor-plan editor can now describe camera coverage in plain language. Hit Compute
+coverage and JARVIS judges which rooms each camera can actually confirm a person in and
+writes a short summary — "the full dining room and most of the living room through the
+open staircase, and a corner of the kitchen." It reasons from the sightline geometry, so
+open plans and pass-throughs are accounted for. Results are saved with the layout. If
+the model is unavailable it falls back to a geometry-only summary.
+
 ## [7.18.0] — camera coverage: sightline geometry (camera coverage, Phase 2a)
 Each camera now shows which rooms it can actually see, computed from the floor plan.
 Sightlines travel through open doorways and cased openings and are stopped by solid
