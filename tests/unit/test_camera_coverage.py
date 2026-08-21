@@ -36,3 +36,18 @@ def test_parse_rejects_invented_rooms(cc):
 def test_parse_garbage_returns_none(cc):
     assert cc._parse("the camera sees stuff", {"Dining": 1.0}) is None
     assert cc._parse("", {"Dining": 1.0}) is None
+
+
+# ── coverage → camera for area (Phase 3) ─────────────────────────────────────
+
+def test_camera_for_area_matches_covered_room(cc):
+    by_floor = {"1f": [
+        {"entity": "camera.dining", "coverage": {"covered": ["Dining Room", "Living Room"]}},
+        {"entity": "camera.garage", "coverage": {"covered": ["Garage"]}},
+    ]}
+    assert cc._match_camera(by_floor, "living room") == "camera.dining"   # via sightline
+    assert cc._match_camera(by_floor, "Garage") == "camera.garage"
+    assert cc._match_camera(by_floor, "living") == "camera.dining"        # substring
+    assert cc._match_camera(by_floor, "Basement") is None                 # uncovered
+    assert cc._match_camera({}, "anywhere") is None
+    assert cc._match_camera(by_floor, "") is None

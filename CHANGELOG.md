@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.20.0] — coverage wired into intrusion + clipped FOV cones (camera coverage, Phase 3)
+Camera coverage now feeds intrusion confirmation: when JARVIS detects a breach it
+prefers a camera whose saved coverage actually sees that area, so it can confirm a
+person through a camera in an adjacent room with a sightline — the dining camera seeing
+the living room through the open staircase — not only a camera physically in the room.
+And the camera FOV cones in the floor-plan editor now clip to walls and bleed through
+openings, so each cone shows what the camera really sees instead of passing through
+walls into the yard.
+
 ## [7.19.1] — fix phantom exterior door from cased openings
 Fixes a cased opening (an interior open doorway) being drawn as an exterior door on the
 3D house — which could appear as a door on the rear wall that isn't in your plan. Cased

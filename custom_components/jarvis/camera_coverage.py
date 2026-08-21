@@ -98,6 +98,42 @@ def _parse(text: str, candidates: dict) -> Optional[dict]:
     return {"covered": covered, "reason": reason, "source": "llm", "ts": int(time.time())}
 
 
+def _match_camera(by_floor, area_name) -> Optional[str]:
+    """First camera whose confirmed-coverage rooms match the area name. Matching
+    is case-insensitive and substring-either-way, so 'Living Room' matches a
+    'living' area and vice versa. Pure — no hass/config, for testability."""
+    target = str(area_name or "").strip().lower()
+    if not target:
+        return None
+    for _floor, cams in (by_floor or {}).items():
+        for cam in (cams or []):
+            ent = cam.get("entity")
+            if not ent:
+                continue
+            covered = [str(r).strip().lower()
+                       for r in ((cam.get("coverage") or {}).get("covered") or [])]
+            for room in covered:
+                if room and (room == target or target in room or room in target):
+                    return ent
+    return None
+
+
+def camera_for_area(hass, area_name) -> Optional[str]:
+    """The camera entity that best covers the given area/room, from the saved
+    floor-plan camera coverage. Lets intrusion confirm a person via a camera in an
+    adjacent room with a sightline, not only one physically in the room. Returns
+    None if nothing matches. Never raises."""
+    try:
+        if not area_name:
+            return None
+        from . import jarvis_config
+        raw = jarvis_config.get("floor_plan_cameras", {})
+        by_floor = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        return _match_camera(by_floor, area_name)
+    except Exception:
+        return None
+
+
 async def infer_coverage(hass, config: dict, cam_ctx: dict) -> dict:
     """cam_ctx: { entity, room, aim, fov, range_ft, indoor, candidates: {room: frac},
     openings: [str] }. Returns { covered: [rooms], reason: str, source, ts }."""

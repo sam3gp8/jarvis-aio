@@ -687,7 +687,20 @@ class SafetyManager:
         else:
             inward = spread and near_breach
 
-        cam_entity = self._person_camera_entity()
+        # Prefer a camera whose saved coverage actually sees the breach area — lets
+        # JARVIS confirm a person via a camera in an adjacent room with a sightline
+        # (e.g. the dining camera seeing the living room through the open staircase),
+        # not only a camera physically in that room (v7.20.0).
+        cam_entity = None
+        try:
+            _ba = inv.get("breach_area") if isinstance(inv, dict) else None
+            if _ba:
+                from . import camera_coverage as _cc
+                cam_entity = _cc.camera_for_area(self.hass, _ba)
+        except Exception:
+            cam_entity = None
+        if not cam_entity:
+            cam_entity = self._person_camera_entity()
         camera = cam_entity is not None
 
         if camera:
