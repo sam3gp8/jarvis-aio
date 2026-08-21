@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.17.0] — camera placement + field of view (camera coverage, Phase 1)
+Place cameras on the floor plan. Add a camera, bind its camera entity, and aim it —
+set the facing direction and field-of-view width, and for outdoor cameras how far it
+sees (indoor cameras are bounded by walls). Each camera shows as a dot with a
+translucent FOV cone on the 2D editor; drag the dot to move it, right-click to delete.
+This is the placement groundwork — automatic coverage inference (which rooms each
+camera can actually confirm) comes in the next phase.
+
 ## [7.16.0] — cased openings (open doorways) in the floor plan
 You can now place a cased opening — a doorway with no door, an open pass-through — in
 the floor-plan editor, alongside interior doors. Like an interior door it attaches to a
