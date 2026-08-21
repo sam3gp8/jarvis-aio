@@ -268,3 +268,31 @@ def auto_evaluate(occupied: bool) -> Optional[dict]:
     except Exception as exc:
         _LOGGER.debug("auto_evaluate failed: %s", exc)
     return None
+
+
+# ── room-scoped modes (v7.15.0): a mode can apply only in bound room(s) ───────
+
+def mode_scoped_to_areas() -> list:
+    """Areas the *active* mode is bound to, if any. Lab and Movie can be scoped
+    to specific room(s) so their 'minimal interruptions' applies only there and
+    the rest of the house stays normal. Empty list = whole-house (unconfigured,
+    or a mode with no area binding)."""
+    try:
+        m = active_mode()
+        if m == "lab":
+            v = _cfg("lab_areas", []) or []
+            return [str(a) for a in v if a] if isinstance(v, list) else []
+        if m == "movie":
+            a = _cfg("movie_area", "") or ""
+            return [str(a)] if a else []
+    except Exception:
+        pass
+    return []
+
+
+def mode_active_here(area_id: str) -> bool:
+    """Whether the active mode's behavior applies in this area. A room-scoped
+    mode (Lab/Movie bound to rooms) applies only in its bound rooms; any other
+    mode applies everywhere."""
+    areas = mode_scoped_to_areas()
+    return True if not areas else (str(area_id) in areas)

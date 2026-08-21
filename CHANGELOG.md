@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.15.0] — Lab & Movie mode room binding + Movie mood
+Lab and Movie can now be scoped to specific rooms from the Operational Mode card.
+Choose which room(s) Lab applies to, so its minimal-interruptions quiet covers just
+the workshop rather than the whole house — the rest of the home stays normal. Bind
+Movie to a room (and optionally a media player) with a dim level, and JARVIS dims that
+room's lights the moment Movie mode turns on. Both modes stay settable by hand or voice,
+and safety is never affected.
+
 ## [7.14.0] — automatic operational mode + more openings sensors
 JARVIS can now switch its operational mode on its own: when Auto is on (Operational
 Mode card), it follows occupancy — Away when the home empties, back to Normal when

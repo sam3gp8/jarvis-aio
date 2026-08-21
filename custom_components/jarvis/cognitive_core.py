@@ -58,6 +58,22 @@ PROACTIVE_CHECK_INTERVAL = 120   # 2 min between comfort/efficiency scans
 PROACTIVE_OFFER_COOLDOWN = 1800  # 30 min before re-offering the same thing
 DARK_LUX_THRESHOLD = 15          # below this lux + occupancy → offer lights
 STALE_LIGHT_MINUTES = 90         # light on this long in an empty room → flag
+def _offer_area(hass, offer):
+    """Best-effort area for a proactive offer, from its action target entity.
+    Used to scope a room-bound mode's quiet to just that room. None if unknown."""
+    try:
+        ad = (offer.get("action_data") or {}) if isinstance(offer, dict) else {}
+        eid = ad.get("entity_id") or offer.get("entity_id")
+        if isinstance(eid, (list, tuple)):
+            eid = eid[0] if eid else None
+        if not eid:
+            return None
+        from . import audio_routing
+        return audio_routing.entity_area(hass, eid)
+    except Exception:
+        return None
+
+
 HIGH_TEMP_AWAY_F = 78            # cooling running while away → efficiency flag
 LOW_TEMP_AWAY_F = 62             # heating running while away → efficiency flag
 
@@ -2085,6 +2101,7 @@ async def _tick():
 
     from . import sleep_detection
     bedroom_areas = config.get("bedroom_areas", []) or []
+    # (offer-area resolution for room-scoped modes lives in _offer_area, below.)
     sleeping, _ = sleep_detection.is_sleeping(
         hass,
         bedroom_area_ids=bedroom_areas,
@@ -2116,9 +2133,14 @@ async def _tick():
     # (a mode like party/movie/lab can silence convenience offers). Safety always
     # runs regardless — mode never gates SafetyManager.
     proactive_enabled = _CORE.config.get("observer_proactive", True)
+    mode_scope_areas = []
     try:
         from . import modes
-        if not modes.mode_allows_proactive():
+        mode_scope_areas = modes.mode_scoped_to_areas()
+        # A room-scoped mode (lab/movie bound to rooms) keeps the house proactive;
+        # only offers about the bound rooms are dropped in the loop below. An
+        # unscoped suppressing mode still silences proactivity house-wide.
+        if not mode_scope_areas and not modes.mode_allows_proactive():
             proactive_enabled = False
     except Exception:
         pass
@@ -2128,6 +2150,11 @@ async def _tick():
             spoke_offer = False  # only ONE spoken offer per tick (avoid stacking
                                  # questions when only one pending_offer is tracked)
             for offer in offers:
+                # Room-scoped mode: stay quiet about the focused room(s) only.
+                if mode_scope_areas:
+                    _oa = _offer_area(_CORE.hass, offer)
+                    if _oa and _oa in mode_scope_areas:
+                        continue
                 pkey = offer.get("pattern_key", "")
                 # Graduated autonomy: trusted actions execute silently — all of
                 # them, since they don't need a yes/no.

@@ -718,6 +718,10 @@ async def ws_get_panel_data(
                 "memory_threading_max": _runtime_opt(hass, entry, "memory_threading_max", 12),
                 "continued_conversation_enabled": bool(_runtime_opt(hass, entry, "continued_conversation_enabled", False)),
                 "operational_mode_auto": bool(_runtime_opt(hass, entry, "operational_mode_auto", True)),
+                "lab_areas": _runtime_opt(hass, entry, "lab_areas", []) or [],
+                "movie_area": str(_runtime_opt(hass, entry, "movie_area", "") or ""),
+                "movie_media_player": str(_runtime_opt(hass, entry, "movie_media_player", "") or ""),
+                "movie_dim_pct": int(_runtime_opt(hass, entry, "movie_dim_pct", 15) or 15),
                 "llm_base_url": str(_runtime_opt(hass, entry, "llm_base_url", "") or ""),
                 "notify_service": current_notify,
                 "notify_services_available": notify_services,
@@ -1294,6 +1298,10 @@ PANEL_WRITABLE_KEYS = {
     "embed_base_url",            # str: override Ollama host for embeddings
     "custom_modes",              # dict: user-defined operational modes (v6.61.0)
     "operational_mode_auto",     # bool: auto away/normal by occupancy (v7.14.0)
+    "lab_areas",                 # list: rooms Lab mode is scoped to (v7.15.0)
+    "movie_area",                # str: room Movie mode is bound to (v7.15.0)
+    "movie_media_player",        # str: Movie media_player binding (v7.15.0)
+    "movie_dim_pct",             # int: Movie mood dim level 0-100 (v7.15.0)
     "energy_agency",             # str: advisory | opt_in | autonomous (v6.62.0)
     "energy_peak_watts",         # float: whole-home peak threshold in watts
     "energy_mode_bump",          # list: modes that raise energy agency one step
@@ -2203,6 +2211,11 @@ async def ws_mode(
                 modes.set_mode, msg.get("mode", ""), msg.get("reason", ""))
             if res.get("ok"):
                 jarvis_log("MODE", f"mode → {res['mode']} (panel)")
+                try:
+                    from . import mode_scene
+                    await mode_scene.apply_mode_entry(hass, res["mode"])
+                except Exception:
+                    pass
             connection.send_result(msg["id"], {**res, **modes.mode_info()})
         else:
             connection.send_result(msg["id"], modes.mode_info())

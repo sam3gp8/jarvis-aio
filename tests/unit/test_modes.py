@@ -133,3 +133,41 @@ def test_set_mode_tool_registered(load):
     names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
     assert "set_mode" in names
     assert "set_mode" in agent._TOOL_MAP
+
+
+# ── room-scoped modes (v7.15.0) ──────────────────────────────────────────────
+
+def test_scope_lab_to_areas(modes, monkeypatch):
+    monkeypatch.setattr(modes, "_cfg",
+                        lambda k, d=None: ["workshop", "garage"] if k == "lab_areas" else d)
+    modes.set_mode("lab")
+    assert modes.mode_scoped_to_areas() == ["workshop", "garage"]
+    assert modes.mode_active_here("workshop") is True
+    assert modes.mode_active_here("kitchen") is False
+
+
+def test_scope_movie_to_area(modes, monkeypatch):
+    monkeypatch.setattr(modes, "_cfg",
+                        lambda k, d=None: "living_room" if k == "movie_area" else d)
+    modes.set_mode("movie")
+    assert modes.mode_scoped_to_areas() == ["living_room"]
+    assert modes.mode_active_here("living_room") is True
+    assert modes.mode_active_here("bedroom") is False
+
+
+def test_unscoped_mode_is_whole_house(modes, monkeypatch):
+    monkeypatch.setattr(modes, "_cfg", lambda k, d=None: d)
+    modes.set_mode("normal")
+    assert modes.mode_scoped_to_areas() == []
+    assert modes.mode_active_here("anywhere") is True     # whole-house
+    modes.set_mode("lab")                                  # lab, no rooms set
+    assert modes.mode_scoped_to_areas() == []
+    assert modes.mode_active_here("anywhere") is True      # falls back to whole-house
+
+
+def test_auto_evaluate_respects_hands_off(modes, monkeypatch):
+    monkeypatch.setattr(modes, "_cfg",
+                        lambda k, d=None: False if k == "operational_mode_auto" else d)
+    modes.set_mode("normal")
+    assert modes.auto_evaluate(False) is None             # auto off → no switch
+    assert modes.active_mode() == "normal"

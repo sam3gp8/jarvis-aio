@@ -2108,6 +2108,11 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
         res = await hass.async_add_executor_job(
             modes.set_mode, args.get("mode", ""), args.get("reason", ""))
         if res.get("ok"):
+            try:
+                from . import mode_scene
+                await mode_scene.apply_mode_entry(hass, res["mode"])
+            except Exception:
+                pass
             info = modes.mode_info()
             try:
                 from .websocket import jarvis_log
