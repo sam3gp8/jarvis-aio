@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.19.1] — fix phantom exterior door from cased openings
+Fixes a cased opening (an interior open doorway) being drawn as an exterior door on the
+3D house — which could appear as a door on the rear wall that isn't in your plan. Cased
+openings are interior and no longer show up on the exterior shell.
+
 ## [7.19.0] — camera coverage: AI judgment + description (camera coverage, Phase 2b)
 The floor-plan editor can now describe camera coverage in plain language. Hit Compute
 coverage and JARVIS judges which rooms each camera can actually confirm a person in and
