@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.21.2] — outdoor zone fixes: openings no longer snap to zones
+Fixes exterior doors and windows snapping to an outdoor zone's edge instead of the house
+(the house footprint now ignores outdoor zones). Also keeps outdoor zones out of the
+interior-opening room picker, spawns new zones just below the house instead of on top of
+it, and adds margin around the house in the editor so there's room to place zones.
+
 ## [7.21.1] — Home Assistant 2026.8 LLM API compatibility
 Fixes JARVIS failing to use Home Assistant's built-in LLM tools on HA 2026.8, where the
 ToolInput and LLMContext APIs changed (the request context moved out of ToolInput, and
