@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.12.0] — bigger floor-plan editor, rotatable 3D preview, window-height fix
+The floor-plan editor is now larger and auto-fits to your rooms, so bigger
+properties and edge elements — like a rear dormer or a far bathroom — are no longer
+cut off. The 3D preview above the editor can be rotated by dragging, and both it and
+the Residence 3D now have quick view buttons (front, rear, left, right, iso). Also
+fixes second-floor windows that aren't in a dormer rendering too low (they now sit
+in the second-floor band instead of at the garage-roof line).
+
 ## [7.11.1] — routine-learning entity picker fixes
 The "add specific entities" picker in Routine Learning is now a searchable field
 that fits the panel instead of an oversized dropdown, and entities you add now
