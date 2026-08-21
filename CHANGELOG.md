@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.13.1] — Cape Cod 2nd-floor window height + lower garage roof
+Second-floor gable-end windows now ride high on the gable — clamped under the roofline
+so they never poke through the slope — instead of sitting low near the eave, and the
+attached garage roof drops further. On a Cape Cod, Cabin, or any 1.5-story gable, the
+upstairs window beside the garage now sits where it should and clears the garage roof.
+
 ## [7.13.0] — Dutch Colonial home style (gambrel roof)
 Adds a Dutch Colonial home style with a proper gambrel ("barn") roof — a shallow
 upper slope over a steep lower slope, with second-floor windows sitting high in the
