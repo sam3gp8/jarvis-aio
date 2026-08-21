@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.18.0] — camera coverage: sightline geometry (camera coverage, Phase 2a)
+Each camera now shows which rooms it can actually see, computed from the floor plan.
+Sightlines travel through open doorways and cased openings and are stopped by solid
+walls — so a camera in an open-plan dining room picks up the kitchen and living room it
+has a line into, while a camera in a closed room sees only that room. Coverage shows
+live under each camera and recomputes as you aim or move it. A following phase adds an
+AI pass to describe coverage in words and feed it into intrusion confirmation.
+
 ## [7.17.0] — camera placement + field of view (camera coverage, Phase 1)
 Place cameras on the floor plan. Add a camera, bind its camera entity, and aim it —
 set the facing direction and field-of-view width, and for outdoor cameras how far it
