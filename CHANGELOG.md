@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.13.0] — Dutch Colonial home style (gambrel roof)
+Adds a Dutch Colonial home style with a proper gambrel ("barn") roof — a shallow
+upper slope over a steep lower slope, with second-floor windows sitting high in the
+steep slope where they belong. Attached garage roofs now sit lower, well below the
+second floor, so they no longer collide with upstairs windows. Pick it under Home
+Style on the Residence tab.
+
 ## [7.12.0] — bigger floor-plan editor, rotatable 3D preview, window-height fix
 The floor-plan editor is now larger and auto-fits to your rooms, so bigger
 properties and edge elements — like a rear dormer or a far bathroom — are no longer
