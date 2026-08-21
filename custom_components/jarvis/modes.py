@@ -237,3 +237,34 @@ def set_mode(name: str, reason: str = "") -> dict:
 def clear_mode(reason: str = "") -> dict:
     """Return to normal mode."""
     return set_mode(DEFAULT_MODE, reason or "cleared")
+
+
+# ── automatic mode (v7.14.0): track occupancy unless the user goes hands-on ──
+
+def auto_enabled() -> bool:
+    """Whether JARVIS may switch operational mode on its own. Users who prefer a
+    hands-on approach (setting modes only via HMI/voice) turn this off; the
+    discretionary modes stay fully manual either way."""
+    v = _cfg("operational_mode_auto", True)
+    return True if v is None else bool(v)
+
+
+def auto_evaluate(occupied: bool) -> Optional[dict]:
+    """When auto-mode is on, keep AWAY/NORMAL tracking real occupancy. This only
+    ever toggles between 'away' and 'normal': a deliberately set discretionary
+    mode (party/movie/lab/guest/focus) is left untouched while someone is home,
+    and is superseded by 'away' only once the home goes empty; returning home
+    from 'away' lands in 'normal'. Returns the set_mode result if it changed the
+    mode, else None. Never raises — auto-mode must never break the tick."""
+    try:
+        if not auto_enabled():
+            return None
+        _load()
+        cur = _state.get("mode", DEFAULT_MODE)
+        if not occupied and cur != "away":
+            return set_mode("away", "auto: home empty")
+        if occupied and cur == "away":
+            return set_mode(DEFAULT_MODE, "auto: someone home")
+    except Exception as exc:
+        _LOGGER.debug("auto_evaluate failed: %s", exc)
+    return None

@@ -717,6 +717,7 @@ async def ws_get_panel_data(
                 "memory_threading_hours": _runtime_opt(hass, entry, "memory_threading_hours", 48),
                 "memory_threading_max": _runtime_opt(hass, entry, "memory_threading_max", 12),
                 "continued_conversation_enabled": bool(_runtime_opt(hass, entry, "continued_conversation_enabled", False)),
+                "operational_mode_auto": bool(_runtime_opt(hass, entry, "operational_mode_auto", True)),
                 "llm_base_url": str(_runtime_opt(hass, entry, "llm_base_url", "") or ""),
                 "notify_service": current_notify,
                 "notify_services_available": notify_services,
@@ -1292,6 +1293,7 @@ PANEL_WRITABLE_KEYS = {
     "embed_model",               # str: Ollama embed model (default nomic-embed-text)
     "embed_base_url",            # str: override Ollama host for embeddings
     "custom_modes",              # dict: user-defined operational modes (v6.61.0)
+    "operational_mode_auto",     # bool: auto away/normal by occupancy (v7.14.0)
     "energy_agency",             # str: advisory | opt_in | autonomous (v6.62.0)
     "energy_peak_watts",         # float: whole-home peak threshold in watts
     "energy_mode_bump",          # list: modes that raise energy agency one step

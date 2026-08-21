@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.14.0] — automatic operational mode + more openings sensors
+JARVIS can now switch its operational mode on its own: when Auto is on (Operational
+Mode card), it follows occupancy — Away when the home empties, back to Normal when
+someone returns. Deliberately chosen modes (Party, Movie, Lab, Guest, Focus) stay put
+while you're home and are only superseded by Away once the house is empty; they remain
+fully hands-on via the mode buttons or voice. Turn Auto off for fully manual control.
+The floor-plan opening → sensor picker now also lists window contact sensors, so every
+window, door, and dormer can be mapped to its sensor.
+
 ## [7.13.1] — Cape Cod 2nd-floor window height + lower garage roof
 Second-floor gable-end windows now ride high on the gable — clamped under the roofline
 so they never poke through the slope — instead of sitting low near the eave, and the

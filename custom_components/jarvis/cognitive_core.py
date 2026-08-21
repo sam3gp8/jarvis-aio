@@ -2100,6 +2100,14 @@ async def _tick():
         except Exception as exc:
             _LOGGER.debug("Lockdown tick error: %s", exc)
 
+    # Auto operational-mode (v7.14.0): keep AWAY/NORMAL in step with occupancy
+    # unless the user has chosen hands-on control. Never affects safety.
+    try:
+        from . import modes as _auto_modes
+        _auto_modes.auto_evaluate(anyone_home)
+    except Exception as exc:
+        _LOGGER.debug("auto-mode eval error: %s", exc)
+
     # Run safety checks
     actions.extend(await _CORE.safety_mgr.tick(sleeping, anyone_home))
 
