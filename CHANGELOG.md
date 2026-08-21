@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.22.0] — property boundary + land size (place your home anywhere on the lot)
+Adds an optional property boundary to the floor plan. Click "+ Property Line" to draw your
+lot, then drag the corners to your actual property lines — double-click an edge to add a
+corner, right-click to remove one — so the boundary can be any shape, not just a rectangle.
+The lot area shows in acres or square feet (hectares/m² in metric). With a boundary set, the
+editor frames the whole lot, so you can position your home anywhere on it — front, back, or
+corner — rather than being forced to the center. It's optional: apartments and interior-only
+setups can skip it entirely.
+
 ## [7.21.2] — outdoor zone fixes: openings no longer snap to zones
 Fixes exterior doors and windows snapping to an outdoor zone's edge instead of the house
 (the house footprint now ignores outdoor zones). Also keeps outdoor zones out of the
