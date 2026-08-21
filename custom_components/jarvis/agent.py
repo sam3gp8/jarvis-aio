@@ -2325,6 +2325,19 @@ _TOOL_MAP = {
 }
 
 
+def _ha_kwargs(cls, **kwargs):
+    """Keep only the kwargs that cls's constructor accepts. Home Assistant's LLM
+    API changed fields across versions — 2026.8 moved the context out of
+    ToolInput into LLMContext and dropped user_prompt — so we pass the
+    intersection and stay compatible with old and new HA (v7.21.1). Never raises."""
+    try:
+        import inspect
+        allowed = inspect.signature(cls).parameters
+        return {k: v for k, v in kwargs.items() if k in allowed}
+    except Exception:
+        return kwargs
+
+
 async def _execute_tool(
     hass: HomeAssistant,
     tool_name: str,
@@ -2345,7 +2358,8 @@ async def _execute_tool(
         from .const import DOMAIN
         for attempt in range(MAX_TOOL_RETRIES + 1):
             try:
-                tool_input = llm.ToolInput(
+                tool_input = llm.ToolInput(**_ha_kwargs(
+                    llm.ToolInput,
                     tool_name=tool_name,
                     tool_args=tool_args,
                     platform=DOMAIN,
@@ -2354,7 +2368,7 @@ async def _execute_tool(
                     language=user_input.language if user_input else "en",
                     assistant="conversation",
                     device_id=user_input.device_id if user_input else None,
-                )
+                ))
                 result = await hass_api.async_call_tool(tool_input)
                 return json.dumps(result) if isinstance(result, dict) else str(result)
             except Exception as exc:

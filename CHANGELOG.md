@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.21.1] — Home Assistant 2026.8 LLM API compatibility
+Fixes JARVIS failing to use Home Assistant's built-in LLM tools on HA 2026.8, where the
+ToolInput and LLMContext APIs changed (the request context moved out of ToolInput, and
+user_prompt was dropped from LLMContext). JARVIS now adapts to whichever field set the
+installed Home Assistant version expects, so it works on both older and newer HA. Thanks
+to @QuentinVape40 for the detailed report.
+
 ## [7.21.0] — outdoor zones for exterior camera coverage
 Adds outdoor zones to the floor plan. Draw areas like Front Yard, Driveway, or Backyard
 (the new + Outdoor Zone button, or Add Room with type "outdoor") and your exterior cameras

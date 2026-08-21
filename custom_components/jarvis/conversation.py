@@ -491,16 +491,29 @@ class JarvisAgent(conversation.ConversationEntity):
 
     # ── HA LLM tool integration ───────────────────────────────────────────────
 
+def _ha_kwargs(cls, **kwargs):
+    """Keep only the kwargs that cls's constructor accepts. Home Assistant's LLM
+    API changed fields across versions — 2026.8 moved the context out of
+    ToolInput into LLMContext and dropped user_prompt — so we pass the
+    intersection and stay compatible with old and new HA (v7.21.1). Never raises."""
+    try:
+        import inspect
+        allowed = inspect.signature(cls).parameters
+        return {k: v for k, v in kwargs.items() if k in allowed}
+    except Exception:
+        return kwargs
+
     async def _get_hass_api(self, user_input: conversation.ConversationInput):
         try:
-            ctx = llm.LLMContext(
+            ctx = llm.LLMContext(**_ha_kwargs(
+                llm.LLMContext,
                 platform=DOMAIN,
                 context=user_input.context,
                 user_prompt=user_input.text,
                 language=user_input.language,
                 assistant=conversation.HOME_ASSISTANT_AGENT,
                 device_id=user_input.device_id,
-            )
+            ))
             api = await llm.async_get_api(self.hass, "assist", ctx)
             _LOGGER.debug("JARVIS: %d HA tools available", len(api.tools))
             return api
@@ -596,7 +609,8 @@ class JarvisAgent(conversation.ConversationEntity):
 
             for call in result["calls"]:
                 try:
-                    tool_input = llm.ToolInput(
+                    tool_input = llm.ToolInput(**_ha_kwargs(
+                        llm.ToolInput,
                         tool_name=call["name"],
                         tool_args=call["args"],
                         platform=DOMAIN,
@@ -605,7 +619,7 @@ class JarvisAgent(conversation.ConversationEntity):
                         language=user_input.language,
                         assistant=conversation.HOME_ASSISTANT_AGENT,
                         device_id=user_input.device_id,
-                    )
+                    ))
                     tool_result = await hass_api.async_call_tool(tool_input)
                     result_str = (
                         json.dumps(tool_result)
