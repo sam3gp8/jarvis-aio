@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.21.0] — outdoor zones for exterior camera coverage
+Adds outdoor zones to the floor plan. Draw areas like Front Yard, Driveway, or Backyard
+(the new + Outdoor Zone button, or Add Room with type "outdoor") and your exterior cameras
+now show what they cover ("sees: Driveway 90%") instead of "nothing in view." Zones are
+kept out of the 3D house so they don't change its shape, and they give JARVIS a model of
+the areas around the home — which also feeds intrusion, so a camera watching the driveway
+can be chosen to confirm someone there.
+
 ## [7.20.0] — coverage wired into intrusion + clipped FOV cones (camera coverage, Phase 3)
 Camera coverage now feeds intrusion confirmation: when JARVIS detects a breach it
 prefers a camera whose saved coverage actually sees that area, so it can confirm a
