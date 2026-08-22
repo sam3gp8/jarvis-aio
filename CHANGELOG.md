@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.22.3] — place outdoor zones anywhere, including left of and in front of the home
+Fixes not being able to move an outdoor zone to the left of the garage or in front of the
+home. The editor was clamping every object to positive coordinates, so nothing could be
+placed past the garage-side or front edges of the house. Objects can now be placed anywhere
+in the editing field, and the field keeps generous room on all sides to work in.
+
 ## [7.22.2] — floor-plan grid now covers the whole lot (front & side yards)
 Fixes the editor grid stopping at the front and garage-side edges of the house, which made
 it impossible to place a front-yard or side-yard zone there. The grid was only drawn from
