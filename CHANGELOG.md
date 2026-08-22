@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.22.1] — property boundary frames the whole lot (place zones anywhere)
+Fixes not being able to place an outdoor zone at the front or sides of the home. With a
+property boundary set, the editor now frames the entire lot, so the whole property is the
+workspace, and the default boundary is generous — giving room in front, back, and to the
+sides to drop zones. Draw your property, position your home on it, and place front/back/side
+yards where they belong.
+
 ## [7.22.0] — property boundary + land size (place your home anywhere on the lot)
 Adds an optional property boundary to the floor plan. Click "+ Property Line" to draw your
 lot, then drag the corners to your actual property lines — double-click an edge to add a
