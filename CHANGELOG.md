@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.24.1] — fix upstairs showing fully occupied in the 3D view
+Fixes the residence 3D view lighting every upstairs dormer when only one room is occupied
+(and appearing to occupy rooms with no presence sensor). Each dormer now lights only for the
+room directly beneath it, so occupancy on the house matches which rooms actually have someone
+in them.
+
 ## [7.24.0] — zoom & pan in the floor-plan editor
 The floor-plan editor can now zoom and pan. Scroll to zoom in on the cursor, middle-drag
 (or drag empty space) to pan, and hit Fit to frame the whole plan again. This makes editing
