@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.24.0] — zoom & pan in the floor-plan editor
+The floor-plan editor can now zoom and pan. Scroll to zoom in on the cursor, middle-drag
+(or drag empty space) to pan, and hit Fit to frame the whole plan again. This makes editing
+fine details practical — placing openings, nudging cameras, dragging zone corners — instead
+of being stuck at a zoomed-out view of the whole property.
+
 ## [7.23.1] — reduce prompt size for tight LLM token limits
 Adds a "Prompt size" setting (on the AI Models card) controlling how many entity names
 JARVIS lists per type in the system prompt. Lower it — 0 shows counts only — to shrink each
