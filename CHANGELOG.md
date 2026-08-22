@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.22.2] — floor-plan grid now covers the whole lot (front & side yards)
+Fixes the editor grid stopping at the front and garage-side edges of the house, which made
+it impossible to place a front-yard or side-yard zone there. The grid was only drawn from
+the origin outward; it now spans the full canvas — including the area in front of and beside
+the home — so outdoor zones can be placed anywhere on the property.
+
 ## [7.22.1] — property boundary frames the whole lot (place zones anywhere)
 Fixes not being able to place an outdoor zone at the front or sides of the home. With a
 property boundary set, the editor now frames the entire lot, so the whole property is the
