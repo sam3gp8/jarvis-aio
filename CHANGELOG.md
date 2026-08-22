@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.23.1] — reduce prompt size for tight LLM token limits
+Adds a "Prompt size" setting (on the AI Models card) controlling how many entity names
+JARVIS lists per type in the system prompt. Lower it — 0 shows counts only — to shrink each
+request for providers with tight tokens-per-minute limits, such as Groq's free tier, which
+rejects requests over 8000 tokens. The assistant still discovers entities on demand, so
+nothing breaks. Fixes conversations failing with "request too large" on small-quota
+providers.
+
 ## [7.23.0] — outdoor zones can be any shape (polygons)
 Outdoor zones are no longer limited to rectangles. Drag a zone's corners to reshape it,
 double-click an edge to add a corner, right-click a corner to remove one — so a zone can

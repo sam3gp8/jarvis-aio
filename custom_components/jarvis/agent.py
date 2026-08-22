@@ -2384,7 +2384,17 @@ def _build_home_context(hass: HomeAssistant) -> str:
     """
     Build a compact home context string for the system prompt.
     Gives the LLM awareness of what's available to control.
+
+    The per-domain entity-name count is capped by the `home_context_max_entities`
+    config (default 15). Set it to 0 for counts only — a big prompt-size reduction
+    for providers with tight token-per-minute limits (e.g. Groq's free tier). The
+    LLM can still discover entities on demand via search_entities. (v7.23.1)
     """
+    from . import jarvis_config
+    try:
+        max_ent = int(jarvis_config.get("home_context_max_entities", 15))
+    except Exception:
+        max_ent = 15
     parts = []
 
     # Areas
@@ -2406,12 +2416,15 @@ def _build_home_context(hass: HomeAssistant) -> str:
     ]:
         entities = list(hass.states.async_all(domain))
         if entities:
-            names = [
-                s.attributes.get("friendly_name", s.entity_id)
-                for s in entities[:15]
-            ]
-            suffix = f" (+{len(entities) - 15} more)" if len(entities) > 15 else ""
-            parts.append(f"{label} ({len(entities)}): {', '.join(names)}{suffix}")
+            if max_ent <= 0:
+                parts.append(f"{label}: {len(entities)}")   # counts only — smallest prompt
+            else:
+                names = [
+                    s.attributes.get("friendly_name", s.entity_id)
+                    for s in entities[:max_ent]
+                ]
+                suffix = f" (+{len(entities) - max_ent} more)" if len(entities) > max_ent else ""
+                parts.append(f"{label} ({len(entities)}): {', '.join(names)}{suffix}")
 
     # Learned aliases
     learned = _load_learned()

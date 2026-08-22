@@ -799,6 +799,7 @@ async def ws_get_panel_data(
                 "floor_plan_elements":  _get_runtime_json(hass, entry, "floor_plan_elements", {}),
                 "floor_plan_cameras":   _get_runtime_json(hass, entry, "floor_plan_cameras", {}),
                 "floor_plan_property":  _get_runtime_json(hass, entry, "floor_plan_property", {}),
+                "home_context_max_entities": int(_runtime_opt(hass, entry, "home_context_max_entities", 15) or 15),
                 "disabled_cameras":     _get_runtime_json(hass, entry, "disabled_cameras", []),
                 "home_stories":         _runtime_opt(hass, entry, "home_stories", "1.5"),
                 "has_basement":         _runtime_opt(hass, entry, "has_basement", True),
@@ -1277,6 +1278,7 @@ PANEL_WRITABLE_KEYS = {
     "floor_plan_elements",       # JSON: placed windows/doors per floor (+ sensor map)
     "floor_plan_cameras",        # JSON: placed cameras per floor (pos/angle/fov/range) (v7.17.0)
     "floor_plan_property",       # JSON: property boundary polygon {points:[[x,y],...]} (v7.22.0)
+    "home_context_max_entities", # int: entity names per domain in the system prompt (0=counts only) (v7.23.1)
     "disabled_cameras",          # JSON list: camera entity_ids JARVIS must not use
     "home_stories",              # str: number of stories (controls floor tabs)
     "has_basement",              # bool: whether to show the basement floor
