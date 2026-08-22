@@ -1,6 +1,6 @@
 /**
  * JARVIS Command Center Panel
- * v7.22.3 (session 2 · audio routing fix, areas with icons+codes)
+ * v7.23.0 (session 2 · audio routing fix, areas with icons+codes)
  *
  * Registered as a custom element via panel_custom. Home Assistant sets:
  *   - this.hass   — the hass object (live state, services, connection)
@@ -366,7 +366,7 @@ const JARVIS3D = (function () {
     }
   }
 
-  // ---------- data-driven build: geometry from the editor's rooms (feet) (v7.22.3) ----------
+  // ---------- data-driven build: geometry from the editor's rooms (feet) (v7.23.0) ----------
   var DEFAULT_CENTER = [(XG0 + XHE) / 2, RY, WALL * 0.5];
   function _planZ(fk) { var A = { bsmt: 'b', basement: 'b' }; return FLOOR_Z[fk] || FLOOR_Z[A[fk]] || FLOOR_Z['1f']; }
   function _planFloorKey(plan, floor) { if (plan[floor]) return floor; var A = { b: 'bsmt', bsmt: 'b' }; return plan[A[floor]] ? A[floor] : floor; }
@@ -376,7 +376,7 @@ const JARVIS3D = (function () {
     F(L, [[x0,y0,z0],[x0,y1,z0],[x0,y1,z1],[x0,y0,z1]], C.wallDk, C.wallSdk, 0.7); // left   (x=x0)
     F(L, [[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]], C.wallF,  C.wallS,   0.7); // right  (x=x1)
   }
-  // ----- generalized roofs over the derived footprint (v7.22.3) -----
+  // ----- generalized roofs over the derived footprint (v7.23.0) -----
   function _oneFloorTop() { return FLOOR_Z['1f'][1]; }                                  // 1st-floor eave
   function _roofRise(spanShort) { var p = SPEC.pitch != null ? SPEC.pitch : 1; return (spanShort / 2) * 0.9 * Math.max(p, 0.08); }
 
@@ -511,7 +511,7 @@ const JARVIS3D = (function () {
   }
 
   // A Bilco-style bulkhead cellar door: a sloped wedge against the wall, high at
-  // the house and low at the outer edge, split into two door panels (v7.22.3).
+  // the house and low at the outer edge, split into two door panels (v7.23.0).
   function bulkheadDoor(L, GL, wall, cx, cy, w, open) {
     var depth = Math.max(w, 5.5), zHigh = 3.2, zLow = 0.2;   // ~28\u00b0 slope, low enough to clear windows
     var f = open ? C.doorOpen : C.doorOff, s = open ? C.doorOpenS : C.doorS, cls = open ? 'cellar-door door-open' : 'cellar-door';
@@ -534,10 +534,10 @@ const JARVIS3D = (function () {
     if (open && GL) GL.push({ p: [[cx-w/2,cy,zHigh],[cx+w/2,cy,zHigh],[cx+w/2,cy,zHigh+1.5],[cx-w/2,cy,zHigh+1.5]], f: C.doorOpenGlow });
   }
 
-  // A door on a footprint wall, open (swung) or closed, for placed exterior/cellar doors (v7.22.3).
+  // A door on a footprint wall, open (swung) or closed, for placed exterior/cellar doors (v7.23.0).
   // A cased opening (open doorway / pass-through): a doorway frame with no leaf —
   // you see straight through it. Always open; marks a visual + flow connection
-  // between the two rooms the wall separates (v7.22.3).
+  // between the two rooms the wall separates (v7.23.0).
   function casedOnWall(L, GL, wall, cx, cy, w, z0, z1) {
     var horiz = (wall === 'front' || wall === 'back');
     var f = 'rgba(70,120,150,0.12)', s = 'rgba(120,185,215,0.8)';
@@ -574,7 +574,7 @@ const JARVIS3D = (function () {
 
   // Clean exterior shell for the whole-house view — presence shows as lit
   // windows, exactly like the original approved model, but built from the
-  // editor's footprint + rooms + home type (v7.22.3).
+  // editor's footprint + rooms + home type (v7.23.0).
   function buildExteriorFromPlan(opts, plan, minx, miny, maxx, maxy, ztop) {
     var lit = opts.lit || {}, L = [], GL = [], LBL = [];
     var wOf = function (n) { var s = lit[String(n).toLowerCase()]; return s === 'dom' ? 'dom' : s ? 'on' : 'off'; };
@@ -674,7 +674,7 @@ const JARVIS3D = (function () {
     if (!h2) h2 = { x0: minx, y0: miny, x1: maxx, y1: maxy };
     // 2nd-floor gable-end windows ride high on the gable, but clamped under the actual
     // roofline at their position — so they clear the low garage roof yet never poke through
-    // the slope (v7.22.3). Front/back 2F glazing stays lower: that face is roof, so it reads
+    // the slope (v7.23.0). Front/back 2F glazing stays lower: that face is roof, so it reads
     // as dormers. ridgeApprox = eave + minRise is the gable peak height (story-driven).
     var gyC = (h2.y0 + h2.y1) / 2, gHalf = Math.max((h2.y1 - h2.y0) / 2, 0.1), ridgeApprox = eave + (minRise || 0);
     ((opts.elements && opts.elements['2f']) || []).filter(function (e) { return e.type === 'window'; }).forEach(function (e) {
@@ -690,7 +690,7 @@ const JARVIS3D = (function () {
       }
     });
 
-    // basement exterior openings — walkout doors / egress windows at grade (v7.22.3)
+    // basement exterior openings — walkout doors / egress windows at grade (v7.23.0)
     var hb = null;
     (plan['bsmt'] || []).forEach(function (r) {
       if (!hb) hb = { x0: r.x, y0: r.y, x1: r.x + r.w, y1: r.y + r.d };
@@ -750,7 +750,7 @@ const JARVIS3D = (function () {
     if (floor !== 'all') {
       var pf = _planFloorKey(plan, floor);
       draw(pf);
-      // interior doors on this floor's rooms, open/closed from their sensor (v7.22.3)
+      // interior doors on this floor's rooms, open/closed from their sensor (v7.23.0)
       var zf = _planZ(pf);
       ((opts.elements && opts.elements[pf]) || []).filter(function (e) { return e.type === 'door' && e.kind === 'interior'; }).forEach(function (e) {
         var rname = String(e.room || '').toLowerCase();
@@ -930,14 +930,14 @@ class JarvisPanel extends HTMLElement {
     this._knowledge = { facts: [], stats: {} }; // curated memory tab state
     this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
-    this._logSearch = "";          // log text search (v7.22.3)
+    this._logSearch = "";          // log text search (v7.23.0)
     this._lastLogSearch = null;
     this._activitySearch = "";     // dashboard activity feed search (v6.43.x)
     this._currentFloor = "all";     // floor plan tab — 3D default shows all
     this._editorFloor = "1f";      // floor plan editor tab
     this._dragState = null;        // floor plan drag state
     this._editingPlan = null;      // working copy for editor
-    this._editingElements = null; // working copy of placed windows/doors (v7.22.3)
+    this._editingElements = null; // working copy of placed windows/doors (v7.23.0)
     this._rot3dY = 22;             // 3D house rotation Y (near-front hero, like the approved view)
     this._house3dTheta = 35;       // JARVIS3D azimuth (deg) — approved hero angle
     this._editorTheta = 22;        // editor 3D-preview azimuth (deg), rotatable + presets
@@ -958,20 +958,20 @@ class JarvisPanel extends HTMLElement {
     this._camStillTimer = null;
     this._camSubs = [];
     this._lastCamKey = "";         // entity|token of the attached stream
-    this._camMode = "stream";      // stream → still → jarvis (v7.22.3 fallback chain)
+    this._camMode = "stream";      // stream → still → jarvis (v7.23.0 fallback chain)
     this._camModeByEntity = {};    // remembered resolved mode, skips re-escalation
     this._camWatchdog = null;      // no-frame watchdog: hangs don't fire error events
     this._camWsTimer = null;       // WS-snapshot poll for cams both proxies fail on
-    // Real-time entity subscriptions (v7.22.3) — a native state_changed feed
+    // Real-time entity subscriptions (v7.23.0) — a native state_changed feed
     // that triggers a fast, throttled refresh instead of waiting on the poll.
     this._stateSubs = [];
     this._lastRealtimeFetch = 0;
     this._realtimeTrailing = null;
-    // Sparklines (v7.22.3) — slow-polled separately from live data since
+    // Sparklines (v7.23.0) — slow-polled separately from live data since
     // recorder history queries are heavier than the rest of the payload.
     this._sparklines = {};
     this._sparklineInterval = null;
-    // Area drill-down (v7.22.3) — id of the area currently expanded, or null.
+    // Area drill-down (v7.23.0) — id of the area currently expanded, or null.
     this._expandedArea = null;
   }
 
@@ -1510,7 +1510,7 @@ class JarvisPanel extends HTMLElement {
       config: live.config || {},
       onboarding: live.onboarding || null,
       doors: live.doors || {},
-      // v7.22.3: goals card. Also fixes suggestions, which _data() never
+      // v7.23.0: goals card. Also fixes suggestions, which _data() never
       // carried through from the raw payload — _renderSuggestions(d) has
       // been reading undefined since it was added.
       suggestions: live.suggestions || [],
@@ -2280,7 +2280,7 @@ class JarvisPanel extends HTMLElement {
     return this._defaultFloorPlan();
   }
 
-  // Placed openings (windows/doors) — v7.22.3. Parallel to the room plan.
+  // Placed openings (windows/doors) — v7.23.0. Parallel to the room plan.
   _getFloorElements() {
     const raw = this._data().config?.floor_plan_elements;
     let el = {};
@@ -2325,6 +2325,30 @@ class JarvisPanel extends HTMLElement {
   }
   _setProperty(pts) { this._editingProperty = pts; }
   _propPathD(pts) { return pts.map((p, k) => (k ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ') + ' Z'; }
+  _zonePoints(r) {
+    if (r && Array.isArray(r.points) && r.points.length >= 3) return r.points;
+    const x = r.x || 0, y = r.y || 0, w = r.w || 40, h = r.h || 40;   // legacy rect -> 4 corners
+    return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  }
+  _ensureZonePoints(rm) {
+    if (!Array.isArray(rm.points) || rm.points.length < 3) rm.points = this._zonePoints(rm).map(p => [p[0], p[1]]);
+    return rm.points;
+  }
+  _pointInPoly(x, y, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  _pointCovered(px, py, cx, cy, ang, half, rng, geo) {
+    const dx = px - cx, dy = py - cy;
+    if (Math.hypot(dx, dy) > rng) return false;
+    const a = Math.atan2(dy, dx) * 180 / Math.PI;
+    if (Math.abs(((a - ang + 540) % 360) - 180) > half) return false;
+    return this._losClear(cx, cy, px, py, geo);
+  }
   _propertyArea(pts) {
     if (!pts || pts.length < 3) return '';
     let a = 0;
@@ -2404,18 +2428,27 @@ class JarvisPanel extends HTMLElement {
     const cov = {};
     plan.rooms.forEach(r => {
       if (r.type === 'door' || r.type === 'stairs') return;
-      let hit = 0, tot = 0; const nx = 4, ny = 4;
-      for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
-        const px = r.x + (i + 0.5) / nx * r.w, py = r.y + (j + 0.5) / ny * r.h;
-        tot++;
-        const dx = px - cx, dy = py - cy, dist = Math.hypot(dx, dy);
-        if (dist > rng) continue;
-        const a = Math.atan2(dy, dx) * 180 / Math.PI;
-        const diff = Math.abs(((a - ang + 540) % 360) - 180);
-        if (diff > half) continue;
-        if (this._losClear(cx, cy, px, py, geo)) hit++;
+      let hit = 0, tot = 0;
+      if (r.type === 'outdoor') {
+        const pts = this._zonePoints(r);
+        let bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
+        pts.forEach(p => { bx0 = Math.min(bx0, p[0]); by0 = Math.min(by0, p[1]); bx1 = Math.max(bx1, p[0]); by1 = Math.max(by1, p[1]); });
+        const nx = 6, ny = 6;
+        for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+          const px = bx0 + (i + 0.5) / nx * (bx1 - bx0), py = by0 + (j + 0.5) / ny * (by1 - by0);
+          if (!this._pointInPoly(px, py, pts)) continue;
+          tot++;
+          if (this._pointCovered(px, py, cx, cy, ang, half, rng, geo)) hit++;
+        }
+      } else {
+        const nx = 4, ny = 4;
+        for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+          const px = r.x + (i + 0.5) / nx * r.w, py = r.y + (j + 0.5) / ny * r.h;
+          tot++;
+          if (this._pointCovered(px, py, cx, cy, ang, half, rng, geo)) hit++;
+        }
       }
-      if (hit > 0) cov[r.name] = Math.round(hit / tot * 100) / 100;
+      if (hit > 0 && tot > 0) cov[r.name] = Math.round(hit / tot * 100) / 100;
     });
     return cov;
   }
@@ -2523,7 +2556,7 @@ class JarvisPanel extends HTMLElement {
 
   // Panel floor key -> model floor key ('bsmt' is 'b' in the model).
   // Convert the editor's rooms (SVG units) to the 3D model's real feet, so the
-  // house geometry is built from the floor plan (FT_PER_UNIT = 0.2) (v7.22.3).
+  // house geometry is built from the floor plan (FT_PER_UNIT = 0.2) (v7.23.0).
   _planToFeet(plan) {
     const FT = 0.2, out = {};
     Object.keys(plan || {}).forEach(fk => {
@@ -2538,7 +2571,7 @@ class JarvisPanel extends HTMLElement {
   }
   _house3dPlan() { return this._planToFeet(this._getFloorPlan()); }
 
-  // Placed openings -> feet, with open/closed resolved from each mapped sensor (v7.22.3).
+  // Placed openings -> feet, with open/closed resolved from each mapped sensor (v7.23.0).
   _elementsToFeet(raw) {
     const FT = 0.2, states = this._hass?.states || {}, out = {};
     Object.keys(raw || {}).forEach(fk => {
@@ -2553,7 +2586,7 @@ class JarvisPanel extends HTMLElement {
   _house3dElements() { return this._elementsToFeet(this._getFloorElements()); }
 
   // Live 3D preview for the editor — built from the working copies so it updates
-  // as you edit, before saving (v7.22.3).
+  // as you edit, before saving (v7.23.0).
   _viewPresetBar(scope) {
     const views = [['FRONT', 0], ['RIGHT', 90], ['REAR', 180], ['LEFT', 270], ['ISO', 35]];
     return '<div class="view-presets">' + views.map(v =>
@@ -2591,7 +2624,7 @@ class JarvisPanel extends HTMLElement {
     if (el) el.innerHTML = this._renderEditorPreview();
   }
 
-  // Per-bay garage door open/closed from the split door_mapping slots (v7.22.3).
+  // Per-bay garage door open/closed from the split door_mapping slots (v7.23.0).
   _house3dGarage() {
     const cfg = this._data().config || {};
     const map = cfg.door_mapping || {};
@@ -2615,7 +2648,7 @@ class JarvisPanel extends HTMLElement {
   // Live presence -> per-room lit state for the model.
   // States: 'on' (area occupied), 'mmwave' (a presence/mmWave sensor is
   // actively detecting — stronger signal than a bare area flag), 'dom'
-  // (dominant room). mmWave overlays on top of plain occupancy (v7.22.3).
+  // (dominant room). mmWave overlays on top of plain occupancy (v7.23.0).
   _house3dLit() {
     const d = this._data();
     const lit = {};
@@ -2632,7 +2665,7 @@ class JarvisPanel extends HTMLElement {
     return lit;
   }
 
-  // mmWave presence overview (v7.22.3): live per-room sensor state, fetched
+  // mmWave presence overview (v7.23.0): live per-room sensor state, fetched
   // when the residence tab is shown and refreshed on the poll while it's open.
   async _fetchMmwave() {
     if (!this._hass) return;
@@ -2643,7 +2676,7 @@ class JarvisPanel extends HTMLElement {
       this._mmwave = { rooms: [], summary: {}, error: true };
     }
     this._renderMmwave();
-    // Fresh mmWave state feeds the floor-plan glow too (v7.22.3) — rebuild it
+    // Fresh mmWave state feeds the floor-plan glow too (v7.23.0) — rebuild it
     // so a room actively detected lights up on the house, not just the list.
     if (this._currentTab === 'residence') this._build3DHouse();
   }
@@ -2975,7 +3008,7 @@ class JarvisPanel extends HTMLElement {
     scene.addEventListener('touchstart', (e) => down(e), { passive: true });
   }
 
-  // ---- Floor-plan real dimensions (v7.22.3) ----
+  // ---- Floor-plan real dimensions (v7.23.0) ----
   // Editor grid: a 50-unit major gridline = 10 ft, so 0.2 ft per unit. These
   // real per-room dimensions are the source the 3D structure is built from.
   _fpUnits() { return (this._data().config?.floor_plan_units === 'metric') ? 'metric' : 'imperial'; }
@@ -3209,7 +3242,7 @@ class JarvisPanel extends HTMLElement {
     if (!floorData) return '';
     // Auto-fit the viewBox to the actual rooms (+ padding for edge window markers
     // and protruding dormers) so larger properties and edge elements aren't
-    // clipped (v7.22.3). Drag uses getScreenCTM so it adapts to any viewBox.
+    // clipped (v7.23.0). Drag uses getScreenCTM so it adapts to any viewBox.
     let vb = floorData.viewBox || '0 0 320 140';
     const _rms = floorData.rooms || [];
     if (_rms.length) {
@@ -3286,12 +3319,23 @@ class JarvisPanel extends HTMLElement {
       const c = colors[rm.type] || '#00f2fe';
       const _out = rm.type === 'outdoor';
       const fs = rm.w > 80 ? 7 : (rm.w > 50 ? 5.5 : (rm.w > 25 ? 4 : 3));
+      if (_out) {
+        const _zpts = this._zonePoints(rm);
+        let _zcx = 0, _zcy = 0; _zpts.forEach(p => { _zcx += p[0]; _zcy += p[1]; }); _zcx /= _zpts.length; _zcy /= _zpts.length;
+        svg += '<g class="fp-zone" data-zone-idx="' + i + '">';
+        svg += '<path class="fp-zone-path" data-zone-idx="' + i + '" d="' + this._propPathD(_zpts) + '" fill="rgba(0,245,160,0.05)" stroke="#00f5a0" stroke-width="1" stroke-dasharray="4 3" style="cursor:move"/>';
+        svg += '<text x="' + _zcx.toFixed(1) + '" y="' + _zcy.toFixed(1) + '" text-anchor="middle" fill="#00f5a0" font-size="' + fs + '" font-family="Orbitron, monospace" letter-spacing="0.3" pointer-events="none">' + rm.name.toUpperCase() + '</text>';
+        for (let _vi = 0; _vi < _zpts.length; _vi++) { const _a = _zpts[_vi], _b = _zpts[(_vi + 1) % _zpts.length]; svg += '<circle class="fp-zone-mid" data-zone-idx="' + i + '" data-edge="' + _vi + '" cx="' + ((_a[0] + _b[0]) / 2) + '" cy="' + ((_a[1] + _b[1]) / 2) + '" r="2" fill="none" stroke="#00f5a0" stroke-width="0.6" opacity="0.5" style="cursor:copy"/>'; }
+        for (let _vi = 0; _vi < _zpts.length; _vi++) { svg += '<circle class="fp-zone-vtx" data-zone-idx="' + i + '" data-vtx="' + _vi + '" cx="' + _zpts[_vi][0] + '" cy="' + _zpts[_vi][1] + '" r="2.8" fill="#00f5a0" stroke="#0a0a0a" stroke-width="0.6" style="cursor:grab"/>'; }
+        svg += '</g>';
+      } else {
       svg += '<g class="fp-drag-room" data-idx="' + i + '" style="cursor:move">';
       svg += '<rect x="' + rm.x + '" y="' + rm.y + '" width="' + rm.w + '" height="' + rm.h + '" rx="2" fill="' + (_out ? 'rgba(0,245,160,0.04)' : 'rgba(0,242,254,0.06)') + '" stroke="' + c + '" stroke-width="1"' + (_out ? ' stroke-dasharray="4 3"' : '') + ' class="fp-drag-rect"/>';
       svg += '<text x="' + (rm.x + rm.w/2) + '" y="' + (rm.y + rm.h/2 + 2) + '" text-anchor="middle" fill="' + c + '" font-size="' + fs + '" font-family="Orbitron, monospace" letter-spacing="0.3" pointer-events="none">' + rm.name.toUpperCase() + '</text>';
       if (rm.w > 30 && rm.h > 24) svg += '<text x="' + (rm.x + rm.w/2) + '" y="' + (rm.y + rm.h/2 + fs + 2.5) + '" text-anchor="middle" fill="' + c + '" opacity="0.6" font-size="' + (fs*0.72).toFixed(1) + '" font-family="JetBrains Mono, monospace" pointer-events="none">' + this._fpDim(rm.w) + ' \u00d7 ' + this._fpDim(rm.h) + '</text>';
       svg += '<rect x="' + (rm.x + rm.w - 8) + '" y="' + (rm.y + rm.h - 8) + '" width="8" height="8" fill="' + c + '" opacity="0.3" rx="1" class="fp-resize-handle" data-idx="' + i + '" style="cursor:nwse-resize"/>';
       svg += '</g>';
+      }
     }
 
     // Labels
@@ -3299,7 +3343,7 @@ class JarvisPanel extends HTMLElement {
       svg += '<text x="' + lbl.x + '" y="' + lbl.y + '" text-anchor="middle" fill="#1a3040" font-size="4" font-family="JetBrains Mono, monospace">' + lbl.text + '</text>';
     }
 
-    // placed openings as wall markers (v7.22.3)
+    // placed openings as wall markers (v7.23.0)
     var _els = (this._getEditingElements()[floor]) || [];
     if (_els.length && floorData.rooms && floorData.rooms.length) {
       var mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
@@ -3426,7 +3470,7 @@ class JarvisPanel extends HTMLElement {
              <span class="al-dot"></span>${lit ? 'ON' : 'OFF'}
            </button>`
         : '';
-      // v7.22.3: temp/humidity readout + sparkline, when the area has a sensor.
+      // v7.23.0: temp/humidity readout + sparkline, when the area has a sensor.
       const spark = this._sparklines?.[a.id] || {};
       const tempSpark = spark.temp ? this._sparklineSvg(spark.temp, 'var(--cyan-dim)') : '';
       const humSpark = spark.humidity ? this._sparklineSvg(spark.humidity, 'var(--green)') : '';
@@ -3629,7 +3673,7 @@ class JarvisPanel extends HTMLElement {
       ${this._renderDoorMapping(d)}
     </div>
 
-    <!-- mmWave presence overview (v7.22.3) -->
+    <!-- mmWave presence overview (v7.23.0) -->
     <div class="res-side panel mmwave-panel">
       <div class="head">
         <span>mmWave Presence</span>
@@ -3798,7 +3842,7 @@ class JarvisPanel extends HTMLElement {
         </div>
       </div>
 
-      <!-- ANTICIPATION & MEMORY (v7.22.3) -->
+      <!-- ANTICIPATION & MEMORY (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Anticipation &amp; Memory</span>
@@ -4008,7 +4052,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- OPERATIONAL MODE (Directive Layer, v7.22.3) -->
+      <!-- OPERATIONAL MODE (Directive Layer, v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Operational Mode</span>
@@ -4023,7 +4067,7 @@ ${this._renderRoutineLearning(d)}
         ${this._renderModeBindings(d)}
       </div>
 
-      <!-- WELLBEING CONTEXT (v7.22.3) -->
+      <!-- WELLBEING CONTEXT (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Wellbeing Context</span>
@@ -4038,7 +4082,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- ENERGY MANAGEMENT (v7.22.3) -->
+      <!-- ENERGY MANAGEMENT (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Energy Management</span>
@@ -4056,7 +4100,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- SYSTEM DIAGNOSTICS (v7.22.3) -->
+      <!-- SYSTEM DIAGNOSTICS (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>System Diagnostics</span>
@@ -4071,7 +4115,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- MULTI-HAZARD MONITOR (v7.22.3) -->
+      <!-- MULTI-HAZARD MONITOR (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Hazard Monitor</span>
@@ -4105,7 +4149,7 @@ ${this._renderRoutineLearning(d)}
         <div class="haz-body" id="haz-body"></div>
       </div>
 
-      <!-- SCHEDULED BRIEFINGS (v7.22.3) -->
+      <!-- SCHEDULED BRIEFINGS (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Briefings</span>
@@ -4139,7 +4183,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- DOCUMENT LIBRARY (v7.22.3) -->
+      <!-- DOCUMENT LIBRARY (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Document Library</span>
@@ -4169,7 +4213,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- JARVIS CHARACTER + RESEARCH (v7.22.3) -->
+      <!-- JARVIS CHARACTER + RESEARCH (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>JARVIS Character &amp; Research</span>
@@ -4198,7 +4242,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- CAMERAS (names + location designation, v7.22.3 — moved from Command Center) -->
+      <!-- CAMERAS (names + location designation, v7.23.0 — moved from Command Center) -->
       <div class="panel">
         <div class="head">
           <span>Cameras</span>
@@ -4216,7 +4260,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- INTRUSION / SECURITY (v7.22.3) -->
+      <!-- INTRUSION / SECURITY (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Intrusion</span>
@@ -4228,7 +4272,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- INTRUSION LOG + TRAINING (v7.22.3) -->
+      <!-- INTRUSION LOG + TRAINING (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Intrusion Log</span>
@@ -4243,7 +4287,7 @@ ${this._renderRoutineLearning(d)}
         </div>
       </div>
 
-      <!-- VOICE CONFIRMATION (v7.22.3) -->
+      <!-- VOICE CONFIRMATION (v7.23.0) -->
       <div class="panel">
         <div class="head">
           <span>Voice Confirmation</span>
@@ -4655,7 +4699,7 @@ ${this._renderRoutineLearning(d)}
         try {
           const res = await this._hass.callWS({ type: "jarvis/suggestion_action", suggestion_id: sid, action });
           if (action === "approve") {
-            // v7.22.3: approval now installs the automation into HA directly.
+            // v7.23.0: approval now installs the automation into HA directly.
             this._toast(res?.installed
               ? `✓ installed — "${res.alias || 'automation'}" is now live in Home Assistant`
               : `✓ approved — advisory only${res?.reason ? ` (${res.reason})` : ''}`, "ok");
@@ -4794,7 +4838,7 @@ ${this._renderRoutineLearning(d)}
     // carry data-cfg-key but no data-cfg-val), and their click fired this
     // handler too — writing data-cfg-val (null) over the just-saved value and
     // reverting the provider to groq.
-    // Routine learning: add/remove specific opt-in entities (v7.22.3)
+    // Routine learning: add/remove specific opt-in entities (v7.23.0)
     const _plAddBtn = this.shadowRoot.querySelector('#pl-add-entity');
     if (_plAddBtn) _plAddBtn.addEventListener('click', () => {
       const inp = this.shadowRoot.querySelector('#pl-entity-input');
@@ -4831,7 +4875,7 @@ ${this._renderRoutineLearning(d)}
       });
     });
 
-    // Voice Confirmation: announce test (v7.22.3)
+    // Voice Confirmation: announce test (v7.23.0)
     const vcTestBtn = this.shadowRoot?.getElementById("vc-test");
     if (vcTestBtn && !vcTestBtn._wired) {
       vcTestBtn._wired = true;
@@ -4856,7 +4900,7 @@ ${this._renderRoutineLearning(d)}
       });
     }
 
-    // Onboarding welcome card: dismiss + settings jump (v7.22.3)
+    // Onboarding welcome card: dismiss + settings jump (v7.23.0)
     const obDismiss = this.shadowRoot?.getElementById("ob-dismiss");
     obDismiss?.addEventListener("click", async () => {
       if (this._liveData?.onboarding) this._liveData.onboarding.show = false;
@@ -4870,7 +4914,7 @@ ${this._renderRoutineLearning(d)}
       this._currentTab = "settings";
       this._render();
     });
-    // Per-step jump: switch to Settings and scroll/flash the relevant card (v7.22.3)
+    // Per-step jump: switch to Settings and scroll/flash the relevant card (v7.23.0)
     this.shadowRoot?.querySelectorAll(".ob-step-go[data-ob-jump]").forEach(btn => {
       btn.addEventListener("click", () => {
         const title = btn.getAttribute("data-ob-jump") || "";
@@ -5128,7 +5172,7 @@ ${this._renderRoutineLearning(d)}
   }
 
   // Re-render the floor-plan editor AND re-wire every control (not just drag), so
-  // floor switching, Add Room, delete, etc. keep working after each update (v7.22.3).
+  // floor switching, Add Room, delete, etc. keep working after each update (v7.23.0).
   _rerenderFloorEditor() {
     const edWrap = this.shadowRoot.querySelector("#fp-editor-wrap");
     if (!edWrap) return;
@@ -5218,7 +5262,7 @@ ${this._renderRoutineLearning(d)}
           _house.forEach(r => { hx0 = Math.min(hx0, r.x); hx1 = Math.max(hx1, r.x + r.w); hy1 = Math.max(hy1, r.y + r.h); });
           _zx = Math.round(hx0); _zy = Math.round(hy1 + 25); _zw = Math.round(Math.max(hx1 - hx0, 90));
         }
-        plan[floor].rooms.push({ name: name, x: _zx, y: _zy, w: _zw, h: _zh, type: 'outdoor' });
+        plan[floor].rooms.push({ name: name, x: _zx, y: _zy, w: _zw, h: _zh, type: 'outdoor', points: [[_zx, _zy], [_zx + _zw, _zy], [_zx + _zw, _zy + _zh], [_zx, _zy + _zh]] });
         this._rerenderFloorEditor();
         this._toast("Added zone " + name + " \u2014 size it over the area the camera watches, then Save", "ok");
       });
@@ -5321,7 +5365,7 @@ ${this._renderRoutineLearning(d)}
       });
     }
 
-    // Openings (windows/doors) — add / edit / remove (v7.22.3)
+    // Openings (windows/doors) — add / edit / remove (v7.23.0)
     const addElem = (type, kind) => {
       const fl = this._editorFloor || '1f';
       this._elemsFor(fl).push({ id: 'e' + Date.now().toString(36), type: type, kind: kind, wall: 'front', pos: 0.5, w: 20, entity: '' });
@@ -5402,7 +5446,7 @@ ${this._renderRoutineLearning(d)}
       this._elemsFor(this._editorFloor || '1f').splice(parseInt(b.getAttribute('data-i')), 1);
       this._rerenderFloorEditor();
     }));
-    // Highlight an opening's marker while you hover its row or pick its sensor (v7.22.3)
+    // Highlight an opening's marker while you hover its row or pick its sensor (v7.23.0)
     const glowMarker = (i, on) => {
       const m = this.shadowRoot.querySelector('.op-marker[data-op-marker="' + i + '"]');
       if (m) m.classList.toggle('op-glow', on);
@@ -5519,6 +5563,50 @@ ${this._renderRoutineLearning(d)}
       });
     });
 
+    // Outdoor zone polygons: drag body (move), drag corner (reshape), add/remove corners
+    svgEl.querySelectorAll(".fp-zone-path").forEach(pth => {
+      pth.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const zi = parseInt(pth.getAttribute("data-zone-idx"));
+        const rm = rooms[zi]; if (!rm) return;
+        self._ensureZonePoints(rm);
+        const pt = svgPoint(e);
+        dragging = { zoneBody: true, zi, startX: pt.x, startY: pt.y, ddx: 0, ddy: 0 };
+      });
+    });
+    svgEl.querySelectorAll(".fp-zone-vtx").forEach(v => {
+      v.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const zi = parseInt(v.getAttribute("data-zone-idx")), vi = parseInt(v.getAttribute("data-vtx"));
+        const rm = rooms[zi]; if (!rm) return;
+        const pts = self._ensureZonePoints(rm); const p = pts[vi]; if (!p) return;
+        const pt = svgPoint(e);
+        dragging = { zoneVtx: true, zi, vi, startX: pt.x, startY: pt.y, origX: p[0], origY: p[1] };
+      });
+      v.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const zi = parseInt(v.getAttribute("data-zone-idx")), vi = parseInt(v.getAttribute("data-vtx"));
+        const rm = rooms[zi]; if (!rm) return;
+        const pts = self._ensureZonePoints(rm);
+        if (pts.length <= 3) { self._toast("A zone needs at least 3 corners", "warn"); return; }
+        pts.splice(vi, 1); self._rerenderFloorEditor();
+      });
+    });
+    svgEl.querySelectorAll(".fp-zone-mid").forEach(m => {
+      m.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const zi = parseInt(m.getAttribute("data-zone-idx")), ei = parseInt(m.getAttribute("data-edge"));
+        const rm = rooms[zi]; if (!rm) return;
+        const pts = self._ensureZonePoints(rm);
+        const a = pts[ei], b = pts[(ei + 1) % pts.length]; if (!a || !b) return;
+        pts.splice(ei + 1, 0, [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2)]);
+        self._rerenderFloorEditor();
+      });
+    });
+
     // Property boundary: drag a corner, add a corner (edge midpoint), remove (right-click)
     svgEl.querySelectorAll(".fp-prop-vtx").forEach(v => {
       v.addEventListener("mousedown", (e) => {
@@ -5589,6 +5677,24 @@ ${this._renderRoutineLearning(d)}
     svgEl.addEventListener("mousemove", (e) => {
       if (!dragging) return;
       const pt = svgPoint(e);
+      if (dragging.zoneVtx) {
+        const rm = rooms[dragging.zi]; if (!rm || !rm.points) return;
+        const p = rm.points[dragging.vi]; if (!p) return;
+        p[0] = Math.round(dragging.origX + (pt.x - dragging.startX));
+        p[1] = Math.round(dragging.origY + (pt.y - dragging.startY));
+        const g = svgEl.querySelector('.fp-zone[data-zone-idx="' + dragging.zi + '"]');
+        if (g) {
+          const path = g.querySelector('.fp-zone-path'); if (path) path.setAttribute('d', self._propPathD(rm.points));
+          const dot = g.querySelector('.fp-zone-vtx[data-vtx="' + dragging.vi + '"]'); if (dot) { dot.setAttribute('cx', p[0]); dot.setAttribute('cy', p[1]); }
+        }
+        return;
+      }
+      if (dragging.zoneBody) {
+        dragging.ddx = Math.round(pt.x - dragging.startX); dragging.ddy = Math.round(pt.y - dragging.startY);
+        const g = svgEl.querySelector('.fp-zone[data-zone-idx="' + dragging.zi + '"]');
+        if (g) g.setAttribute('transform', 'translate(' + dragging.ddx + ',' + dragging.ddy + ')');
+        return;
+      }
       if (dragging.property) {
         const p = (self._propertyPts() || [])[dragging.propVtx];
         if (!p) return;
@@ -5621,7 +5727,7 @@ ${this._renderRoutineLearning(d)}
         rm.h = Math.max(10, Math.round(dragging.origH + (pt.y - dragging.startY)));
       } else {
         // No positive clamp — objects place anywhere in the field, including left of
-        // the garage (x<0) and in front of the home (y<0). (v7.22.3)
+        // the garage (x<0) and in front of the home (y<0). (v7.23.0)
         rm.x = Math.round(dragging.origX + (pt.x - dragging.startX));
         rm.y = Math.round(dragging.origY + (pt.y - dragging.startY));
       }
@@ -5640,7 +5746,14 @@ ${this._renderRoutineLearning(d)}
     });
 
     const endDrag = () => {
-      if (dragging) { const heavy = dragging.camera || dragging.property; dragging = null; if (heavy) self._rerenderFloorEditor(); else redraw(); }
+      if (!dragging) return;
+      if (dragging.zoneBody) {
+        const rm = rooms[dragging.zi];
+        if (rm && rm.points && (dragging.ddx || dragging.ddy)) rm.points.forEach(p => { p[0] += dragging.ddx; p[1] += dragging.ddy; });
+      }
+      const heavy = dragging.camera || dragging.property || dragging.zoneVtx || dragging.zoneBody;
+      dragging = null;
+      if (heavy) self._rerenderFloorEditor(); else redraw();
     };
     svgEl.addEventListener("mouseup", endDrag);
     svgEl.addEventListener("mouseleave", endDrag);
@@ -5690,7 +5803,7 @@ ${this._renderRoutineLearning(d)}
   }
 
   _camName(entity) {
-    // JARVIS-only display name (v7.22.3): camera_names map → picker name →
+    // JARVIS-only display name (v7.23.0): camera_names map → picker name →
     // entity tail. Mirrors server-side camera.display_name.
     const cfg = (this._liveData && this._liveData.config) || {};
     const custom = (cfg.camera_names || {})[entity];
@@ -5731,7 +5844,7 @@ ${this._renderRoutineLearning(d)}
     }
 
     // live MJPEG via HA's camera proxy; only (re)attach when entity, source,
-    // or token changes. src = the frame source (override-aware, v7.22.3).
+    // or token changes. src = the frame source (override-aware, v7.23.0).
     const src = this._camSource(entity);
     const tok = this._camToken(src);
     const key = entity + "|" + src + "|" + (tok || "");
@@ -5744,7 +5857,7 @@ ${this._renderRoutineLearning(d)}
       if (!img) {
         img = document.createElement("img");
         feed.prepend(img);
-        // Escalating fallback chain (v7.22.3): MJPEG stream → proxy stills →
+        // Escalating fallback chain (v7.23.0): MJPEG stream → proxy stills →
         // JARVIS backend snapshot. WebRTC-only Nest cams fail BOTH proxy
         // tiers (no MJPEG; no stills while idle), which used to leave the
         // tile blank in an error loop.
@@ -5752,7 +5865,7 @@ ${this._renderRoutineLearning(d)}
           if (this._camMode === "stream") this._camFallback(entity);
           else if (this._camMode === "still") this._camJarvisFallback(entity);
         });
-        // v7.22.3: a decoded frame proves the tier works only if it isn't
+        // v7.23.0: a decoded frame proves the tier works only if it isn't
         // BLACK — Nest MJPEG happily decodes an all-black stream.
         img.addEventListener("load", () => {
           if (img.naturalWidth > 0 && this._camWatchdog) {
@@ -5771,7 +5884,7 @@ ${this._renderRoutineLearning(d)}
       if (this._camModeByEntity[entity] === "jarvis") {
         this._camJarvisFallback(entity);
       } else {
-        // v7.22.3: no-frame watchdog. Nest WebRTC proxies typically HANG
+        // v7.23.0: no-frame watchdog. Nest WebRTC proxies typically HANG
         // (HTTP 200, zero frames) instead of erroring, so the error-driven
         // chain never fired. No decoded pixels within the window ⇒ escalate.
         this._armCamWatchdog(entity, img, "stream", 6000);
@@ -5826,7 +5939,7 @@ ${this._renderRoutineLearning(d)}
     }).join("");
   }
 
-  // ── Wellbeing Context (v7.22.3) ──
+  // ── Wellbeing Context (v7.23.0) ──
   async _fetchBio() {
     if (!this._hass) return;
     try {
@@ -5885,7 +5998,7 @@ ${this._renderRoutineLearning(d)}
     });
   }
 
-  // ── Energy Management (v7.22.3) ──
+  // ── Energy Management (v7.23.0) ──
   async _fetchEnergy() {
     if (!this._hass) return;
     try {
@@ -5951,8 +6064,8 @@ ${this._renderRoutineLearning(d)}
     });
   }
 
-  // ── Operational Mode (Directive Layer, v7.22.3) ──
-  // ── Intrusion / Security (v7.22.3) ──
+  // ── Operational Mode (Directive Layer, v7.23.0) ──
+  // ── Intrusion / Security (v7.23.0) ──
   async _fetchIntrusion() {
     if (!this._hass) return;
     // pull the configured response timeout so the select reflects the saved value
@@ -6041,7 +6154,7 @@ ${this._renderRoutineLearning(d)}
     });
   }
 
-  // ── Intrusion Log + training (v7.22.3) ──
+  // ── Intrusion Log + training (v7.23.0) ──
   async _wireIntrusionLog() {
     await this._fetchIntrusionLog();
     const btn = this.shadowRoot?.getElementById("ilog-refresh");
@@ -6171,7 +6284,7 @@ ${this._renderRoutineLearning(d)}
     this._fetchMode();
   }
 
-  // ── System Diagnostics — core service health (v7.22.3) ──
+  // ── System Diagnostics — core service health (v7.23.0) ──
   async _fetchDiagnostics() {
     if (!this._hass) return;
     try {
@@ -6221,8 +6334,8 @@ ${this._renderRoutineLearning(d)}
     });
   }
 
-  // ── Multi-Hazard Monitor — v7.22.3 ──
-  // ── Scheduled briefings — v7.22.3 ──
+  // ── Multi-Hazard Monitor — v7.23.0 ──
+  // ── Scheduled briefings — v7.23.0 ──
   _wireBriefings() {
     const btn = this.shadowRoot?.getElementById("brief-now");
     btn?.addEventListener("click", async () => {
@@ -6301,7 +6414,7 @@ ${this._renderRoutineLearning(d)}
     return html;
   }
 
-  // ── Document Library (RAG) — v7.22.3 ──
+  // ── Document Library (RAG) — v7.23.0 ──
   async _fetchDocLibrary() {
     if (!this._hass) return;
     try {
@@ -6477,7 +6590,7 @@ ${this._renderRoutineLearning(d)}
     });
   }
 
-  // ── Optional ChromaDB vector backend — v7.22.3 ──
+  // ── Optional ChromaDB vector backend — v7.23.0 ──
   async _fetchVectorBackend() {
     if (!this._hass) return;
     try {
@@ -6556,7 +6669,7 @@ ${this._renderRoutineLearning(d)}
   }
 
   _wireCameraSettings() {
-    // Camera on/off toggles — choose which cameras JARVIS uses (v7.22.3).
+    // Camera on/off toggles — choose which cameras JARVIS uses (v7.23.0).
     const applyDisabled = async (next, msg) => {
       try {
         await this._hass.callWS({ type: "jarvis/update_config", key: "disabled_cameras", value: JSON.stringify(next) });
@@ -6725,7 +6838,7 @@ ${this._renderRoutineLearning(d)}
     this._camWatchdog = setTimeout(() => {
       this._camWatchdog = null;
       if (this._activeCam !== entity || this._camMode !== expectMode) return;
-      // v7.22.3: pixels alone don't prove a working tier — a Nest MJPEG can
+      // v7.23.0: pixels alone don't prove a working tier — a Nest MJPEG can
       // decode a steady BLACK stream (naturalWidth > 0, nothing visible),
       // which defeated the original watchdog. Escalate on no-pixels OR a
       // near-black frame; an unsampleable frame gets the benefit of the doubt.
@@ -6785,7 +6898,7 @@ ${this._renderRoutineLearning(d)}
           hint("NO FRAME — camera idle or unreachable. For Nest: verify the Google Nest integration is loaded and events are enabled.");
         }
       } catch (err) {
-        // v7.22.3: don't swallow this — the most common cause is the WS
+        // v7.23.0: don't swallow this — the most common cause is the WS
         // command not existing because HA wasn't restarted after updating.
         const m = String(err?.message || err?.code || err || "");
         hint(/unknown|not.*found|invalid.*type/i.test(m)
@@ -7774,7 +7887,7 @@ ${this._renderRoutineLearning(d)}
   .h3d-lamp.static { cursor: default; }
   .area.bedroom .area-name::before { content: '◐ '; color: var(--amber); }
 
-  /* AREA READINGS + SPARKLINES (v7.22.3) */
+  /* AREA READINGS + SPARKLINES (v7.23.0) */
   .area-readings { display: flex; gap: 10px; flex-wrap: wrap; }
   .area-reading {
     display: inline-flex; align-items: center; gap: 5px;
@@ -7782,7 +7895,7 @@ ${this._renderRoutineLearning(d)}
   }
   .spark { width: 44px; height: 14px; flex-shrink: 0; opacity: 0.85; }
 
-  /* AREA DETAIL DRILL-DOWN (v7.22.3) */
+  /* AREA DETAIL DRILL-DOWN (v7.23.0) */
   .area-detail-overlay {
     position: fixed; inset: 0; z-index: 40;
     background: rgba(2, 6, 10, 0.75);
@@ -7839,7 +7952,7 @@ ${this._renderRoutineLearning(d)}
   .adm-row span:last-child { color: var(--text); }
   .area-light.adl { margin: 0; }
 
-  /* CAMERA DIAGNOSTICS (v7.22.3) */
+  /* CAMERA DIAGNOSTICS (v7.23.0) */
   .cam-diag-btn {
     font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.14em;
     padding: 2px 8px; margin-left: 10px; border-radius: 3px; cursor: pointer;
@@ -9142,7 +9255,7 @@ if (!customElements.get("jarvis-panel")) {
 }
 
 console.info(
-  "%c JARVIS Panel %c v7.22.3 ",
+  "%c JARVIS Panel %c v7.23.0 ",
   "color: #00f2fe; background: #050709; padding: 2px 6px;",
   "color: #567685; background: #0a0d12; padding: 2px 6px;"
 );

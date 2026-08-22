@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.23.0] — outdoor zones can be any shape (polygons)
+Outdoor zones are no longer limited to rectangles. Drag a zone's corners to reshape it,
+double-click an edge to add a corner, right-click a corner to remove one — so a zone can
+follow an irregular yard, an L-shaped lot, or a stepped boundary. Drag the zone's body to
+move the whole thing. Camera coverage samples the true polygon shape, and zones still stay
+out of the 3D house.
+
 ## [7.22.3] — place outdoor zones anywhere, including left of and in front of the home
 Fixes not being able to move an outdoor zone to the left of the garage or in front of the
 home. The editor was clamping every object to positive coordinates, so nothing could be
