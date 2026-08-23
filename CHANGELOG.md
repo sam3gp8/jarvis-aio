@@ -4,6 +4,19 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.25.1] — fix upstairs windows lighting for the whole floor
+Fixes the remaining part of the upstairs occupancy bug: the 2nd-floor windows (gable-end and
+front/back) lit whenever any upstairs room was occupied, while the dormers correctly lit only
+for their own room. Both now use the same per-room occupancy, so an upstairs window lights
+only when the room it belongs to actually has someone in it.
+
+## [7.25.0] — non-rectangular rooms (floor plan, phase 3a)
+Rooms can now be any shape. Select a room and click Reshape to turn it into an editable
+polygon — drag corners, double-click an edge to add one, right-click a corner to remove —
+for L-shaped rooms, angled walls, and the like. Plain rectangular rooms are unchanged, with
+the familiar resize handle. Camera coverage and sightlines use the true room shape. In the
+3D house, reshaped rooms currently render as their bounding box; true polygonal 3D is next.
+
 ## [7.24.1] — fix upstairs showing fully occupied in the 3D view
 Fixes the residence 3D view lighting every upstairs dormer when only one room is occupied
 (and appearing to occupy rooms with no presence sensor). Each dormer now lights only for the
