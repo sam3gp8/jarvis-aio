@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.29.0] — roof follows irregular footprints without a garage (floor plan, phase 3b-2b)
+For homes without an attached garage, the 3D roof now follows an irregular (L- or T-shaped)
+footprint instead of covering the bounding box — each rectangular section of the house gets
+its own gable, so the roof no longer overhangs a notch. Rectangular homes and homes with an
+attached garage are unchanged.
+
 ## [7.28.2] — continuous exterior walls in 3D (no seams between rooms)
 Fixes the persistent "breaks" in the 3D exterior walls. Each room was drawing its own wall
 segment, so adjacent rooms' walls met at a seam line that looked like a break. Collinear
