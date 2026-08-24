@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.31.0] — bay windows and bump-outs in the 3D roof (floor plan, phase 3b-3)
+Completes the polygonal floor-plan work: a room reshaped to jut out (a bay window or a bump-
+out) is now recognized as its own section of the house and gets its own roof, instead of
+stretching the main roof forward to cover it. Rectangular rooms and homes are unchanged.
+
 ## [7.30.0] — roof follows irregular footprints with a garage too (floor plan, phase 3b-2b)
 Extends the irregular-footprint roof to homes with an attached garage: if the main house is
 an irregular (L- or T-shaped) mass, each section gets its own gable, and the garage roof now
