@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.28.2] — continuous exterior walls in 3D (no seams between rooms)
+Fixes the persistent "breaks" in the 3D exterior walls. Each room was drawing its own wall
+segment, so adjacent rooms' walls met at a seam line that looked like a break. Collinear
+walls now merge into a single continuous run, so a wall spanning several rooms draws as one
+seamless wall.
+
 ## [7.28.1] — seamless exterior walls (snap touching rooms in 3D)
 Fixes small gaps ("breaks") in the 3D exterior walls where two rooms were placed nearly — but
 not exactly — touching. The 3D view now aligns edges within about a foot of each other, so
