@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.26.0] — polygonal rooms in the per-floor 3D (phase 3b-1)
+Reshaped (non-rectangular) rooms now render with their true shape in the per-floor 3D views
+(1st Floor / 2nd Floor / Basement) — walls trace each polygon edge instead of a bounding box.
+The exterior "All" view still uses the bounding box for the house shell for now; the full
+polygonal shell and roof are the next step.
+
 ## [7.25.1] — fix upstairs windows lighting for the whole floor
 Fixes the remaining part of the upstairs occupancy bug: the 2nd-floor windows (gable-end and
 front/back) lit whenever any upstairs room was occupied, while the dormers correctly lit only
