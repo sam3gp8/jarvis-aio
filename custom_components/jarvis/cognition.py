@@ -548,6 +548,19 @@ def distance_home_km(hass, st):
     return _haversine_km(ec[0], ec[1], hc[0], hc[1])
 
 
+def _log_decision(kind, observation, interpretation, decision, reason, confidence=None):
+    """Record a proactive decision to the immutable Decision Record (v7.32.0).
+    Best-effort by design — a logging failure must never break the decision."""
+    try:
+        from . import decision_record
+        decision_record.record(
+            kind, observation=observation, interpretation=interpretation,
+            decision=decision, reason=reason, confidence=confidence,
+        )
+    except Exception:
+        pass
+
+
 def predict_overdue(hass, now: float = None) -> list:
     """
     Flag recurring daily events that haven't happened yet today by their usual
@@ -577,6 +590,13 @@ def predict_overdue(hass, now: float = None) -> list:
             st = hass.states.get(eid)
             name = st.attributes.get("friendly_name", eid) if st else eid
             usual = f"{int(mean_s // 3600):02d}:{int((mean_s % 3600) // 60):02d}"
+            _log_decision(
+                "anticipation_overdue",
+                {"entity": name, "entity_id": eid, "usual_active_by": usual},
+                {"predicted": "no activity yet, past the usual time"},
+                "flag overdue activity",
+                "recurring daily activity pattern",
+            )
             out.append({
                 "type": "anticipation_overdue",
                 "urgency": "low",
@@ -739,6 +759,13 @@ async def predict_departure(hass, now: float = None) -> list:
             _RECUR_ALERTED[key] = today
             mins_to = max(0, int((start_dt - now_dt).total_seconds() // 60))
             loc_str = (" at %s" % loc) if loc else ""
+            _log_decision(
+                "anticipation_departure",
+                {"event": title, "location": loc or None, "minutes_until": mins_to},
+                {"predicted": "departure imminent — should leave soon"},
+                "announce departure heads-up",
+                "recurring calendar event + estimated travel time",
+            )
             out.append({
                 "type": "anticipation_departure", "urgency": "low",
                 "message": ("Heads up — %s%s begins in about %d minutes; "
@@ -804,6 +831,13 @@ def predict_routine_start(hass, now: float = None) -> list:
             if _RECUR_ALERTED.get(key) == today:
                 continue
             _RECUR_ALERTED[key] = today
+            _log_decision(
+                "anticipation_routine",
+                {"person": person, "routine": desc},
+                {"predicted": "routine usually starts around now"},
+                "prompt routine start",
+                "learned per-person routine",
+            )
             out.append({
                 "type": "anticipation_routine", "urgency": "low",
                 "message": "Around this time you usually %s." % desc,
@@ -842,6 +876,13 @@ def predict_presence(hass, now: float = None) -> list:
                 key = "dep:" + eid
                 if now_secs > m + tol and _RECUR_ALERTED.get(key) != today:
                     _RECUR_ALERTED[key] = today
+                    _log_decision(
+                        "anticipation_presence",
+                        {"person": name, "entity_id": eid, "usual_out_by": _hhmm(m)},
+                        {"predicted": "still home past the usual departure time"},
+                        "flag still-home",
+                        "recurring departure pattern",
+                    )
                     out.append({
                         "type": "anticipation_presence", "urgency": "low",
                         "message": (f"{name} is usually out by around {_hhmm(m)}, "
@@ -858,6 +899,13 @@ def predict_presence(hass, now: float = None) -> list:
                 key = "arr:" + eid
                 if now_secs > m + tol and _RECUR_ALERTED.get(key) != today:
                     _RECUR_ALERTED[key] = today
+                    _log_decision(
+                        "anticipation_presence",
+                        {"person": name, "entity_id": eid, "usual_home_by": _hhmm(m)},
+                        {"predicted": "not home yet, past the usual arrival time"},
+                        "flag not-back",
+                        "recurring arrival pattern",
+                    )
                     out.append({
                         "type": "anticipation_presence", "urgency": "low",
                         "message": (f"{name} is usually home by around {_hhmm(m)}, "
