@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.30.0] — roof follows irregular footprints with a garage too (floor plan, phase 3b-2b)
+Extends the irregular-footprint roof to homes with an attached garage: if the main house is
+an irregular (L- or T-shaped) mass, each section gets its own gable, and the garage roof now
+spans the garage's actual depth rather than the full house depth (fixing an overhang when the
+garage is shallower than the house). Rectangular houses are unchanged.
+
 ## [7.29.0] — roof follows irregular footprints without a garage (floor plan, phase 3b-2b)
 For homes without an attached garage, the 3D roof now follows an irregular (L- or T-shaped)
 footprint instead of covering the bounding box — each rectangular section of the house gets
