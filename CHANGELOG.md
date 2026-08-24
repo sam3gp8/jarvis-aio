@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.27.0] — floor-below outline in the editor
+When editing an upper floor, the floor directly below now shows as a dashed red outline
+behind your rooms — a footprint reference so you can keep the upper floor within the lower
+one. Editing the 2nd floor shows the 1st floor's outline; editing the 1st floor shows the
+basement's, if you have one. Outdoor zones are excluded from the reference.
+
 ## [7.26.1] — fix Prompt size = 0 (counts only) reverting to 15
 Fixes the Prompt size setting snapping back to 15 in the panel after you set it to 0. The
 value was being read back with a check that treated 0 as "unset," so the display reverted —
