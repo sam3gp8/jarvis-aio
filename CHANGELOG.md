@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.28.0] — exterior walls follow the real footprint (floor plan, phase 3b-2a)
+The 3D house's exterior walls now trace the actual footprint outline instead of a bounding
+box, so an L-shaped or stepped floor plan gets walls that follow its real shape, with shared
+interior walls correctly left out. The pitched roof still spans the bounding box for now (the
+polygonal roof is the next step) — so a non-rectangular footprint may show the roof
+overhanging a notch until then. Rectangular homes look the same as before.
+
 ## [7.27.0] — floor-below outline in the editor
 When editing an upper floor, the floor directly below now shows as a dashed red outline
 behind your rooms — a footprint reference so you can keep the upper floor within the lower
