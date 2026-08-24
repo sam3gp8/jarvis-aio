@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.26.1] — fix Prompt size = 0 (counts only) reverting to 15
+Fixes the Prompt size setting snapping back to 15 in the panel after you set it to 0. The
+value was being read back with a check that treated 0 as "unset," so the display reverted —
+though the setting was actually applied behind the scenes. Setting it to 0 now sticks and
+shows counts only, as intended.
+
 ## [7.26.0] — polygonal rooms in the per-floor 3D (phase 3b-1)
 Reshaped (non-rectangular) rooms now render with their true shape in the per-floor 3D views
 (1st Floor / 2nd Floor / Basement) — walls trace each polygon edge instead of a bounding box.

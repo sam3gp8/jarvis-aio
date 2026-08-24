@@ -111,6 +111,15 @@ def _runtime_opt(hass: HomeAssistant, entry, key: str, default=None):
     return _entry_opt(entry, key, default)
 
 
+def _int_opt(hass: HomeAssistant, entry, key: str, default: int) -> int:
+    """Read an int option, preserving 0 — `value or default` clobbers a valid 0."""
+    v = _runtime_opt(hass, entry, key, default)
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def _area_name(hass: HomeAssistant, area_id: str) -> str:
     """Friendly name for an area_id."""
     try:
@@ -799,7 +808,7 @@ async def ws_get_panel_data(
                 "floor_plan_elements":  _get_runtime_json(hass, entry, "floor_plan_elements", {}),
                 "floor_plan_cameras":   _get_runtime_json(hass, entry, "floor_plan_cameras", {}),
                 "floor_plan_property":  _get_runtime_json(hass, entry, "floor_plan_property", {}),
-                "home_context_max_entities": int(_runtime_opt(hass, entry, "home_context_max_entities", 15) or 15),
+                "home_context_max_entities": _int_opt(hass, entry, "home_context_max_entities", 15),
                 "disabled_cameras":     _get_runtime_json(hass, entry, "disabled_cameras", []),
                 "home_stories":         _runtime_opt(hass, entry, "home_stories", "1.5"),
                 "has_basement":         _runtime_opt(hass, entry, "has_basement", True),
