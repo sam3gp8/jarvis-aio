@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.28.1] — seamless exterior walls (snap touching rooms in 3D)
+Fixes small gaps ("breaks") in the 3D exterior walls where two rooms were placed nearly — but
+not exactly — touching. The 3D view now aligns edges within about a foot of each other, so
+adjacent rooms form a continuous wall. Your saved layout, the 2D editor, and coverage are
+unchanged; this only affects how the 3D house is drawn.
+
 ## [7.28.0] — exterior walls follow the real footprint (floor plan, phase 3b-2a)
 The 3D house's exterior walls now trace the actual footprint outline instead of a bounding
 box, so an L-shaped or stepped floor plan gets walls that follow its real shape, with shared
