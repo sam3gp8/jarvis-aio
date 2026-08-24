@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.33.0] — panel localization (French, German, Spanish, Italian, Portuguese, Dutch)
+The JARVIS panel now follows your Home Assistant language. Section headers, tabs, and labels
+are translated when a matching language file exists — starting with French, German, Spanish,
+Italian, Portuguese, and Dutch. Technical values (entity IDs, model names, numbers) stay
+unchanged. Translations are plain JSON files keyed by the English text, so the community can
+add or extend a language without touching code; anything not yet translated stays English.
+
 ## [7.32.0] — decision-record foundation for proactive anticipation
 Begins an internal record of JARVIS's proactive decisions. Each anticipation heads-up —
 departure, routine, overdue, or presence — is now logged as an immutable entry capturing the
