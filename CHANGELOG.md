@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.46.0] — tune recognition strictness and Ollama context from the panel
+Two settings are now adjustable from the panel. Recognition confidence sets how sure JARVIS must
+be about a face before it names a person — below the threshold it records "unknown" — so you can
+raise it to cut false names or lower it to name people more readily. Ollama context window sets
+the context size (num_ctx) for local models, so a larger local model can use more context at the
+cost of more memory; leave it at the default if you're unsure.
+
 ## [7.45.1] — Observer enabled from the panel now survives a restart
 Turning on Observer mode from the panel didn't persist across a Home Assistant restart — on boot
 JARVIS read the older add-on/entry setting instead of your panel choice, so the observer stayed

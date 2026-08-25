@@ -231,8 +231,18 @@ class OllamaProvider(OpenAIProvider):
         # field and "content" stays empty until it finishes. On a small token
         # budget that means an empty answer, so we ask Ollama to skip thinking
         # and answer directly. Harmless on non-reasoning models.
+        # num_ctx is configurable (ollama_num_ctx) so a larger local model can
+        # use a bigger context window; falls back to the default.
+        num_ctx = OLLAMA_NUM_CTX
+        try:
+            from . import jarvis_config
+            num_ctx = int(jarvis_config.get("ollama_num_ctx", OLLAMA_NUM_CTX) or OLLAMA_NUM_CTX)
+            if num_ctx < 512:
+                num_ctx = OLLAMA_NUM_CTX
+        except Exception:
+            num_ctx = OLLAMA_NUM_CTX
         return {"keep_alive": OLLAMA_KEEP_ALIVE, "think": False,
-                "options": {"num_ctx": OLLAMA_NUM_CTX}}
+                "options": {"num_ctx": num_ctx}}
 
 
 # ─── Anthropic ───────────────────────────────────────────────────────────────

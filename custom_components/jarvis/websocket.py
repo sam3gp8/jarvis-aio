@@ -723,6 +723,8 @@ async def ws_get_panel_data(
                 "departure_origin_entity": str(_runtime_opt(hass, entry, "departure_origin_entity", "") or ""),
                 "departure_osrm_url": str(_runtime_opt(hass, entry, "departure_osrm_url", "") or ""),
                 "departure_travel_sensor": str(_runtime_opt(hass, entry, "departure_travel_sensor", "") or ""),
+                "identity_min_confidence": _runtime_opt(hass, entry, "identity_min_confidence", 0.45),
+                "ollama_num_ctx": _runtime_opt(hass, entry, "ollama_num_ctx", 8192),
                 "memory_threading_enabled": bool(_runtime_opt(hass, entry, "memory_threading_enabled", True)),
                 "memory_threading_hours": _runtime_opt(hass, entry, "memory_threading_hours", 48),
                 "memory_threading_max": _runtime_opt(hass, entry, "memory_threading_max", 12),
@@ -1387,6 +1389,8 @@ PANEL_WRITABLE_KEYS = {
     "pattern_confidence",           # float: pattern engine confidence threshold
     "light_control_enabled",        # bool: allow toggling lights from the dashboard
     "appliance_power_guessing",     # bool: announce fingerprint/auto-discovered guesses
+    "identity_min_confidence",      # float: face-match threshold below which a person is 'unknown'
+    "ollama_num_ctx",               # int: Ollama context window for local models
 }
 
 # ── Debug log ring buffer ────────────────────────────────────────────────────
