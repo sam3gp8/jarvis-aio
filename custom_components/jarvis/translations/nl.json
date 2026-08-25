@@ -1,0 +1,107 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "JARVIS-installatie",
+        "description": "{note}",
+        "data": {
+          "api_key": "Cloud-LLM-API-sleutel (bijv. Groq)",
+          "llm_base_url": "Basis-URL van lokale LLM — voor Ollama host homeassistant.local, poort 11434, pad /v1",
+          "model": "Conversatiemodel",
+          "honorific": "Spreek mij aan met"
+        }
+      }
+    },
+    "error": {
+      "need_llm": "Voer een cloud-API-sleutel of een lokale LLM-URL in.",
+      "cannot_connect": "Kon de LLM niet bereiken. Controleer of de URL/het endpoint klopt en of de server (bijv. Ollama) draait.",
+      "invalid_auth": "De API-sleutel werd geweigerd. Controleer de sleutel en probeer opnieuw.",
+      "unknown": "Kon de LLM-verbinding niet valideren. Controleer de instellingen en probeer opnieuw."
+    },
+    "abort": {
+      "already_configured": "JARVIS is al geconfigureerd.",
+      "import_failed": "JARVIS-configuratie gevonden maar geen bruikbare LLM (geen API-sleutel en geen lokaal endpoint)."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "JARVIS — Configureren",
+        "menu_options": {
+          "core": "Kern — persona, richtlijn, conversatiemodel",
+          "routing": "Routering — slaapkamergebieden, omroepgroep, meldingsdienst",
+          "observer": "Waarnemer — proactief bewustzijn (vereist een Gemini-sleutel)",
+          "identity": "Identiteit — herkenning per persoon",
+          "email": "E-mail — alleen-lezen inbox (wachtwoord via secrets.yaml)"
+        }
+      },
+      "core": {
+        "title": "JARVIS — Kern",
+        "description": "Persona, richtlijn en conversatiemodel.",
+        "data": {
+          "honorific": "Spreek mij aan met",
+          "directive_preset": "Richtlijn-voorinstelling",
+          "directive": "Aangepaste richtlijn (optioneel, overschrijft voorinstelling)",
+          "model": "Conversatiemodel",
+          "use_hass_api": "Huisbediening inschakelen (verlichting, klimaat, sloten, enz.)"
+        }
+      },
+      "routing": {
+        "title": "JARVIS — Routering",
+        "description": "kies welke HA-gebieden slaapkamers zijn (voor slaapdetectie), welke media_player-groep voor omroepberichten en je telefoonmeldingsdienst.",
+        "data": {
+          "bedroom_areas": "Slaapkamergebieden (voor slaapdetectie tijdens stille uren)",
+          "broadcast_group": "Omroepluidsprekergroep (meestal je Cast-groep thuis)",
+          "notify_service": "Telefoonmeldingsdienst (bijv. notify.mobile_app_yourphone)"
+        },
+        "data_description": {
+          "bedroom_areas": "Elke aanwezigheidssensor in deze gebieden activeert de slaapstand tijdens stille uren.",
+          "broadcast_group": "Gebruikt voor kritieke en zeer dringende aankondigingen.",
+          "notify_service": "Gebruikt wanneer je van huis of in slaap bent."
+        }
+      },
+      "observer": {
+        "title": "JARVIS — Waarnemermodus",
+        "description": "proactief bewustzijn. JARVIS houdt je huis in de gaten en laat van zich horen als er iets vermeldenswaardig is. Vereist een Gemini-API-sleutel (facturering ingeschakeld aanbevolen).",
+        "data": {
+          "observer_enabled": "Waarnemermodus inschakelen",
+          "gemini_api_key": "Gemini-API-sleutel",
+          "classifier_model": "Classificatiemodel (Niveau 1 — goedkoop)",
+          "reasoning_model": "Redeneermodel (Niveau 2 — hoofd)",
+          "review_model": "Beoordelingsmodel (Niveau 3 — periodiek)",
+          "observer_quiet_start": "Begin stille uren (UU:MM)",
+          "observer_quiet_end": "Einde stille uren (UU:MM)"
+        }
+      },
+      "identity": {
+        "title": "JARVIS — Identiteit",
+        "description": "herkenning per persoon, zodat JARVIS zich aanpast aan wie er spreekt. Werkt zonder speciale hardware via aanwezigheid en (indien ingesteld) gezichtsherkenning via camera. Stemherkenning is het nauwkeurigst maar vereist een lokale GPU en staat daarom standaard uit.",
+        "data": {
+          "identity_enabled": "Herkennen wie er spreekt",
+          "identity_voice_fingerprint": "Stemherkenning (vereist een lokale GPU)",
+          "identity_min_confidence": "Minimale zekerheid voordat een persoon wordt vastgelegd",
+          "voice_recognition_source": "Bron voor stemherkenning (entiteit van een sprekerherkenningsdienst, bijv. binary_sensor.*_voice)",
+          "voice_recognition_auto_enroll": "Stemmen automatisch markeren om aan te melden terwijl mensen spreken"
+        },
+        "data_description": {
+          "identity_enabled": "Gebruikt wie er thuis is + recente gezichtsherkenning via camera. Geen GPU nodig.",
+          "identity_voice_fingerprint": "Laat uit tenzij je een GPU-server met een stem-ID-model hebt.",
+          "identity_min_confidence": "Hoger = voorzichtiger; blijft neutraal bij twijfel."
+        }
+      },
+      "email": {
+        "title": "JARVIS — E-mail",
+        "description": "Alleen-lezen toegang tot de inbox. Het IMAP-wachtwoord wordt gelezen uit de secrets.yaml van Home Assistant — voeg het daar toe onder de sleutel hieronder (standaard jarvis_imap_password); het wordt nooit in de panelconfiguratie opgeslagen.",
+        "data": {
+          "imap_enabled": "E-mail lezen inschakelen",
+          "imap_host": "IMAP-host (bijv. imap.gmail.com)",
+          "imap_port": "IMAP-poort (SSL: 993)",
+          "imap_user": "IMAP-gebruikersnaam / e-mailadres",
+          "imap_folder": "Postbusmap (standaard INBOX)",
+          "imap_ssl": "SSL gebruiken (aanbevolen)",
+          "imap_secret_key": "secrets.yaml-sleutel met het wachtwoord"
+        }
+      }
+    }
+  }
+}

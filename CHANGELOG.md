@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.36.0] — setup dialog translations (French, German, Spanish, Italian, Portuguese, Dutch)
+The JARVIS setup and configuration dialogs (config flow) are now translated through Home
+Assistant's own language system — every step, field, description, and error message in French,
+German, Spanish, Italian, Portuguese, and Dutch. Home Assistant shows them automatically in
+your selected language.
+
 ## [7.35.0] — broader panel translations (floor plan, toggles, messages)
 Extends panel localization further across French, German, Spanish, Italian, Portuguese, and
 Dutch — the floor-plan editor, proactive and observer toggle descriptions, feature names, and

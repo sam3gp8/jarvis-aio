@@ -1,0 +1,107 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuración de JARVIS",
+        "description": "{note}",
+        "data": {
+          "api_key": "Clave API de LLM en la nube (p. ej. Groq)",
+          "llm_base_url": "URL base del LLM local — para Ollama usa el host homeassistant.local, puerto 11434, ruta /v1",
+          "model": "Modelo de conversación",
+          "honorific": "Diríjase a mí como"
+        }
+      }
+    },
+    "error": {
+      "need_llm": "Introduzca una clave API en la nube o una URL de LLM local.",
+      "cannot_connect": "No se pudo contactar con el LLM. Compruebe que la URL/el endpoint es correcto y que el servidor (p. ej. Ollama) está en marcha.",
+      "invalid_auth": "La clave API fue rechazada. Compruebe la clave e inténtelo de nuevo.",
+      "unknown": "No se pudo validar la conexión con el LLM. Compruebe los ajustes e inténtelo de nuevo."
+    },
+    "abort": {
+      "already_configured": "JARVIS ya está configurado.",
+      "import_failed": "Se encontró una configuración de JARVIS pero ningún LLM utilizable (sin clave API ni endpoint local)."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "JARVIS — Configurar",
+        "menu_options": {
+          "core": "Núcleo — persona, directiva, modelo de conversación",
+          "routing": "Enrutamiento — áreas de dormitorio, grupo de difusión, servicio de notificación",
+          "observer": "Observador — percepción proactiva (necesita una clave Gemini)",
+          "identity": "Identidad — reconocimiento por persona",
+          "email": "Correo — bandeja de entrada de solo lectura (contraseña vía secrets.yaml)"
+        }
+      },
+      "core": {
+        "title": "JARVIS — Núcleo",
+        "description": "Persona, directiva y modelo de conversación.",
+        "data": {
+          "honorific": "Diríjase a mí como",
+          "directive_preset": "Preajuste de directiva",
+          "directive": "Directiva personalizada (opcional, anula el preajuste)",
+          "model": "Modelo de conversación",
+          "use_hass_api": "Activar el control del hogar (luces, clima, cerraduras, etc.)"
+        }
+      },
+      "routing": {
+        "title": "JARVIS — Enrutamiento",
+        "description": "elija qué áreas de HA son dormitorios (para la detección del sueño), qué grupo media_player usar para las difusiones y su servicio de notificación al teléfono.",
+        "data": {
+          "bedroom_areas": "Áreas de dormitorio (para detección del sueño en horas de silencio)",
+          "broadcast_group": "Grupo de altavoces de difusión (normalmente su grupo Cast del hogar)",
+          "notify_service": "Servicio de notificación al teléfono (p. ej. notify.mobile_app_yourphone)"
+        },
+        "data_description": {
+          "bedroom_areas": "Cualquier sensor de presencia en estas áreas activa el modo de sueño en horas de silencio.",
+          "broadcast_group": "Se usa para anuncios críticos y de alta urgencia.",
+          "notify_service": "Se usa cuando está fuera de casa o durmiendo."
+        }
+      },
+      "observer": {
+        "title": "JARVIS — Modo Observador",
+        "description": "percepción proactiva. JARVIS vigila su hogar e interviene cuando algo merece mención. Necesita una clave API de Gemini (se recomienda con facturación activada).",
+        "data": {
+          "observer_enabled": "Activar el modo observador",
+          "gemini_api_key": "Clave API de Gemini",
+          "classifier_model": "Modelo clasificador (Nivel 1 — económico)",
+          "reasoning_model": "Modelo de razonamiento (Nivel 2 — principal)",
+          "review_model": "Modelo de revisión (Nivel 3 — periódico)",
+          "observer_quiet_start": "Inicio de horas de silencio (HH:MM)",
+          "observer_quiet_end": "Fin de horas de silencio (HH:MM)"
+        }
+      },
+      "identity": {
+        "title": "JARVIS — Identidad",
+        "description": "reconocimiento por persona, para que JARVIS se adapte a quien habla. Funciona sin hardware especial usando la presencia y (si está configurada) el reconocimiento facial por cámara. La huella de voz es la más precisa pero necesita una GPU local, así que está desactivada por defecto.",
+        "data": {
+          "identity_enabled": "Reconocer quién habla",
+          "identity_voice_fingerprint": "Huella de voz (requiere una GPU local)",
+          "identity_min_confidence": "Confianza mínima antes de asignar a una persona",
+          "voice_recognition_source": "Fuente de reconocimiento de voz (entidad de un servicio de reconocimiento de hablante, p. ej. binary_sensor.*_voice)",
+          "voice_recognition_auto_enroll": "Marcar automáticamente voces para registrar mientras la gente habla"
+        },
+        "data_description": {
+          "identity_enabled": "Usa quién está en casa + reconocimiento facial reciente por cámara. No requiere GPU.",
+          "identity_voice_fingerprint": "Déjelo desactivado a menos que tenga un servidor GPU ejecutando un modelo de identificación de voz.",
+          "identity_min_confidence": "Más alto = más cauto; se mantiene neutral cuando hay dudas."
+        }
+      },
+      "email": {
+        "title": "JARVIS — Correo",
+        "description": "Acceso de solo lectura a la bandeja de entrada. La contraseña IMAP se lee del secrets.yaml de Home Assistant — añádala allí bajo la clave de abajo (por defecto jarvis_imap_password); nunca se guarda en la configuración del panel.",
+        "data": {
+          "imap_enabled": "Activar la lectura de correo",
+          "imap_host": "Host IMAP (p. ej. imap.gmail.com)",
+          "imap_port": "Puerto IMAP (SSL: 993)",
+          "imap_user": "Usuario IMAP / dirección de correo",
+          "imap_folder": "Carpeta del buzón (por defecto INBOX)",
+          "imap_ssl": "Usar SSL (recomendado)",
+          "imap_secret_key": "Clave de secrets.yaml que contiene la contraseña"
+        }
+      }
+    }
+  }
+}

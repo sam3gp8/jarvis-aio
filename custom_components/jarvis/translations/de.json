@@ -1,0 +1,107 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "JARVIS-Einrichtung",
+        "description": "{note}",
+        "data": {
+          "api_key": "Cloud-LLM-API-Schlüssel (z. B. Groq)",
+          "llm_base_url": "Basis-URL des lokalen LLM — für Ollama Host homeassistant.local, Port 11434, Pfad /v1",
+          "model": "Konversationsmodell",
+          "honorific": "Sprich mich an mit"
+        }
+      }
+    },
+    "error": {
+      "need_llm": "Gib entweder einen Cloud-API-Schlüssel oder eine lokale LLM-URL ein.",
+      "cannot_connect": "LLM nicht erreichbar. Prüfe, ob die URL/der Endpunkt korrekt ist und der Server (z. B. Ollama) läuft.",
+      "invalid_auth": "Der API-Schlüssel wurde abgelehnt. Prüfe den Schlüssel und versuche es erneut.",
+      "unknown": "LLM-Verbindung konnte nicht überprüft werden. Prüfe die Einstellungen und versuche es erneut."
+    },
+    "abort": {
+      "already_configured": "JARVIS ist bereits eingerichtet.",
+      "import_failed": "JARVIS-Konfiguration gefunden, aber kein nutzbares LLM (kein API-Schlüssel und kein lokaler Endpunkt)."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "JARVIS — Konfigurieren",
+        "menu_options": {
+          "core": "Kern — Persona, Direktive, Konversationsmodell",
+          "routing": "Routing — Schlafzimmerbereiche, Broadcast-Gruppe, Benachrichtigungsdienst",
+          "observer": "Beobachter — proaktive Wahrnehmung (benötigt einen Gemini-Schlüssel)",
+          "identity": "Identität — Erkennung pro Person",
+          "email": "E-Mail — schreibgeschützter Posteingang (Passwort über secrets.yaml)"
+        }
+      },
+      "core": {
+        "title": "JARVIS — Kern",
+        "description": "Persona, Direktive und Konversationsmodell.",
+        "data": {
+          "honorific": "Sprich mich an mit",
+          "directive_preset": "Direktiven-Vorlage",
+          "directive": "Eigene Direktive (optional, überschreibt Vorlage)",
+          "model": "Konversationsmodell",
+          "use_hass_api": "Haussteuerung aktivieren (Licht, Klima, Schlösser usw.)"
+        }
+      },
+      "routing": {
+        "title": "JARVIS — Routing",
+        "description": "wähle, welche HA-Bereiche Schlafzimmer sind (für die Schlaferkennung), welche media_player-Gruppe für Broadcasts verwendet wird und deinen Telefon-Benachrichtigungsdienst.",
+        "data": {
+          "bedroom_areas": "Schlafzimmerbereiche (für die Schlaferkennung in Ruhezeiten)",
+          "broadcast_group": "Broadcast-Lautsprechergruppe (typischerweise deine Heim-Cast-Gruppe)",
+          "notify_service": "Telefon-Benachrichtigungsdienst (z. B. notify.mobile_app_yourphone)"
+        },
+        "data_description": {
+          "bedroom_areas": "Jeder Anwesenheitssensor in diesen Bereichen löst den Schlafmodus in Ruhezeiten aus.",
+          "broadcast_group": "Wird für kritische und sehr dringende Ansagen verwendet.",
+          "notify_service": "Wird verwendet, wenn du unterwegs bist oder schläfst."
+        }
+      },
+      "observer": {
+        "title": "JARVIS — Beobachter-Modus",
+        "description": "proaktive Wahrnehmung. JARVIS beobachtet dein Zuhause und meldet sich, wenn etwas erwähnenswert ist. Benötigt einen Gemini-API-Schlüssel (Abrechnung aktiviert empfohlen).",
+        "data": {
+          "observer_enabled": "Beobachter-Modus aktivieren",
+          "gemini_api_key": "Gemini-API-Schlüssel",
+          "classifier_model": "Klassifizierer-Modell (Stufe 1 — günstig)",
+          "reasoning_model": "Reasoning-Modell (Stufe 2 — Haupt)",
+          "review_model": "Review-Modell (Stufe 3 — periodisch)",
+          "observer_quiet_start": "Beginn der Ruhezeiten (HH:MM)",
+          "observer_quiet_end": "Ende der Ruhezeiten (HH:MM)"
+        }
+      },
+      "identity": {
+        "title": "JARVIS — Identität",
+        "description": "Erkennung pro Person, damit sich JARVIS auf den Sprechenden einstellt. Funktioniert ohne spezielle Hardware über Anwesenheit und (falls eingerichtet) Kamera-Gesichtserkennung. Der Stimmabdruck ist am genauesten, benötigt aber eine lokale GPU und ist daher standardmäßig aus.",
+        "data": {
+          "identity_enabled": "Erkennen, wer spricht",
+          "identity_voice_fingerprint": "Stimmabdruck (benötigt eine lokale GPU)",
+          "identity_min_confidence": "Mindestkonfidenz, bevor eine Person festgelegt wird",
+          "voice_recognition_source": "Quelle der Stimmerkennung (Entität eines Sprecher-Erkennungsdienstes, z. B. binary_sensor.*_voice)",
+          "voice_recognition_auto_enroll": "Stimmen automatisch zum Anlernen markieren, während gesprochen wird"
+        },
+        "data_description": {
+          "identity_enabled": "Nutzt, wer zu Hause ist + aktuelle Kamera-Gesichtserkennung. Keine GPU erforderlich.",
+          "identity_voice_fingerprint": "Aus lassen, außer du hast einen GPU-Server mit einem Stimm-ID-Modell.",
+          "identity_min_confidence": "Höher = vorsichtiger; bleibt bei Unsicherheit neutral."
+        }
+      },
+      "email": {
+        "title": "JARVIS — E-Mail",
+        "description": "Schreibgeschützter Posteingangszugriff. Das IMAP-Passwort wird aus der secrets.yaml von Home Assistant gelesen — füge es dort unter dem Schlüssel unten hinzu (Standard jarvis_imap_password); es wird nie in der Panel-Konfiguration gespeichert.",
+        "data": {
+          "imap_enabled": "E-Mail-Lesen aktivieren",
+          "imap_host": "IMAP-Host (z. B. imap.gmail.com)",
+          "imap_port": "IMAP-Port (SSL: 993)",
+          "imap_user": "IMAP-Benutzername / E-Mail-Adresse",
+          "imap_folder": "Postfach-Ordner (Standard INBOX)",
+          "imap_ssl": "SSL verwenden (empfohlen)",
+          "imap_secret_key": "secrets.yaml-Schlüssel mit dem Passwort"
+        }
+      }
+    }
+  }
+}
