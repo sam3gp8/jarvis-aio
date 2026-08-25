@@ -148,3 +148,76 @@ def test_cognition_log_decision_never_raises(load, monkeypatch):
     monkeypatch.setattr(dr, "record", boom)
     # must swallow — logging a decision can never break the decision
     cog._log_decision("anticipation_overdue", {}, {}, "x", "y")
+
+
+def test_suggestion_store_records_decision(load, monkeypatch, tmp_path):
+    """Creating a new automation suggestion must log a 'suggestion' decision (Phase 1b)."""
+    import sqlite3
+
+    pa = load("pattern_analyzer")
+    dr = load("decision_record")
+    db = str(tmp_path / "patterns.db")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, created TEXT, "
+        "description TEXT, automation_yaml TEXT, confidence REAL, pattern_count INTEGER, "
+        "pattern_type TEXT, entity_ids TEXT, details TEXT, status TEXT)"
+    )
+    conn.commit()
+    conn.close()
+
+    an = pa.PatternAnalyzer()
+    an._db = db
+    monkeypatch.setattr(an, "_generate_automation", lambda p: "{}")
+
+    captured = {}
+
+    def fake_record(kind, **kw):
+        captured["kind"] = kind
+        captured.update(kw)
+        return 1
+
+    monkeypatch.setattr(dr, "record", fake_record)
+
+    pat = pa.DetectedPattern(
+        pattern_type="time_routine",
+        description="Porch light at 18:00",
+        entity_ids=["light.porch"],
+        confidence=0.82,
+        occurrences=6,
+    )
+    assert an._store_suggestion(pat) is True
+    assert captured["kind"] == "suggestion"
+    assert captured["observation"]["pattern_type"] == "time_routine"
+    assert captured["observation"]["entities"] == ["light.porch"]
+    assert captured["observation"]["occurrences"] == 6
+    assert captured["interpretation"]["suggested"] == "Porch light at 18:00"
+    assert abs(captured["confidence"] - 0.82) < 1e-9
+
+
+def test_suggestion_store_survives_record_failure(load, monkeypatch, tmp_path):
+    """A logging failure must NOT flip the store result to False (own try/except)."""
+    import sqlite3
+
+    pa = load("pattern_analyzer")
+    dr = load("decision_record")
+    db = str(tmp_path / "patterns.db")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, created TEXT, "
+        "description TEXT, automation_yaml TEXT, confidence REAL, pattern_count INTEGER, "
+        "pattern_type TEXT, entity_ids TEXT, details TEXT, status TEXT)"
+    )
+    conn.commit()
+    conn.close()
+
+    an = pa.PatternAnalyzer()
+    an._db = db
+    monkeypatch.setattr(an, "_generate_automation", lambda p: "{}")
+
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(dr, "record", boom)
+    pat = pa.DetectedPattern(pattern_type="time_routine", description="X", entity_ids=[], confidence=0.5, occurrences=3)
+    assert an._store_suggestion(pat) is True  # still stored despite the logging blow-up

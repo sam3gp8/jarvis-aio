@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.39.0] — decision record now covers intrusion + suggestions
+Extends the internal decision record to JARVIS's other two proactive decision types: each
+intrusion alert and each new automation suggestion is now logged with the facts it saw, how it
+read them, and why — the same immutable, outcome-ready format as the anticipation alerts. This
+completes decision recording for proactive behavior; it has no visible effect on its own yet.
+
 ## [7.38.0] — more languages + README language guide
 Adds core-UI translations for eleven more languages — Polish, Russian, Ukrainian, Czech,
 Slovak, Swedish, Danish, Norwegian, Finnish, Turkish, Romanian — plus Brazilian Portuguese as

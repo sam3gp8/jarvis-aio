@@ -531,6 +531,20 @@ class SafetyManager:
             msg = (f"{honorific.title()}, motion at {where} while no one is "
                    f"home{ctx}. Investigating from the point of entry — I'll alert "
                    f"the house and every device only if it's a real intrusion.")
+            # Decision Record (v7.39.0): log the proactive intrusion judgement. Best-effort;
+            # a logging failure must never affect the alert.
+            try:
+                from . import decision_record
+                decision_record.record(
+                    "intrusion",
+                    observation={"location": where, "breach": breach_name,
+                                 "alarm_armed": armed, "presence": "away"},
+                    interpretation={"assessment": "possible intrusion — investigating from the point of entry"},
+                    decision="raise initial intrusion alert and investigate silently",
+                    reason="motion while away with corroborating breach (open entry or armed alarm)",
+                )
+            except Exception:
+                pass
             # Learned damping (v6.76.0): if this location/time pattern has been
             # repeatedly labelled a false alarm, stay QUIET on this initial
             # low-confidence ping. The investigation still runs underneath, so a

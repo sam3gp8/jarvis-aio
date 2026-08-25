@@ -724,6 +724,20 @@ class PatternAnalyzer:
             )
             conn.commit()
             conn.close()
+            try:
+                from . import decision_record
+                decision_record.record(
+                    "suggestion",
+                    observation={"pattern_type": pattern.pattern_type,
+                                 "entities": pattern.entity_ids or [],
+                                 "occurrences": pattern.occurrences},
+                    interpretation={"suggested": pattern.description},
+                    decision="propose automation",
+                    reason="recurring observed behavior",
+                    confidence=pattern.confidence,
+                )
+            except Exception:
+                pass
             return True
         except Exception as exc:
             _LOGGER.debug("Store suggestion error: %s", exc)
