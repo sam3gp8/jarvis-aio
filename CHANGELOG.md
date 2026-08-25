@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.45.0] — smarter routine suggestions, judged by consistency
+When JARVIS proposes an automation from a routine it noticed, it now scores that routine by how
+consistently it happens — how many days it actually occurred out of how many it could have —
+instead of a raw count of times seen. A routine that fires on most days is trusted more than one
+that fires only occasionally, even when both were seen the same number of times, so fewer flaky
+suggestions surface. The "why" behind a suggestion now shows the honest picture too, for example
+"happened on 42 of 60 days (missed 18)".
+
 ## [7.44.0] — quick "unlock" commands now unlock (not lock), and honor confirmation
 Fixed a bug where a spoken or typed "unlock the front door" could be read as "lock" and lock it
 instead — unlock now unlocks, for a single door and for "unlock all doors". Separately, when

@@ -66,6 +66,7 @@ class DetectedPattern:
     entity_ids: list[str]
     confidence: float
     occurrences: int
+    coverage: float = 0.0  # positive days / opportunity days (0 = not computed)
     details: dict = field(default_factory=dict)
 
 
@@ -182,13 +183,24 @@ def explain_suggestion(pattern_type: str, details: dict, count: int) -> dict:
         if pattern_type == "time_routine":
             hour = d.get("hour")
             state = d.get("state")
-            consistency = d.get("consistency")
+            consistency = d.get("coverage", d.get("consistency"))
+            observed = d.get("observed_days")
+            opportunity = d.get("opportunity_days")
             person = d.get("person")
             when = f"{int(hour):02d}:00" if hour is not None else "a regular time"
             headline = f"A daily routine around {when}"
             if state is not None:
                 ev.append(f"Observed turning {state} near {when}")
-            ev.append(f"Happened {count} times in the last 30 days")
+            # Prefer the honest coverage framing — how many days it happened out
+            # of how many it could have, so the negative evidence is visible too.
+            if observed is not None and opportunity:
+                missed = max(0, int(opportunity) - int(observed))
+                line = f"Happened on {int(observed)} of {int(opportunity)} days"
+                if missed:
+                    line += f" (missed {missed})"
+                ev.append(line)
+            else:
+                ev.append(f"Happened {count} times in the last 30 days")
             if consistency is not None:
                 ev.append(f"Consistent on about {int(float(consistency) * 100)}% of days")
             if person:
@@ -342,33 +354,57 @@ class PatternAnalyzer:
             hour = row["hour"]
             count = row["cnt"]
 
-            # Check consistency — does this happen most days?
+            # Opportunity days: distinct days we were observing at all.
             total_days = conn.execute("""
                 SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes
                 WHERE timestamp > datetime('now', '-30 days')
             """).fetchone()[0] or 1
 
-            consistency = count / total_days
-            if consistency < 0.3:
+            # Positive days: distinct days this routine ACTUALLY happened. Using
+            # distinct days (not raw event count) so several same-hour events on
+            # one day count once — the honest "on N of M days" numerator.
+            positive_days = conn.execute("""
+                SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes
+                WHERE entity_id = ? AND new_state = ? AND hour = ?
+                  AND timestamp > datetime('now', '-30 days')
+            """, (entity, state, hour)).fetchone()[0] or 0
+
+            # Coverage weighs the negative evidence: a routine on 42 of 45 days
+            # (0.93) is far stronger than one on 42 of 120 days (0.35), even
+            # though both were "seen 42 times".
+            coverage = positive_days / total_days if total_days else 0.0
+            negative_days = max(0, total_days - positive_days)
+            if coverage < 0.3:
                 continue
 
-            confidence = min(1.0, consistency * (count / MIN_OCCURRENCES) * 0.5)
+            # Confidence = coverage, discounted for a small sample so a 3-of-3
+            # (1.0) can't outrank a 40-of-45 (0.89) on three data points.
+            sample_factor = min(1.0, positive_days / MIN_OCCURRENCES)
+            confidence = round(coverage * sample_factor, 3)
 
             time_str = f"{hour:02d}:00"
-            details = {"hour": hour, "state": state, "consistency": round(consistency, 2)}
+            details = {
+                "hour": hour, "state": state,
+                "coverage": round(coverage, 2),
+                "consistency": round(coverage, 2),   # back-compat key
+                "observed_days": positive_days,
+                "opportunity_days": total_days,
+                "skipped_days": negative_days,
+            }
 
             # v6.41.0: a single sole-occupant person can own this routine
             # outright; otherwise it stays household-wide, unchanged.
             person = self._dominant_person(conn, "state_changes", entity=entity,
                                             state=state, hour=hour)
+            days_str = f"on {positive_days} of {total_days} days"
             if person:
                 details["person"] = person
-                desc = (f"{entity} turns {state} around {time_str} most days "
-                        f"when {person} is home ({count} times in 30 days)")
+                desc = (f"{entity} turns {state} around {time_str} {days_str} "
+                        f"when {person} is home")
             elif state in ("on", "off"):
-                desc = f"{entity} turns {state} around {time_str} most days ({count} times in 30 days)"
+                desc = f"{entity} turns {state} around {time_str} {days_str}"
             else:
-                desc = f"{entity} changes to '{state}' around {time_str} ({count} times in 30 days)"
+                desc = f"{entity} changes to '{state}' around {time_str} {days_str}"
 
             patterns.append(DetectedPattern(
                 pattern_type="time_routine",
@@ -376,6 +412,7 @@ class PatternAnalyzer:
                 entity_ids=[entity],
                 confidence=confidence,
                 occurrences=count,
+                coverage=round(coverage, 3),
                 details=details,
             ))
 
