@@ -222,6 +222,23 @@ This lives in `/config/jarvis/config.json` (merge it into the existing object �
 | `package_detection` | Watch porch cameras for packages and mail. |
 | `cognition_threshold` | How salient an event must be before JARVIS escalates it. |
 
+## Languages
+
+JARVIS follows your Home Assistant language automatically, and you can override it in **Settings → General → Language** (or leave it on *Auto*). The setup and configuration dialogs are localized through Home Assistant's own translation system; the in-panel HUD is localized by JARVIS. Anything not yet translated falls back cleanly to English, so nothing ever breaks.
+
+**Fully translated (panel + setup dialog):** French, German, Spanish, Italian, Portuguese, Dutch.
+
+**Core UI translated (expanding):** Polish, Russian, Ukrainian, Czech, Slovak, Swedish, Danish, Norwegian, Finnish, Turkish, Romanian, Brazilian Portuguese.
+
+### Help translate
+
+Translations are plain JSON files — no code required:
+
+- **Panel UI:** `custom_components/jarvis/frontend/i18n/<lang>.json`, keyed by the exact English string.
+- **Setup dialog:** `custom_components/jarvis/translations/<lang>.json` (Home Assistant's format).
+
+To add a language or refine an existing one, copy an existing file, translate the values, and keep the keys and technical tokens (entity IDs, model names, URLs) unchanged. **Corrections and new languages are very welcome** — especially native-speaker fixes to the machine-assisted translations, and languages not yet listed. Right-to-left languages (Arabic, Hebrew, …) also need panel layout support, so that's a great area to help with.
+
 ## Architecture
 
 JARVIS is a **Home Assistant custom integration** (domain `jarvis`, ~86 Python modules) installed via HACS into `custom_components/jarvis/`. It runs in-process: it registers the conversation agent and voice pipeline and serves the custom dashboard panel directly. State and learned behavior persist under `/config/jarvis/` (a SQLite `patterns.db`, the curated `knowledge.db`, the reasoning cache, the doorbell-training dataset, and lockdown state) so JARVIS keeps getting smarter across restarts.

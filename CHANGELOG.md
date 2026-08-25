@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.38.0] — more languages + README language guide
+Adds core-UI translations for eleven more languages — Polish, Russian, Ukrainian, Czech,
+Slovak, Swedish, Danish, Norwegian, Finnish, Turkish, Romanian — plus Brazilian Portuguese as
+a regional variant. The README now lists supported languages and explains how to add or
+correct a translation (they're plain JSON files, no code). Untranslated strings fall back to
+English, and community contributions are welcome.
+
 ## [7.37.0] — language picker + more panel translations
 Adds a Language selector in Settings → General: choose Auto (follow Home Assistant), English,
 or one of the translated languages, and the panel switches immediately. Also translates the
