@@ -4,6 +4,10 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.47.1] — test-suite reliability
+Reworked the camera-tool tests so they no longer depend on Python-build-specific import behavior
+that was failing intermittently in CI. No functional change to JARVIS.
+
 ## [7.47.0] — expanded French translation of the settings panel
 Most of the settings, labels, options, and help text throughout the panel are now translated when
 Home Assistant is set to French — previously only the tabs and section headers were. Set Home

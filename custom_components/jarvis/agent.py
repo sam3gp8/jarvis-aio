@@ -2220,6 +2220,26 @@ async def _analyze_camera(hass, entity_id: str, prompt: str, announce: bool,
         hass, fc, None, honorific, None, [], gate_announce=False)
 
 
+def _shape_look_at_camera_result(result: dict, entity_id: str) -> str:
+    """Shape the vision result into the tool's JSON response. Pure (no I/O,
+    no imports) so the success/failure contract is testable directly, without
+    the camera/vision stack or any monkeypatching."""
+    if not result.get("success"):
+        return json.dumps({
+            "success": False,
+            "camera": result.get("camera", entity_id),
+            "error": result.get("error", "vision analysis failed"),
+            "hint": ("this camera may be WebRTC-only/offline, or no vision "
+                     "provider is configured (set vision_provider + key)"),
+        })
+    return json.dumps({
+        "success": True,
+        "camera": result.get("camera"),
+        "answer": result.get("analysis"),
+        "source": result.get("source"),
+    })
+
+
 async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
     """Vision query: snapshot a camera and answer a question about it (v6.58.0).
     Powers on-demand visual checks and standing vision monitors. Reuses the
@@ -2239,26 +2259,14 @@ async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
         )
         result = await _analyze_camera(
             hass, entity_id, prompt, bool(args.get("announce", False)), honorific)
-        if not result.get("success"):
-            return json.dumps({
-                "success": False,
-                "camera": result.get("camera", entity_id),
-                "error": result.get("error", "vision analysis failed"),
-                "hint": ("this camera may be WebRTC-only/offline, or no vision "
-                         "provider is configured (set vision_provider + key)"),
-            })
-        try:
-            from .websocket import jarvis_log
-            jarvis_log("CAMERA", f"visual query on {result.get('camera')}: "
-                                 f"{question[:60]}")
-        except Exception:
-            pass
-        return json.dumps({
-            "success": True,
-            "camera": result.get("camera"),
-            "answer": result.get("analysis"),
-            "source": result.get("source"),
-        })
+        if result.get("success"):
+            try:
+                from .websocket import jarvis_log
+                jarvis_log("CAMERA", f"visual query on {result.get('camera')}: "
+                                     f"{question[:60]}")
+            except Exception:
+                pass
+        return _shape_look_at_camera_result(result, entity_id)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 
