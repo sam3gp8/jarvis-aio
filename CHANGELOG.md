@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.35.0] — broader panel translations (floor plan, toggles, messages)
+Extends panel localization further across French, German, Spanish, Italian, Portuguese, and
+Dutch — the floor-plan editor, proactive and observer toggle descriptions, feature names, and
+common status messages are now translated (about 128 strings per language). Untranslated
+strings continue to fall back to English.
+
 ## [7.34.0] — more panel translations + regional language fallback
 Expands panel localization to the settings screen — most field labels, toggles, and buttons
 across French, German, Spanish, Italian, Portuguese, and Dutch, so configuring JARVIS is far
