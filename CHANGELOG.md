@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.34.0] — more panel translations + regional language fallback
+Expands panel localization to the settings screen — most field labels, toggles, and buttons
+across French, German, Spanish, Italian, Portuguese, and Dutch, so configuring JARVIS is far
+clearer in those languages. Also adds regional language support: a variant like Brazilian
+Portuguese (pt-BR) uses its own file if present, otherwise falls back to the base language.
+Anything not yet translated stays in English.
+
 ## [7.33.0] — panel localization (French, German, Spanish, Italian, Portuguese, Dutch)
 The JARVIS panel now follows your Home Assistant language. Section headers, tabs, and labels
 are translated when a matching language file exists — starting with French, German, Spanish,
