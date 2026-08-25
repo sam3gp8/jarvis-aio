@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.37.0] — language picker + more panel translations
+Adds a Language selector in Settings → General: choose Auto (follow Home Assistant), English,
+or one of the translated languages, and the panel switches immediately. Also translates the
+remaining diagnostics, status, and section labels, bringing each language to about 176
+strings. Anything not yet translated stays in English.
+
 ## [7.36.0] — setup dialog translations (French, German, Spanish, Italian, Portuguese, Dutch)
 The JARVIS setup and configuration dialogs (config flow) are now translated through Home
 Assistant's own language system — every step, field, description, and error message in French,

@@ -809,6 +809,7 @@ async def ws_get_panel_data(
                 "floor_plan_cameras":   _get_runtime_json(hass, entry, "floor_plan_cameras", {}),
                 "floor_plan_property":  _get_runtime_json(hass, entry, "floor_plan_property", {}),
                 "home_context_max_entities": _int_opt(hass, entry, "home_context_max_entities", 15),
+                "ui_language": _runtime_opt(hass, entry, "ui_language", "auto"),
                 "disabled_cameras":     _get_runtime_json(hass, entry, "disabled_cameras", []),
                 "home_stories":         _runtime_opt(hass, entry, "home_stories", "1.5"),
                 "has_basement":         _runtime_opt(hass, entry, "has_basement", True),
@@ -1258,6 +1259,7 @@ async def ws_get_activity_log(
 
 # Only these keys can be toggled from the panel. Prevents arbitrary writes.
 PANEL_WRITABLE_KEYS = {
+    "ui_language",
     "announcements_enabled",
     "sentinel_enabled",
     "observer_enabled",
