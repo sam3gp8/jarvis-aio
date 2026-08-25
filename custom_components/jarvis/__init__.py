@@ -508,16 +508,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # ── v5.2 Observer Mode ──────────────────────────────────────────────────
     # Observer subscribes to state_changed events and proactively announces
-    # interesting things through the LLM tier pipeline. OFF by default.
-    # User enables via the `observer_enabled` option in addon config.
-    observer_enabled = bool(entry.options.get(
-        "observer_enabled",
-        entry.data.get("observer_enabled", False),
-    ))
+    # interesting things through the LLM tier pipeline. OFF by default. Enabled
+    # via the panel (jarvis_config) or add-on config — read from effective_config
+    # so a panel-enabled observer stays on across a restart (v7.45.1).
+    observer_enabled = bool(_eff.get("observer_enabled", False))
     if observer_enabled:
-        # Build a single combined config dict of what observer needs.
-        # It reads from both entry.data and entry.options with options winning.
-        observer_config = {**dict(entry.data), **dict(entry.options)}
+        # Observer's own settings come from the same effective config (data +
+        # options + panel, panel winning), not bare entry, for the same reason.
+        observer_config = dict(_eff)
         from . import observer as observer_mod
         await observer_mod.start(hass, observer_config)
         hass.data[DOMAIN][entry.entry_id]["observer_running"] = True
@@ -1044,8 +1042,10 @@ def _register_services(
 
     async def _observer_start(call: ServiceCall) -> None:
         """Start the observer manually (even if config has it disabled)."""
-        from . import observer as observer_mod
-        observer_config = {**dict(entry.data), **dict(entry.options)}
+        from . import observer as observer_mod, jarvis_config as _jc
+        # Fresh effective config (data + options + panel, panel winning) so a
+        # manual start honors current panel settings, not stale entry data.
+        observer_config = await hass.async_add_executor_job(_jc.effective_config, entry)
         await observer_mod.start(hass, observer_config)
         hass.data[DOMAIN][entry.entry_id]["observer_running"] = True
         _LOGGER.info("Observer started via service call")

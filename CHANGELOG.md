@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.45.1] — Observer enabled from the panel now survives a restart
+Turning on Observer mode from the panel didn't persist across a Home Assistant restart — on boot
+JARVIS read the older add-on/entry setting instead of your panel choice, so the observer stayed
+off. It's now read from the same single source as the rest of your settings, so a panel-enabled
+observer comes back up after a restart. A manual observer start also now uses your current panel
+settings rather than stale ones.
+
 ## [7.45.0] — smarter routine suggestions, judged by consistency
 When JARVIS proposes an automation from a routine it noticed, it now scores that routine by how
 consistently it happens — how many days it actually occurred out of how many it could have —

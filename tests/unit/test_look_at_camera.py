@@ -26,26 +26,34 @@ async def test_look_at_camera_requires_args(agent, fake_hass):
 
 
 def _patch_camera(monkeypatch, load, result):
-    """Patch camera.async_analyze_camera IN PLACE on the real module.
+    """Install a self-contained fake `jc.camera` for the test.
 
-    The tool does `from .camera import async_analyze_camera, _FakeCall`. Patching
-    the loaded module's attribute (rather than swapping sys.modules for a fake)
-    keeps this independent of how that import resolves — 3.13/3.14 can bind it
-    from the parent-package attribute rather than sys.modules, so a sys.modules-
-    only fake was silently bypassed there. The real module already provides
-    _FakeCall (with .data), so agent's call shape is unchanged."""
+    The tool does `from .camera import async_analyze_camera, _FakeCall`. Depending
+    on the Python version and what earlier tests imported, that resolves
+    `jc.camera` via EITHER sys.modules OR the parent-package attribute — and the
+    test harness's loader only ever sets the former. So we install a complete fake
+    (both names the tool imports) into BOTH places via monkeypatch. That makes the
+    patch independent of which resolution path Python takes and of any earlier
+    test's camera state, which is what was breaking this on 3.13/3.14 in CI while
+    passing on 3.12 locally. `load` is accepted for signature stability."""
     captured = {}
+
     async def _fake_analyze(hass, call, client, honorific, tts, spk,
                             gate_announce=False, force_images=None):
         captured["prompt"] = call.data.get("prompt")
         captured["entity_id"] = call.data.get("entity_id")
         captured["announce"] = call.data.get("announce")
         return result
-    # camera.py imports aiohttp at module level; stub it so the real module loads
-    # where aiohttp isn't installed (sandbox/CI).
-    sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
-    cam = load("camera")
-    monkeypatch.setattr(cam, "async_analyze_camera", _fake_analyze)
+
+    class _FakeCall:
+        def __init__(self, data):
+            self.data = data
+
+    fake = types.ModuleType("jc.camera")
+    fake.async_analyze_camera = _fake_analyze
+    fake._FakeCall = _FakeCall
+    monkeypatch.setitem(sys.modules, "jc.camera", fake)
+    monkeypatch.setattr(sys.modules["jc"], "camera", fake, raising=False)
     return captured
 
 
