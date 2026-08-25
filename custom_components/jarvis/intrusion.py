@@ -139,6 +139,11 @@ def dismiss_intrusion(reason: str = "") -> dict:
         del _false_alarms[:-50]
     _LOGGER.info("JARVIS: intrusion called off by user%s — suppressing escalation "
                  "for %ds", f" ({reason})" if reason else "", int(_CALLOFF_COOLDOWN))
+    try:  # Decision Record outcome (v7.40.0): a called-off intrusion was a false alarm
+        from . import decision_record
+        decision_record.set_outcome_recent("intrusion", "wrong", "dismiss_intrusion", max_age=7200.0)
+    except Exception:
+        pass
     return {"ok": True, "suppressed_seconds": int(_CALLOFF_COOLDOWN), "recorded": rec}
 
 

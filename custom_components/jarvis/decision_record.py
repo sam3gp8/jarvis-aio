@@ -52,11 +52,13 @@ CREATE TABLE IF NOT EXISTS decision_records (
     confidence     REAL,
     outcome        TEXT,
     outcome_ts     REAL,
-    outcome_source TEXT
+    outcome_source TEXT,
+    ref            TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_dr_ts      ON decision_records (ts);
 CREATE INDEX IF NOT EXISTS idx_dr_kind    ON decision_records (kind);
 CREATE INDEX IF NOT EXISTS idx_dr_outcome ON decision_records (outcome);
+CREATE INDEX IF NOT EXISTS idx_dr_ref     ON decision_records (ref);
 """
 
 
@@ -69,6 +71,12 @@ def _connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)   # idempotent; keeps every entry point self-contained
+    try:  # migrate: add columns introduced after the initial schema
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(decision_records)").fetchall()}
+        if "ref" not in cols:
+            conn.execute("ALTER TABLE decision_records ADD COLUMN ref TEXT")
+    except Exception:
+        pass
     return conn
 
 
@@ -126,6 +134,7 @@ def record(
     tokens=None,
     latency_ms=None,
     confidence=None,
+    ref: Optional[str] = None,
     ts: Optional[float] = None,
     db_path: Optional[str] = None,
 ) -> Optional[int]:
@@ -143,8 +152,8 @@ def record(
         cur = conn.execute(
             "INSERT INTO decision_records "
             "(ts, kind, observation, interpretation, evidence, decision, reason, "
-            " model, tokens, latency_ms, confidence) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " model, tokens, latency_ms, confidence, ref) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 float(ts) if ts is not None else time.time(),
                 str(kind),
@@ -157,6 +166,7 @@ def record(
                 _int_or_none(tokens),
                 _int_or_none(latency_ms),
                 _float_or_none(confidence),
+                str(ref) if ref is not None else None,
             ),
         )
         conn.commit()
@@ -202,6 +212,68 @@ def set_outcome(
         )
         conn.commit()
         return cur.rowcount > 0
+    except Exception:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _apply_outcome(conn, rid, verdict, source, ts) -> bool:
+    cur = conn.execute(
+        "UPDATE decision_records SET outcome = ?, outcome_ts = ?, outcome_source = ? "
+        "WHERE id = ? AND outcome IS NULL",
+        (str(verdict), float(ts) if ts is not None else time.time(), str(source or ""), int(rid)),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def set_outcome_by_ref(ref, verdict, source: str = "", ts: Optional[float] = None,
+                       db_path: Optional[str] = None) -> bool:
+    """Set the outcome on the most recent still-unjudged record carrying `ref`
+    (e.g. 'suggestion:11'). Used to link a dismissal/approval back to its decision."""
+    if not ref:
+        return False
+    db = _resolve(db_path)
+    try:
+        conn = _connect(db)
+    except Exception:
+        return False
+    try:
+        row = conn.execute(
+            "SELECT id FROM decision_records WHERE ref = ? AND outcome IS NULL "
+            "ORDER BY ts DESC LIMIT 1", (str(ref),),
+        ).fetchone()
+        return _apply_outcome(conn, row[0], verdict, source, ts) if row else False
+    except Exception:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def set_outcome_recent(kind: str, verdict, source: str = "", max_age: float = 3600.0,
+                       ts: Optional[float] = None, db_path: Optional[str] = None) -> bool:
+    """Set the outcome on the most recent still-unjudged record of `kind` within
+    `max_age` seconds. Used for decisions with no stable id (e.g. an intrusion the
+    user just called off)."""
+    db = _resolve(db_path)
+    try:
+        conn = _connect(db)
+    except Exception:
+        return False
+    try:
+        cutoff = time.time() - float(max_age)
+        row = conn.execute(
+            "SELECT id FROM decision_records WHERE kind = ? AND outcome IS NULL AND ts >= ? "
+            "ORDER BY ts DESC LIMIT 1", (str(kind), cutoff),
+        ).fetchone()
+        return _apply_outcome(conn, row[0], verdict, source, ts) if row else False
     except Exception:
         return False
     finally:

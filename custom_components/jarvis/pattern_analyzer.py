@@ -712,7 +712,7 @@ class PatternAnalyzer:
             # Generate automation YAML suggestion
             auto_yaml = self._generate_automation(pattern)
 
-            conn.execute(
+            _cur = conn.execute(
                 "INSERT INTO suggestions (created, description, automation_yaml, "
                 "confidence, pattern_count, pattern_type, entity_ids, details, "
                 "status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
@@ -722,6 +722,7 @@ class PatternAnalyzer:
                  json.dumps(pattern.entity_ids or []),
                  json.dumps(pattern.details or {})),
             )
+            _new_sid = _cur.lastrowid
             conn.commit()
             conn.close()
             try:
@@ -735,6 +736,7 @@ class PatternAnalyzer:
                     decision="propose automation",
                     reason="recurring observed behavior",
                     confidence=pattern.confidence,
+                    ref="suggestion:%d" % _new_sid,
                 )
             except Exception:
                 pass
@@ -855,6 +857,12 @@ class PatternAnalyzer:
                 "approved_at = ? WHERE id = ?",
                 (datetime.now().isoformat(), suggestion_id),
             )
+            try:  # Decision Record outcome (v7.40.0): an installed suggestion was useful
+                from . import decision_record
+                decision_record.set_outcome_by_ref(
+                    "suggestion:%d" % suggestion_id, "good", "installed")
+            except Exception:
+                pass
             conn.commit()
         except Exception:
             pass
@@ -891,6 +899,12 @@ class PatternAnalyzer:
                 (datetime.now().isoformat(), suggestion_id),
             )
             conn.commit()
+            try:  # Decision Record outcome (v7.40.0): a dismissed suggestion was unnecessary
+                from . import decision_record
+                decision_record.set_outcome_by_ref(
+                    "suggestion:%d" % suggestion_id, "unnecessary", "dismiss_suggestion")
+            except Exception:
+                pass
             return True
         except Exception:
             return False

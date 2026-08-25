@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.40.0] — decision outcomes: which proactive calls were right
+Wires JARVIS's existing feedback signals into the decision record so each proactive decision
+can get an outcome: dismissing a suggestion marks it "unnecessary", installing one marks it
+"good", and calling off an intrusion as a false alarm marks it "wrong". This closes the loop —
+the record now links decisions to whether they were actually useful, groundwork for a future
+cognition score. No visible change on its own.
+
 ## [7.39.0] — decision record now covers intrusion + suggestions
 Extends the internal decision record to JARVIS's other two proactive decision types: each
 intrusion alert and each new automation suggestion is now logged with the facts it saw, how it

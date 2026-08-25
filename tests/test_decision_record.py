@@ -221,3 +221,79 @@ def test_suggestion_store_survives_record_failure(load, monkeypatch, tmp_path):
     monkeypatch.setattr(dr, "record", boom)
     pat = pa.DetectedPattern(pattern_type="time_routine", description="X", entity_ids=[], confidence=0.5, occurrences=3)
     assert an._store_suggestion(pat) is True  # still stored despite the logging blow-up
+
+
+# ── Phase 2: outcome capture ──────────────────────────────────────────────
+
+def test_set_outcome_by_ref_links_and_is_once(load, tmp_path):
+    dr = load("decision_record")
+    db = str(tmp_path / "d.db")
+    rid = dr.record("suggestion", ref="suggestion:11", db_path=db)
+    assert dr.set_outcome_by_ref("suggestion:11", "unnecessary", "dismiss_suggestion", db_path=db) is True
+    assert dr.get(rid, db_path=db)["outcome"] == "unnecessary"
+    assert dr.get(rid, db_path=db)["outcome_source"] == "dismiss_suggestion"
+    assert dr.set_outcome_by_ref("suggestion:999", "wrong", db_path=db) is False   # unknown ref
+    assert dr.set_outcome_by_ref("suggestion:11", "good", db_path=db) is False      # already judged
+
+
+def test_set_outcome_recent_picks_recent_unjudged(load, tmp_path):
+    import time
+    dr = load("decision_record")
+    db = str(tmp_path / "d.db")
+    old = dr.record("intrusion", ts=time.time() - 10000, db_path=db)
+    new = dr.record("intrusion", ts=time.time() - 60, db_path=db)
+    assert dr.set_outcome_recent("intrusion", "wrong", "dismiss_intrusion", max_age=3600, db_path=db) is True
+    assert dr.get(new, db_path=db)["outcome"] == "wrong"
+    assert dr.get(old, db_path=db)["outcome"] is None            # too old, untouched
+    assert dr.set_outcome_recent("intrusion", "wrong", max_age=3600, db_path=db) is False  # none left
+
+
+def _suggestions_db(tmp_path, sid, status="pending"):
+    import sqlite3
+    db = str(tmp_path / "p.db")
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE suggestions (id INTEGER PRIMARY KEY, status TEXT, dismissed_at TEXT, approved_at TEXT)")
+    conn.execute("INSERT INTO suggestions (id, status) VALUES (?, ?)", (sid, status))
+    conn.commit()
+    conn.close()
+    return db
+
+
+def test_dismiss_suggestion_marks_unnecessary(load, monkeypatch, tmp_path):
+    pa = load("pattern_analyzer")
+    dr = load("decision_record")
+    an = pa.PatternAnalyzer()
+    an._db = _suggestions_db(tmp_path, 7)
+    calls = []
+    monkeypatch.setattr(dr, "set_outcome_by_ref",
+                        lambda ref, verdict, source="": calls.append((ref, verdict, source)) or True)
+    an.dismiss_suggestion(7)
+    assert ("suggestion:7", "unnecessary", "dismiss_suggestion") in calls
+
+
+def test_mark_installed_marks_good(load, monkeypatch, tmp_path):
+    pa = load("pattern_analyzer")
+    dr = load("decision_record")
+    an = pa.PatternAnalyzer()
+    an._db = _suggestions_db(tmp_path, 9)
+    calls = []
+    monkeypatch.setattr(dr, "set_outcome_by_ref",
+                        lambda ref, verdict, source="": calls.append((ref, verdict, source)) or True)
+    an.mark_installed(9, "automation.foo")
+    assert ("suggestion:9", "good", "installed") in calls
+
+
+def test_dismiss_intrusion_marks_wrong(load, monkeypatch):
+    intr = load("intrusion")
+    dr = load("decision_record")
+    calls = []
+    monkeypatch.setattr(dr, "set_outcome_recent",
+                        lambda kind, verdict, source="", max_age=3600.0: calls.append((kind, verdict, source)) or True)
+    try:
+        intr.dismiss_intrusion("that's me")
+        assert ("intrusion", "wrong", "dismiss_intrusion") in calls
+    finally:
+        # dismiss_intrusion sets a module-global call-off window; clearing it keeps this
+        # from leaking into other intrusion tests (shared jc.intrusion module).
+        intr.clear_calloff()
+        intr._called_off_until = 0.0
