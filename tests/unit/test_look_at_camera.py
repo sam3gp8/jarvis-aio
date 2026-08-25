@@ -25,40 +25,26 @@ async def test_look_at_camera_requires_args(agent, fake_hass):
     assert "error" in out3
 
 
-def _patch_camera(monkeypatch, load, result):
-    """Install a self-contained fake `jc.camera` for the test.
-
-    The tool does `from .camera import async_analyze_camera, _FakeCall`. Depending
-    on the Python version and what earlier tests imported, that resolves
-    `jc.camera` via EITHER sys.modules OR the parent-package attribute — and the
-    test harness's loader only ever sets the former. So we install a complete fake
-    (both names the tool imports) into BOTH places via monkeypatch. That makes the
-    patch independent of which resolution path Python takes and of any earlier
-    test's camera state, which is what was breaking this on 3.13/3.14 in CI while
-    passing on 3.12 locally. `load` is accepted for signature stability."""
+def _patch_camera(monkeypatch, agent, result):
+    """Patch agent._analyze_camera directly — a name in the agent module's own
+    namespace. `_exec_look_at_camera` resolves that name from the module dict at
+    call time, so this works regardless of how `from .camera import …` resolves
+    (which varied across CPython builds and caused a persistent CI-only failure).
+    No fake module, no sys.modules juggling, no aiohttp stub needed."""
     captured = {}
 
-    async def _fake_analyze(hass, call, client, honorific, tts, spk,
-                            gate_announce=False, force_images=None):
-        captured["prompt"] = call.data.get("prompt")
-        captured["entity_id"] = call.data.get("entity_id")
-        captured["announce"] = call.data.get("announce")
+    async def _fake_analyze(hass, entity_id, prompt, announce, honorific):
+        captured["entity_id"] = entity_id
+        captured["prompt"] = prompt
+        captured["announce"] = announce
         return result
 
-    class _FakeCall:
-        def __init__(self, data):
-            self.data = data
-
-    fake = types.ModuleType("jc.camera")
-    fake.async_analyze_camera = _fake_analyze
-    fake._FakeCall = _FakeCall
-    monkeypatch.setitem(sys.modules, "jc.camera", fake)
-    monkeypatch.setattr(sys.modules["jc"], "camera", fake, raising=False)
+    monkeypatch.setattr(agent, "_analyze_camera", _fake_analyze)
     return captured
 
 
 async def test_look_at_camera_success_returns_answer(agent, fake_hass, monkeypatch, load):
-    captured = _patch_camera(monkeypatch, load, {
+    captured = _patch_camera(monkeypatch, agent, {
         "success": True, "analysis": "Yes — a soldering iron is on the bench.",
         "camera": "Workshop", "source": "frigate"})
     out = json.loads(await agent._exec_look_at_camera(fake_hass, {
@@ -73,7 +59,7 @@ async def test_look_at_camera_success_returns_answer(agent, fake_hass, monkeypat
 
 
 async def test_look_at_camera_defaults_announce_false(agent, fake_hass, monkeypatch, load):
-    captured = _patch_camera(monkeypatch, load, {
+    captured = _patch_camera(monkeypatch, agent, {
         "success": True, "analysis": "clear", "camera": "Shop", "source": "nest"})
     await agent._exec_look_at_camera(fake_hass, {
         "entity_id": "camera.shop", "question": "anything out?"})
@@ -81,7 +67,7 @@ async def test_look_at_camera_defaults_announce_false(agent, fake_hass, monkeypa
 
 
 async def test_look_at_camera_announce_passthrough(agent, fake_hass, monkeypatch, load):
-    captured = _patch_camera(monkeypatch, load, {
+    captured = _patch_camera(monkeypatch, agent, {
         "success": True, "analysis": "x", "camera": "C", "source": "s"})
     await agent._exec_look_at_camera(fake_hass, {
         "entity_id": "camera.c", "question": "q", "announce": True})
@@ -89,7 +75,7 @@ async def test_look_at_camera_announce_passthrough(agent, fake_hass, monkeypatch
 
 
 async def test_look_at_camera_failure_gives_hint(agent, fake_hass, monkeypatch, load):
-    _patch_camera(monkeypatch, load, {
+    _patch_camera(monkeypatch, agent, {
         "success": False, "error": "no_image", "camera": "Backyard"})
     out = json.loads(await agent._exec_look_at_camera(fake_hass, {
         "entity_id": "camera.backyard", "question": "anyone there?"}))

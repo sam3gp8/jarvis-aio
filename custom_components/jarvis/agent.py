@@ -2205,6 +2205,21 @@ async def _exec_who_do_you_see(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc), "seen": [], "any": False})
 
 
+async def _analyze_camera(hass, entity_id: str, prompt: str, announce: bool,
+                          honorific: str) -> dict:
+    """The camera vision call, isolated as a module-level function so tests can
+    patch it deterministically — replacing a name in this module's own namespace,
+    rather than depending on how `from .camera import …` resolves. That import
+    resolution behaves differently across CPython builds and was the source of a
+    persistent CI-only failure; calling through this indirection sidesteps it."""
+    from .camera import async_analyze_camera, _FakeCall
+    fc = _FakeCall({"entity_id": entity_id, "prompt": prompt, "announce": announce})
+    # groq_client=None → analyze path resolves the configured vision client
+    # itself; degrades gracefully with a clear error if none is set up.
+    return await async_analyze_camera(
+        hass, fc, None, honorific, None, [], gate_announce=False)
+
+
 async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
     """Vision query: snapshot a camera and answer a question about it (v6.58.0).
     Powers on-demand visual checks and standing vision monitors. Reuses the
@@ -2214,7 +2229,6 @@ async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
     if not entity_id or not question:
         return json.dumps({"error": "entity_id and question are required"})
     try:
-        from .camera import async_analyze_camera, _FakeCall
         from . import jarvis_config
         honorific = jarvis_config.get("honorific", "sir") or "sir"
         prompt = (
@@ -2223,15 +2237,8 @@ async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
             f"describe it; if not, say it is not present. Do not speculate beyond "
             f"the image."
         )
-        fc = _FakeCall({
-            "entity_id": entity_id,
-            "prompt": prompt,
-            "announce": bool(args.get("announce", False)),
-        })
-        # groq_client=None → analyze path resolves the configured vision client
-        # itself; degrades gracefully with a clear error if none is set up.
-        result = await async_analyze_camera(
-            hass, fc, None, honorific, None, [], gate_announce=False)
+        result = await _analyze_camera(
+            hass, entity_id, prompt, bool(args.get("announce", False)), honorific)
         if not result.get("success"):
             return json.dumps({
                 "success": False,

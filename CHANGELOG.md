@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.47.0] — expanded French translation of the settings panel
+Most of the settings, labels, options, and help text throughout the panel are now translated when
+Home Assistant is set to French — previously only the tabs and section headers were. Set Home
+Assistant's language to French to use it.
+
 ## [7.46.0] — tune recognition strictness and Ollama context from the panel
 Two settings are now adjustable from the panel. Recognition confidence sets how sure JARVIS must
 be about a face before it names a person — below the threshold it records "unknown" — so you can
