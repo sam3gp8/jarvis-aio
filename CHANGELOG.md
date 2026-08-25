@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.44.0] — quick "unlock" commands now unlock (not lock), and honor confirmation
+Fixed a bug where a spoken or typed "unlock the front door" could be read as "lock" and lock it
+instead — unlock now unlocks, for a single door and for "unlock all doors". Separately, when
+spoken confirmation is turned on, protected quick commands (unlocking a door, opening a garage)
+now go through the same confirmation step as the rest of JARVIS instead of acting immediately, so
+the quick-command path is no longer a way around it. Everyday quick commands — lights, climate,
+media — are unchanged and still instant.
+
 ## [7.43.0] — periodic sweeps now scheduled and visible, cleaner reloads
 JARVIS's recurring background tasks — the package/mail sweep, the service-health check, the
 hazard monitor, and document auto-ingest — now run through a single scheduler that tracks each

@@ -108,9 +108,9 @@ _INTENT_PATTERNS = [
     # Switches
     (r"turn\s+on\s+(?:the\s+)?(.+?)(?:\s+switch)?$",   "turn_on",  "switch"),
     (r"turn\s+off\s+(?:the\s+)?(.+?)(?:\s+switch)?$",  "turn_off", "switch"),
-    # Locks
-    (r"lock\s+(?:the\s+)?(.+?)(?:\s+door)?$",   "lock",   "lock"),
+    # Locks (unlock before lock; lock's (?<!un) stops it matching inside "unlock")
     (r"unlock\s+(?:the\s+)?(.+?)(?:\s+door)?$", "unlock", "lock"),
+    (r"(?<!un)lock\s+(?:the\s+)?(.+?)(?:\s+door)?$",   "lock",   "lock"),
     # Covers / Garage
     (r"open\s+(?:the\s+)?(.+?)(?:\s+(?:door|gate|cover|garage))?$",  "open",  "cover"),
     (r"close\s+(?:the\s+)?(.+?)(?:\s+(?:door|gate|cover|garage))?$", "close", "cover"),
@@ -176,8 +176,8 @@ _BULK_PATTERNS = [
      "turn_off", "light", "area"),
     (r"turn\s+on\s+(?:all\s+)?(?:the\s+)?lights?\s+(?:in|on)\s+(?:the\s+)?(.+)$",
      "turn_on", "light", "area"),
-    (r"lock\s+(?:all\s+)?(?:the\s+)?doors?$",   "lock",   "lock", None),
     (r"unlock\s+(?:all\s+)?(?:the\s+)?doors?$", "unlock", "lock", None),
+    (r"(?<!un)lock\s+(?:all\s+)?(?:the\s+)?doors?$",   "lock",   "lock", None),
     (r"close\s+(?:all\s+)?(?:the\s+)?(?:covers?|blinds?|shades?)$", "close", "cover", None),
     (r"open\s+(?:all\s+)?(?:the\s+)?(?:covers?|blinds?|shades?)$",  "open",  "cover", None),
     (r"turn\s+off\s+(?:all\s+)?(?:the\s+)?fans?$", "turn_off", "fan", None),
@@ -508,6 +508,47 @@ def _find_scene_or_script(hass, name_fragment):
 
 # ── Action execution ────────────────────────────────────────────────────────
 
+def _service_for(action, entity_id):
+    """Map a fast-path action to the (domain, service) it would call, or None if
+    it isn't a direct actuation. Mirrors _execute_action so the confirmation
+    pre-check matches exactly what would run."""
+    dom = entity_id.split(".")[0] if entity_id else ""
+    if action in ("turn_on", "turn_off", "toggle"):
+        return (dom, action)
+    fixed = {
+        "lock": ("lock", "lock"), "unlock": ("lock", "unlock"),
+        "open": ("cover", "open_cover"), "close": ("cover", "close_cover"),
+        "dim": ("light", "turn_on"), "brighten": ("light", "turn_on"),
+        "media_pause": ("media_player", "media_pause"),
+        "media_play": ("media_player", "media_play"),
+        "media_next": ("media_player", "media_next_track"),
+        "volume_up": ("media_player", "volume_up"),
+        "volume_down": ("media_player", "volume_down"),
+        "mute": ("media_player", "volume_mute"),
+        "unmute": ("media_player", "volume_mute"),
+        "set_temp": ("climate", "set_temperature"),
+        "set_temp_named": ("climate", "set_temperature"),
+        "volume_set": ("media_player", "volume_set"),
+    }
+    return fixed.get(action)
+
+
+def _needs_confirmation(hass, action, entity_id="") -> bool:
+    """Whether this fast-path action would require confirmation. Protected
+    actions (unlock, open a garage/cover, disarm, …) are deferred to the agent
+    rather than actuated here, so the same authorization gate that guards the
+    agent's tools also guards the fast-path — the fast-path never becomes a
+    second, unguarded way to unlock a door."""
+    svc = _service_for(action, entity_id)
+    if not svc:
+        return False
+    try:
+        from . import policy
+        return bool(policy.requires_confirmation(hass, svc[0], svc[1], entity_id))
+    except Exception:
+        return False
+
+
 async def _execute_action(hass, action, entity_id, args):
     try:
         domain = entity_id.split(".")[0]
@@ -778,6 +819,9 @@ async def try_local(hass, text, honorific="sir", force=False):
         if not match:
             continue
         area_name = match.group(1) if scope == "area" and match.lastindex else None
+        if _needs_confirmation(hass, action, ""):
+            _LOGGER.info("Local: bulk '%s' needs confirmation — deferring to agent", action)
+            return None   # protected bulk → agent skips/confirms per device
         if domain == "all":
             total = 0
             for d in ("light", "switch", "fan"):
@@ -889,6 +933,10 @@ async def try_local(hass, text, honorific="sir", force=False):
             if resp:
                 return LocalResult(text=resp, success=True)
             continue
+        if _needs_confirmation(hass, action, entity_id):
+            _LOGGER.info("Local: '%s' on %s needs confirmation — deferring to agent",
+                         action, entity_id)
+            return None   # protected action → the agent runs the confirmation gate
         success = await _execute_action(hass, action, entity_id, args)
         _update_ctx(entity=entity_id, domain=entity_id.split(".")[0], action=action)
         return LocalResult(text=_resp(action, fname, success, args, honorific), success=success)
