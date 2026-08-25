@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -44,13 +44,41 @@ CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(timestamp);
 """
 
 
+_last_error: Optional[str] = None   # last connect/schema failure, for diagnostics
+
+
 def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    conn.commit()
-    return conn
+    global _last_error
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(SCHEMA)
+        conn.commit()
+        _last_error = None
+        return conn
+    except Exception as exc:
+        # A schema/migration failure is NOT swallowed silently — it's logged and
+        # retained so diagnostics can report the store as degraded. Callers still
+        # handle the raised error for the individual operation.
+        _last_error = f"{type(exc).__name__}: {exc}"
+        _LOGGER.error("conversation DB connect/schema failed: %s", exc)
+        raise
+
+
+def health() -> dict:
+    """Actively probe the conversation store: connect, apply the schema, and run
+    a trivial read. Returns ``{'ok': bool, 'error': str}``. Diagnostics uses this
+    so a failed schema/migration surfaces as degraded instead of silent no-ops."""
+    try:
+        conn = _connect()
+        try:
+            conn.execute("SELECT 1 FROM conversations LIMIT 1")
+        finally:
+            conn.close()
+        return {"ok": True, "error": ""}
+    except Exception as exc:
+        return {"ok": False, "error": _last_error or f"{type(exc).__name__}: {exc}"}
 
 
 # ── Conversation history ──────────────────────────────────────────────────────
@@ -61,7 +89,7 @@ def save_message(role: str, content: str, device_id: str = "unknown") -> None:
         with _connect() as conn:
             conn.execute(
                 "INSERT INTO conversations (timestamp, device_id, role, content) VALUES (?,?,?,?)",
-                (datetime.utcnow().isoformat(), device_id, role, content),
+                (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), device_id, role, content),
             )
     except Exception as exc:
         _LOGGER.warning("JARVIS DB write error: %s", exc)
@@ -74,7 +102,7 @@ def get_recent_messages(
 ) -> list[dict]:
     """Return recent conversation rows, oldest first."""
     try:
-        since = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        since = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)).isoformat()
         with _connect() as conn:
             if device_id:
                 rows = conn.execute(
@@ -114,7 +142,7 @@ def save_sentinel_event(entity_id: str, event_type: str, detail: str = "") -> No
         with _connect() as conn:
             conn.execute(
                 "INSERT INTO sentinel_events (timestamp, entity_id, event_type, detail) VALUES (?,?,?,?)",
-                (datetime.utcnow().isoformat(), entity_id, event_type, detail),
+                (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), entity_id, event_type, detail),
             )
     except Exception as exc:
         _LOGGER.warning("JARVIS sentinel DB write error: %s", exc)
@@ -123,7 +151,7 @@ def save_sentinel_event(entity_id: str, event_type: str, detail: str = "") -> No
 def purge_old_records(days: int = 30) -> int:
     """Delete entries older than `days`. Returns rows deleted."""
     try:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)).isoformat()
         with _connect() as conn:
             cur = conn.execute(
                 "DELETE FROM conversations WHERE timestamp < ?", (cutoff,)
@@ -159,7 +187,7 @@ def save_activity(
                 "(timestamp, entity_id, category, urgency, message, was_spoken, source) "
                 "VALUES (?,?,?,?,?,?,?)",
                 (
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
                     entity_id,
                     category,
                     urgency,
@@ -178,7 +206,7 @@ def get_recent_activity(
 ) -> list[dict]:
     """Return recent activity log rows, newest first."""
     try:
-        since = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        since = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)).isoformat()
         with _connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM activity_log WHERE timestamp > ? "
@@ -194,7 +222,7 @@ def get_recent_activity(
 def get_activity_count_today() -> int:
     """Count of spoken announcements today."""
     try:
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0).isoformat()
+        today = datetime.now(timezone.utc).replace(tzinfo=None).replace(hour=0, minute=0, second=0).isoformat()
         with _connect() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM activity_log WHERE timestamp > ? AND was_spoken = 1",

@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.42.0] — conversation store in the self-test, plus reliability fixes
+The System Diagnostics self-test now covers the conversation store, so a storage problem shows
+up as a clear warning instead of quietly causing missed history. Calling off a false alarm now
+records the outcome against that exact intrusion, keeping the decision history accurate even
+when alerts happen close together. Also clears an internal date-handling deprecation so JARVIS
+stays reliable on newer Python versions. No other visible change.
+
 ## [7.41.0] — protected actions now fail safe, and can't slip through in bulk
 Locking, unlocking, opening a garage, and disarming the alarm now pass through a single
 authorization step before they run. When spoken confirmation is turned on, these actions

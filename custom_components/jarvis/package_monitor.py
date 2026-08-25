@@ -23,7 +23,7 @@ import base64
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 _LOGGER = logging.getLogger(__name__)
@@ -296,7 +296,7 @@ async def evaluate(hass, groq_client, honorific, tts_entity, speakers,
         "package": bool(det.get("package")),
         "mail": bool(det.get("mail")),
         "count": int(det.get("count", 0) or 0),
-        "since": datetime.utcnow(),
+        "since": datetime.now(timezone.utc).replace(tzinfo=None),
         "desc": det.get("description", ""),
     }
     return spoke

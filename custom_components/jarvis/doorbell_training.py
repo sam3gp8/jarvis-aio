@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def log_event(camera: str, entity_id: str, source: str, result: dict) -> None:
     """
     try:
         rec = {
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
             "camera": camera,
             "entity_id": entity_id,
             "image_source": source,

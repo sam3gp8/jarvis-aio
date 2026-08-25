@@ -18,7 +18,7 @@ import asyncio
 import base64
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import aiohttp
@@ -307,7 +307,7 @@ async def _fetch_frigate_image(
     # 1. Try cached event snapshot — best quality, event-cropped, public endpoint
     cached = _EVENT_CACHE.get(entity_id)
     if cached and cached.get("source") == "frigate":
-        age = (datetime.utcnow() - cached["ts"]).total_seconds()
+        age = (datetime.now(timezone.utc).replace(tzinfo=None) - cached["ts"]).total_seconds()
         if age < EVENT_FRESH_SECONDS:
             event_id = cached.get("event_id")
             if event_id:
@@ -354,7 +354,7 @@ async def _fetch_nest_event_image(
     if not cached or cached.get("source") != "nest":
         return None
 
-    age = (datetime.utcnow() - cached["ts"]).total_seconds()
+    age = (datetime.now(timezone.utc).replace(tzinfo=None) - cached["ts"]).total_seconds()
     if age >= EVENT_FRESH_SECONDS:
         _LOGGER.debug("JARVIS: Nest event too old (%ds) for %s", int(age), entity_id)
         return None
@@ -1102,7 +1102,7 @@ def _handle_nest_event(hass: HomeAssistant, event: Event) -> None:
         _EVENT_CACHE[entity_id] = {
             "event_id": event_id,
             "device_id": device_id,
-            "ts": datetime.utcnow(),
+            "ts": datetime.now(timezone.utc).replace(tzinfo=None),
             "source": "nest",
         }
         _LOGGER.debug("JARVIS: cached Nest event %s for %s", event_id, entity_id)
@@ -1143,7 +1143,7 @@ def _handle_frigate_event(hass: HomeAssistant, event: Event) -> None:
             _EVENT_CACHE[entity_id] = {
                 "event_id": event_id,
                 "device_id": camera_name,
-                "ts": datetime.utcnow(),
+                "ts": datetime.now(timezone.utc).replace(tzinfo=None),
                 "source": "frigate",
             }
             _LOGGER.debug("JARVIS: cached Frigate event %s for %s", event_id, entity_id)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -75,7 +75,7 @@ def add_reminder(
                 """INSERT INTO reminders (created, label, trigger_at, repeat,
                                           require_home, respect_quiet)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (datetime.utcnow().isoformat(), label, trigger_at.isoformat(),
+                (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), label, trigger_at.isoformat(),
                  repeat, 1 if require_home else 0, 1 if respect_quiet else 0),
             )
             return cur.lastrowid

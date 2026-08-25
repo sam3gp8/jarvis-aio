@@ -38,6 +38,7 @@ _acknowledged_ts = 0.0        # user said "I see it, stand by" (not a false alar
 _ACK_WINDOW = 300.0           # an acknowledgement holds the auto-escalation this long
 _last_snapshot: dict = {}     # {path, url, camera, ts} of the most recent capture
 _false_alarms: list = []      # recent {ts, camera, area} for learning
+_last_decision_id: Optional[int] = None  # decision_record row id of the latest intrusion
 
 
 def acknowledge(reason: str = "") -> dict:
@@ -122,12 +123,24 @@ def last_snapshot() -> Optional[dict]:
 
 # ── false-alarm call-off ─────────────────────────────────────────────────────
 
+def set_last_decision_id(record_id) -> None:
+    """Remember the decision_record row id of the most recent intrusion, so a
+    later call-off attaches its outcome to *that* record rather than guessing
+    the most-recent-of-kind (which mis-attributes when intrusions overlap)."""
+    global _last_decision_id
+    if record_id is not None:
+        try:
+            _last_decision_id = int(record_id)
+        except Exception:
+            pass
+
+
 def dismiss_intrusion(reason: str = "") -> dict:
     """Declare the current/last intrusion a false alarm. Sets a suppression
     window so the SafetyManager stops escalating, and records it. The
     SafetyManager consults is_called_off() and clears its investigation. Never
     raises."""
-    global _called_off_until
+    global _called_off_until, _last_decision_id
     _called_off_until = time.time() + _CALLOFF_COOLDOWN
     rec = {
         "ts": int(time.time()),
@@ -139,9 +152,19 @@ def dismiss_intrusion(reason: str = "") -> dict:
         del _false_alarms[:-50]
     _LOGGER.info("JARVIS: intrusion called off by user%s — suppressing escalation "
                  "for %ds", f" ({reason})" if reason else "", int(_CALLOFF_COOLDOWN))
-    try:  # Decision Record outcome (v7.40.0): a called-off intrusion was a false alarm
+    try:  # Decision Record outcome: a called-off intrusion was a false alarm.
         from . import decision_record
-        decision_record.set_outcome_recent("intrusion", "wrong", "dismiss_intrusion", max_age=7200.0)
+        if _last_decision_id is not None:
+            # Attach the verdict to the exact record for this intrusion.
+            if not decision_record.set_outcome(
+                    _last_decision_id, "wrong", "dismiss_intrusion"):
+                # Already judged or gone — fall back to most-recent-of-kind.
+                decision_record.set_outcome_recent(
+                    "intrusion", "wrong", "dismiss_intrusion", max_age=7200.0)
+            _last_decision_id = None
+        else:
+            decision_record.set_outcome_recent(
+                "intrusion", "wrong", "dismiss_intrusion", max_age=7200.0)
     except Exception:
         pass
     return {"ok": True, "suppressed_seconds": int(_CALLOFF_COOLDOWN), "recorded": rec}

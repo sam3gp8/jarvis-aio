@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from homeassistant.core import HomeAssistant, callback
@@ -122,7 +122,7 @@ def who_do_you_see(hass) -> dict:
                 seen.append(f["name"])
 
     # 2. Recent-recognition cache (MQTT-driven, any source), still fresh
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     for cam, rec in _RECOGNITION_CACHE.items():
         name = rec.get("name", "")
         ts = rec.get("ts")
@@ -174,7 +174,7 @@ def _camera_entity_from_name(camera_name: str) -> str:
 def remember_recognition(camera_name: str, name: str, confidence: float) -> None:
     """Store a recognition event in the in-memory cache."""
     entity_id = _camera_entity_from_name(camera_name)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     prev = _RECOGNITION_CACHE.get(entity_id, {})
     _RECOGNITION_CACHE[entity_id] = {
         "name":       name,
@@ -189,7 +189,7 @@ def last_seen_at(hass: HomeAssistant, camera_entity: str) -> Optional[dict]:
     rec = _RECOGNITION_CACHE.get(camera_entity)
     if not rec:
         return None
-    age = datetime.utcnow() - rec["ts"]
+    age = datetime.now(timezone.utc).replace(tzinfo=None) - rec["ts"]
     if age > CACHE_MAX_AGE:
         return None
     return {
@@ -202,7 +202,7 @@ def last_seen_at(hass: HomeAssistant, camera_entity: str) -> Optional[dict]:
 def who_is_where(hass: HomeAssistant) -> dict[str, str]:
     """Return {camera_entity: name} for all recent recognitions."""
     out = {}
-    cutoff = datetime.utcnow() - CACHE_MAX_AGE
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - CACHE_MAX_AGE
     for entity_id, rec in _RECOGNITION_CACHE.items():
         if rec["ts"] >= cutoff and rec["confidence"] >= CONFIDENCE_THRESHOLD:
             out[entity_id] = rec["name"]
@@ -220,7 +220,7 @@ def recognition_context_string(hass: HomeAssistant) -> str:
     current = who_is_where(hass)
     for entity_id, name in (current or {}).items():
         rec = _RECOGNITION_CACHE[entity_id]
-        age = int((datetime.utcnow() - rec["ts"]).total_seconds())
+        age = int((datetime.now(timezone.utc).replace(tzinfo=None) - rec["ts"]).total_seconds())
         if age < 60:
             when = "just now"
         elif age < 3600:

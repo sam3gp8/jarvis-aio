@@ -152,7 +152,7 @@ async def test_aggregate_overall_down_when_any_active_down(sh, monkeypatch):
     monkeypatch.setattr(sh, "_check_stt", lambda h: {"name": "STT", "key": "stt", "status": "ok", "detail": ""})
     res = await sh.run_service_health(_Hass({}))
     assert res["overall"] == "down"
-    assert len(res["services"]) == 6
+    assert len(res["services"]) == 7
     # 'off' services excluded from the healthy count
     assert "healthy" in res["summary"]
 
@@ -175,7 +175,7 @@ async def test_aggregate_never_raises_on_check_error(sh, monkeypatch):
     monkeypatch.setattr(sh, "_check_tts", lambda h: (_ for _ in ()).throw(RuntimeError("x")))
     monkeypatch.setattr(sh, "_check_stt", lambda h: {"name": "STT", "key": "stt", "status": "ok", "detail": ""})
     res = await sh.run_service_health(_Hass({}))       # must not raise
-    assert "services" in res and len(res["services"]) == 6
+    assert "services" in res and len(res["services"]) == 7
 
 
 # ── agent tool registration ──────────────────────────────────────────────────
@@ -352,4 +352,32 @@ def test_routines_check_warns_when_identity_confidence_high(sh, monkeypatch):
 def test_routines_check_ok_when_identity_confidence_normal(sh, monkeypatch):
     monkeypatch.setattr(sh, "_cfg", lambda k, d=None: 0.5 if k == "identity_min_confidence" else d)
     out = sh._check_routines(None)
+    assert out["status"] == "ok"
+
+
+# ── conversation-store health check (v7.42.0) ─────────────────────────────────
+def test_database_check_off_when_not_created(sh):
+    # In the sandbox the real DB path doesn't exist -> OFF, never a false DOWN.
+    out = sh._check_database(_Hass({}))
+    assert out["status"] == "off"
+
+
+def test_database_check_down_on_health_failure(sh, monkeypatch):
+    fake = types.ModuleType("jc.database")
+    fake.DB_PATH = type("P", (), {"exists": staticmethod(lambda: True)})()
+    fake.health = lambda: {"ok": False, "error": "disk I/O error"}
+    monkeypatch.setitem(sys.modules, "jc.database", fake)
+    monkeypatch.setattr(sys.modules["jc"], "database", fake, raising=False)
+    out = sh._check_database(_Hass({}))
+    assert out["status"] == "down"
+    assert "disk I/O" in out["detail"]
+
+
+def test_database_check_ok_when_healthy(sh, monkeypatch):
+    fake = types.ModuleType("jc.database")
+    fake.DB_PATH = type("P", (), {"exists": staticmethod(lambda: True)})()
+    fake.health = lambda: {"ok": True, "error": ""}
+    monkeypatch.setitem(sys.modules, "jc.database", fake)
+    monkeypatch.setattr(sys.modules["jc"], "database", fake, raising=False)
+    out = sh._check_database(_Hass({}))
     assert out["status"] == "ok"

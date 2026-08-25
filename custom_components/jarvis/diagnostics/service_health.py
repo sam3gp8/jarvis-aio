@@ -340,6 +340,38 @@ def _check_cameras(hass) -> dict:
     return out
 
 
+def _check_database(hass) -> dict:
+    """Conversation store health. Probes the DB only if it already exists — a
+    failed schema/migration on an existing store is a real failure (DOWN), while
+    a not-yet-created store is simply OFF (nothing to fail on a fresh install)."""
+    out = {"name": "Conversation store", "key": "database", "status": _OFF, "detail": ""}
+    try:
+        from .. import database
+    except Exception:
+        out["detail"] = "database module unavailable"
+        return out
+    try:
+        exists = database.DB_PATH.exists()
+    except Exception:
+        exists = False
+    if not exists:
+        out["detail"] = "not yet created"
+        return out
+    try:
+        h = database.health()
+    except Exception as exc:
+        out["status"] = _DOWN
+        out["detail"] = "health probe error: %s" % exc
+        return out
+    if h.get("ok"):
+        out["status"] = _OK
+        out["detail"] = "conversation store OK"
+    else:
+        out["status"] = _DOWN
+        out["detail"] = "schema/migration error: %s" % (h.get("error") or "unknown")
+    return out
+
+
 def _check_routines(hass) -> dict:
     """Config sanity: a very high identity-confidence bar starves per-person
     routine attribution (few observations ever clear it), so surface it here."""
@@ -369,6 +401,7 @@ async def run_service_health(hass) -> dict:
         ("STT", "stt", _check_stt, False),
         ("Cameras", "cameras", _check_cameras, False),
         ("Routines", "routines", _check_routines, False),
+        ("Conversation store", "database", _check_database, False),
     ):
         try:
             services.append(await fn(hass) if is_async else fn(hass))

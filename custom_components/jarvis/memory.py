@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -102,7 +102,7 @@ def store_memory(
         return False
 
     _ensure_initialized()
-    ts = datetime.utcnow().isoformat()
+    ts = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     doc_id = f"{ts}_{role}_{hash(text) % 100000}"
 
     metadata = {
@@ -159,7 +159,7 @@ def search_memory(
         try:
             where = None
             if hours:
-                cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+                cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)).isoformat()
                 where = {"timestamp": {"$gte": cutoff}}
 
             results = _collection.query(

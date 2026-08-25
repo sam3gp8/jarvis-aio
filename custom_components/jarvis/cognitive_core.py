@@ -535,7 +535,7 @@ class SafetyManager:
             # a logging failure must never affect the alert.
             try:
                 from . import decision_record
-                decision_record.record(
+                _rid = decision_record.record(
                     "intrusion",
                     observation={"location": where, "breach": breach_name,
                                  "alarm_armed": armed, "presence": "away"},
@@ -543,6 +543,11 @@ class SafetyManager:
                     decision="raise initial intrusion alert and investigate silently",
                     reason="motion while away with corroborating breach (open entry or armed alarm)",
                 )
+                try:  # so a later call-off attaches to this exact record
+                    from . import intrusion as _intr_rec
+                    _intr_rec.set_last_decision_id(_rid)
+                except Exception:
+                    pass
             except Exception:
                 pass
             # Learned damping (v6.76.0): if this location/time pattern has been

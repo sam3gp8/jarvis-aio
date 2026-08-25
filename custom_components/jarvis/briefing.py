@@ -14,7 +14,7 @@ and includes:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.util import dt as dt_util
@@ -117,7 +117,7 @@ def _gather_overnight_events(hass: HomeAssistant, hours: int = 12) -> list[str]:
     try:
         if not db.exists():
             return []
-        since = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        since = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)).isoformat()
         with sqlite3.connect(str(db)) as conn:
             rows = conn.execute(
                 "SELECT timestamp, detail FROM sentinel_events WHERE timestamp > ? "

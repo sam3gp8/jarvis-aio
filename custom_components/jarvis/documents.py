@@ -31,7 +31,7 @@ import hashlib
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -256,7 +256,7 @@ def ingest_file(path: str) -> dict:
                 "error": "no extractable text (scanned image PDF?)"}
 
     _forget_source(source)
-    ingested = datetime.utcnow().isoformat()
+    ingested = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
     if _chroma_ok and _collection is not None:
         try:
@@ -485,7 +485,7 @@ async def auto_ingest_new(hass) -> dict:
                     conn = sqlite3.connect(_DB_PATH)
                     conn.execute("INSERT OR REPLACE INTO document_watch_seen "
                                  "(path, mtime, ingested) VALUES (?, ?, ?)",
-                                 (key, mtime, datetime.utcnow().isoformat()))
+                                 (key, mtime, datetime.now(timezone.utc).replace(tzinfo=None).isoformat()))
                     conn.commit()
                     conn.close()
                 except Exception:
@@ -548,7 +548,7 @@ async def scan_watch_folders(hass) -> dict:
                     conn = sqlite3.connect(_DB_PATH)
                     conn.execute("INSERT OR REPLACE INTO document_watch_seen "
                                  "(path, mtime, ingested) VALUES (?, ?, ?)",
-                                 (key, mtime, datetime.utcnow().isoformat()))
+                                 (key, mtime, datetime.now(timezone.utc).replace(tzinfo=None).isoformat()))
                     conn.commit()
                     conn.close()
                 except Exception:
