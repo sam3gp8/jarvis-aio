@@ -52,7 +52,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip pytest pytest-asyncio pyflakes
+        run: python -m pip install --upgrade pip pytest pytest-asyncio pyflakes pyyaml
       - name: Audit (compile + imports + names)
         run: python scripts/audit.py
       - name: Unit tests

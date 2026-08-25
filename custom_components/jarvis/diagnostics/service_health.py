@@ -372,6 +372,40 @@ def _check_database(hass) -> dict:
     return out
 
 
+def _check_scheduler(hass) -> dict:
+    """Periodic-sweep scheduler health — informational. WARN if any task has been
+    failing repeatedly; OFF if the scheduler isn't running yet (fresh boot)."""
+    out = {"name": "Scheduler", "key": "scheduler", "status": _OFF, "detail": ""}
+    sched = None
+    try:
+        for rec in hass.data.get("jarvis", {}).values():   # our own domain bucket
+            if isinstance(rec, dict) and rec.get("scheduler") is not None:
+                sched = rec["scheduler"]
+                break
+    except Exception:
+        sched = None
+    if sched is None:
+        out["detail"] = "not running"
+        return out
+    try:
+        tasks = sched.status()
+    except Exception as exc:
+        out["status"] = _WARN
+        out["detail"] = "status error: %s" % exc
+        return out
+    if not tasks:
+        out["detail"] = "no periodic tasks"
+        return out
+    failing = [t.get("name") for t in tasks if t.get("consecutive_errors", 0) >= 3]
+    if failing:
+        out["status"] = _WARN
+        out["detail"] = "%d task(s) failing: %s" % (len(failing), ", ".join(failing))
+    else:
+        out["status"] = _OK
+        out["detail"] = "%d periodic task(s) scheduled" % len(tasks)
+    return out
+
+
 def _check_routines(hass) -> dict:
     """Config sanity: a very high identity-confidence bar starves per-person
     routine attribution (few observations ever clear it), so surface it here."""
@@ -402,6 +436,7 @@ async def run_service_health(hass) -> dict:
         ("Cameras", "cameras", _check_cameras, False),
         ("Routines", "routines", _check_routines, False),
         ("Conversation store", "database", _check_database, False),
+        ("Scheduler", "scheduler", _check_scheduler, False),
     ):
         try:
             services.append(await fn(hass) if is_async else fn(hass))

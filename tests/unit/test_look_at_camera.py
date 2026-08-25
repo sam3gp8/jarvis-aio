@@ -25,8 +25,15 @@ async def test_look_at_camera_requires_args(agent, fake_hass):
     assert "error" in out3
 
 
-def _patch_camera(monkeypatch, result):
-    """Install a fake camera module with async_analyze_camera + _FakeCall."""
+def _patch_camera(monkeypatch, load, result):
+    """Patch camera.async_analyze_camera IN PLACE on the real module.
+
+    The tool does `from .camera import async_analyze_camera, _FakeCall`. Patching
+    the loaded module's attribute (rather than swapping sys.modules for a fake)
+    keeps this independent of how that import resolves — 3.13/3.14 can bind it
+    from the parent-package attribute rather than sys.modules, so a sys.modules-
+    only fake was silently bypassed there. The real module already provides
+    _FakeCall (with .data), so agent's call shape is unchanged."""
     captured = {}
     async def _fake_analyze(hass, call, client, honorific, tts, spk,
                             gate_announce=False, force_images=None):
@@ -34,18 +41,16 @@ def _patch_camera(monkeypatch, result):
         captured["entity_id"] = call.data.get("entity_id")
         captured["announce"] = call.data.get("announce")
         return result
-    class _FakeCall:
-        def __init__(self, data): self.data = data
-    mod = types.ModuleType("custom_components.jarvis.camera")
-    mod.async_analyze_camera = _fake_analyze
-    mod._FakeCall = _FakeCall
-    # the tool does `from .camera import ...` — patch the loaded package path
-    monkeypatch.setitem(sys.modules, "jc.camera", mod)
+    # camera.py imports aiohttp at module level; stub it so the real module loads
+    # where aiohttp isn't installed (sandbox/CI).
+    sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
+    cam = load("camera")
+    monkeypatch.setattr(cam, "async_analyze_camera", _fake_analyze)
     return captured
 
 
-async def test_look_at_camera_success_returns_answer(agent, fake_hass, monkeypatch):
-    captured = _patch_camera(monkeypatch, {
+async def test_look_at_camera_success_returns_answer(agent, fake_hass, monkeypatch, load):
+    captured = _patch_camera(monkeypatch, load, {
         "success": True, "analysis": "Yes — a soldering iron is on the bench.",
         "camera": "Workshop", "source": "frigate"})
     out = json.loads(await agent._exec_look_at_camera(fake_hass, {
@@ -59,24 +64,24 @@ async def test_look_at_camera_success_returns_answer(agent, fake_hass, monkeypat
     assert captured["entity_id"] == "camera.workshop"
 
 
-async def test_look_at_camera_defaults_announce_false(agent, fake_hass, monkeypatch):
-    captured = _patch_camera(monkeypatch, {
+async def test_look_at_camera_defaults_announce_false(agent, fake_hass, monkeypatch, load):
+    captured = _patch_camera(monkeypatch, load, {
         "success": True, "analysis": "clear", "camera": "Shop", "source": "nest"})
     await agent._exec_look_at_camera(fake_hass, {
         "entity_id": "camera.shop", "question": "anything out?"})
     assert captured["announce"] is False          # quiet by default (monitor-safe)
 
 
-async def test_look_at_camera_announce_passthrough(agent, fake_hass, monkeypatch):
-    captured = _patch_camera(monkeypatch, {
+async def test_look_at_camera_announce_passthrough(agent, fake_hass, monkeypatch, load):
+    captured = _patch_camera(monkeypatch, load, {
         "success": True, "analysis": "x", "camera": "C", "source": "s"})
     await agent._exec_look_at_camera(fake_hass, {
         "entity_id": "camera.c", "question": "q", "announce": True})
     assert captured["announce"] is True
 
 
-async def test_look_at_camera_failure_gives_hint(agent, fake_hass, monkeypatch):
-    _patch_camera(monkeypatch, {
+async def test_look_at_camera_failure_gives_hint(agent, fake_hass, monkeypatch, load):
+    _patch_camera(monkeypatch, load, {
         "success": False, "error": "no_image", "camera": "Backyard"})
     out = json.loads(await agent._exec_look_at_camera(fake_hass, {
         "entity_id": "camera.backyard", "question": "anyone there?"}))

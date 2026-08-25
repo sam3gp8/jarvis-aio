@@ -9,8 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.event import (async_track_time_interval,
-                                          async_track_time_change)
+from homeassistant.helpers.event import async_track_time_change
 
 from .const import (
     CONF_API_KEY,
@@ -113,6 +112,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Register camera event listeners (nest_event, frigate_event)
     camera_unsubs = register_event_listeners(hass)
+
+    # Central scheduler for periodic sweeps + a resource registry for one-call,
+    # fail-safe teardown on unload/reload (v7.43.0).
+    from .scheduler import JarvisScheduler
+    from .resources import JarvisResources
+    sched = JarvisScheduler(hass)
+    resources = JarvisResources()
 
     # ── Auto-analyze camera events GOING FORWARD (doorbell / person) ─────────
     # The listeners above only CACHE Nest/Frigate events — historically nothing
@@ -249,12 +255,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as exc:
             _LOGGER.debug("JARVIS package tick error: %s", exc)
 
-    try:
-        camera_unsubs.append(async_track_time_interval(hass, _package_tick, PKG_INTERVAL))
+    if sched.add("package", PKG_INTERVAL, _package_tick):
         _LOGGER.info("JARVIS: package/mail detection active (porch sweep every %s min)",
                      int(PKG_INTERVAL.total_seconds() // 60))
-    except Exception as exc:
-        _LOGGER.debug("JARVIS: package monitor registration failed: %s", exc)
 
     # Hourly gentle service-health sweep (v6.70.3): re-runs the core-dependency
     # checks on its own so the panel stays current without the user opening it.
@@ -270,11 +273,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as exc:
             _LOGGER.debug("JARVIS health tick error: %s", exc)
 
-    try:
-        camera_unsubs.append(async_track_time_interval(hass, _health_tick, HEALTH_INTERVAL))
+    if sched.add("health", HEALTH_INTERVAL, _health_tick):
         _LOGGER.info("JARVIS: hourly service-health sweep active")
-    except Exception as exc:
-        _LOGGER.debug("JARVIS: health sweep registration failed: %s", exc)
 
     # Multi-hazard monitor (v6.71.0): polls USGS/NWS/EONET every 10 min for new
     # nearby significant events, scoped to home coordinates (or a panel override).
@@ -291,12 +291,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as exc:
             _LOGGER.debug("JARVIS hazard tick error: %s", exc)
 
-    try:
-        camera_unsubs.append(async_track_time_interval(hass, _hazard_tick, HAZARD_INTERVAL))
+    if sched.add("hazard", HAZARD_INTERVAL, _hazard_tick):
         _LOGGER.info("JARVIS: multi-hazard monitor active (sweep every %s min)",
                      int(HAZARD_INTERVAL.total_seconds() // 60))
-    except Exception as exc:
-        _LOGGER.debug("JARVIS: hazard monitor registration failed: %s", exc)
 
     # Automatic document ingestion (v6.79.0): pick up files dropped into
     # /config/jarvis/documents (and any configured watch folders) without needing
@@ -315,12 +312,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as exc:
             _LOGGER.debug("JARVIS docs auto-ingest error: %s", exc)
 
-    try:
-        camera_unsubs.append(async_track_time_interval(hass, _docs_tick, DOCS_SCAN_INTERVAL))
+    if sched.add("documents", DOCS_SCAN_INTERVAL, _docs_tick):
         _LOGGER.info("JARVIS: document auto-ingest active (scan every %s min)",
                      int(DOCS_SCAN_INTERVAL.total_seconds() // 60))
-    except Exception as exc:
-        _LOGGER.debug("JARVIS: docs auto-ingest registration failed: %s", exc)
 
     # ── Scheduled briefings (v6.78.0) ─────────────────────────────────────────
     # JARVIS delivers its own morning and evening briefing at configured clock
@@ -422,11 +416,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         speakers_getter=lambda: _get_speakers(hass, entry),
     )
 
+    # Hand every disposable to the resource registry so unload tears them all
+    # down in one fail-safe call. The scheduler is a closeable (its shutdown()
+    # cancels every timer); the listener unsubs are collected too.
+    resources.add_unsubs(camera_unsubs)
+    resources.add_unsubs(recognition_unsubs)
+    resources.add_closeable(sched)
+
     hass.data[DOMAIN][entry.entry_id] = {
         "client":             llm_client,
         "sentinel":           sentinel,
         "camera_unsubs":      camera_unsubs,
         "recognition_unsubs": recognition_unsubs,
+        "resources":          resources,
+        "scheduler":          sched,
         "reminder_watcher":   reminder_watcher,
         "llm_provider_name":  llm_provider_name,
         "schema_version":     CURRENT_SCHEMA_VERSION,
@@ -611,20 +614,33 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as exc:
             _LOGGER.debug("Observer stop failed: %s", exc)
 
-    # Remove camera event listeners
-    for unsub in data.get("camera_unsubs", []):
+    # Tear down listeners, timers, and the scheduler in one fail-safe call.
+    resources = data.get("resources")
+    if resources is not None:
         try:
-            unsub()
-        except Exception:
-            pass
-
-    # Remove recognition listeners
-    for unsub in data.get("recognition_unsubs", []):
-        try:
-            if callable(unsub):
+            summary = resources.close_all()
+            _LOGGER.debug("JARVIS: resource teardown %s", summary)
+        except Exception as exc:
+            _LOGGER.debug("Resource teardown note: %s", exc)
+    else:
+        # Legacy entries (set up before the resource registry existed).
+        sched = data.get("scheduler")
+        if sched is not None:
+            try:
+                sched.shutdown()
+            except Exception:
+                pass
+        for unsub in data.get("camera_unsubs", []):
+            try:
                 unsub()
-        except Exception:
-            pass
+            except Exception:
+                pass
+        for unsub in data.get("recognition_unsubs", []):
+            try:
+                if callable(unsub):
+                    unsub()
+            except Exception:
+                pass
 
     # Cancel proactive-audio listeners (audit interval + startup) and service
     try:

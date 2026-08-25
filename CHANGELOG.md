@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.43.0] — periodic sweeps now scheduled and visible, cleaner reloads
+JARVIS's recurring background tasks — the package/mail sweep, the service-health check, the
+hazard monitor, and document auto-ingest — now run through a single scheduler that tracks each
+one (when it last ran, how long it took, whether it's failing). The System Diagnostics self-test
+reports scheduler health, so a sweep that quietly starts failing now shows up instead of going
+unnoticed. Reloading or removing JARVIS also tears everything down through one path, making
+reloads cleaner and less likely to leave stray timers behind. No change to what the sweeps do.
+
 ## [7.42.0] — conversation store in the self-test, plus reliability fixes
 The System Diagnostics self-test now covers the conversation store, so a storage problem shows
 up as a clear warning instead of quietly causing missed history. Calling off a false alarm now

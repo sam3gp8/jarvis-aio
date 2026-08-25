@@ -152,7 +152,7 @@ async def test_aggregate_overall_down_when_any_active_down(sh, monkeypatch):
     monkeypatch.setattr(sh, "_check_stt", lambda h: {"name": "STT", "key": "stt", "status": "ok", "detail": ""})
     res = await sh.run_service_health(_Hass({}))
     assert res["overall"] == "down"
-    assert len(res["services"]) == 7
+    assert len(res["services"]) == 8
     # 'off' services excluded from the healthy count
     assert "healthy" in res["summary"]
 
@@ -175,7 +175,7 @@ async def test_aggregate_never_raises_on_check_error(sh, monkeypatch):
     monkeypatch.setattr(sh, "_check_tts", lambda h: (_ for _ in ()).throw(RuntimeError("x")))
     monkeypatch.setattr(sh, "_check_stt", lambda h: {"name": "STT", "key": "stt", "status": "ok", "detail": ""})
     res = await sh.run_service_health(_Hass({}))       # must not raise
-    assert "services" in res and len(res["services"]) == 7
+    assert "services" in res and len(res["services"]) == 8
 
 
 # ── agent tool registration ──────────────────────────────────────────────────
@@ -381,3 +381,36 @@ def test_database_check_ok_when_healthy(sh, monkeypatch):
     monkeypatch.setattr(sys.modules["jc"], "database", fake, raising=False)
     out = sh._check_database(_Hass({}))
     assert out["status"] == "ok"
+
+
+# ── scheduler health check (v7.43.0) ──────────────────────────────────────────
+class _SchedStub:
+    def __init__(self, tasks):
+        self._t = tasks
+    def status(self):
+        return self._t
+
+
+def _hass_with(rec):
+    return types.SimpleNamespace(data={"jarvis": {"e1": rec}})
+
+
+def test_scheduler_check_off_when_absent(sh):
+    out = sh._check_scheduler(types.SimpleNamespace(data={"jarvis": {}}))
+    assert out["status"] == "off"
+
+
+def test_scheduler_check_ok_when_healthy(sh):
+    sched = _SchedStub([{"name": "package", "consecutive_errors": 0},
+                        {"name": "health", "consecutive_errors": 0}])
+    out = sh._check_scheduler(_hass_with({"scheduler": sched}))
+    assert out["status"] == "ok"
+    assert "2 periodic task" in out["detail"]
+
+
+def test_scheduler_check_warns_on_repeated_failures(sh):
+    sched = _SchedStub([{"name": "hazard", "consecutive_errors": 5},
+                        {"name": "docs", "consecutive_errors": 0}])
+    out = sh._check_scheduler(_hass_with({"scheduler": sched}))
+    assert out["status"] == "warn"
+    assert "hazard" in out["detail"]
