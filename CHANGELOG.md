@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.41.0] — protected actions now fail safe, and can't slip through in bulk
+Locking, unlocking, opening a garage, and disarming the alarm now pass through a single
+authorization step before they run. When spoken confirmation is turned on, these actions
+require a clear "yes" — and if the confirmation can't be delivered for any reason, the action
+is held back instead of going ahead. The same check now also covers batch commands and
+multi-step plans, so a protected device can no longer be changed as part of a group without
+confirmation. Everyday actions like lights, climate, and media are unaffected.
+
 ## [7.40.0] — decision outcomes: which proactive calls were right
 Wires JARVIS's existing feedback signals into the decision record so each proactive decision
 can get an outcome: dismissing a suggestion marks it "unnecessary", installing one marks it

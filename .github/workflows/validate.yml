@@ -18,26 +18,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Hassfest validation
-        uses: home-assistant/actions/hassfest@master
+        # pinned to a commit (was floating @master); bump when updating
+        uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb
 
   hacs:
     name: HACS validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: HACS validation
-        uses: hacs/action@main
+        # pinned to v22.5.0 (was floating @main)
+        uses: hacs/action@d556e736723344f83838d08488c983a15381059a
         with:
           category: integration
 
-  python:
-    name: Python syntax
+  tests:
+    name: Audit + tests (py ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest pytest-asyncio pyflakes
+      - name: Audit (compile + imports + names)
+        run: python scripts/audit.py
+      - name: Unit tests
+        run: python -m pytest tests/ -q
+
+  frontend:
+    name: Frontend (syntax + smoke)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
-      - name: Compile all integration modules
-        run: python -m compileall -q custom_components/jarvis
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+      - name: Panel syntax check
+        run: node --check custom_components/jarvis/frontend/jarvis-panel.js
+      - name: Panel smoke test
+        run: |
+          mkdir -p /tmp/jsdomtest && cd /tmp/jsdomtest
+          npm init -y >/dev/null 2>&1
+          npm install jsdom >/dev/null 2>&1
+          cd "$GITHUB_WORKSPACE"
+          NODE_PATH=/tmp/jsdomtest/node_modules node scripts/smoke_panel.js

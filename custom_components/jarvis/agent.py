@@ -1136,24 +1136,19 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
             await hass.services.async_call("media_player", "volume_set", svc_data, blocking=True)
         elif action in action_map:
             svc_domain, svc_name = action_map[action]
-            # Voice-confirm sensitive actions (lock/unlock, garage, disarm) when
-            # enabled (v6.67.0). Fail-safe: if confirmation isn't affirmative,
-            # the action does NOT run. Native path can capture yes/no directly;
-            # gated path voices the prompt and defers to the follow-up turn.
-            try:
-                from . import voice_confirm
-                if voice_confirm.action_is_protected(hass, svc_domain, svc_name, entity_id):
-                    q = f"{action.replace('_', ' ')} {entity_id.split('.')[-1].replace('_', ' ')} — are you sure?"
-                    confirmed = await voice_confirm.confirm(hass, q, entity_id=entity_id)
-                    if not confirmed:
-                        return json.dumps({
-                            "status": "awaiting_confirmation",
-                            "entity_id": entity_id,
-                            "message": f"Asked for spoken confirmation before {action} "
-                                       f"on {entity_id}; not yet confirmed.",
-                        })
-            except Exception as _vc_exc:
-                _LOGGER.debug("voice_confirm gate skipped: %s", _vc_exc)
+            # Authorization gate (v7.41.0). Protected actions (lock/unlock,
+            # garage, disarm) are voice-confirmed when that's enabled, and the
+            # gate FAILS CLOSED: if the confirmation path errors, the action
+            # does NOT run (previously it fell through and executed unconfirmed).
+            from . import policy
+            ok, note = await policy.confirm_gate(
+                hass, svc_domain, svc_name, entity_id, action.replace("_", " "))
+            if not ok:
+                return json.dumps({
+                    "status": "awaiting_confirmation",
+                    "entity_id": entity_id,
+                    "message": note or f"Confirmation required before {action} on {entity_id}.",
+                })
             await hass.services.async_call(svc_domain, svc_name, svc_data, blocking=True)
         else:
             return json.dumps({"error": f"Unknown action: {action}"})
@@ -1458,7 +1453,9 @@ async def _exec_bulk_control(hass: HomeAssistant, args: dict) -> str:
     elif action in ("lock",):
         entities = [e for e in entities if (hass.states.get(e) or type("", (), {"state": ""})()).state == "unlocked"]
 
+    from . import policy
     success = 0
+    blocked = 0
     for eid in entities:
         try:
             svc_domain = eid.split(".")[0]
@@ -1469,19 +1466,30 @@ async def _exec_bulk_control(hass: HomeAssistant, args: dict) -> str:
             }
             if action in svc_map:
                 sd, sn = svc_map[action]
+                # Protected actions are not run in bulk — a batch can't be
+                # meaningfully voice-confirmed per device. Skip and report so
+                # the agent confirms each one via control_device instead.
+                if policy.requires_confirmation(hass, sd, sn, eid):
+                    blocked += 1
+                    continue
                 await hass.services.async_call(sd, sn, {"entity_id": eid}, blocking=False)
                 success += 1
         except Exception:
             pass
 
-    return json.dumps({
+    result = {
         "success": True,
         "action": action,
         "domain": domain,
         "area": area_name,
         "count": success,
         "total": len(entities),
-    })
+    }
+    if blocked:
+        result["blocked"] = blocked
+        result["note"] = (f"{blocked} protected device(s) not changed in bulk; "
+                          f"confirm each individually.")
+    return json.dumps(result)
 
 
 # ── Learning memory ─────────────────────────────────────────────────────────
@@ -1541,6 +1549,16 @@ async def _exec_execute_plan(hass: HomeAssistant, args: dict) -> str:
         if hass.states.get(entity_id) is None:
             results.append({"step": i + 1, "description": desc,
                             "ok": False, "error": f"entity '{entity_id}' not found"})
+            continue
+
+        # Authorization gate (v7.41.0): a protected step is confirmed before it
+        # runs, and fails closed if confirmation errors.
+        from . import policy
+        ok_gate, gate_note = await policy.confirm_gate(
+            hass, domain, service, entity_id, service.replace("_", " "))
+        if not ok_gate:
+            results.append({"step": i + 1, "description": desc,
+                            "ok": False, "error": gate_note or "confirmation required"})
             continue
 
         try:
