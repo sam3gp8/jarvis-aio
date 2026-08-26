@@ -52,6 +52,26 @@ _MAINTENANCE_HINTS = (
 )
 SECURITY_DOMAINS = {"lock", "alarm_control_panel"}
 OPENING_CLASSES = {"door", "window", "garage_door", "opening"}
+
+# Diagnostic / technical numeric sensors a home butler has no business reasoning
+# about: their values legitimately swing (board/CPU temps, RF signal, reactive
+# power, link stats, frame rates), so the numeric-anomaly path would escalate
+# them endlessly. We suppress only the ANOMALY signal for these — genuine
+# safety/access triggers are unaffected (and don't apply to these anyway).
+# Matched by device_class, unit, or entity-id hint so no entity registry needed.
+_TECH_DEVICE_CLASSES = frozenset({
+    "signal_strength", "data_rate", "data_size", "frequency",
+})
+_TECH_UNITS = frozenset({
+    "dbm", "kvar", "var", "va", "kva", "hz", "khz", "mhz", "ghz",
+    "mbit/s", "kbit/s", "kb/s", "mb/s", "gb/s", "kib/s", "mib/s",
+})
+_TECH_ENTITY_HINTS = (
+    "hwmon", "signal_strength", "rssi", "linkquality", "_lqi", "uptime",
+    "packet", "cpu_", "_cpu", "package_id", "core_temp", "_temp_core",
+    "memory_use", "disk_use", "processor", "load_1m", "load_5m", "load_15m",
+    "throughput", "bytes", "framerate", "_fps",
+)
 # A safety binary_sensor is an emergency only in its ACTIVE state ("on"); an
 # alarm panel only when "triggered"/"pending". Going unavailable/unknown or
 # returning to normal (off/dry/clear) is NEVER a trigger.
@@ -129,6 +149,11 @@ _MODEL: dict[str, _Entry] = {}
 _EVENTS_SEEN = 0
 _ANOMALIES_ESCALATED = 0
 
+# Per-entity cooldown for anomaly-only escalations, so one noisy sensor can't
+# flood the pipeline. Safety/access triggers bypass this entirely.
+ANOMALY_COOLDOWN = 1800.0        # seconds — re-escalate a given entity ≤ every 30 min
+_LAST_ANOMALY: dict = {}         # entity_id -> last anomaly-escalation time
+
 
 def reset() -> None:
     """Clear the learned model (called on observer restart)."""
@@ -138,6 +163,7 @@ def reset() -> None:
     _RECUR_ALERTED.clear()
     _LAST_DIST.clear()
     _APPROACH_ALERTED.clear()
+    _LAST_ANOMALY.clear()
     _EVENTS_SEEN = 0
     _ANOMALIES_ESCALATED = 0
 
@@ -239,7 +265,21 @@ def _is_safety_trigger(domain, dclass, new_value) -> bool:
     return False
 
 
-def _salience(domain, dclass, new_value, entry, now, entity_id="") -> tuple:
+def _is_technical(entity_id, dclass, unit) -> bool:
+    """A diagnostic/technical numeric sensor whose swings aren't worth reasoning
+    about (CPU/board temps, RF signal, reactive power, link stats). Matched by
+    device_class, unit, or entity-id hint so it needs no entity registry."""
+    eid = (entity_id or "").lower()
+    if any(h in eid for h in _TECH_ENTITY_HINTS):
+        return True
+    if dclass and str(dclass).lower() in _TECH_DEVICE_CLASSES:
+        return True
+    if unit and str(unit).lower() in _TECH_UNITS:
+        return True
+    return False
+
+
+def _salience(domain, dclass, new_value, entry, now, entity_id="", unit=None) -> tuple:
     """Local heuristic salience in [0, 1] plus a short human reason."""
     score = 0.0
     reasons = []
@@ -257,9 +297,12 @@ def _salience(domain, dclass, new_value, entry, now, entity_id="") -> tuple:
     elif domain == "cover" or dclass in OPENING_CLASSES or domain in SECURITY_DOMAINS:
         score = max(score, 0.55); reasons.append("access-point")
 
-    # Numeric anomaly — the core value-add (catches spikes the static filter drops)
+    # Numeric anomaly — the core value-add (catches spikes the static filter drops).
+    # Skipped for diagnostic/technical sensors, whose values legitimately spike and
+    # would otherwise flood the pipeline with meaningless escalations.
     val = _to_float(new_value)
-    if val is not None and entry.n >= NUMERIC_MIN_SAMPLES:
+    if (val is not None and entry.n >= NUMERIC_MIN_SAMPLES
+            and not _is_technical(entity_id, dclass, unit)):
         variance = entry.m2 / entry.n if entry.n else 0.0
         std = variance ** 0.5
         if std > 1e-9:
@@ -294,12 +337,26 @@ def process(event, threshold: float = DEFAULT_THRESHOLD) -> Decision:
         old_state = event.data.get("old_state")
         new_value = new_state.state if new_state else None
         dclass = new_state.attributes.get("device_class") if new_state else None
+        unit = new_state.attributes.get("unit_of_measurement") if new_state else None
         domain = entity_id.split(".", 1)[0] if entity_id else ""
         now = time.time()
 
         entry = observe(entity_id, old_state, new_value, now)
-        score, reason = _salience(domain, dclass, new_value, entry, now, entity_id)
+        score, reason = _salience(domain, dclass, new_value, entry, now, entity_id, unit)
         escalate = score >= threshold
+        if escalate:
+            # An anomaly-only escalation (no safety/access driver) is subject to a
+            # per-entity cooldown so a single noisy sensor can't flood the pipeline.
+            # Safety and access triggers always pass through immediately.
+            important = ("safety/security trigger" in reason
+                         or "access-point" in reason
+                         or "device problem reported" in reason)
+            if not important:
+                last = _LAST_ANOMALY.get(entity_id, 0.0)
+                if now - last < ANOMALY_COOLDOWN:
+                    escalate = False
+                else:
+                    _LAST_ANOMALY[entity_id] = now
         if escalate:
             _ANOMALIES_ESCALATED += 1
         return Decision(escalate=escalate, salience=round(score, 3), reason=reason)

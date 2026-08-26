@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.49.0] — quieter cognition: stop reasoning about diagnostic sensor noise
+JARVIS's local cognition no longer treats diagnostic/technical sensors — board and CPU
+temperatures, RF signal strength, reactive power, link stats — as anomalies worth escalating.
+Their values naturally swing, so they were flooding the activity log and spending model calls on
+nothing. Real sensors (room temperature, presence, doors, energy) are unaffected. Separately, any
+single noisy sensor now escalates at most once every 30 minutes, so one flapping value can't drown
+out everything else. Safety and access events are never throttled.
+
 ## [7.48.1] — fix: no response from JARVIS on current Home Assistant
 Restores conversation on Home Assistant versions that moved to the newer conversation-entity API.
 JARVIS now implements Home Assistant's current message handler, so spoken and typed requests reach
