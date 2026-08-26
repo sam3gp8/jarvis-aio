@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.51.1] — spoken replies fall back to broadcast speakers, not a silent satellite
+Building on 7.51.0: when the paired room speaker won't play a reply — an idle or disconnected Cast
+device that accepts the request but produces no sound — JARVIS now sends the reply to the
+broadcast/announcement speakers that briefings already deliver to successfully, rather than the
+voice satellite. Many satellites are mic-only (audio output disabled to free resources), so they
+can't speak the reply themselves; routing to a known-working speaker means the reply is heard
+instead of lost.
+
 ## [7.51.0] — fix: spoken reply lost when the paired speaker is idle/off
 When JARVIS routes a spoken reply to a paired room speaker (a Google/Nest/Cast device), it silences
 the voice satellite so only that speaker talks. But an idle or disconnected Cast device accepts the
