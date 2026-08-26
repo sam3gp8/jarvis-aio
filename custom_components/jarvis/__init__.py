@@ -50,6 +50,31 @@ from .proactive_audio import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _prewarm_persisted_state() -> None:
+    """Read persisted state files once, off the event loop (blocking-I/O
+    hygiene). Best-effort — a failure here must never block setup."""
+    try:
+        from . import ha_secrets
+        ha_secrets._read_secrets(force=True)      # refresh + cache secrets.yaml
+    except Exception:
+        pass
+    try:
+        from . import modes
+        modes._load()
+    except Exception:
+        pass
+    try:
+        from . import intrusion
+        intrusion._load_log()
+    except Exception:
+        pass
+    try:
+        from . import reasoning_cache
+        reasoning_cache.load()
+    except Exception:
+        pass
+
 PLATFORMS = ["conversation"]
 # Config-entry only (v6.45.0): warns users who still have `jarvis:` in YAML.
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -90,6 +115,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # agent never diverge on which model to run. ───────────────────────────
     from . import jarvis_config as _jc
     _eff = await hass.async_add_executor_job(_jc.effective_config, entry)
+    # Warm the remaining persisted-state caches off the event loop too, so the
+    # hot paths that read them (observer tick, panel data, intrusion log) don't
+    # trip Home Assistant's blocking-I/O detector on first access.
+    await hass.async_add_executor_job(_prewarm_persisted_state)
     api_key           = _eff.get(CONF_API_KEY, "") or entry.data.get(CONF_API_KEY, "")
     llm_provider_name = _eff.get("llm_provider", "groq")
     llm_model         = _eff.get("model", "openai/gpt-oss-120b")

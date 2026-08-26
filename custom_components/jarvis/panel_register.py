@@ -59,7 +59,8 @@ async def _register_one(
     if not os.path.isfile(js_path):
         _LOGGER.error("JARVIS panel: JS file not found at %s", js_path)
         return False
-    module_url = f"{PANEL_STATIC_URL}/{js_filename}?v={_hash_file(js_path)}"
+    file_hash = await hass.async_add_executor_job(_hash_file, js_path)
+    module_url = f"{PANEL_STATIC_URL}/{js_filename}?v={file_hash}"
     try:
         frontend.async_remove_panel(hass, url_path)
     except Exception:

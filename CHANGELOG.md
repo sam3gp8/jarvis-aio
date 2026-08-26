@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.49.1] — fix: blocking file reads on the event loop
+Home Assistant flags integrations that read files on its main loop — it can cause stalls, and it
+prompts users to file bug reports. JARVIS now reads its persisted state (the panel file, saved
+secrets, mode state, intrusion log, and reasoning cache) off the loop or from an in-memory cache,
+so those warnings are gone and the loop stays responsive.
+
 ## [7.49.0] — quieter cognition: stop reasoning about diagnostic sensor noise
 JARVIS's local cognition no longer treats diagnostic/technical sensors — board and CPU
 temperatures, RF signal strength, reactive power, link stats — as anomalies worth escalating.

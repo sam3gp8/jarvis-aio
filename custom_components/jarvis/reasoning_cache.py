@@ -67,7 +67,11 @@ def signature(domain, device_class, category, from_state, to_state, anyone_home,
 
 def load() -> int:
     global _cache, _loaded
+    if _loaded:
+        return len(_cache)
     with _lock:
+        if _loaded:                      # re-check under the lock
+            return len(_cache)
         try:
             if CACHE_PATH.exists():
                 with open(CACHE_PATH) as f:

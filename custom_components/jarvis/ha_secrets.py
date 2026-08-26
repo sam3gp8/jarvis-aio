@@ -28,7 +28,15 @@ _LOGGER = logging.getLogger(__name__)
 SECRETS_PATH = Path("/config/secrets.yaml")
 
 
-def _read_secrets(path: Path | None = None) -> dict:
+_SECRETS_CACHE = None            # cached read of the default SECRETS_PATH
+
+
+def _reset_secrets_cache() -> None:
+    global _SECRETS_CACHE
+    _SECRETS_CACHE = None
+
+
+def _read_secrets(path: Path | None = None, force: bool = False) -> dict:
     """Parse secrets.yaml into a dict.
 
     Missing file → {} (not an error — many installs have none). Malformed YAML,
@@ -39,24 +47,32 @@ def _read_secrets(path: Path | None = None) -> dict:
     definition — otherwise a test monkeypatching SECRETS_PATH wouldn't take,
     the same default-binding trap the DB layer hit.
     """
+    global _SECRETS_CACHE
+    use_default = path is None
     if path is None:
         path = SECRETS_PATH
+    if (use_default and not force and _SECRETS_CACHE is not None
+            and _SECRETS_CACHE[0] == path):
+        return _SECRETS_CACHE[1]
+    result: dict = {}
     try:
-        if not path.exists():
-            return {}
-        import yaml  # PyYAML ships with Home Assistant core
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        if isinstance(data, dict):
-            return data
-        _LOGGER.warning(
-            "JARVIS: %s top level is %s, expected a mapping — ignoring",
-            path, type(data).__name__,
-        )
-        return {}
+        if path.exists():
+            import yaml  # PyYAML ships with Home Assistant core
+            with open(path) as f:
+                data = yaml.safe_load(f)
+            if isinstance(data, dict):
+                result = data
+            elif data is not None:
+                _LOGGER.warning(
+                    "JARVIS: %s top level is %s, expected a mapping — ignoring",
+                    path, type(data).__name__,
+                )
     except Exception as exc:  # yaml.YAMLError, OSError, UnicodeDecodeError, …
         _LOGGER.warning("JARVIS: could not read %s: %s", path, exc)
-        return {}
+        result = {}
+    if use_default:
+        _SECRETS_CACHE = (path, result)
+    return result
 
 
 def get_secret_sync(key: str, default: Any = None,
@@ -155,6 +171,7 @@ def set_secret_sync(key: str, value, path: Path | None = None) -> bool:
             with os.fdopen(fd, "w") as f:
                 f.write(new_text)
             os.replace(tmp, str(path))
+            _reset_secrets_cache()   # written file — next read must be fresh
         finally:
             if os.path.exists(tmp):
                 try:
