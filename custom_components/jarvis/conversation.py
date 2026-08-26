@@ -645,6 +645,16 @@ def _ha_kwargs(cls, **kwargs):
     async def async_process(
         self, user_input: conversation.ConversationInput
     ) -> conversation.ConversationResult:
+        # Back-compat shim. Newer Home Assistant calls _async_handle_message
+        # (below) via its own async_process wrapper; older HA calls async_process
+        # directly. Delegating keeps both paths working.
+        return await self._async_handle_message(user_input, None)
+
+    async def _async_handle_message(
+        self,
+        user_input: conversation.ConversationInput,
+        chat_log=None,
+    ) -> conversation.ConversationResult:
         from .websocket import jarvis_log
         device_id = getattr(user_input, 'device_id', None)
         jarvis_log("CONV", f"ENTRY text='{user_input.text[:60]}' device={device_id}")

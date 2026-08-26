@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.48.1] — fix: no response from JARVIS on current Home Assistant
+Restores conversation on Home Assistant versions that moved to the newer conversation-entity API.
+JARVIS now implements Home Assistant's current message handler, so spoken and typed requests reach
+JARVIS again instead of failing with "Unexpected error during intent recognition".
+
 ## [7.48.0] — replay: test a decision threshold against real history
 New `jarvis.replay_policy` service. Give it a kind of decision (e.g. intrusion) and, using the
 outcomes you've already labelled, it reports the confidence threshold that best separates JARVIS's
