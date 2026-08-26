@@ -1039,10 +1039,34 @@ def _ha_kwargs(cls, **kwargs):
                                 context="reply",
                             )
                             cast_routed = bool(delivered)
+                            if delivered:
+                                # tts.speak was accepted — but an off/idle/
+                                # disconnected Cast device accepts the call and
+                                # produces no sound (all your paired speakers read
+                                # 'off'). Confirm it actually starts playing before
+                                # we silence the satellite; if it never does, let
+                                # the satellite speak so a dead speaker can't
+                                # swallow the reply.
+                                import asyncio as _asyncio
+                                played = False
+                                for _ in range(8):          # up to ~2s, breaks early
+                                    await _asyncio.sleep(0.25)
+                                    _s = self.hass.states.get(speaker)
+                                    if _s and _s.state in ("playing", "buffering"):
+                                        played = True
+                                        break
+                                cast_routed = played
+                                if not played:
+                                    _LOGGER.warning(
+                                        "JARVIS reply: %s accepted TTS but never "
+                                        "started playing — satellite will speak the "
+                                        "reply instead", speaker)
                             try:
                                 jarvis_log("REPLY", f"→ Cast {speaker} via {tts_ent}: "
-                                           + ("delivered" if delivered
-                                              else "FAILED — satellite will speak"))
+                                           + ("playing" if cast_routed
+                                              else ("accepted but silent — satellite speaks"
+                                                    if delivered
+                                                    else "FAILED — satellite will speak")))
                             except Exception:
                                 pass
                             if not delivered:

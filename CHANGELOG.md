@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.51.0] — fix: spoken reply lost when the paired speaker is idle/off
+When JARVIS routes a spoken reply to a paired room speaker (a Google/Nest/Cast device), it silences
+the voice satellite so only that speaker talks. But an idle or disconnected Cast device accepts the
+request and plays nothing — so the reply was lost: the satellite stayed silent and the speaker never
+played. JARVIS now confirms the speaker actually starts playing before silencing the satellite; if
+it doesn't, the satellite speaks the reply itself. The reply is heard either way.
+
 ## [7.50.2] — Download Diagnostics is now self-contained
 The diagnostics file is now a complete diagnostic picture rather than a config-and-health snapshot.
 It includes the recent activity log — with the reply-routing decisions (which speaker each spoken
