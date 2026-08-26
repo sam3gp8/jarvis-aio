@@ -4,6 +4,16 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.50.2] — Download Diagnostics is now self-contained
+The diagnostics file is now a complete diagnostic picture rather than a config-and-health snapshot.
+It includes the recent activity log — with the reply-routing decisions (which speaker each spoken
+reply targeted, whether it reached a Cast speaker or fell back to the satellite) — the local
+subsystem stats (cognition, decision record, intrusion, reasoning cache), and a resolved
+audio-routing snapshot: each configured satellite→speaker pairing with its live reachability, plus
+which text-to-speech engines are selected for replies vs premium contexts. Spoken-reply and routing
+issues are now diagnosable straight from the download. Viewing diagnostics on a fresh install no
+longer creates the decision store as a side effect.
+
 ## [7.50.1] — reply-routing visibility in the log
 The Logs tab now shows how each spoken reply was delivered — which speaker it targeted, whether it
 reached a Cast/Google speaker, and whether it fell back to the satellite. This makes it clear at a

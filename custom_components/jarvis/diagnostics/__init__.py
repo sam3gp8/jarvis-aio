@@ -111,5 +111,62 @@ async def async_get_config_entry_diagnostics(hass, entry) -> dict:
     except Exception as exc:
         diag["entity_count_error"] = str(exc)
 
+    # Subsystem stats — the local loops and stores, so their volume/health is
+    # visible without a live session. (Database health is already covered by
+    # service_health above; it's omitted here because probing it applies the
+    # schema, a side effect diagnostics must not cause.)
+    import importlib
+    subsystems: dict = {}
+    for mod_name, fn_name in (
+        ("cognition", "stats"),
+        ("decision_record", "stats"),
+        ("intrusion", "status"),
+        ("reasoning_cache", "stats"),
+    ):
+        try:
+            mod = importlib.import_module(f"..{mod_name}", __package__)
+            subsystems[mod_name] = _redact(getattr(mod, fn_name)())
+        except Exception as exc:
+            subsystems[mod_name] = {"error": str(exc)[:200]}
+    diag["subsystems"] = subsystems
+
+    # Audio-routing snapshot — resolve each configured satellite→speaker pairing
+    # and which TTS engines are selected, so "no audible reply" issues are
+    # diagnosable directly (the pairings themselves are already in the config
+    # above; this adds their live reachability and the resolved engines).
+    try:
+        from .. import jarvis_config as _jc, tts_helper as _tts
+        import json as _json
+        cfg = _jc.get_all()
+        raw = cfg.get("satellite_pairings")
+        pairings = (_json.loads(raw) if isinstance(raw, str) else raw) or {}
+        routing: dict = {"pairings": {}, "tts": {}}
+        for sat, spk in pairings.items():
+            st = hass.states.get(spk) if spk else None
+            routing["pairings"][sat] = {
+                "speaker": spk,
+                "state": st.state if st else "missing",
+                "reachable": bool(st and st.state not in ("unavailable", "unknown")),
+            }
+        routing["tts"] = {
+            "reply_engine": _tts.find_best_tts_entity(hass),
+            "premium_engine": _tts.find_premium_tts_entity(hass),
+            "tts_engine_option": cfg.get("tts_engine"),
+            "premium_contexts": cfg.get("tts_premium_contexts"),
+        }
+        diag["audio_routing"] = routing
+    except Exception as exc:
+        diag["audio_routing_error"] = str(exc)[:200]
+
+    # Recent activity log tail — includes the reply-routing decisions (which
+    # speaker each spoken reply targeted, whether it reached a Cast speaker or
+    # fell back to the satellite), so a "no audible reply" issue is diagnosable
+    # straight from the download.
+    try:
+        from ..websocket import recent_debug_log
+        diag["recent_log"] = recent_debug_log(150)
+    except Exception as exc:
+        diag["recent_log_error"] = str(exc)
+
     return diag
 

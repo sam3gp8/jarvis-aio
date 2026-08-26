@@ -342,6 +342,8 @@ def stats(db_path: Optional[str] = None) -> dict:
     """Counts by outcome — the seed of a later Cognition Score."""
     db = _resolve(db_path)
     out = {"total": 0, "judged": 0, "good": 0, "unnecessary": 0, "wrong": 0}
+    if not Path(db).exists():
+        return out          # not-yet-created store reads as empty — never created here
     try:
         conn = _connect(db)
     except Exception:

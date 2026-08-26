@@ -1513,6 +1513,14 @@ def jarvis_log(category: str, message: str) -> None:
     _persist_log_entry(entry)
 
 
+def recent_debug_log(n: int = 150) -> list:
+    """Return the last ``n`` debug-log entries (used by the diagnostics export so
+    a spoken-reply issue is diagnosable from the downloaded file, not just the
+    live Logs tab)."""
+    entries = list(_DEBUG_LOG)
+    return entries[-n:] if n and n > 0 else entries
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/reload_appliances",
 })
