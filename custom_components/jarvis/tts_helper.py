@@ -209,11 +209,11 @@ async def async_announce(
         "cache": True,
     }
     if is_piper:
-        # Request the jarvis voice explicitly. No `language` key (see
-        # docstring). No `length_scale`: this Piper build rejects it with
-        # "Invalid options found: ['length_scale']", which threw before any
-        # audio played. Voice selection is what matters; cadence isn't a
-        # supported Wyoming-Piper option here.
+        # Request the JARVIS Piper voice. No `language`/`length_scale` keys: this
+        # Piper build rejects length_scale ("Invalid options found") before any
+        # audio plays. If the voice isn't installed (VoiceNotFoundError), the
+        # per-speaker fallback below retries without it and uses the engine's
+        # default voice, so a missing custom voice is never fatal.
         service_data["options"] = {
             "voice": "en_GB-jarvis-high",
         }

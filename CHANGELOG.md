@@ -4,6 +4,16 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.52.0] — fix: conversation crash on Home Assistant 2026.8.x
+Fixes 'Unexpected error during intent recognition' (AttributeError: module
+'custom_components.jarvis.intent' has no attribute 'async_setup_intents') on HA 2026.8.x. Home
+Assistant's intent-platform loader calls async_setup_intents on any integration that exposes an
+intent module; JARVIS routes intents through its own conversation agent rather than HA's intent
+registry, so it now provides the expected entry point (a no-op) instead of crashing. Also moves the
+lockdown state-file read off the event loop at startup, resolving the 'Detected blocking call to
+open /config/jarvis/lockdown_state.json' warning. Note: if the custom Piper voice en_GB-jarvis-high
+isn't installed, spoken output already falls back to the engine's default voice rather than failing.
+
 ## [7.51.1] — spoken replies fall back to broadcast speakers, not a silent satellite
 Building on 7.51.0: when the paired room speaker won't play a reply — an idle or disconnected Cast
 device that accepts the request but produces no sound — JARVIS now sends the reply to the

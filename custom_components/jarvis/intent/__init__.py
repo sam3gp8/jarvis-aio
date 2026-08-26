@@ -17,4 +17,16 @@ __all__ = [
     "STATUS_TEMPLATES",
     "template_for",
     "match_status",
+    "async_setup_intents",
 ]
+
+
+def async_setup_intents(hass) -> None:
+    """Home Assistant's intent loader calls ``<integration>.intent.async_setup_intents``
+    for any integration that exposes an ``intent`` module. JARVIS's ``intent``
+    package is its own local NLP layer (LocalIntentRouter) — it routes intents
+    through the JARVIS conversation agent, not Home Assistant's intent registry —
+    so there are no HA intent handlers to register here. This no-op exists purely
+    so HA's loader doesn't raise AttributeError on the package (fixes 'Unexpected
+    error during intent recognition' on HA 2026.8.x)."""
+    return None
