@@ -987,6 +987,34 @@ def _register_services(
 
     hass.services.async_register(DOMAIN, "database_stats", _db_stats)
 
+    async def _replay_policy(call: ServiceCall) -> None:
+        """Replay recorded decisions of a kind against candidate confidence
+        thresholds and report the best-separating threshold from real outcomes.
+        Read-only — evaluates history, never changes behaviour."""
+        from . import replay as _replay
+        kind = str(call.data.get("kind", "")).strip()
+        min_samples = call.data.get("min_samples") or _replay.DEFAULT_MIN_SAMPLES
+        result = await hass.async_add_executor_job(
+            _replay.replay_kind, kind, int(min_samples))
+        hass.bus.async_fire("jarvis_replay_result", result)
+        if result.get("ready"):
+            rec = result["recommended"]
+            _LOGGER.info(
+                "Replay[%s]: %d judged decisions — best threshold %.2f "
+                "(accuracy %.0f%%; would avoid %d mistakes, lose %d good calls)",
+                kind, result.get("samples", 0), rec["threshold"],
+                rec["accuracy"] * 100, rec["mistakes_avoided"], rec["good_calls_lost"])
+        else:
+            _LOGGER.info("Replay[%s]: %s", kind, result.get("reason", "no data"))
+
+    hass.services.async_register(
+        DOMAIN, "replay_policy", _replay_policy,
+        schema=vol.Schema({
+            vol.Required("kind"): str,
+            vol.Optional("min_samples"): vol.All(int, vol.Range(min=1, max=100000)),
+        }),
+    )
+
     # ── v5.2 Observer Mode services ──────────────────────────────────────────
 
     async def _nap(call: ServiceCall) -> None:

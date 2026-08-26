@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.48.0] — replay: test a decision threshold against real history
+New `jarvis.replay_policy` service. Give it a kind of decision (e.g. intrusion) and, using the
+outcomes you've already labelled, it reports the confidence threshold that best separates JARVIS's
+right calls from its wrong ones — how accurate each threshold would have been, how many mistakes it
+would have avoided, and how many good calls it would have lost. It's read-only: it evaluates
+history so you can choose a threshold change confidently before making it, and it stays quiet until
+there are enough labelled decisions to give a trustworthy recommendation.
+
 ## [7.47.1] — test-suite reliability
 Reworked the camera-tool tests so they no longer depend on Python-build-specific import behavior
 that was failing intermittently in CI. No functional change to JARVIS.

@@ -127,6 +127,29 @@ database_stats:
   name: Database Stats
   description: "Returns conversation database statistics (fires jarvis_db_stats event)."
 
+replay_policy:
+  name: Replay Policy
+  description: "Replay recorded decisions of a kind against confidence thresholds and report the best-separating threshold from real outcomes (fires jarvis_replay_result event). Read-only."
+  fields:
+    kind:
+      name: Kind
+      description: "Decision kind to replay (e.g. intrusion)."
+      required: true
+      example: intrusion
+      selector:
+        text:
+    min_samples:
+      name: Minimum samples
+      description: "Judged decisions required before a threshold is recommended."
+      required: false
+      example: 25
+      selector:
+        number:
+          min: 1
+          max: 100000
+          mode: box
+
+
 briefing:
   name: Deliver Briefing
   description: "JARVIS compiles and speaks a context-aware briefing — time, weather, presence, overnight events, open doors, calendar, and unusual energy usage."
