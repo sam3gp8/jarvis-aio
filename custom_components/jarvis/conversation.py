@@ -1039,6 +1039,12 @@ def _ha_kwargs(cls, **kwargs):
                                 context="reply",
                             )
                             cast_routed = bool(delivered)
+                            try:
+                                jarvis_log("REPLY", f"→ Cast {speaker} via {tts_ent}: "
+                                           + ("delivered" if delivered
+                                              else "FAILED — satellite will speak"))
+                            except Exception:
+                                pass
                             if not delivered:
                                 _LOGGER.warning(
                                     "JARVIS reply: Cast delivery failed on %s — "
@@ -1051,14 +1057,29 @@ def _ha_kwargs(cls, **kwargs):
                             _LOGGER.warning(
                                 "JARVIS reply: Cast speaker %s is unavailable — "
                                 "the satellite will speak the reply instead", speaker)
+                            try:
+                                jarvis_log("REPLY", f"speaker {speaker} unavailable "
+                                           "— satellite will speak")
+                            except Exception:
+                                pass
                         else:
                             _LOGGER.warning("JARVIS reply: no TTS entity found")
+                            try:
+                                jarvis_log("REPLY", "no TTS entity — satellite will speak")
+                            except Exception:
+                                pass
                     else:
                         _LOGGER.info(
                             "JARVIS reply: no Cast pairing for device=%s, "
                             "pipeline speaker fallback",
                             device_id_route,
                         )
+                        try:
+                            jarvis_log("REPLY", f"no Cast pairing for device="
+                                       f"{device_id_route} — satellite plays "
+                                       f"(resolved={speaker})")
+                        except Exception:
+                            pass
             except Exception as exc:
                 _LOGGER.warning("Reply routing error: %s", exc)
 

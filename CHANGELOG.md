@@ -4,6 +4,11 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.50.1] — reply-routing visibility in the log
+The Logs tab now shows how each spoken reply was delivered — which speaker it targeted, whether it
+reached a Cast/Google speaker, and whether it fell back to the satellite. This makes it clear at a
+glance where a missing spoken response is being lost.
+
 ## [7.50.0] — fix: spoken replies lost when a Piper voice is missing
 When JARVIS routes a spoken reply to a paired room speaker (a Google/Nest/Cast device), it silences
 the voice satellite so only that speaker talks. If the reply's text-to-speech was rejected — most
