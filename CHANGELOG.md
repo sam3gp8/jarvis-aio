@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.50.0] — fix: spoken replies lost when a Piper voice is missing
+When JARVIS routes a spoken reply to a paired room speaker (a Google/Nest/Cast device), it silences
+the voice satellite so only that speaker talks. If the reply's text-to-speech was rejected — most
+often because a custom Piper voice was removed or renamed by a Piper update — the reply was lost
+entirely: the satellite stayed silent and nothing played on the speaker. JARVIS now (1) falls back
+to the engine's default voice when the custom voice fails, so the reply is still heard, and (2) only
+silences the satellite once the reply has actually been handed to the speaker — otherwise the
+satellite speaks the reply itself. Briefings and other announcements gain the same voice fallback.
+
 ## [7.49.1] — fix: blocking file reads on the event loop
 Home Assistant flags integrations that read files on its main loop — it can cause stalls, and it
 prompts users to file bug reports. JARVIS now reads its persisted state (the panel file, saved

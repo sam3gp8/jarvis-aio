@@ -167,9 +167,14 @@ async def async_announce(
     speakers: Sequence[str],
     use_announce: bool = True,
     context: str = "chat",
-) -> None:
+) -> bool:
     """
     Speak text via tts_entity to the given speaker list. No-op if either empty.
+
+    Returns True if the reply was handed to at least one speaker, False if it
+    could not be delivered at all — callers that silence a satellite when they
+    route a reply here rely on this so a delivery failure doesn't turn into
+    total silence.
 
     Delivery (v5.9.12): uses the `tts.speak` service, which renders through the
     named TTS entity and plays to the given media_players. This is the delivery
@@ -192,27 +197,28 @@ async def async_announce(
     `context` is accepted for logging; callers resolve the entity beforehand.
     """
     if not text or not tts_entity or not speakers:
-        return
+        return False
 
     _LOGGER.debug("JARVIS announce [%s]: %s → %s", context, tts_entity, speakers)
 
     is_piper = "piper" in tts_entity.lower()
 
-    try:
-        service_data = {
-            "media_player_entity_id": list(speakers),
-            "message": text,
-            "cache": True,
+    service_data = {
+        "media_player_entity_id": list(speakers),
+        "message": text,
+        "cache": True,
+    }
+    if is_piper:
+        # Request the jarvis voice explicitly. No `language` key (see
+        # docstring). No `length_scale`: this Piper build rejects it with
+        # "Invalid options found: ['length_scale']", which threw before any
+        # audio played. Voice selection is what matters; cadence isn't a
+        # supported Wyoming-Piper option here.
+        service_data["options"] = {
+            "voice": "en_GB-jarvis-high",
         }
-        if is_piper:
-            # Request the jarvis voice explicitly. No `language` key (see
-            # docstring). No `length_scale`: this Piper build rejects it with
-            # "Invalid options found: ['length_scale']", which threw before any
-            # audio played. Voice selection is what matters; cadence isn't a
-            # supported Wyoming-Piper option here.
-            service_data["options"] = {
-                "voice": "en_GB-jarvis-high",
-            }
+
+    try:
         await hass.services.async_call(
             "tts", "speak", service_data,
             target={"entity_id": tts_entity}, blocking=False,
@@ -222,6 +228,7 @@ async def async_announce(
             record_usage("tts", True)
         except Exception:
             pass
+        return True
     except Exception as exc:
         # One bad target must not silence everyone (v6.78.2). A single
         # tts.speak carrying the whole speaker list fails as a unit, so a
@@ -229,26 +236,49 @@ async def async_announce(
         # of them (an off TV, a stale Cast entity) rejected the call — while
         # a room-routed reply to a single speaker worked fine. Retry
         # per-speaker so the reachable ones still hear it.
+        #
+        # And crucially, retry each speaker WITHOUT the voice options as a last
+        # resort: a custom Piper voice removed or renamed by a Piper update
+        # (e.g. en_GB-jarvis-high) makes tts.speak reject the call, and because
+        # the conversation layer silences the satellite whenever it routes a
+        # reply here, that rejection meant total silence. Falling back to the
+        # engine's default voice keeps the reply audible.
         _LOGGER.warning("JARVIS TTS batch failed (%s): %s — retrying per speaker",
                         context, exc)
+        base_opts = service_data.get("options")
+        opt_variants = [base_opts, None] if base_opts is not None else [None]
         delivered, failed = 0, []
         for spk in list(speakers):
-            try:
-                one = dict(service_data)
-                one["media_player_entity_id"] = [spk]
-                await hass.services.async_call(
-                    "tts", "speak", one,
-                    target={"entity_id": tts_entity}, blocking=False,
-                )
-                delivered += 1
-            except Exception as sub:
-                failed.append(f"{spk}: {str(sub)[:60]}")
+            spk_ok = False
+            last_err = f"{spk}: unknown"
+            for opts in opt_variants:
+                try:
+                    one = {
+                        "media_player_entity_id": [spk],
+                        "message": text,
+                        "cache": True,
+                    }
+                    if opts:
+                        one["options"] = opts
+                    await hass.services.async_call(
+                        "tts", "speak", one,
+                        target={"entity_id": tts_entity}, blocking=False,
+                    )
+                    delivered += 1
+                    spk_ok = True
+                    if opts is None and base_opts is not None:
+                        _LOGGER.info(
+                            "JARVIS TTS: voice option failed on %s — used the "
+                            "engine's default voice so the reply is still heard", spk)
+                    break
+                except Exception as sub:
+                    last_err = f"{spk}: {str(sub)[:60]}"
+            if not spk_ok:
+                failed.append(last_err)
         try:
             from .diagnostics.service_health import record_usage
-            if delivered:
-                record_usage("tts", True)
-            else:
-                record_usage("tts", False, str(exc)[:120])
+            record_usage("tts", delivered > 0,
+                         None if delivered else str(exc)[:120])
         except Exception:
             pass
         if delivered:
@@ -257,3 +287,4 @@ async def async_announce(
         else:
             _LOGGER.warning("JARVIS TTS failed on every speaker (%s): %s",
                             context, failed)
+        return delivered > 0

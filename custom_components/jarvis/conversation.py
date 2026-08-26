@@ -1029,14 +1029,21 @@ def _ha_kwargs(cls, **kwargs):
                                 "JARVIS reply → Cast: tts=%s speaker=%s",
                                 tts_ent, speaker,
                             )
-                            self.hass.async_create_task(
-                                async_announce(
-                                    self.hass, response_text,
-                                    tts_ent, [speaker],
-                                    context="reply",
-                                )
+                            # Await delivery so we only silence the satellite if
+                            # the reply actually reached the Cast speaker. If it
+                            # fails (e.g. a Piper voice removed by an update), let
+                            # the satellite speak the reply rather than losing it.
+                            delivered = await async_announce(
+                                self.hass, response_text,
+                                tts_ent, [speaker],
+                                context="reply",
                             )
-                            cast_routed = True
+                            cast_routed = bool(delivered)
+                            if not delivered:
+                                _LOGGER.warning(
+                                    "JARVIS reply: Cast delivery failed on %s — "
+                                    "the satellite will speak the reply instead",
+                                    speaker)
                         elif not sp_reachable:
                             # The reply speaker is offline — do NOT silence the
                             # satellite, or the reply is lost entirely. Let the
