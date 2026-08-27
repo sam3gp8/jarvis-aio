@@ -21,6 +21,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import (
     area_registry as ar,
     config_validation as cv,
@@ -260,7 +261,7 @@ async def _speak_tts(
         await hass.services.async_call(
             "tts", "speak", {**payload, "options": _tts_options(profile)}, blocking=True
         )
-    except vol.Invalid:
+    except (vol.Invalid, HomeAssistantError):
         _LOGGER.debug("TTS rejected options; retrying without them")
         await hass.services.async_call("tts", "speak", payload, blocking=True)
 

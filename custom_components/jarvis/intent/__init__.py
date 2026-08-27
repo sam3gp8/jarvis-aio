@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 
-def async_setup_intents(hass) -> None:
+async def async_setup_intents(hass) -> None:
     """Home Assistant's intent loader calls ``<integration>.intent.async_setup_intents``
     for any integration that exposes an ``intent`` module. JARVIS's ``intent``
     package is its own local NLP layer (LocalIntentRouter) — it routes intents

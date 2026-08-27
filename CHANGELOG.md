@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.53.3] — fix: intent queries crash ("NoneType can't be awaited"); proactive TTS options
+Fixes voice and text queries that trigger intent recognition (e.g. "how many lights are on") failing
+with "Unexpected error during intent recognition." Home Assistant awaits JARVIS's intent-setup hook,
+which was a plain function and could not be awaited; it is now a coroutine. Also fixes a proactive
+announcement error when the text-to-speech engine rejects an option (e.g. speaking rate): JARVIS now
+retries the announcement without the unsupported option instead of failing. (Reported in issue #12.)
+
 ## [7.53.2] — fix: voice turns crash in JARVIS's handler on current Home Assistant
 Fixes spoken/typed turns failing with "Unexpected error during intent recognition." JARVIS was
 overriding a conversation method that current Home Assistant marks final and uses to set up each
