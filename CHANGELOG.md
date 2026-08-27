@@ -4,6 +4,13 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.53.2] — fix: voice turns crash in JARVIS's handler on current Home Assistant
+Fixes spoken/typed turns failing with "Unexpected error during intent recognition." JARVIS was
+overriding a conversation method that current Home Assistant marks final and uses to set up each
+turn, which broke handling once the turn reached JARVIS. JARVIS now implements only the supported
+handler. As a safety net, an unexpected error in the handler is now spoken back and recorded in
+diagnostics with its cause, instead of surfacing as Home Assistant's generic error with no detail.
+
 ## [7.53.1] — make the voice-reply fix apply reliably
 Follow-up to 7.53.0. Pointing the voice pipeline at JARVIS's own conversation agent now runs on every
 startup instead of once behind the add-on setup, and it matches your pipeline by name or by its JARVIS

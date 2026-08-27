@@ -671,15 +671,39 @@ def _ha_kwargs(cls, **kwargs):
 
     # ── Main entry point ──────────────────────────────────────────────────────
 
-    async def async_process(
-        self, user_input: conversation.ConversationInput
-    ) -> conversation.ConversationResult:
-        # Back-compat shim. Newer Home Assistant calls _async_handle_message
-        # (below) via its own async_process wrapper; older HA calls async_process
-        # directly. Delegating keeps both paths working.
-        return await self._async_handle_message(user_input, None)
-
     async def _async_handle_message(
+        self,
+        user_input: conversation.ConversationInput,
+        chat_log=None,
+    ) -> conversation.ConversationResult:
+        # HA's ConversationEntity.async_process is @final and sets up the chat
+        # session/log before calling this method — so JARVIS must implement only
+        # _async_handle_message and must NOT override async_process (a prior shim
+        # did, which bypassed that setup on current HA). Wrap the body so an
+        # unexpected error becomes a spoken + logged message with a real trace,
+        # instead of HA's opaque "Unexpected error during intent recognition"
+        # that leaves nothing in JARVIS's own diagnostics.
+        try:
+            return await self._handle_message_impl(user_input, chat_log)
+        except Exception:
+            import traceback as _tb
+            last = _tb.format_exc().strip().splitlines()[-1][:200]
+            try:
+                from .websocket import jarvis_log
+                jarvis_log("ERROR", f"conversation handler crashed: {last}")
+            except Exception:
+                pass
+            _LOGGER.exception("JARVIS conversation handler crashed")
+            ir = intent.IntentResponse(language=user_input.language)
+            ir.async_set_speech(
+                "I ran into an internal error handling that request.")
+            return conversation.ConversationResult(
+                response=ir,
+                conversation_id=getattr(user_input, "conversation_id", None)
+                or "default",
+            )
+
+    async def _handle_message_impl(
         self,
         user_input: conversation.ConversationInput,
         chat_log=None,
