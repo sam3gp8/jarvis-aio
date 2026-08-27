@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.53.1] — make the voice-reply fix apply reliably
+Follow-up to 7.53.0. Pointing the voice pipeline at JARVIS's own conversation agent now runs on every
+startup instead of once behind the add-on setup, and it matches your pipeline by name or by its JARVIS
+voice, so the correction actually takes effect and isn't skipped or raced. After this, speaking to a
+satellite is handled by JARVIS and the reply is delivered to the paired speaker.
+
 ## [7.53.0] — voice replies now run through JARVIS (fixes replies not reaching your speaker)
 Fixes spoken replies being generated but never delivered to the paired room/Cast speaker. The
 auto-created "JARVIS" voice pipeline was left using Home Assistant's default conversation agent

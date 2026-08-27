@@ -182,3 +182,17 @@ def test_create_pipeline_points_agent_at_jarvis(bootstrap):
     assert "leaving as-is" not in src
     # existing pipeline matched case-insensitively so "Jarvis (English)" is caught
     assert '.lower()' in src
+
+
+def test_ensure_pipeline_agent_repairs_by_name_or_voice(bootstrap):
+    """The every-startup repair must catch a JARVIS pipeline by name OR its JARVIS
+    voice, skip when already correct, set the agent via async_update_pipeline, and
+    run outside the Supervisor/marker gate (so it can't be raced or skipped)."""
+    import inspect
+    src = inspect.getsource(bootstrap.async_ensure_pipeline_agent)
+    assert "async_update_pipeline" in src
+    assert "conversation_engine=agent" in src
+    assert "tts_voice" in src               # matches by JARVIS voice too
+    assert "== agent" in src                # idempotent: skip when already right
+    sched = inspect.getsource(bootstrap.schedule_bootstrap)
+    assert "async_ensure_pipeline_agent" in sched   # wired to run every start

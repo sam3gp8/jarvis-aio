@@ -425,19 +425,69 @@ async def async_run_bootstrap(hass: HomeAssistant, *, force: bool = False) -> di
     return status
 
 
+async def async_ensure_pipeline_agent(hass: HomeAssistant) -> None:
+    """Ensure JARVIS's voice pipeline(s) run JARVIS's own conversation entity.
+
+    async_create_default_pipeline (and manual setups) leave the pipeline's
+    conversation agent on HA's default / an LLM integration, and then JARVIS's
+    reply routing — delivering the spoken reply to the paired room/Cast speaker —
+    never runs, because a different agent handled the turn (and no JARVIS turn is
+    logged). This corrects it: idempotent (no-op when already right), runs on every
+    setup (NOT marker-gated, NOT Supervisor-gated), never raises. Matches a JARVIS
+    pipeline by its name OR its JARVIS Piper voice, so it works no matter what the
+    pipeline is called.
+    """
+    try:
+        from homeassistant.components import assist_pipeline
+    except Exception:
+        return
+    agent = await _wait_for_agent(hass, tries=20, delay=3.0)
+    if not agent:
+        return
+    try:
+        pipelines = list(assist_pipeline.async_get_pipelines(hass))
+    except Exception:
+        return
+    for p in pipelines:
+        name = (getattr(p, "name", "") or "").lower()
+        voice = (getattr(p, "tts_voice", "") or "").lower()
+        if "jarvis" not in name and "jarvis" not in voice:
+            continue
+        if getattr(p, "conversation_engine", None) == agent:
+            continue
+        try:
+            await assist_pipeline.async_update_pipeline(
+                hass, p, conversation_engine=agent)
+            _LOGGER.info(
+                "JARVIS: set pipeline '%s' conversation agent -> %s (was %s)",
+                getattr(p, "name", "?"), agent,
+                getattr(p, "conversation_engine", None))
+        except Exception as exc:
+            _LOGGER.warning(
+                "JARVIS: couldn't set pipeline '%s' conversation agent: %s",
+                getattr(p, "name", "?"), exc)
+
+
 def schedule_bootstrap(hass: HomeAssistant) -> None:
     """
     Launch the bootstrap as a background task once HA has finished starting.
-    No-ops cleanly off-Supervisor. Called from async_setup_entry.
+    The pipeline-agent repair runs on every start (everywhere); the add-on/voice
+    bootstrap is Supervisor-only and marker-gated. Called from async_setup_entry.
     """
     async def _runner(_event=None) -> None:
+        # Always, first: point JARVIS's voice pipeline at JARVIS's own agent so its
+        # reply routing runs. Not marker-gated and not behind the add-on phases, so
+        # it can't be raced or skipped the way the once-per-version bootstrap can.
         try:
-            await async_run_bootstrap(hass)
+            await async_ensure_pipeline_agent(hass)
         except Exception as exc:
-            _LOGGER.warning("JARVIS bootstrap: unexpected error: %s", exc)
+            _LOGGER.debug("JARVIS: pipeline-agent repair error: %s", exc)
+        if is_supervised():
+            try:
+                await async_run_bootstrap(hass)
+            except Exception as exc:
+                _LOGGER.warning("JARVIS bootstrap: unexpected error: %s", exc)
 
-    if not is_supervised():
-        return  # nothing to do without the Supervisor
     if hass.is_running:
         hass.async_create_background_task(_runner(), "jarvis_bootstrap")
     else:
