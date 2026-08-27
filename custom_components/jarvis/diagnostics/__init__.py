@@ -115,20 +115,22 @@ async def async_get_config_entry_diagnostics(hass, entry) -> dict:
     # visible without a live session. (Database health is already covered by
     # service_health above; it's omitted here because probing it applies the
     # schema, a side effect diagnostics must not cause.)
-    import importlib
-    subsystems: dict = {}
-    for mod_name, fn_name in (
-        ("cognition", "stats"),
-        ("decision_record", "stats"),
-        ("intrusion", "status"),
-        ("reasoning_cache", "stats"),
-    ):
-        try:
-            mod = importlib.import_module(f"..{mod_name}", __package__)
-            subsystems[mod_name] = _redact(getattr(mod, fn_name)())
-        except Exception as exc:
-            subsystems[mod_name] = {"error": str(exc)[:200]}
-    diag["subsystems"] = subsystems
+    def _collect_subsystems() -> dict:
+        import importlib
+        out: dict = {}
+        for mod_name, fn_name in (
+            ("cognition", "stats"),
+            ("decision_record", "stats"),
+            ("intrusion", "status"),
+            ("reasoning_cache", "stats"),
+        ):
+            try:
+                mod = importlib.import_module(f"..{mod_name}", __package__)
+                out[mod_name] = _redact(getattr(mod, fn_name)())
+            except Exception as exc:
+                out[mod_name] = {"error": str(exc)[:200]}
+        return out
+    diag["subsystems"] = await hass.async_add_executor_job(_collect_subsystems)
 
     # Audio-routing snapshot — resolve each configured satellite→speaker pairing
     # and which TTS engines are selected, so "no audible reply" issues are

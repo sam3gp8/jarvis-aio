@@ -2957,7 +2957,7 @@ async def start(hass: HomeAssistant, config: dict) -> None:
     _CORE.autonomous_actions = 0
     _CORE.pending_offer = None
 
-    _CORE.ignore_mgr = IgnoreManager()
+    _CORE.ignore_mgr = await hass.async_add_executor_job(IgnoreManager)
     _CORE.safety_mgr = SafetyManager(hass, config)
     _CORE.lockdown_mgr = await hass.async_add_executor_job(
         LockdownManager, hass, config)          # __init__ reads lockdown_state.json

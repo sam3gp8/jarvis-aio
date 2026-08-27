@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.53.0] — voice replies now run through JARVIS (fixes replies not reaching your speaker)
+Fixes spoken replies being generated but never delivered to the paired room/Cast speaker. The
+auto-created "JARVIS" voice pipeline was left using Home Assistant's default conversation agent
+instead of JARVIS's own, so JARVIS's speaker routing never ran and the reply went to a mic-only
+satellite that can't play it. The pipeline's conversation agent is now set to JARVIS, and an existing
+JARVIS pipeline on the wrong agent is repaired automatically on startup. If it isn't corrected for
+any reason, set the pipeline's Conversation agent to JARVIS under Settings → Voice assistants.
+Also fixes two startup file/import operations that ran on the main loop.
+
 ## [7.52.2] — revert reply-delivery change that broke spoken replies
 Reverts the reply-delivery behavior (introduced across 7.50–7.51) that awaited delivery, polled the
 paired speaker for a 'playing' state, and fell back to broadcast speakers. That verification misfired

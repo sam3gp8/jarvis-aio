@@ -274,13 +274,30 @@ async def _create_pipeline(hass: HomeAssistant, voice_quality: str) -> bool:
         existing = None
         try:
             for p in assist_pipeline.async_get_pipelines(hass):
-                if getattr(p, "name", "") == "JARVIS":
+                if "jarvis" in (getattr(p, "name", "") or "").lower():
                     existing = p
                     break
         except Exception:
             existing = None
         if existing is not None:
-            _LOGGER.info("JARVIS bootstrap: JARVIS pipeline already exists — leaving as-is")
+            # A JARVIS pipeline exists — ensure its CONVERSATION AGENT is JARVIS's
+            # own entity. async_create_default_pipeline (and manual setups) leave
+            # the agent on HA's default (or an LLM integration), and then JARVIS's
+            # reply routing — delivering the reply to the paired room/Cast speaker
+            # — never runs, because the turn is handled by the wrong agent. Repair
+            # it in place rather than leaving it as-is.
+            try:
+                if getattr(existing, "conversation_engine", None) != agent:
+                    await assist_pipeline.async_update_pipeline(
+                        hass, existing, conversation_engine=agent)
+                    _LOGGER.info(
+                        "JARVIS bootstrap: pointed pipeline '%s' conversation agent at %s",
+                        getattr(existing, "name", "?"), agent)
+                else:
+                    _LOGGER.info("JARVIS bootstrap: JARVIS pipeline already uses %s", agent)
+            except Exception as exc:
+                _LOGGER.warning(
+                    "JARVIS bootstrap: couldn't set pipeline conversation agent: %s", exc)
             return True
 
         pipeline = await assist_pipeline.async_create_default_pipeline(
@@ -289,6 +306,15 @@ async def _create_pipeline(hass: HomeAssistant, voice_quality: str) -> bool:
             _LOGGER.warning("JARVIS bootstrap: default pipeline creation returned nothing")
             _manual_pipeline_hint(voice_quality)
             return False
+        # async_create_default_pipeline uses HA's default conversation agent — set
+        # it to JARVIS's entity so JARVIS handles the turn and its reply routing runs.
+        try:
+            await assist_pipeline.async_update_pipeline(
+                hass, pipeline, conversation_engine=agent)
+        except Exception as exc:
+            _LOGGER.warning(
+                "JARVIS bootstrap: created pipeline but couldn't set agent to %s: %s",
+                agent, exc)
         _LOGGER.info("JARVIS bootstrap: created JARVIS pipeline (agent=%s stt=%s tts=%s/%s)",
                      agent, stt, tts, tts_voice)
         return True

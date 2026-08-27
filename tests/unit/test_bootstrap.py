@@ -167,3 +167,18 @@ def _async_return(value):
     async def _coro():
         return value
     return _coro()
+
+
+def test_create_pipeline_points_agent_at_jarvis(bootstrap):
+    """The JARVIS pipeline must run JARVIS's own conversation entity.
+    async_create_default_pipeline leaves the agent on HA's default (an LLM
+    integration), and then JARVIS's reply routing never runs — so the bootstrap
+    must set conversation_engine=agent on both a new pipeline and an existing one
+    (repair in place, not "leave as-is")."""
+    import inspect
+    src = inspect.getsource(bootstrap._create_pipeline)
+    assert "async_update_pipeline" in src
+    assert "conversation_engine=agent" in src
+    assert "leaving as-is" not in src
+    # existing pipeline matched case-insensitively so "Jarvis (English)" is caught
+    assert '.lower()' in src
