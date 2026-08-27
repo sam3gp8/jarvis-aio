@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.52.2] — revert reply-delivery change that broke spoken replies
+Reverts the reply-delivery behavior (introduced across 7.50–7.51) that awaited delivery, polled the
+paired speaker for a 'playing' state, and fell back to broadcast speakers. That verification misfired
+on idle Cast/Nest speakers that play a short announcement fine but don't report a 'playing' state
+during it, which broke spoken replies that had been working. Spoken replies now route to the paired
+speaker the original way. Also fixes the diagnostics conversation-log buffer so it survives restarts
+(it previously reset on every reload, making the log look empty after a redeploy).
+
 ## [7.52.1] — reply-routing decisions survive log floods
 Added a dedicated conversation and reply-routing log buffer, included in Download Diagnostics, that a
 burst of observer or anomaly activity cannot evict. The reply-delivery decisions — which speaker each

@@ -1058,65 +1058,25 @@ def _ha_kwargs(cls, **kwargs):
                                 "JARVIS reply → Cast: tts=%s speaker=%s",
                                 tts_ent, speaker,
                             )
-                            # Await delivery so we only silence the satellite if
-                            # the reply actually reached the Cast speaker. If it
-                            # fails (e.g. a Piper voice removed by an update), let
-                            # the satellite speak the reply rather than losing it.
-                            delivered = await async_announce(
-                                self.hass, response_text,
-                                tts_ent, [speaker],
-                                context="reply",
+                            # Fire-and-forget to the paired speaker, then silence
+                            # the satellite. This is the delivery that worked.
+                            # v7.50–v7.51 changed this to await + poll the speaker
+                            # for a 'playing' state + fall back to broadcast; that
+                            # misfired on idle Cast speakers that play fine but don't
+                            # report 'playing' during a short announce, breaking the
+                            # working case. Reverted to the original behavior.
+                            self.hass.async_create_task(
+                                async_announce(
+                                    self.hass, response_text,
+                                    tts_ent, [speaker],
+                                    context="reply",
+                                )
                             )
-                            cast_routed = bool(delivered)
-                            played = False
-                            if delivered:
-                                # tts.speak was accepted — but an off/idle/
-                                # disconnected Cast device accepts the call and
-                                # produces no sound. Confirm it actually starts
-                                # playing before trusting it.
-                                import asyncio as _asyncio
-                                for _ in range(6):          # up to ~1.5s, breaks early
-                                    await _asyncio.sleep(0.25)
-                                    _s = self.hass.states.get(speaker)
-                                    if _s and _s.state in ("playing", "buffering"):
-                                        played = True
-                                        break
-                            cast_routed = played
-                            if played:
-                                try:
-                                    jarvis_log("REPLY", f"→ {speaker} via {tts_ent}: playing")
-                                except Exception:
-                                    pass
-                            else:
-                                # The paired speaker didn't play. A mic-only
-                                # satellite can't speak the reply either, so fall
-                                # back to the broadcast/announcement speakers that
-                                # briefings deliver to successfully — the reply is
-                                # heard there instead of lost to a dead speaker.
-                                _LOGGER.warning(
-                                    "JARVIS reply: %s accepted but didn't play — "
-                                    "falling back to broadcast speakers", speaker)
-                                fb = [c for c in self._broadcast_fallback_speakers()
-                                      if c != speaker
-                                      and self.hass.states.get(c) is not None
-                                      and self.hass.states.get(c).state
-                                      not in ("unavailable", "unknown")]
-                                if fb:
-                                    await async_announce(
-                                        self.hass, response_text, tts_ent, fb,
-                                        context="reply")
-                                    cast_routed = True
-                                    try:
-                                        jarvis_log("REPLY", f"{speaker} silent — reply "
-                                                   f"sent to broadcast {fb}")
-                                    except Exception:
-                                        pass
-                                else:
-                                    try:
-                                        jarvis_log("REPLY", f"{speaker} silent, no working "
-                                                   "broadcast fallback — reply not heard")
-                                    except Exception:
-                                        pass
+                            cast_routed = True
+                            try:
+                                jarvis_log("REPLY", f"→ Cast {speaker} via {tts_ent}")
+                            except Exception:
+                                pass
                         elif not sp_reachable:
                             # The reply speaker is offline — do NOT silence the
                             # satellite, or the reply is lost entirely. Let the

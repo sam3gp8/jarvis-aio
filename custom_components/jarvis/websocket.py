@@ -1491,12 +1491,15 @@ def _load_persisted_log() -> None:
             for line in lines:
                 m = re.match(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \[(\w+)\] (.+)", line)
                 if m:
-                    _DEBUG_LOG.append({
+                    _entry = {
                         "date": m.group(1),
                         "ts": m.group(2),
                         "cat": m.group(3),
                         "msg": m.group(4),
-                    })
+                    }
+                    _DEBUG_LOG.append(_entry)
+                    if m.group(3) in _CONV_CATEGORIES:
+                        _CONV_LOG.append(_entry)
     except Exception:
         pass
 
