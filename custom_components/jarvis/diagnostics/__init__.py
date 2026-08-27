@@ -168,5 +168,13 @@ async def async_get_config_entry_diagnostics(hass, entry) -> dict:
     except Exception as exc:
         diag["recent_log_error"] = str(exc)
 
+    # Dedicated conversation/reply-routing log — survives observer/anomaly floods
+    # that evict the reply-delivery decisions from the main log above.
+    try:
+        from ..websocket import recent_conversation_log
+        diag["conversation_log"] = recent_conversation_log(80)
+    except Exception as exc:
+        diag["conversation_log_error"] = str(exc)
+
     return diag
 

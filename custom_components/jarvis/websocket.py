@@ -1402,6 +1402,11 @@ import queue as _queue
 import json as _json_mod
 
 _DEBUG_LOG: _deque = _deque(maxlen=500)
+# A dedicated buffer for conversation + reply-routing entries only, so a burst of
+# observer/anomaly noise (e.g. many alarm-zone escalations at once) can't evict
+# the reply-delivery decisions before they're read from diagnostics.
+_CONV_CATEGORIES = frozenset({"CONV", "LOCAL", "AGENT", "REPLY", "ROUTE", "OFFLINE", "ERROR"})
+_CONV_LOG: _deque = _deque(maxlen=80)
 _LOG_FILE = _Path("/config/jarvis/jarvis.log")
 
 
@@ -1510,7 +1515,17 @@ def jarvis_log(category: str, message: str) -> None:
         "msg": message[:500],
     }
     _DEBUG_LOG.append(entry)
+    if category in _CONV_CATEGORIES:
+        _CONV_LOG.append(entry)
     _persist_log_entry(entry)
+
+
+def recent_conversation_log(n: int = 80) -> list:
+    """Last ``n`` conversation/reply-routing entries, from a dedicated buffer that
+    observer/anomaly noise cannot evict. Included in diagnostics so a spoken-reply
+    delivery problem is diagnosable even when the main log is flooded."""
+    entries = list(_CONV_LOG)
+    return entries[-n:] if n and n > 0 else entries
 
 
 def recent_debug_log(n: int = 150) -> list:

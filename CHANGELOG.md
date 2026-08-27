@@ -4,6 +4,12 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.52.1] — reply-routing decisions survive log floods
+Added a dedicated conversation and reply-routing log buffer, included in Download Diagnostics, that a
+burst of observer or anomaly activity cannot evict. The reply-delivery decisions — which speaker each
+spoken reply reached and whether it fell back to a broadcast speaker — now stay visible in the
+diagnostics even when the main activity log is flooded.
+
 ## [7.52.0] — fix: conversation crash on Home Assistant 2026.8.x
 Fixes 'Unexpected error during intent recognition' (AttributeError: module
 'custom_components.jarvis.intent' has no attribute 'async_setup_intents') on HA 2026.8.x. Home
