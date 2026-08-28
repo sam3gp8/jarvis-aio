@@ -117,7 +117,7 @@ async def test_step_init_renders_menu(config_flow, fake_hass):
     # init is now a landing menu (not a form) — jump to any section directly
     res = await _flow(config_flow, fake_hass).async_step_init(None)
     assert res["type"] == "menu" and res["step_id"] == "init"
-    assert set(res["menu_options"]) == {"core", "routing", "observer", "identity"}
+    assert set(res["menu_options"]) == {"core", "routing", "observer", "identity", "email"}
 
 
 async def test_step_core_renders_fields(config_flow, fake_hass):

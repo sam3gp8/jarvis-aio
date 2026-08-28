@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.53.5] — fix: device-control commands failed with "connectivity issues"
+Fixes queries that use Home Assistant tools — turning on lights, running scenes, reporting how many
+lights are on, and similar — failing and replying "I'm experiencing connectivity issues with my
+reasoning systems." The Home Assistant tool definitions were sent to the language model without
+converting their parameter schemas into a serializable form, so the request errored before it ever
+reached the model. The schemas are now converted correctly, and a single unconvertible tool no longer
+breaks the whole request. (This path only began running once 7.53.4 restored the conversation handler.)
+
 ## [7.53.4] — fix: conversation agent crashed (NotImplementedError) — handler was outside the entity
 Fixes the JARVIS conversation agent failing every voice/text turn with "Unexpected error during intent
 recognition." A helper function had drifted to module scope in the middle of the conversation entity,

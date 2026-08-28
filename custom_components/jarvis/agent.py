@@ -2557,16 +2557,41 @@ async def _create_provider_with_fallback(
 
 # ── Main agent loop ─────────────────────────────────────────────────────────
 
-def _ha_tools_to_openai_format(ha_tools: Sequence) -> list[dict]:
-    """Convert HA LLM API tool definitions to OpenAI function-calling format."""
+def _ha_tools_to_openai_format(ha_tools: Sequence, custom_serializer=None) -> list[dict]:
+    """Convert HA LLM API tool definitions to OpenAI function-calling format.
+
+    HA tools carry their parameters as a voluptuous Schema, which is NOT JSON
+    serializable — passing it straight through makes the whole LLM request fail
+    with "Object of type Schema is not JSON serializable". Convert each schema to
+    a JSON Schema dict via voluptuous_openapi, using the API's custom serializer
+    so HA's selector types (entity ids, areas, etc.) render correctly. If a single
+    tool's schema can't be converted, fall back to an empty object schema for that
+    tool so one odd tool never breaks the entire call.
+    """
+    try:
+        from voluptuous_openapi import convert
+    except Exception:
+        convert = None
     tools = []
     for t in ha_tools:
+        params = None
+        raw = getattr(t, "parameters", None)
+        if raw is not None and convert is not None:
+            try:
+                params = convert(raw, custom_serializer=custom_serializer)
+            except Exception as exc:
+                _LOGGER.debug(
+                    "JARVIS: couldn't convert schema for HA tool %s: %s",
+                    getattr(t, "name", "?"), exc)
+                params = None
+        if not params:
+            params = {"type": "object", "properties": {}}
         tools.append({
             "type": "function",
             "function": {
                 "name":        t.name,
                 "description": t.description or "",
-                "parameters":  t.parameters or {"type": "object", "properties": {}},
+                "parameters":  params,
             },
         })
     return tools
@@ -2874,7 +2899,8 @@ async def run_agent(
     # tools — the whole point of delegation is a narrow surface.
     tools = _scoped_tool_list(allowed_tools)
     if hass_api and allowed_tools is None:
-        tools.extend(_ha_tools_to_openai_format(hass_api.tools))
+        tools.extend(_ha_tools_to_openai_format(
+            hass_api.tools, getattr(hass_api, "custom_serializer", None)))
 
     # Create provider with fallback
     try:
