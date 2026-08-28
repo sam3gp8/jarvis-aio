@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.53.4] — fix: conversation agent crashed (NotImplementedError) — handler was outside the entity
+Fixes the JARVIS conversation agent failing every voice/text turn with "Unexpected error during intent
+recognition." A helper function had drifted to module scope in the middle of the conversation entity,
+which ended the class early and left the whole message handler defined outside it — so Home Assistant
+never saw JARVIS's handler and fell back to its own, which raises an error. The handler is now properly
+part of the conversation entity, verified structurally with a test so it can't be orphaned again. This
+is the root cause behind spoken replies not reaching paired speakers once the pipeline used JARVIS.
+
 ## [7.53.3] — fix: intent queries crash ("NoneType can't be awaited"); proactive TTS options
 Fixes voice and text queries that trigger intent recognition (e.g. "how many lights are on") failing
 with "Unexpected error during intent recognition." Home Assistant awaits JARVIS's intent-setup hook,

@@ -520,18 +520,6 @@ class JarvisAgent(conversation.ConversationEntity):
 
     # ── HA LLM tool integration ───────────────────────────────────────────────
 
-def _ha_kwargs(cls, **kwargs):
-    """Keep only the kwargs that cls's constructor accepts. Home Assistant's LLM
-    API changed fields across versions — 2026.8 moved the context out of
-    ToolInput into LLMContext and dropped user_prompt — so we pass the
-    intersection and stay compatible with old and new HA (v7.21.1). Never raises."""
-    try:
-        import inspect
-        allowed = inspect.signature(cls).parameters
-        return {k: v for k, v in kwargs.items() if k in allowed}
-    except Exception:
-        return kwargs
-
     async def _get_hass_api(self, user_input: conversation.ConversationInput):
         try:
             ctx = llm.LLMContext(**_ha_kwargs(
@@ -1185,3 +1173,16 @@ def _ha_kwargs(cls, **kwargs):
         except Exception:
             pass
         return result
+
+
+def _ha_kwargs(cls, **kwargs):
+    """Keep only the kwargs that cls's constructor accepts. Home Assistant's LLM
+    API changed fields across versions — 2026.8 moved the context out of
+    ToolInput into LLMContext and dropped user_prompt — so we pass the
+    intersection and stay compatible with old and new HA (v7.21.1). Never raises."""
+    try:
+        import inspect
+        allowed = inspect.signature(cls).parameters
+        return {k: v for k, v in kwargs.items() if k in allowed}
+    except Exception:
+        return kwargs

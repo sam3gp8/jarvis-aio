@@ -26,3 +26,24 @@ def test_handler_is_wrapped_against_crashes():
     assert "async def _async_handle_message(" in src
     assert "async def _handle_message_impl(" in src
     assert "conversation handler crashed" in src
+
+
+def test_handler_is_actually_a_method_of_jarvis_agent():
+    """The handler MUST be a method of the registered entity class JarvisAgent.
+    A stray column-0 statement once closed the class early and orphaned the whole
+    handler as dead code, so HA hit its base _async_handle_message and raised
+    NotImplementedError. Text-presence isn't enough — check real class membership.
+    """
+    import ast
+    tree = ast.parse(SRC.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "JarvisAgent":
+            methods = {
+                n.name for n in node.body
+                if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+            }
+            assert "_async_handle_message" in methods, \
+                "_async_handle_message is not a method of JarvisAgent (orphaned?)"
+            assert "_handle_message_impl" in methods
+            return
+    raise AssertionError("JarvisAgent class not found")
