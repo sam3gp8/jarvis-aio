@@ -837,6 +837,8 @@ class JarvisAgent(conversation.ConversationEntity):
         hass_api = await self._get_hass_api(user_input) if self._use_hass_api() else None
 
         cast_routed = False  # tracks whether Cast speaker is handling TTS
+        reopen_speaker: str | None = None   # separate speaker the reply played on
+        reopen_device: str | None = None    # the wake/voice satellite's device_id
 
         # v5.9.07: Proactive offer yes/no — resolved before main pipeline.
         offer_reply = None
@@ -1085,6 +1087,8 @@ class JarvisAgent(conversation.ConversationEntity):
                                 )
                             )
                             cast_routed = True
+                            reopen_speaker = speaker
+                            reopen_device = device_id_route
                             try:
                                 jarvis_log("REPLY", f"→ Cast {speaker} via {tts_ent}")
                             except Exception:
@@ -1169,7 +1173,22 @@ class JarvisAgent(conversation.ConversationEntity):
         try:
             from . import continued_conversation as _cc
             if _cc.enabled() and _cc.should_continue(response_text):
-                result.continue_conversation = True
+                sat_ent = (_cc.satellite_for_device(self.hass, reopen_device)
+                           if reopen_device else None)
+                if (cast_routed and reopen_speaker and sat_ent
+                        and _cc.speaker_reopen_enabled()):
+                    # The reply is playing on a SEPARATE speaker, not the mic-only
+                    # satellite. HA's continue_conversation would reopen the mic
+                    # based on the satellite's own (instant) playback — before the
+                    # speaker finishes — so the mic would capture JARVIS's own
+                    # reply. Instead JARVIS watches the speaker and reopens the mic
+                    # only once it goes idle.
+                    _cc.schedule_reopen(
+                        self.hass, sat_ent, reopen_speaker, response_text)
+                else:
+                    # Satellite plays the reply itself (or no separate speaker) —
+                    # HA's built-in reopen timing is correct here.
+                    result.continue_conversation = True
         except Exception:
             pass
         return result

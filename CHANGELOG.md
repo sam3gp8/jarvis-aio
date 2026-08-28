@@ -4,6 +4,15 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.55.0] — follow-ups reopen the mic only after the reply finishes on the speaker
+When continued conversation is enabled and JARVIS asks a follow-up, a mic-only satellite whose reply
+plays on a separate speaker now reopens its microphone only once that speaker goes idle — so the mic
+no longer picks up JARVIS's own reply. Previously Home Assistant reopened the mic based on the
+satellite's own (instant) playback, before the speaker had finished speaking. If the speaker never
+reports playback (e.g. a speaker group), JARVIS falls back to a spoken-length estimate so the mic
+still reopens. Tunable via continued_conversation_speaker_reopen (default on); continued conversation
+itself remains off by default.
+
 ## [7.54.0] — quieter observer: coalesce bursts from banks of numbered sensors
 Observer mode now collapses a burst of numbered sibling entities — for example an alarm panel toggling
 a whole bank of zone sensors (zone_49, zone_50, … zone_63) at once — into a single classification per

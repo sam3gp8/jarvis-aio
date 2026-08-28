@@ -1279,6 +1279,7 @@ PANEL_WRITABLE_KEYS = {
     "memory_threading_hours",
     "memory_threading_max",
     "continued_conversation_enabled",
+    "continued_conversation_speaker_reopen",   # bool: JARVIS times the follow-up mic reopen to the reply speaker finishing
     "disabled_sentinel_rules",   # JSON list of disabled rule IDs
     "satellite_pairings",        # JSON dict: {satellite_entity_id: cast_entity_id}
     "announcement_speakers",     # JSON list of cast entity IDs for announcements
