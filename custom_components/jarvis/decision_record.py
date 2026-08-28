@@ -363,3 +363,137 @@ def stats(db_path: Optional[str] = None) -> dict:
             conn.close()
         except Exception:
             pass
+
+
+def calibration(db_path: Optional[str] = None, kind: Optional[str] = None,
+                bins: int = 5, since: Optional[float] = None) -> dict:
+    """Compare stated confidence against actual correctness over judged records.
+
+    A judged record scores 1.0 when its outcome is OUTCOME_GOOD (JARVIS was right
+    to act) and 0.0 otherwise (``wrong`` = false alarm, ``unnecessary`` = not
+    needed). Records are grouped into equal-width confidence bins over [0, 1] and,
+    per bin, we report how often they were actually good — so you can see whether
+    e.g. 80%-confident decisions really come true ~80% of the time. Also reports a
+    Brier score (mean squared error of confidence vs correctness; lower is better,
+    0 is perfect) and the expected calibration error (ECE, the sample-weighted gap
+    between confidence and reality across bins). Pure DB read; never raises.
+    """
+    db = _resolve(db_path)
+    n = max(1, int(bins))
+    out = {"n": 0, "good_rate": None, "brier": None, "ece": None,
+           "bins": [], "kind": kind}
+    if not Path(db).exists():
+        return out
+    try:
+        conn = _connect(db)
+    except Exception:
+        return out
+    try:
+        sql = ("SELECT confidence, outcome FROM decision_records "
+               "WHERE outcome IS NOT NULL AND confidence IS NOT NULL")
+        params: list = []
+        if kind:
+            sql += " AND kind = ?"
+            params.append(str(kind))
+        if since is not None:
+            sql += " AND ts >= ?"
+            params.append(float(since))
+        rows = conn.execute(sql, params).fetchall()
+    except Exception:
+        return out
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    pairs = []
+    for r in rows:
+        try:
+            c = min(1.0, max(0.0, float(r[0])))
+        except (TypeError, ValueError):
+            continue
+        pairs.append((c, 1.0 if r[1] == OUTCOME_GOOD else 0.0))
+
+    total = len(pairs)
+    out["n"] = total
+    if total == 0:
+        return out
+
+    out["good_rate"] = round(sum(g for _, g in pairs) / total, 4)
+    out["brier"] = round(sum((c - g) ** 2 for c, g in pairs) / total, 4)
+
+    buckets: list = [[] for _ in range(n)]
+    for c, g in pairs:
+        buckets[min(n - 1, int(c * n))].append((c, g))
+    ece = 0.0
+    bins_out = []
+    for i, b in enumerate(buckets):
+        if b:
+            mean_c = sum(c for c, _ in b) / len(b)
+            rate = sum(g for _, g in b) / len(b)
+            ece += (len(b) / total) * abs(mean_c - rate)
+        else:
+            mean_c = rate = None
+        bins_out.append({
+            "lo": round(i / n, 3), "hi": round((i + 1) / n, 3),
+            "count": len(b),
+            "mean_confidence": round(mean_c, 3) if mean_c is not None else None,
+            "good_rate": round(rate, 3) if rate is not None else None,
+        })
+    out["ece"] = round(ece, 4)
+    out["bins"] = bins_out
+    return out
+
+
+def interruption_budget(db_path: Optional[str] = None,
+                        window_s: float = 86400.0, floor: float = 0.25) -> dict:
+    """Judge whether JARVIS is interrupting without payoff, from recent outcomes.
+
+    Over judged records in the last ``window_s`` seconds, the more that were judged
+    ``unnecessary`` or ``wrong`` (noise / false alarm) rather than ``good``, the
+    more JARVIS is intruding without value. Returns a ``multiplier`` between
+    ``floor`` and 1.0 that the output gate can apply to its hourly announcement cap
+    to interrupt less when recent interruptions have been unwelcome. Pure DB read;
+    never raises. 1.0 (no change) when there's no data.
+    """
+    db = _resolve(db_path)
+    out = {"window_s": window_s, "judged": 0, "good": 0, "unnecessary": 0,
+           "wrong": 0, "unwelcome_rate": None, "multiplier": 1.0,
+           "assessment": "no data"}
+    if not Path(db).exists():
+        return out
+    since = time.time() - float(window_s)
+    try:
+        conn = _connect(db)
+    except Exception:
+        return out
+    try:
+        rows = conn.execute(
+            "SELECT outcome, COUNT(*) FROM decision_records "
+            "WHERE outcome IS NOT NULL AND ts >= ? GROUP BY outcome",
+            (since,)).fetchall()
+    except Exception:
+        return out
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    counts = {"good": 0, "unnecessary": 0, "wrong": 0}
+    for r in rows:
+        if r[0] in counts:
+            counts[r[0]] = int(r[1])
+    judged = sum(counts.values())
+    out.update(judged=judged, **counts)
+    if judged == 0:
+        return out
+
+    rate = (counts["unnecessary"] + counts["wrong"]) / judged
+    floor = min(1.0, max(0.0, float(floor)))
+    out["unwelcome_rate"] = round(rate, 4)
+    out["multiplier"] = round(max(floor, 1.0 - rate * (1.0 - floor)), 3)
+    out["assessment"] = ("over-interrupting" if rate >= 0.5
+                         else "borderline" if rate >= 0.25 else "healthy")
+    return out

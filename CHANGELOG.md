@@ -1,3 +1,11 @@
+## [7.56.0] — see how well JARVIS's confidence matches reality, and interrupt less when it's wrong
+
+The System Diagnostics card now shows a judgment-calibration readout: for the decisions JARVIS has made and seen the results of, it groups them by how confident it was and shows how often each group actually turned out right — so you can tell at a glance whether "90% sure" really means 90%. It also reports an overall accuracy score (Brier) and how far confidence drifts from reality.
+
+New optional setting: Adaptive interruptions. When on, JARVIS quietly interrupts less often after a run of alerts you dismissed as unneeded, and eases back up once its alerts are landing again. Off by default — nothing changes unless you turn it on.
+
+Two settings that were already working under the hood now have controls in the panel: speaker-aware follow-up mic reopen (waits for the reply to finish on your speaker before reopening a satellite's mic) and sibling-burst coalescing (how long to fold a flurry from a bank of numbered sensors into one look).
+
 # Changelog
 
 All notable changes to JARVIS are documented here. This project uses semantic-ish

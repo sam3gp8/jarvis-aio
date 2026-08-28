@@ -60,6 +60,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_search_memory)
         websocket_api.async_register_command(hass, ws_get_debug_log)
         websocket_api.async_register_command(hass, ws_get_cognitive_status)
+        websocket_api.async_register_command(hass, ws_get_calibration)
         websocket_api.async_register_command(hass, ws_list_models)
         websocket_api.async_register_command(hass, ws_suggestion_action)
         websocket_api.async_register_command(hass, ws_goal_action)
@@ -729,6 +730,9 @@ async def ws_get_panel_data(
                 "memory_threading_hours": _runtime_opt(hass, entry, "memory_threading_hours", 48),
                 "memory_threading_max": _runtime_opt(hass, entry, "memory_threading_max", 12),
                 "continued_conversation_enabled": bool(_runtime_opt(hass, entry, "continued_conversation_enabled", False)),
+                "continued_conversation_speaker_reopen": bool(_runtime_opt(hass, entry, "continued_conversation_speaker_reopen", True)),
+                "observer_group_debounce": _runtime_opt(hass, entry, "observer_group_debounce", 90),
+                "adaptive_interruption_budget": bool(_runtime_opt(hass, entry, "adaptive_interruption_budget", False)),
                 "operational_mode_auto": bool(_runtime_opt(hass, entry, "operational_mode_auto", True)),
                 "lab_areas": _runtime_opt(hass, entry, "lab_areas", []) or [],
                 "movie_area": str(_runtime_opt(hass, entry, "movie_area", "") or ""),
@@ -1379,6 +1383,7 @@ PANEL_WRITABLE_KEYS = {
     "cognition_enabled",
     "cognition_threshold",
     "observer_group_debounce",      # seconds: coalesce a burst of numbered sibling entities (0 = off)
+    "adaptive_interruption_budget",  # bool: scale the announcement cap down when recent proactive decisions were unwelcome
     "appliance_profile",            # JSON list of declared appliances (name/type/entity/watts)
     "appliance_announce_unknown",   # bool: announce loads matching no declared appliance
     "camera_auto_analyze",          # bool: auto-inspect doorbell/person camera events
@@ -2017,6 +2022,30 @@ async def ws_get_debug_log(
 ) -> None:
     """Return JARVIS internal debug log entries."""
     connection.send_result(msg["id"], {"entries": list(_DEBUG_LOG)})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/get_calibration",
+})
+@websocket_api.async_response
+async def ws_get_calibration(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Confidence calibration + interruption-budget health for the dashboard."""
+    try:
+        from . import decision_record
+        connection.send_result(msg["id"], {
+            "calibration": decision_record.calibration(),
+            "interruption_budget": decision_record.interruption_budget(),
+            "stats": decision_record.stats(),
+        })
+    except Exception as exc:
+        connection.send_result(msg["id"], {
+            "calibration": {"n": 0}, "interruption_budget": {"judged": 0},
+            "error": str(exc),
+        })
 
 
 @websocket_api.websocket_command({

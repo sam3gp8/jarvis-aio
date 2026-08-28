@@ -68,6 +68,34 @@ def _recent_within(history: deque, seconds: float) -> list[Announcement]:
 
 # ─── Public gate API ────────────────────────────────────────────────────────
 
+# Adaptive interruption budget: when enabled, the recent rate of unwelcome
+# proactive decisions (from decision_record) scales the hourly cap down, so
+# JARVIS interrupts less after a run of dismissed/false alarms. Opt-in and
+# cached (60s) so we never query the store on every gate check.
+_BUDGET_CACHE = {"ts": 0.0, "mult": 1.0}
+
+
+def _budget_multiplier() -> float:
+    """Multiplier (<= 1.0) applied to the hourly cap when the adaptive
+    interruption budget is on. 1.0 (no change) when disabled or on any error."""
+    try:
+        from . import jarvis_config
+        if not jarvis_config.get("adaptive_interruption_budget", False):
+            return 1.0
+    except Exception:
+        return 1.0
+    now = _now()
+    if now - _BUDGET_CACHE["ts"] < 60.0:
+        return _BUDGET_CACHE["mult"]
+    try:
+        from . import decision_record
+        mult = float(decision_record.interruption_budget().get("multiplier", 1.0))
+    except Exception:
+        mult = 1.0
+    _BUDGET_CACHE.update(ts=now, mult=mult)
+    return mult
+
+
 def can_announce(
     *,
     entity_id: str,
@@ -97,10 +125,12 @@ def can_announce(
     if category in _STATE.muted_categories:
         return False, f"category {category} is muted"
 
-    # Rate limit
+    # Rate limit — tightened by the adaptive interruption budget when enabled
+    # (a no-op multiplier of 1.0 keeps the base cap otherwise).
+    eff_max = max(1, int(round(max_per_hour * _budget_multiplier())))
     recent = _recent_within(_STATE.history, 3600)
-    if len(recent) >= max_per_hour and urgency not in ("high",):
-        return False, f"rate limit ({len(recent)}/hour)"
+    if len(recent) >= eff_max and urgency not in ("high",):
+        return False, f"rate limit ({len(recent)}/{eff_max}/hour)"
 
     # Dedup: is this message (or a substring) close to something recent?
     dedup_cutoff = _now() - dedup_minutes * 60
