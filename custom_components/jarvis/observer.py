@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections import deque
 from typing import Optional
@@ -111,6 +112,7 @@ INTERESTING_MEDIA_STATES = {"off", "idle", "playing"}
 # Debounce windows (seconds)
 DEBOUNCE_DEFAULT_S   = 60.0    # was 30 — doubled
 DEBOUNCE_MOTION_S    = 300.0   # was 180 — raised to 5 min for motion/occupancy
+GROUP_DEBOUNCE_S     = 90.0    # coalesce a burst of numbered siblings (e.g. alarm zones)
 
 # Minimum time an entity's previous state must have been held. Anything
 # flapping faster than this is noise.
@@ -369,6 +371,75 @@ def _cognition_threshold() -> float:
         return 0.6
 
 
+# ── Sibling-burst coalescing ────────────────────────────────────────────────
+# An alarm panel (or similar) can toggle a whole bank of numbered entities at
+# once — e.g. binary_sensor.home_cove_alarm_zone_49 .. _63 firing 15/sec. Each is
+# a distinct entity_id, so the per-entity debounce can't collapse them, and every
+# one would trigger its own classifier call — flooding the LLM and evicting the
+# activity log. We collapse a burst of numbered siblings to a single escalation
+# per window. This only affects the observer's classify path; intrusion detection
+# runs on a separate periodic check in cognitive_core and is unaffected.
+_GROUP_LAST: dict[str, float] = {}
+_SEQ_SUFFIX_RE = re.compile(r"^(.*?)_(\d+)$")
+
+
+def _group_key(entity_id: str) -> Optional[str]:
+    """Shared prefix for a numbered-sibling entity, else None.
+
+    binary_sensor.home_cove_alarm_zone_49 -> binary_sensor.home_cove_alarm_zone.
+    Only entities whose object_id ends in _<number> get a key; anything else
+    returns None and is never coalesced.
+    """
+    try:
+        domain, obj = entity_id.split(".", 1)
+    except ValueError:
+        return None
+    m = _SEQ_SUFFIX_RE.match(obj)
+    if not m:
+        return None
+    base = m.group(1)
+    if len(base) < 4:          # avoid over-broad keys like "x_1"
+        return None
+    return f"{domain}.{base}"
+
+
+def _group_debounce_s() -> float:
+    """Coalescing window for a burst of numbered siblings. Configurable via
+    `observer_group_debounce`: runtime_config (panel) → entry config → default.
+    0 (or negative) disables sibling coalescing entirely."""
+    from .const import DOMAIN
+    hass = _STATE.hass
+    if hass:
+        for _eid, data in hass.data.get(DOMAIN, {}).items():
+            if isinstance(data, dict):
+                rc = data.get("runtime_config", {})
+                if "observer_group_debounce" in rc:
+                    try:
+                        return float(rc["observer_group_debounce"])
+                    except (TypeError, ValueError):
+                        break
+    try:
+        return float((_STATE.config or {}).get("observer_group_debounce", GROUP_DEBOUNCE_S))
+    except (TypeError, ValueError):
+        return GROUP_DEBOUNCE_S
+
+
+def _group_debounced(entity_id: str, interval: float) -> bool:
+    """Suppress this event if a sibling in the same numbered group was classified
+    within `interval` seconds, so a burst of siblings yields one escalation, not
+    N. Non-grouped entities are never suppressed. interval <= 0 disables it."""
+    if interval <= 0:
+        return False
+    key = _group_key(entity_id)
+    if key is None:
+        return False
+    now = time.time()
+    if now - _GROUP_LAST.get(key, 0.0) < interval:
+        return True
+    _GROUP_LAST[key] = now
+    return False
+
+
 @callback
 def _on_state_changed(event: Event) -> None:
     """Non-blocking HA event handler."""
@@ -415,6 +486,14 @@ def _on_state_changed(event: Event) -> None:
             return
     except Exception:
         pass
+
+    # v7.54.0: Coalesce a burst of numbered sibling entities (e.g. an alarm panel
+    # toggling home_cove_alarm_zone_49..63 at once). Each sibling is a distinct
+    # entity_id, so the per-entity debounce below can't catch them and each would
+    # trigger its own classifier call — flooding the LLM and evicting the activity
+    # log. Intrusion detection is unaffected (separate periodic check).
+    if _group_debounced(entity_id, _group_debounce_s()):
+        return
 
     # Longer debounce for motion/occupancy — they fire very often
     new_state = event.data.get("new_state")

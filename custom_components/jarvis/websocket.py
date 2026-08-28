@@ -1377,6 +1377,7 @@ PANEL_WRITABLE_KEYS = {
     "classifier_rate_limit",
     "cognition_enabled",
     "cognition_threshold",
+    "observer_group_debounce",      # seconds: coalesce a burst of numbered sibling entities (0 = off)
     "appliance_profile",            # JSON list of declared appliances (name/type/entity/watts)
     "appliance_announce_unknown",   # bool: announce loads matching no declared appliance
     "camera_auto_analyze",          # bool: auto-inspect doorbell/person camera events

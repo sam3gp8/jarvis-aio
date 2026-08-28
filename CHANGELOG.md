@@ -4,6 +4,14 @@ All notable changes to JARVIS are documented here. This project uses semantic-is
 versioning (`MAJOR.MINOR.PATCH`); UI reskins and capability expansions bump MINOR,
 bug fixes bump PATCH.
 
+## [7.54.0] — quieter observer: coalesce bursts from banks of numbered sensors
+Observer mode now collapses a burst of numbered sibling entities — for example an alarm panel toggling
+a whole bank of zone sensors (zone_49, zone_50, … zone_63) at once — into a single classification per
+window instead of one call per sensor. A chattering sensor bank was flooding the language model with
+redundant work and crowding real events out of the activity log. Tunable with observer_group_debounce
+(seconds; default 90, set 0 to disable). Intrusion detection and safety response are unaffected — they
+run on a separate check, and only entities whose name ends in a number are ever coalesced.
+
 ## [7.53.5] — fix: device-control commands failed with "connectivity issues"
 Fixes queries that use Home Assistant tools — turning on lights, running scenes, reporting how many
 lights are on, and similar — failing and replying "I'm experiencing connectivity issues with my
