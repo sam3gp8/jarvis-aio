@@ -940,6 +940,7 @@ class JarvisAgent(conversation.ConversationEntity):
                     # Complex request — use LLM agent (Groq/Gemini fallback)
                     from .agent import run_agent
                     from . import ha_secrets as _hs
+                    from . import jarvis_config as _jc
                     provider_name = self._rt_opt("llm_provider", "groq")
                     api_key_val = (
                         await self.hass.async_add_executor_job(
@@ -949,6 +950,25 @@ class JarvisAgent(conversation.ConversationEntity):
                     )
                     model_val = self._rt_opt(CONF_MODEL, DEFAULT_MODEL)
                     base_url_val = self._rt_opt("llm_base_url", "") or None
+
+                    # The reasoning-tier fallback needs the FULL config, not
+                    # entry.data|options — those are empty on panel-configured
+                    # installs, which left the fallback unable to resolve a
+                    # provider and forced the "offline" message even when a
+                    # working tier was configured. Use the single source of
+                    # truth (jarvis_config) plus live panel runtime_config.
+                    eff_config = await self.hass.async_add_executor_job(
+                        _jc.effective_config, self.entry
+                    )
+                    try:
+                        _rc = self.hass.data.get(DOMAIN, {}).get(
+                            self.entry.entry_id, {}).get("runtime_config", {})
+                        if isinstance(_rc, dict):
+                            eff_config = {**eff_config,
+                                          **{k: v for k, v in _rc.items()
+                                             if v not in (None, "")}}
+                    except Exception:
+                        pass
 
                     try:
                         response_text = await run_agent(
@@ -962,7 +982,7 @@ class JarvisAgent(conversation.ConversationEntity):
                             hass_api=hass_api,
                             user_input=user_input,
                             temperature=0.7,
-                            config=dict(self.entry.options) | dict(self.entry.data),
+                            config=eff_config,
                         )
                         # Agent returns a connectivity sentinel string on total
                         # failure; treat that as a breaker failure + salvage.

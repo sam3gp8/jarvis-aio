@@ -2971,21 +2971,25 @@ async def run_agent(
                     "Agent LLM call failed (iter %d): %s — trying fallback",
                     iteration, exc,
                 )
+                # Capture the specific reason here (it's known at this point).
+                # We only surface it to the health panel as DOWN if the FALLBACK
+                # also fails, so a call the fallback recovers doesn't read as an
+                # outage — but when it does surface, the user sees exactly why
+                # (e.g. a decommissioned Groq model) instead of "breaker OPEN".
+                if _is_model_not_found(exc):
+                    _fail_detail = (
+                        f"model '{model}' not found on provider "
+                        f"'{provider_name}' — check llm_provider / model "
+                        f"settings (Ollama-tagged models need "
+                        f"llm_provider=ollama + llm_base_url)"
+                    )
+                else:
+                    _fail_detail = (
+                        f"agent LLM failed ({provider_name}/{model}): {str(exc)[:160]}"
+                    )
                 try:
                     from .websocket import jarvis_log
-                    if _is_model_not_found(exc):
-                        jarvis_log(
-                            "ERROR",
-                            f"model '{model}' not found on provider "
-                            f"'{provider_name}' — check llm_provider / model "
-                            f"settings (Ollama-tagged models need "
-                            f"llm_provider=ollama + llm_base_url)",
-                        )
-                    else:
-                        jarvis_log(
-                            "ERROR",
-                            f"agent LLM failed ({provider_name}/{model}): {str(exc)[:160]}",
-                        )
+                    jarvis_log("ERROR", _fail_detail)
                 except Exception:
                     pass
                 try:
@@ -3001,14 +3005,24 @@ async def run_agent(
                     result = await hass.async_add_executor_job(
                         client.chat, working, tools or None, 1024, temperature,
                     )
+                    # Fallback tier recovered — the reasoning backend is up.
+                    try:
+                        from .diagnostics.service_health import record_usage
+                        record_usage("llm", True)
+                    except Exception:
+                        pass
                 except Exception:
                     try:
                         from .websocket import jarvis_log
+                        from .diagnostics.service_health import record_usage
                         jarvis_log(
                             "ERROR",
                             "agent: primary and fallback providers both failed — "
                             "check API keys / connectivity",
                         )
+                        # Report the SPECIFIC primary reason so the diagnostics
+                        # card shows the actual cause of the offline state.
+                        record_usage("llm", False, detail=_fail_detail)
                     except Exception:
                         pass
                     return (

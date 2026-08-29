@@ -117,6 +117,18 @@ def test_speech_real_failure_marks_down(sh):
     assert "transcription timed out" in out["detail"]
 
 
+async def test_llm_real_failure_surfaces_reason(sh):
+    # A genuine LLM failure (both providers) reports its specific reason to the
+    # health panel, so the diagnostics card shows WHY JARVIS went offline — the
+    # actual cause (e.g. a decommissioned model) rather than just "breaker OPEN".
+    sh._USAGE.clear()
+    sh._cfg_store["llm_provider"] = "groq"          # pass the no-base early return
+    sh.record_usage("llm", False, "model 'llama-x' not found on provider 'groq'")
+    out = await sh._check_llm(_Hass({}))
+    assert out["status"] == "down"
+    assert "not found" in out["detail"] and "llama-x" in out["detail"]
+
+
 def test_speech_specific_engine_available(sh):
     sh._USAGE.clear()
     hass = _Hass({"tts": [_State("tts.piper", "idle"), _State("tts.cloud", "idle")]})

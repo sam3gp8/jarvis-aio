@@ -1,3 +1,9 @@
+## [7.57.0] — when the reasoning backend is unreachable, JARVIS now tells you why
+
+If a voice command reaches JARVIS but comes back with the "offline / reasoning systems" reply, the System Diagnostics card now shows the actual cause on the LLM row — for example a model name your provider has retired, or an authentication problem — instead of only reporting that the connection is down. That turns a puzzling silence into a one-line fix.
+
+Also fixed: on installs configured entirely through the panel (where the underlying config entry is empty), the reasoning backend's fallback provider couldn't resolve, so a single hiccup on the primary provider dropped straight to the offline reply. JARVIS now resolves the full configuration for the fallback, so it can ride out a momentary primary-provider failure instead of going quiet.
+
 ## [7.56.0] — see how well JARVIS's confidence matches reality, and interrupt less when it's wrong
 
 The System Diagnostics card now shows a judgment-calibration readout: for the decisions JARVIS has made and seen the results of, it groups them by how confident it was and shows how often each group actually turned out right — so you can tell at a glance whether "90% sure" really means 90%. It also reports an overall accuracy score (Brier) and how far confidence drifts from reality.
