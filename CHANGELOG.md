@@ -1,3 +1,9 @@
+## [7.58.0] — JARVIS learns how selective to be, and locks down novel security actions
+
+Suggestions now get better at knowing when to speak up. When you turn on the new Adaptive suggestions setting, JARVIS watches how often its past suggestions turned out useful versus unnecessary and quietly adjusts how confident it must be before offering a new one — more selective after a run of dismissals, a little more forthcoming when they're landing well. The adjustment is bounded and always visible on the diagnostics card, and it only ever learns from suggestions — never from security or safety decisions. Off by default.
+
+Security actions are also harder to slip past confirmation. The action risk classifier now recognises a lock or alarm action by the kind of device it is, not just by an exact list of known commands — so a lock or alarm service JARVIS hasn't seen before is treated as sensitive (a guard-dropping action like unlock/disarm as high risk, anything else unrecognised as needing review) instead of quietly passing as routine. Safe directions like locking or arming keep their low-friction behaviour, and everyday devices (lights, media, climate) are unaffected.
+
 ## [7.57.0] — when the reasoning backend is unreachable, JARVIS now tells you why
 
 If a voice command reaches JARVIS but comes back with the "offline / reasoning systems" reply, the System Diagnostics card now shows the actual cause on the LLM row — for example a model name your provider has retired, or an authentication problem — instead of only reporting that the connection is down. That turns a puzzling silence into a one-line fix.

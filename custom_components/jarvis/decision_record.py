@@ -497,3 +497,50 @@ def interruption_budget(db_path: Optional[str] = None,
     out["assessment"] = ("over-interrupting" if rate >= 0.5
                          else "borderline" if rate >= 0.25 else "healthy")
     return out
+
+
+def outcome_rate(kind: str, window_s: Optional[float] = None,
+                 db_path: Optional[str] = None) -> dict:
+    """Outcome breakdown for judged records of one ``kind`` (optionally within
+    the last ``window_s`` seconds). Pure DB read; never raises.
+
+    Returns judged/good/unnecessary/wrong counts plus good_rate and
+    unwelcome_rate (= (unnecessary + wrong) / judged), so a proactive surface can
+    steer how selective it is from how its own past output was received.
+    """
+    db = _resolve(db_path)
+    out = {"kind": kind, "judged": 0, "good": 0, "unnecessary": 0, "wrong": 0,
+           "good_rate": None, "unwelcome_rate": None}
+    if not Path(db).exists():
+        return out
+    try:
+        conn = _connect(db)
+    except Exception:
+        return out
+    try:
+        sql = ("SELECT outcome, COUNT(*) FROM decision_records "
+               "WHERE outcome IS NOT NULL AND kind = ?")
+        params: list = [str(kind)]
+        if window_s is not None:
+            sql += " AND ts >= ?"
+            params.append(time.time() - float(window_s))
+        sql += " GROUP BY outcome"
+        rows = conn.execute(sql, params).fetchall()
+    except Exception:
+        return out
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    counts = {"good": 0, "unnecessary": 0, "wrong": 0}
+    for r in rows:
+        if r[0] in counts:
+            counts[r[0]] = int(r[1])
+    judged = sum(counts.values())
+    out.update(judged=judged, **counts)
+    if judged:
+        out["good_rate"] = round(counts["good"] / judged, 4)
+        out["unwelcome_rate"] = round(
+            (counts["unnecessary"] + counts["wrong"]) / judged, 4)
+    return out

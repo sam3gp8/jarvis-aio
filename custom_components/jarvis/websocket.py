@@ -733,6 +733,7 @@ async def ws_get_panel_data(
                 "continued_conversation_speaker_reopen": bool(_runtime_opt(hass, entry, "continued_conversation_speaker_reopen", True)),
                 "observer_group_debounce": _runtime_opt(hass, entry, "observer_group_debounce", 90),
                 "adaptive_interruption_budget": bool(_runtime_opt(hass, entry, "adaptive_interruption_budget", False)),
+                "adaptive_suggestion_threshold": bool(_runtime_opt(hass, entry, "adaptive_suggestion_threshold", False)),
                 "operational_mode_auto": bool(_runtime_opt(hass, entry, "operational_mode_auto", True)),
                 "lab_areas": _runtime_opt(hass, entry, "lab_areas", []) or [],
                 "movie_area": str(_runtime_opt(hass, entry, "movie_area", "") or ""),
@@ -1384,6 +1385,7 @@ PANEL_WRITABLE_KEYS = {
     "cognition_threshold",
     "observer_group_debounce",      # seconds: coalesce a burst of numbered sibling entities (0 = off)
     "adaptive_interruption_budget",  # bool: scale the announcement cap down when recent proactive decisions were unwelcome
+    "adaptive_suggestion_threshold", # bool: tune the suggestion confidence bar from how welcome recent suggestions were
     "appliance_profile",            # JSON list of declared appliances (name/type/entity/watts)
     "appliance_announce_unknown",   # bool: announce loads matching no declared appliance
     "camera_auto_analyze",          # bool: auto-inspect doorbell/person camera events
@@ -2036,11 +2038,22 @@ async def ws_get_calibration(
     """Confidence calibration + interruption-budget health for the dashboard."""
     try:
         from . import decision_record
-        connection.send_result(msg["id"], {
+        payload = {
             "calibration": decision_record.calibration(),
             "interruption_budget": decision_record.interruption_budget(),
             "stats": decision_record.stats(),
-        })
+            "suggestion": decision_record.outcome_rate("suggestion"),
+        }
+        try:
+            from . import pattern_analyzer
+            payload["suggestion_threshold"] = {
+                "base": round(pattern_analyzer.CONFIDENCE_THRESHOLD, 3),
+                "effective": round(pattern_analyzer._effective_threshold(), 3),
+                "learned_delta": round(pattern_analyzer._learned_threshold_delta(), 3),
+            }
+        except Exception:
+            pass
+        connection.send_result(msg["id"], payload)
     except Exception as exc:
         connection.send_result(msg["id"], {
             "calibration": {"n": 0}, "interruption_budget": {"judged": 0},

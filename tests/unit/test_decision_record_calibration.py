@@ -77,3 +77,20 @@ def test_interruption_budget_no_data_is_neutral(dr, tmp_path):
     dr.ensure_schema(db)
     b = dr.interruption_budget(db_path=db)
     assert b["multiplier"] == 1.0 and b["assessment"] == "no data"
+
+
+def test_outcome_rate_is_per_kind(dr, tmp_path):
+    db = str(tmp_path / "d.db")
+    dr.ensure_schema(db)
+    # two kinds; outcome_rate must isolate the requested one
+    for verdict in ("good", "good", "unnecessary", "wrong"):
+        rid = dr.record("suggestion", confidence=0.7, db_path=db)
+        dr.set_outcome(rid, verdict, source="t", db_path=db)
+    rid = dr.record("intrusion", confidence=0.9, db_path=db)
+    dr.set_outcome(rid, "good", source="t", db_path=db)
+
+    r = dr.outcome_rate("suggestion", db_path=db)
+    assert r["judged"] == 4 and r["good"] == 2
+    assert r["unwelcome_rate"] == 0.5 and r["good_rate"] == 0.5
+    # the intrusion outcome must not leak into the suggestion rate
+    assert dr.outcome_rate("intrusion", db_path=db)["judged"] == 1

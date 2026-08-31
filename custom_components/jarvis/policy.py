@@ -24,7 +24,9 @@ from typing import Tuple
 
 _LOGGER = logging.getLogger(__name__)
 
-# Risk by (domain, service). Anything not listed is LOW (convenience).
+# Precise, high-signal (domain, service) pairs. The capability net below catches
+# novel/unenumerated services so a new one can't default to LOW just because it
+# isn't listed here.
 _CRITICAL = {
     ("alarm_control_panel", "alarm_disarm"),
 }
@@ -40,6 +42,18 @@ _MEDIUM = {
     ("lock", "open"),                       # some locks support latch/open
 }
 
+# Domains that are security-relevant by their very nature: an actuating service
+# on them is escalated even when we haven't enumerated it, so a future service
+# (e.g. lock.unlatch) can't slip through as LOW convenience.
+_SECURITY_DOMAINS = {"lock", "alarm_control_panel"}
+# Actuating verbs (as substrings) that DROP a guard → the high end.
+_OPENING = ("unlock", "disarm", "open", "unlatch", "unbolt")
+# Known-safe actuating services on a security domain (raising a guard) stay
+# frictionless — locking/closing is safe; arming is already MEDIUM above.
+_SECURITY_SAFE = {"lock", "close", "close_cover"}
+# Non-actuating services carry no risk regardless of entity.
+_READ_ONLY = {"", "update", "reload"}
+
 # Substrings that make an otherwise-neutral switch security-relevant.
 _SECURITY_HINTS = ("alarm", "security", "camera", "lock", "garage", "gate", "door")
 
@@ -50,16 +64,35 @@ def classify(domain: str, service: str, entity_id: str = "") -> Tuple[str, str]:
     Pure — takes no ``hass`` and performs no I/O, so it is safe to call from
     anywhere (including logging / telemetry paths). ``risk`` is one of
     ``"low"``, ``"medium"``, ``"high"``, ``"critical"``.
+
+    Classification is capability-based rather than a bare service allowlist:
+    known high-signal pairs match exactly, then any actuating service on an
+    inherently security domain is escalated — a guard-dropping verb (unlock,
+    disarm, open, unlatch) to HIGH, any other unrecognized actuating service to
+    MEDIUM — so a service that isn't enumerated here cannot silently be LOW on a
+    lock or alarm. Safe directions (lock, arm, close) keep their low friction.
     """
-    key = (domain or "", service or "")
+    dom = domain or ""
+    svc = service or ""
+    key = (dom, svc)
+    hay = (entity_id or "").lower()
+
     if key in _CRITICAL:
-        return "critical", f"{domain}.{service} disarms security"
+        return "critical", f"{dom}.{svc} disarms security"
     if key in _HIGH:
-        return "high", f"{domain}.{service} unlocks a door"
+        return "high", f"{dom}.{svc} unlocks a door"
     if key in _MEDIUM:
-        return "medium", f"{domain}.{service} opens a physical barrier"
+        return "medium", f"{dom}.{svc} opens a physical barrier"
+
+    svc_l = svc.lower()
+    # Capability net for inherently security domains (lock, alarm).
+    if dom in _SECURITY_DOMAINS and svc_l not in _READ_ONLY:
+        if any(w in svc_l for w in _OPENING):
+            return "high", f"{dom}.{svc} opens a security device"
+        if svc_l not in _SECURITY_SAFE:
+            return "medium", f"unrecognized {dom} action on a security device"
+
     if key == ("switch", "turn_off"):
-        hay = (entity_id or "").lower()
         if any(t in hay for t in _SECURITY_HINTS):
             return "high", "turning off a security switch"
     return "low", ""

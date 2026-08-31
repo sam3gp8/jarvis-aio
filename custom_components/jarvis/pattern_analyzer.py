@@ -59,6 +59,53 @@ def set_thresholds(min_occurrences: int | None = None,
             pass
 
 
+# Adaptive suggestion threshold (opt-in): when enabled, how welcome recent
+# suggestions were nudges the confidence bar for creating new ones — mostly
+# dismissed as unneeded → stricter, almost all acted on → slightly looser. The
+# delta is bounded and the result is clamped, so it can never run away, and it
+# is derived ONLY from "suggestion" outcomes — it never touches intrusion,
+# lockdown, or any security/safety decision.
+_ADAPT_CACHE = {"ts": 0.0, "delta": 0.0}
+_ADAPT_MIN_JUDGED = 5           # need this many judged suggestions before moving
+_ADAPT_WINDOW_S = 30 * 86400.0  # look back a month
+
+
+def _learned_threshold_delta() -> float:
+    """Bounded adjustment (in [-0.07, +0.15]) to the suggestion confidence bar,
+    learned from how recent suggestions were received. Returns 0.0 when the
+    opt-in is off, on any error, or with too little evidence. Cached 5 min."""
+    try:
+        from . import jarvis_config
+        if not jarvis_config.get("adaptive_suggestion_threshold", False):
+            return 0.0
+    except Exception:
+        return 0.0
+    now = time.time()
+    if now - _ADAPT_CACHE["ts"] < 300.0:
+        return _ADAPT_CACHE["delta"]
+    delta = 0.0
+    try:
+        from . import decision_record
+        r = decision_record.outcome_rate("suggestion", window_s=_ADAPT_WINDOW_S)
+        if int(r.get("judged", 0)) >= _ADAPT_MIN_JUDGED:
+            uw = r.get("unwelcome_rate") or 0.0
+            if uw >= 0.5:
+                delta = 0.15        # mostly unwelcome → much more selective
+            elif uw >= 0.3:
+                delta = 0.07        # somewhat unwelcome → more selective
+            elif uw <= 0.1:
+                delta = -0.07       # almost all welcome → a little more generous
+    except Exception:
+        delta = 0.0
+    _ADAPT_CACHE.update(ts=now, delta=delta)
+    return delta
+
+
+def _effective_threshold() -> float:
+    """CONFIDENCE_THRESHOLD adjusted by the learned delta, clamped [0.3, 0.95]."""
+    return min(0.95, max(0.3, CONFIDENCE_THRESHOLD + _learned_threshold_delta()))
+
+
 @dataclass
 class DetectedPattern:
     pattern_type: str      # time_routine, sequence, repeated_command, temp_pref, presence
@@ -302,8 +349,9 @@ class PatternAnalyzer:
         # Store high-confidence patterns as suggestions
         new_suggestions = 0
         new_person_patterns = 0
+        _eff_threshold = _effective_threshold()
         for p in patterns:
-            if p.confidence >= CONFIDENCE_THRESHOLD:
+            if p.confidence >= _eff_threshold:
                 stored = await hass.async_add_executor_job(
                     self._store_suggestion, p)
                 if stored:
@@ -329,7 +377,7 @@ class PatternAnalyzer:
                 "Pattern analysis: %d patterns found, %d new suggestions, "
                 "%d facts learned, %d person routines (threshold=%.0f%%)",
                 len(patterns), new_suggestions, promoted, new_person_patterns,
-                CONFIDENCE_THRESHOLD * 100,
+                _eff_threshold * 100,
             )
 
         return patterns
