@@ -103,5 +103,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "llm_unavailable": {
+      "title": "Backend de raciocínio do JARVIS indisponível",
+      "description": "O JARVIS não conseguiu aceder ao seu modelo de raciocínio, por isso está a funcionar em modo limitado — controlo de dispositivos, estado e cenas continuam a funcionar. Motivo: {detail}\n\nAbra o painel do JARVIS → Definições e verifique o fornecedor, o modelo e a chave de API. Se o seu fornecedor descontinuou o modelo, selecione-o novamente na lista. Este aviso desaparece automaticamente assim que o raciocínio voltar a funcionar."
+    }
   }
 }

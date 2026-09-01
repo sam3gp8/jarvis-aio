@@ -103,5 +103,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "llm_unavailable": {
+      "title": "Backend di ragionamento di JARVIS non disponibile",
+      "description": "JARVIS non è riuscito a raggiungere il suo modello di ragionamento e funziona quindi in modalità limitata: controllo dei dispositivi, stato e scene continuano a funzionare. Motivo: {detail}\n\nApri il pannello JARVIS → Impostazioni e controlla provider, modello e chiave API. Se il tuo provider ha ritirato il modello, riselezionalo dall'elenco. Questo avviso scompare automaticamente quando il ragionamento torna a funzionare."
+    }
   }
 }

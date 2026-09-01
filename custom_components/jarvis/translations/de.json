@@ -103,5 +103,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "llm_unavailable": {
+      "title": "JARVIS-Reasoning-Backend nicht erreichbar",
+      "description": "JARVIS konnte sein Reasoning-Modell nicht erreichen und läuft daher im eingeschränkten Modus — Gerätesteuerung, Status und Szenen funktionieren weiterhin. Grund: {detail}\n\nÖffnen Sie das JARVIS-Panel → Einstellungen und prüfen Sie Anbieter, Modell und API-Schlüssel. Wenn Ihr Anbieter das Modell eingestellt hat, wählen Sie es erneut aus der Liste. Dieser Hinweis verschwindet automatisch, sobald das Reasoning wieder funktioniert."
+    }
   }
 }

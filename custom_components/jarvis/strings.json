@@ -93,5 +93,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "llm_unavailable": {
+      "title": "JARVIS reasoning backend unavailable",
+      "description": "JARVIS couldn't reach its reasoning model, so it's running in limited mode — device control, status, and scenes still work. Reason: {detail}\n\nOpen the JARVIS panel → Settings and check your provider, model, and API key. If your provider retired the model, re-select it from the list. This notice clears automatically once reasoning is working again."
+    }
   }
 }

@@ -103,5 +103,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "llm_unavailable": {
+      "title": "JARVIS-redeneerbackend niet beschikbaar",
+      "description": "JARVIS kon zijn redeneermodel niet bereiken en draait daarom in beperkte modus — apparaatbediening, status en scènes werken nog steeds. Reden: {detail}\n\nOpen het JARVIS-paneel → Instellingen en controleer provider, model en API-sleutel. Als uw provider het model heeft ingetrokken, selecteer het opnieuw uit de lijst. Deze melding verdwijnt automatisch zodra het redeneren weer werkt."
+    }
   }
 }

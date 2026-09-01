@@ -103,5 +103,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "llm_unavailable": {
+      "title": "Backend de razonamiento de JARVIS no disponible",
+      "description": "JARVIS no pudo acceder a su modelo de razonamiento, por lo que funciona en modo limitado: el control de dispositivos, el estado y las escenas siguen funcionando. Motivo: {detail}\n\nAbre el panel de JARVIS → Ajustes y comprueba el proveedor, el modelo y la clave de API. Si tu proveedor retiró el modelo, vuelve a seleccionarlo de la lista. Este aviso desaparece automáticamente cuando el razonamiento vuelve a funcionar."
+    }
   }
 }

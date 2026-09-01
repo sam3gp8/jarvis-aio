@@ -1,3 +1,7 @@
+## [7.59.0] — the reasoning-backend problem now shows up in Home Assistant's Repairs
+
+When JARVIS can't reach its reasoning model and can't recover on the fallback, it now raises a Home Assistant Repair notice — the same actionable card HA uses for other integrations — spelling out the specific cause (for example a model your provider retired, or an authentication problem) and where to fix it. It clears itself automatically the moment reasoning is working again. This never blocks JARVIS from loading: device control, status, and scenes keep working in the meantime. Available in all seven supported languages.
+
 ## [7.58.0] — JARVIS learns how selective to be, and locks down novel security actions
 
 Suggestions now get better at knowing when to speak up. When you turn on the new Adaptive suggestions setting, JARVIS watches how often its past suggestions turned out useful versus unnecessary and quietly adjusts how confident it must be before offering a new one — more selective after a run of dismissals, a little more forthcoming when they're landing well. The adjustment is bounded and always visible on the diagnostics card, and it only ever learns from suggestions — never from security or safety decisions. Off by default.

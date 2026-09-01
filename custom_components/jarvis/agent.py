@@ -2924,6 +2924,8 @@ async def run_agent(
             try:
                 from .diagnostics.service_health import record_usage
                 record_usage("llm", True)
+                from . import repair_notices
+                repair_notices.clear_llm_problem(hass)
             except Exception:
                 pass
         except Exception as exc:
@@ -3009,6 +3011,8 @@ async def run_agent(
                     try:
                         from .diagnostics.service_health import record_usage
                         record_usage("llm", True)
+                        from . import repair_notices
+                        repair_notices.clear_llm_problem(hass)
                     except Exception:
                         pass
                 except Exception:
@@ -3023,6 +3027,9 @@ async def run_agent(
                         # Report the SPECIFIC primary reason so the diagnostics
                         # card shows the actual cause of the offline state.
                         record_usage("llm", False, detail=_fail_detail)
+                        # And raise an actionable HA Repair issue (non-blocking).
+                        from . import repair_notices
+                        repair_notices.note_llm_problem(hass, _fail_detail)
                     except Exception:
                         pass
                     return (

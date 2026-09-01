@@ -89,6 +89,14 @@ def _install_ha_stubs() -> None:
     helpers.aiohttp_client = ac
     helpers.network = net
 
+    # Repairs: enough surface for repair_notices to import + be monkeypatched.
+    ireg = types.ModuleType("homeassistant.helpers.issue_registry")
+    ireg.async_create_issue = lambda *a, **k: None
+    ireg.async_delete_issue = lambda *a, **k: None
+    ireg.IssueSeverity = types.SimpleNamespace(
+        ERROR="error", WARNING="warning", CRITICAL="critical")
+    helpers.issue_registry = ireg
+
     cfg = types.ModuleType("homeassistant.config_entries")
     cfg.ConfigEntry = type("ConfigEntry", (), {})
 
@@ -118,6 +126,7 @@ def _install_ha_stubs() -> None:
         "homeassistant.helpers.aiohttp_client": ac,
         "homeassistant.helpers.network": net,
         "homeassistant.helpers.llm": llm_mod,
+        "homeassistant.helpers.issue_registry": ireg,
         "homeassistant.config_entries": cfg,
         "homeassistant.const": const,
         "homeassistant.components": components,
