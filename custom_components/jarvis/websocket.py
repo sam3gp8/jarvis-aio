@@ -1560,15 +1560,14 @@ async def ws_reload_appliances(
     """Restart the appliance monitor so profile edits take effect immediately
     (no Home Assistant restart needed)."""
     try:
-        from . import appliance_monitor
+        from . import appliance_monitor, jarvis_config
         entry = _get_entry(hass)
         cfg: dict = {}
         if entry:
-            cfg = {**dict(entry.data), **dict(entry.options)}
             data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
             rc = data.get("runtime_config", {}) if isinstance(data, dict) else {}
-            if isinstance(rc, dict):
-                cfg.update(rc)
+            cfg = await hass.async_add_executor_job(
+                jarvis_config.effective_config_with_runtime, entry, rc)
         await appliance_monitor.start(hass, cfg)
         connection.send_result(msg["id"], {
             "ok": True, "appliances": _get_appliance_status(),
@@ -1792,7 +1791,9 @@ async def ws_update_config(
         if key == "observer_enabled":
             from . import observer as observer_mod
             if value:
-                observer_config = {**dict(entry.data), **dict(entry.options), **rc}
+                from . import jarvis_config
+                observer_config = await hass.async_add_executor_job(
+                    jarvis_config.effective_config_with_runtime, entry, rc)
                 await observer_mod.start(hass, observer_config)
                 data["observer_running"] = True
             else:

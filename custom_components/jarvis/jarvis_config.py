@@ -165,6 +165,24 @@ def effective_config(entry=None) -> dict:
     return ha_secrets.overlay_credentials(merged)
 
 
+def effective_config_with_runtime(entry=None, runtime_config: dict | None = None) -> dict:
+    """:func:`effective_config` with live panel ``runtime_config`` overlaid.
+
+    ``runtime_config`` (held in ``hass.data`` and written by the panel for
+    no-reload changes) carries the freshest values; this returns the full merged
+    view a subsystem should act on. Use it anywhere a subsystem is (re)started
+    from the current config — a panel install has empty entry.data/options, so
+    building config from the entry alone would drop every config.json setting.
+    Blocking (loads config.json); from async code call via the executor.
+    """
+    cfg = effective_config(entry)
+    if runtime_config:
+        for k, v in runtime_config.items():
+            if v is not None and v != "":
+                cfg[k] = v
+    return cfg
+
+
 def set(key: str, value: Any) -> None:
     """Set a config value and persist to disk."""
     global _loaded

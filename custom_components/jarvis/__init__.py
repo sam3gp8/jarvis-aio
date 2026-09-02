@@ -560,8 +560,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # on the cognitive-core start completing cleanly. Set up the manager + the
     # event-driven alarm→lockdown sync here, regardless of the above.
     try:
-        from . import cognitive_core
-        lockdown_config = {**dict(entry.data), **dict(entry.options)}
+        from . import cognitive_core, jarvis_config
+        rc = hass.data.get(DOMAIN, {}).get(
+            entry.entry_id, {}).get("runtime_config", {})
+        lockdown_config = await hass.async_add_executor_job(
+            jarvis_config.effective_config_with_runtime, entry, rc)
         await cognitive_core.ensure_lockdown(hass, lockdown_config)
     except Exception as exc:
         _LOGGER.warning("JARVIS lockdown wiring failed (non-fatal): %s", exc)

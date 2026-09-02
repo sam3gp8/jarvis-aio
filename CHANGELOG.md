@@ -1,3 +1,9 @@
+## [7.61.0] — replies follow your language, and settings apply consistently
+
+JARVIS now replies in your home's configured language. If Home Assistant is set to French, German, Spanish, and so on, spoken and written conversational replies come back in that language; if you address JARVIS in another language, it follows yours. English homes are unchanged. Note that a few fixed safety notifications (such as the freeze and lockdown alerts) are still English for now — translating those message templates is separate, tracked work.
+
+Also fixed a class of configuration bug: when the appliance monitor, the observer, or the lockdown manager were (re)started after a settings change, they were rebuilt from an incomplete view of your configuration and could miss panel settings. They now read the same complete, unified configuration the rest of JARVIS uses, so a setting you changed is the setting that takes effect.
+
 ## [7.60.0] — freeze warnings now respect your unit system
 
 On a metric install, JARVIS was reading the outdoor temperature in Celsius but comparing it against a Fahrenheit freeze threshold — so a mild 18°C day would trip a false "pipe freeze" alert and the message would mislabel it as °F. Freeze detection now converts correctly before comparing and reports the temperature in your own unit (°C or °F), including the suggested heat setting. A genuine freeze still triggers exactly as before; a mild day no longer does. Household temperature summaries also fall back to your configured unit instead of assuming Fahrenheit.

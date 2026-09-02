@@ -2723,6 +2723,41 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
         return json.dumps({"error": "sub-agent failed: %s" % exc})
 
 
+_LANG_NAMES = {
+    "fr": "French", "de": "German", "es": "Spanish", "it": "Italian",
+    "nl": "Dutch", "pt": "Portuguese", "pl": "Polish", "sv": "Swedish",
+    "nb": "Norwegian", "no": "Norwegian", "da": "Danish", "fi": "Finnish",
+    "cs": "Czech", "ru": "Russian", "uk": "Ukrainian", "tr": "Turkish",
+    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ar": "Arabic",
+    "he": "Hebrew", "el": "Greek", "hu": "Hungarian", "ro": "Romanian",
+    "sk": "Slovak", "ca": "Catalan", "id": "Indonesian", "th": "Thai",
+    "vi": "Vietnamese",
+}
+
+
+def _language_directive(hass) -> str:
+    """A system-prompt block steering replies to the home's configured language.
+
+    Uses Home Assistant's ``language`` so a non-English household gets replies in
+    its own language. Returns ``""`` for English installs (which are therefore
+    completely unaffected). The user's own input language still wins if they
+    write in something else.
+    """
+    try:
+        lang = (getattr(hass.config, "language", None) or "en").split("-")[0].lower()
+    except Exception:
+        return ""
+    if not lang or lang == "en":
+        return ""
+    lname = _LANG_NAMES.get(lang, lang)
+    return (
+        f"## Language\n"
+        f"Respond in {lname} by default — this household's configured language "
+        f"is {lname}. If the user writes to you in another language, reply in "
+        f"that language instead. Keep entity names and proper nouns unchanged.\n\n"
+    )
+
+
 async def run_agent(
     hass: HomeAssistant,
     *,
@@ -2788,6 +2823,7 @@ async def run_agent(
 
     system_prompt = (
         f"{persona}\n\n"
+        f"{_language_directive(hass)}"
         f"## Current home state\n{home_context}\n\n"
         f"{situation_block}"
         f"{cog_status}\n\n"
