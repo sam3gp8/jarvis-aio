@@ -69,6 +69,22 @@ def _fmt_temp(value: float, unit: str, decimals: int = 1) -> str:
     """Render a temperature with its unit label (``18.3°C``)."""
     return f"{value:.{decimals}f}{unit or '°'}"
 
+
+def _hass_lang(hass) -> str:
+    """Home Assistant's configured language ('en' fallback), for localized
+    safety notifications."""
+    try:
+        return getattr(hass.config, "language", None) or "en"
+    except Exception:
+        return "en"
+
+
+def _notify_i18n():
+    """Lazy import of the localized-notification table (keeps this heavy module's
+    import order unaffected)."""
+    from . import notify_i18n
+    return notify_i18n
+
 # ── Proactive intelligence (v5.9.07) ────────────────────────────────────────
 PROACTIVE_CHECK_INTERVAL = 120   # 2 min between comfort/efficiency scans
 PROACTIVE_OFFER_COOLDOWN = 1800  # 30 min before re-offering the same thing
@@ -328,6 +344,7 @@ class SafetyManager:
         temp_f = _temp_to_f(outdoor_temp, unit)
         reading = _fmt_temp(outdoor_temp, unit)
         honorific = self.config.get("honorific", "sir")
+        lang = _hass_lang(self.hass)
 
         if temp_f <= FREEZE_CRITICAL_TEMP_F:
             self._last_freeze_alert = now
@@ -335,12 +352,9 @@ class SafetyManager:
             return {
                 "type": "freeze_critical",
                 "urgency": "critical",
-                "message": (
-                    f"{honorific.title()}, outdoor temperature has dropped to "
-                    f"{reading}. Pipe freeze risk is severe. I recommend "
-                    f"opening cabinet doors near exterior walls and confirming "
-                    f"heat is set to at least {set_to}."
-                ),
+                "message": _notify_i18n().message(
+                    "freeze_critical", lang, honorific=honorific.title(),
+                    reading=reading, set_to=set_to),
                 "auto_act": True,  # Safety override — act without approval
             }
         elif temp_f <= FREEZE_WARN_TEMP_F and not self._freeze_warned:
@@ -349,10 +363,9 @@ class SafetyManager:
             return {
                 "type": "freeze_warning",
                 "urgency": "high",
-                "message": (
-                    f"{honorific.title()}, outdoor temperature is {reading}. "
-                    f"I'm monitoring for pipe freeze risk."
-                ),
+                "message": _notify_i18n().message(
+                    "freeze_warning", lang, honorific=honorific.title(),
+                    reading=reading),
                 "auto_act": False,
             }
         elif temp_f > FREEZE_WARN_TEMP_F + 5:
@@ -563,11 +576,17 @@ class SafetyManager:
                 "connected": connected,
                 "hops": hops, "max_depth": start_depth,
             }
-            ctx = (f" ({breach_name} open)" if breach_name else
-                   " (alarm armed)" if armed else "")
-            msg = (f"{honorific.title()}, motion at {where} while no one is "
-                   f"home{ctx}. Investigating from the point of entry — I'll alert "
-                   f"the house and every device only if it's a real intrusion.")
+            _i18n = _notify_i18n()
+            _lang = _hass_lang(self.hass)
+            if breach_name:
+                ctx = _i18n.message("intrusion_ctx_open", _lang, name=breach_name)
+            elif armed:
+                ctx = _i18n.message("intrusion_ctx_armed", _lang)
+            else:
+                ctx = ""
+            msg = _i18n.message(
+                "intrusion_alert", _lang, honorific=honorific.title(),
+                where=where, ctx=ctx)
             # Decision Record (v7.39.0): log the proactive intrusion judgement. Best-effort;
             # a logging failure must never affect the alert.
             try:
@@ -1057,7 +1076,7 @@ def _join_names(names: list) -> str:
 
 
 def build_lockdown_message(honorific: str, locked: list, closed: list,
-                           open_names: list) -> str:
+                           open_names: list, lang: str = "en") -> str:
     """
     Compose the lockdown-engaged announcement. Pure (no I/O) so it's unit-tested.
 
@@ -1066,6 +1085,11 @@ def build_lockdown_message(honorific: str, locked: list, closed: list,
     secure remotely (bare window contacts) — those are named and framed as the
     gap to close by hand, never a footnote. The message never claims the home is
     secure while something is open, and never announces a non-event.
+
+    Localized only for the clean "already fully secured" case (no actions, no
+    open openings); the composed variants that stitch device lists together stay
+    English until a dedicated compositional-i18n pass, since a half-translated
+    device sentence reads worse than clean English.
     """
     h = (honorific or "sir").title()
 
@@ -1093,7 +1117,7 @@ def build_lockdown_message(honorific: str, locked: list, closed: list,
     if open_names:
         return (f"{h}, lockdown engaged. Everything was already secured, "
                 f"but {gap(open_names)}.")
-    return f"{h}, lockdown engaged — the home was already fully secured."
+    return _notify_i18n().message("lockdown_already_secured", lang, honorific=h)
 
 
 class LockdownManager:
@@ -1320,7 +1344,8 @@ class LockdownManager:
         self.exempt_windows = uncloseable
         open_names = sorted(self._friendly(eid) for eid in uncloseable)
 
-        message = build_lockdown_message(honorific, locked, closed, open_names)
+        message = build_lockdown_message(honorific, locked, closed, open_names,
+                                          lang=_hass_lang(self.hass))
         _LOGGER.warning(
             "Lockdown ENGAGED (%s): locked=%s closed=%s left-open=%d announce=%s",
             reason, locked, closed, len(uncloseable), announce)
@@ -1354,7 +1379,8 @@ class LockdownManager:
         return {
             "type": "lockdown_disengaged",
             "urgency": "low",
-            "message": f"{honorific.title()}, lockdown lifted. The house is back to normal.",
+            "message": _notify_i18n().message(
+                "lockdown_lifted", _hass_lang(self.hass), honorific=honorific.title()),
             "auto_act": True,
         }
 
@@ -2711,16 +2737,8 @@ async def _push_notification(hass, config, message, action_type, snapshot_url=No
         return
     try:
         svc_domain, svc_name = notify_svc.split(".", 1)
-        titles = {
-            "freeze_critical": "JARVIS — Freeze Warning",
-            "freeze_warning": "JARVIS — Temperature Alert",
-            "intrusion_investigating": "JARVIS — Security Alert",
-            "intrusion_confirmed": "JARVIS — INTRUSION",
-            "intrusion_away": "JARVIS — Security Alert",
-            "intrusion_sleep": "JARVIS — Motion Detected",
-            "lockdown": "JARVIS — House Secured",
-        }
-        data = {"message": message, "title": titles.get(action_type, "JARVIS")}
+        data = {"message": message,
+                "title": _notify_i18n().title(action_type, _hass_lang(hass))}
         img_data = _notification_image_data(hass, snapshot_url)
         if img_data:
             data["data"] = img_data
@@ -2759,16 +2777,7 @@ async def _notify_all_devices(hass, config, message, action_type, snapshot_url=N
     HA companion app registered — plus a persistent notification for confirmed
     intrusions. Attaches a snapshot image when provided (v6.69.0). Falls back to
     the single configured service if no per-device services exist."""
-    titles = {
-        "freeze_critical": "JARVIS — Freeze Warning",
-        "freeze_warning": "JARVIS — Temperature Alert",
-        "intrusion_investigating": "JARVIS — Security Alert",
-        "intrusion_confirmed": "JARVIS — INTRUSION",
-        "intrusion_away": "JARVIS — Security Alert",
-        "intrusion_sleep": "JARVIS — Motion Detected",
-        "lockdown": "JARVIS — House Secured",
-    }
-    title = titles.get(action_type, "JARVIS")
+    title = _notify_i18n().title(action_type, _hass_lang(hass))
     img_data = _notification_image_data(hass, snapshot_url)
     sent = 0
     try:

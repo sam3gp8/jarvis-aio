@@ -1,3 +1,7 @@
+## [7.62.0] — safety notifications now speak your language
+
+The freeze, intrusion, and lockdown notifications — the ones generated without the AI so they stay reliable — now appear in your Home Assistant language, titles included, across French, German, Spanish, Italian, Dutch, and Portuguese (English elsewhere). So a metric French home gets a freeze alert written in French, not English. One remaining detail: the lockdown message that lists exactly which doors and locks JARVIS just secured is still English while it's translated properly — the plain "already secured" and "lockdown lifted" messages are localized. Everything JARVIS says through its reasoning was already following your language as of the last release.
+
 ## [7.61.0] — replies follow your language, and settings apply consistently
 
 JARVIS now replies in your home's configured language. If Home Assistant is set to French, German, Spanish, and so on, spoken and written conversational replies come back in that language; if you address JARVIS in another language, it follows yours. English homes are unchanged. Note that a few fixed safety notifications (such as the freeze and lockdown alerts) are still English for now — translating those message templates is separate, tracked work.
