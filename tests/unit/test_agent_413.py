@@ -58,3 +58,15 @@ def test_gemini_thought_signature_salvaged_as_tool_error(agent):
     assert agent._is_tool_format_error(exc) is True
     # and it must not be misread as connectivity (which would trip the breaker)
     assert agent._is_connectivity_error(exc) is False
+
+
+def test_slim_tools_are_a_small_valid_subset(agent):
+    import json
+    names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
+    assert agent._SLIM_TOOLS <= names                      # all exist
+    full = agent._scoped_tool_list(None)
+    slim = agent._scoped_tool_list(agent._SLIM_TOOLS)
+    assert len(slim) == len(agent._SLIM_TOOLS)
+    # the slim schema must be dramatically smaller — the whole point of the
+    # 413 retry is a request that actually fits a size-limited tier
+    assert len(json.dumps(slim)) * 3 < len(json.dumps(full))

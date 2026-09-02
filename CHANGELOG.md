@@ -1,3 +1,7 @@
+## [7.64.0] — the "request too large" recovery now actually fits small tiers
+
+Follow-up to the previous release: the automatic retry after a "request too large" (413) now also trims JARVIS's own tool set down to the essentials for that one retry, not just the Home Assistant per-entity tools. The full tool definitions are several thousand tokens on their own, so the earlier retry could still be too big for a tight tier like Groq's free gpt-oss-120b. The slimmed retry is now a small fraction of the size — enough to answer and to control devices via the core tools and on-demand entity lookup — so simple voice queries get a reply instead of dropping to offline.
+
 ## [7.63.0] — recovers from "request too large", and no longer goes silent on Gemini tool quirks
 
 If your provider rejects a request as too large (a 413 — common on Groq's on-demand tier when you expose a lot of entities, which bloats the tool definitions), JARVIS now automatically retries once with a slimmer request: it drops the per-entity Home Assistant tool schemas and the full home-state snapshot, keeping its own controls and on-demand entity lookup. A simple question like "what time is it?" gets answered instead of dropping to the offline reply, and JARVIS can still operate devices via its own tools. If it recurs, lowering "home context max entities" or exposing fewer entities keeps requests small.

@@ -2717,6 +2717,18 @@ def _scoped_tool_list(allowed_tools: Optional[set]) -> list:
             if t.get("function", {}).get("name") in allowed_tools]
 
 
+# Minimal tool set for the 413 slim retry. The full JARVIS_TOOLS schema is on the
+# order of ~6–7K tokens on its own, so a retry that keeps all of it can still
+# exceed a size-limited request even after the HA per-entity tools are dropped.
+# This keeps only the essentials to answer and do basic control; JARVIS can find
+# anything else via search_entities.
+_SLIM_TOOLS = {
+    "control_device", "get_entity_state", "search_entities",
+    "run_scene_or_script", "get_area_devices", "bulk_control",
+    "get_home_summary",
+}
+
+
 async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
                          api_key: str, model: str, base_url, config, depth: int) -> str:
     """Run one ephemeral sub-agent for a delegated objective. Returns a JSON
@@ -3032,12 +3044,14 @@ async def run_agent(
             elif _is_too_large(exc) and allowed_tools is None and not slim_retried:
                 # The request exceeded the provider's size limit (a 413 — common
                 # on Groq's on-demand tier when many entities are exposed, which
-                # bloats the HA tool schemas). Retry ONCE without the HA
-                # per-entity tools and with a counts-only home state: JARVIS can
-                # still act via its own control tools + search_entities, so a
-                # simple query ("what time is it?") stops dropping to offline.
+                # bloats the HA tool schemas). Retry ONCE with a MINIMAL request:
+                # drop the HA per-entity tools, trim JARVIS's own tools to the
+                # essentials (the full schema is ~7K tokens on its own), and
+                # replace the home-state snapshot with a counts-only pointer.
+                # JARVIS can still answer and control via its core tools +
+                # search_entities, so a simple query stops dropping to offline.
                 slim_retried = True
-                tools = _scoped_tool_list(allowed_tools)
+                tools = _scoped_tool_list(_SLIM_TOOLS)
                 if working and working[0].get("role") == "system":
                     working = ([{**working[0],
                                  "content": _strip_home_state(working[0]["content"])}]
