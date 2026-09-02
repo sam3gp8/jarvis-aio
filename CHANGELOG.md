@@ -1,3 +1,9 @@
+## [7.63.0] — recovers from "request too large", and no longer goes silent on Gemini tool quirks
+
+If your provider rejects a request as too large (a 413 — common on Groq's on-demand tier when you expose a lot of entities, which bloats the tool definitions), JARVIS now automatically retries once with a slimmer request: it drops the per-entity Home Assistant tool schemas and the full home-state snapshot, keeping its own controls and on-demand entity lookup. A simple question like "what time is it?" gets answered instead of dropping to the offline reply, and JARVIS can still operate devices via its own tools. If it recurs, lowering "home context max entities" or exposing fewer entities keeps requests small.
+
+Also: when a Gemini "thinking" model rejects a tool call over the OpenAI-compatible endpoint (a "missing thought_signature" error), JARVIS now answers without tools instead of falling back to offline — so you still get a reply.
+
 ## [7.62.0] — safety notifications now speak your language
 
 The freeze, intrusion, and lockdown notifications — the ones generated without the AI so they stay reliable — now appear in your Home Assistant language, titles included, across French, German, Spanish, Italian, Dutch, and Portuguese (English elsewhere). So a metric French home gets a freeze alert written in French, not English. One remaining detail: the lockdown message that lists exactly which doors and locks JARVIS just secured is still English while it's translated properly — the plain "already secured" and "lockdown lifted" messages are localized. Everything JARVIS says through its reasoning was already following your language as of the last release.

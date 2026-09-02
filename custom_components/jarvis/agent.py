@@ -2613,6 +2613,7 @@ def _is_tool_format_error(exc: Exception) -> bool:
         "tool_use_failed" in s
         or "tool call validation failed" in s
         or "failed to call a function" in s
+        or "thought_signature" in s   # Gemini "thinking" models over the OpenAI-compat endpoint reject tool calls lacking a native thought_signature (a field the OpenAI format can't supply) — salvage by answering without tools rather than going offline
         or ("400" in s and "invalid_request_error" in s and "function" in s)
     )
 
@@ -2636,6 +2637,33 @@ def _is_connectivity_error(exc: Exception) -> bool:
         "500", "502", "503", "504",
         "429", "rate limit", "too many requests",
     ))
+
+
+def _is_too_large(exc: Exception) -> bool:
+    """True for a provider 'request too large' / context-length error (an HTTP
+    413 or equivalent). Common on size-limited tiers when many entities are
+    exposed and the HA tool schemas balloon the request."""
+    s = str(exc).lower()
+    return any(k in s for k in (
+        "request too large", "too large for model", "context length",
+        "maximum context", "reduce the length", "prompt is too long",
+        "input is too long", "code: 413", "code 413", "http 413",
+    ))
+
+
+def _strip_home_state(system_text: str) -> str:
+    """Replace the '## Current home state' block with a short pointer, to shrink
+    the request for a 413 retry. Leaves the rest of the prompt intact."""
+    marker = "## Current home state\n"
+    i = system_text.find(marker)
+    if i == -1:
+        return system_text
+    j = system_text.find("\n## ", i + len(marker))
+    tail = system_text[j + 1:] if j != -1 else ""   # from the next "## " header
+    note = ("## Current home state\n"
+            "(omitted to fit the provider's request limit — call search_entities "
+            "for anything you need)\n\n")
+    return system_text[:i] + note + tail
 
 
 # ── Ephemeral sub-agents (delegate_task, v6.83.0) ────────────────────────────
@@ -2947,6 +2975,7 @@ async def run_agent(
         return f"I'm having trouble connecting to my reasoning systems, sir. {exc}"
 
     working = list(full_messages)
+    slim_retried = False   # one-shot 413 recovery (drop HA tools + home-state)
 
     _cap = MAX_TOOL_ITERATIONS
     if max_iterations is not None:
@@ -3000,6 +3029,35 @@ async def run_agent(
                         )
                     else:
                         return "I'm not sure I caught that, sir."
+            elif _is_too_large(exc) and allowed_tools is None and not slim_retried:
+                # The request exceeded the provider's size limit (a 413 — common
+                # on Groq's on-demand tier when many entities are exposed, which
+                # bloats the HA tool schemas). Retry ONCE without the HA
+                # per-entity tools and with a counts-only home state: JARVIS can
+                # still act via its own control tools + search_entities, so a
+                # simple query ("what time is it?") stops dropping to offline.
+                slim_retried = True
+                tools = _scoped_tool_list(allowed_tools)
+                if working and working[0].get("role") == "system":
+                    working = ([{**working[0],
+                                 "content": _strip_home_state(working[0]["content"])}]
+                               + working[1:])
+                _LOGGER.info(
+                    "Agent iter %d: request too large (413) — retrying slim "
+                    "(dropped HA tools + home-state block)", iteration,
+                )
+                try:
+                    from .websocket import jarvis_log
+                    jarvis_log(
+                        "WARNING",
+                        "LLM request too large — retried with a slimmer prompt. "
+                        "Many exposed entities can exceed a provider's request "
+                        "limit; lower home_context_max_entities or reduce exposed "
+                        "entities if this keeps happening.",
+                    )
+                except Exception:
+                    pass
+                continue
             else:
                 # Genuine call failure (unreachable / 5xx / bad model / etc.)
                 # — try the fallback. v6.47.1: the fallback is the REASONING
