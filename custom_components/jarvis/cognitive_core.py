@@ -53,6 +53,22 @@ FREEZE_WARN_TEMP_F = 35  # outdoor temp (°F) that triggers pipe concern
 FREEZE_CRITICAL_TEMP_F = 20  # act immediately
 IGNORE_FILE = "/config/.jarvis_ignore_rules.json"
 
+
+def _temp_to_f(value: float, unit: str) -> float:
+    """A temperature already in ``unit`` (``°C`` or ``°F``) → Fahrenheit, so
+    threshold checks are unit-correct regardless of the home's unit system."""
+    return value * 9.0 / 5.0 + 32.0 if unit and "C" in unit.upper() else value
+
+
+def _f_to_unit(f_value: float, unit: str) -> float:
+    """Fahrenheit → ``unit`` (inverse of :func:`_temp_to_f`)."""
+    return (f_value - 32.0) * 5.0 / 9.0 if unit and "C" in unit.upper() else f_value
+
+
+def _fmt_temp(value: float, unit: str, decimals: int = 1) -> str:
+    """Render a temperature with its unit label (``18.3°C``)."""
+    return f"{value:.{decimals}f}{unit or '°'}"
+
 # ── Proactive intelligence (v5.9.07) ────────────────────────────────────────
 PROACTIVE_CHECK_INTERVAL = 120   # 2 min between comfort/efficiency scans
 PROACTIVE_OFFER_COOLDOWN = 1800  # 30 min before re-offering the same thing
@@ -261,17 +277,33 @@ class SafetyManager:
         return actions
 
     async def _check_freeze(self) -> Optional[dict]:
-        """Monitor outdoor temperature for pipe freeze risk."""
+        """Monitor outdoor temperature for pipe freeze risk.
+
+        Unit-aware: the value read is in Home Assistant's configured unit (°C on
+        a metric install), so it is converted to °F for the threshold comparison
+        and the message is rendered in the user's own unit. A metric home no
+        longer false-fires a freeze warning on a mild 18°C day.
+        """
         now = time.time()
         if (now - self._last_freeze_alert) < 3600:  # 1hr cooldown
             return None
 
+        try:
+            default_unit = self.hass.config.units.temperature_unit
+        except Exception:
+            default_unit = "°F"
+
         outdoor_temp = None
+        unit = default_unit
         # Check weather entity
         for state in self.hass.states.async_all("weather"):
             temp = state.attributes.get("temperature")
             if temp is not None:
-                outdoor_temp = float(temp)
+                try:
+                    outdoor_temp = float(temp)
+                except (ValueError, TypeError):
+                    continue
+                unit = state.attributes.get("temperature_unit") or default_unit
                 break
 
         # Check outdoor temp sensors
@@ -286,39 +318,44 @@ class SafetyManager:
                         outdoor_temp = float(state.state)
                     except (ValueError, TypeError):
                         pass
+                    else:
+                        unit = state.attributes.get("unit_of_measurement") or default_unit
                     break
 
         if outdoor_temp is None:
             return None
 
+        temp_f = _temp_to_f(outdoor_temp, unit)
+        reading = _fmt_temp(outdoor_temp, unit)
         honorific = self.config.get("honorific", "sir")
 
-        if outdoor_temp <= FREEZE_CRITICAL_TEMP_F:
+        if temp_f <= FREEZE_CRITICAL_TEMP_F:
             self._last_freeze_alert = now
+            set_to = _fmt_temp(_f_to_unit(55, unit), unit, decimals=0)
             return {
                 "type": "freeze_critical",
                 "urgency": "critical",
                 "message": (
                     f"{honorific.title()}, outdoor temperature has dropped to "
-                    f"{outdoor_temp}°F. Pipe freeze risk is severe. I recommend "
+                    f"{reading}. Pipe freeze risk is severe. I recommend "
                     f"opening cabinet doors near exterior walls and confirming "
-                    f"heat is set to at least 55°F."
+                    f"heat is set to at least {set_to}."
                 ),
                 "auto_act": True,  # Safety override — act without approval
             }
-        elif outdoor_temp <= FREEZE_WARN_TEMP_F and not self._freeze_warned:
+        elif temp_f <= FREEZE_WARN_TEMP_F and not self._freeze_warned:
             self._freeze_warned = True
             self._last_freeze_alert = now
             return {
                 "type": "freeze_warning",
                 "urgency": "high",
                 "message": (
-                    f"{honorific.title()}, outdoor temperature is {outdoor_temp}°F. "
+                    f"{honorific.title()}, outdoor temperature is {reading}. "
                     f"I'm monitoring for pipe freeze risk."
                 ),
                 "auto_act": False,
             }
-        elif outdoor_temp > FREEZE_WARN_TEMP_F + 5:
+        elif temp_f > FREEZE_WARN_TEMP_F + 5:
             self._freeze_warned = False
 
         return None

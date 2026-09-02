@@ -61,3 +61,31 @@ async def test_warning_is_one_shot_then_cooldown(safety, fake_hass):
     second = await _freeze(safety)  # still cold, but already warned + in cooldown
     assert first is not None and first["type"] == "freeze_warning"
     assert second is None
+
+
+# ── Unit awareness (metric installs) ─────────────────────────────────────────
+
+async def test_metric_mild_day_does_not_false_fire(safety, fake_hass):
+    # 18.3°C is a mild day (~65°F). On a metric install the value is Celsius, so
+    # this must NOT trip the Fahrenheit freeze threshold — the reported bug.
+    fake_hass.states.set(
+        "weather.home", "sunny", temperature=18.3, temperature_unit="°C")
+    assert await _freeze(safety) is None
+
+
+async def test_metric_real_freeze_fires_and_reports_celsius(safety, fake_hass):
+    # -10°C (14°F) is a genuine freeze — it fires, and the message is in °C.
+    fake_hass.states.set(
+        "weather.home", "snowy", temperature=-10, temperature_unit="°C")
+    action = await _freeze(safety)
+    assert action is not None and action["type"] == "freeze_critical"
+    assert "°C" in action["message"] and "°F" not in action["message"]
+    assert "-10" in action["message"]
+
+
+async def test_metric_outdoor_sensor_unit_respected(safety, fake_hass):
+    # 20°C (68°F) from a metric sensor → no alert (was a false critical before).
+    fake_hass.states.set(
+        "sensor.outdoor_temp", "20", device_class="temperature",
+        friendly_name="Outdoor Temperature", unit_of_measurement="°C")
+    assert await _freeze(safety) is None

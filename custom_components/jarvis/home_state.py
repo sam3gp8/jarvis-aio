@@ -60,13 +60,17 @@ def _build_summary(hass: HomeAssistant) -> str:
         pass
 
     # ── Climate ──────────────────────────────────────────────────────────
+    try:
+        _default_unit = hass.config.units.temperature_unit
+    except Exception:
+        _default_unit = "°F"
     temps = []
     for state in hass.states.async_all("sensor"):
         if state.attributes.get("device_class") == "temperature":
             try:
                 val = float(state.state)
                 name = state.attributes.get("friendly_name", state.entity_id)
-                unit = state.attributes.get("unit_of_measurement", "°F")
+                unit = state.attributes.get("unit_of_measurement", _default_unit)
                 # Only include room-level temps, not device internals
                 if any(kw in name.lower() for kw in ("room", "bedroom", "kitchen",
                     "living", "garage", "office", "hallway", "basement")):

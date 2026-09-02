@@ -1,3 +1,7 @@
+## [7.60.0] — freeze warnings now respect your unit system
+
+On a metric install, JARVIS was reading the outdoor temperature in Celsius but comparing it against a Fahrenheit freeze threshold — so a mild 18°C day would trip a false "pipe freeze" alert and the message would mislabel it as °F. Freeze detection now converts correctly before comparing and reports the temperature in your own unit (°C or °F), including the suggested heat setting. A genuine freeze still triggers exactly as before; a mild day no longer does. Household temperature summaries also fall back to your configured unit instead of assuming Fahrenheit.
+
 ## [7.59.0] — the reasoning-backend problem now shows up in Home Assistant's Repairs
 
 When JARVIS can't reach its reasoning model and can't recover on the fallback, it now raises a Home Assistant Repair notice — the same actionable card HA uses for other integrations — spelling out the specific cause (for example a model your provider retired, or an authentication problem) and where to fix it. It clears itself automatically the moment reasoning is working again. This never blocks JARVIS from loading: device control, status, and scenes keep working in the meantime. Available in all seven supported languages.
