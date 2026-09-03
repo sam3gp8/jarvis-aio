@@ -1,3 +1,7 @@
+## [7.65.0] — routines and automation suggestions form again on large histories
+
+If JARVIS had been running a while with a lot of activity but never produced any routines or automation suggestions, this is the fix. One part of the pattern analysis — detecting actions that reliably follow one another — was written in a way that slowed down dramatically as your history grew, to the point where on a large home it never finished a pass. Because suggestions are only saved after the full analysis completes, that one slow step quietly blocked everything, so nothing was ever suggested. It now runs in a single efficient pass and finishes quickly even on very large histories, so learned routines and suggestions come through as intended. A smaller inefficiency in the daily-routine detector was tidied up at the same time. No settings change; existing data is used as-is.
+
 ## [7.64.0] — the "request too large" recovery now actually fits small tiers
 
 Follow-up to the previous release: the automatic retry after a "request too large" (413) now also trims JARVIS's own tool set down to the essentials for that one retry, not just the Home Assistant per-entity tools. The full tool definitions are several thousand tokens on their own, so the earlier retry could still be too big for a tight tier like Groq's free gpt-oss-120b. The slimmed retry is now a small fraction of the size — enough to answer and to control devices via the core tools and on-demand entity lookup — so simple voice queries get a reply instead of dropping to offline.

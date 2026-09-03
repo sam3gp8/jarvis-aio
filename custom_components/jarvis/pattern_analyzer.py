@@ -396,17 +396,19 @@ class PatternAnalyzer:
             ORDER BY cnt DESC
         """, (MIN_OCCURRENCES,)).fetchall()
 
+        # Opportunity days: distinct days we were observing at all (constant
+        # across rows — computed once, was previously re-run per row and made a
+        # large history crawl).
+        total_days = conn.execute("""
+            SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes
+            WHERE timestamp > datetime('now', '-30 days')
+        """).fetchone()[0] or 1
+
         for row in rows:
             entity = row["entity_id"]
             state = row["new_state"]
             hour = row["hour"]
             count = row["cnt"]
-
-            # Opportunity days: distinct days we were observing at all.
-            total_days = conn.execute("""
-                SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes
-                WHERE timestamp > datetime('now', '-30 days')
-            """).fetchone()[0] or 1
 
             # Positive days: distinct days this routine ACTUALLY happened. Using
             # distinct days (not raw event count) so several same-hour events on
@@ -515,38 +517,52 @@ class PatternAnalyzer:
         return patterns
 
     def _find_sequence_patterns(self, conn: sqlite3.Connection) -> list[DetectedPattern]:
-        """Find state changes that consistently follow each other."""
-        patterns = []
+        """Find state changes that consistently follow each other within 10 min.
 
-        # Get pairs of state changes within 10 minutes of each other
+        Single-pass sliding window. This replaced an O(N^2) SQL self-join whose
+        datetime()-wrapped comparison also defeated the timestamp index — on a
+        large history (100k+ rows) it never finished, stalling the whole
+        analyze() pass so no suggestions were ever stored. This reads rows in
+        indexed time order and counts cross-entity, same-domain pairs inside the
+        window, with a hard window cap so an activity burst can't blow up the
+        pairing.
+        """
+        from collections import deque, Counter
+        patterns: list = []
         try:
-            rows = conn.execute("""
-                SELECT
-                    a.entity_id as entity_a,
-                    a.new_state as state_a,
-                    b.entity_id as entity_b,
-                    b.new_state as state_b,
-                    COUNT(*) as cnt
-                FROM state_changes a
-                JOIN state_changes b ON
-                    datetime(b.timestamp) > datetime(a.timestamp) AND
-                    datetime(b.timestamp) <= datetime(a.timestamp, '+10 minutes') AND
-                    a.entity_id != b.entity_id AND
-                    a.domain = b.domain
-                WHERE a.timestamp > datetime('now', '-30 days')
-                GROUP BY a.entity_id, a.new_state, b.entity_id, b.new_state
-                HAVING cnt >= ?
-                ORDER BY cnt DESC
-                LIMIT 15
-            """, (MIN_OCCURRENCES,)).fetchall()
+            rows = conn.execute(
+                "SELECT timestamp, entity_id, domain, new_state FROM state_changes "
+                "WHERE timestamp > datetime('now', '-30 days') ORDER BY timestamp"
+            ).fetchall()
         except Exception:
             return patterns
 
-        for row in rows:
-            ea, sa, eb, sb = row["entity_a"], row["state_a"], row["entity_b"], row["state_b"]
-            count = row["cnt"]
-            confidence = min(1.0, count / (MIN_OCCURRENCES * 3))
+        window_s = 600.0        # pairs within 10 minutes
+        window_cap = 200        # bound pairing work during activity bursts
+        win: deque = deque()    # (epoch, entity, domain, state)
+        pair_counts: Counter = Counter()
 
+        for r in rows:
+            try:
+                epoch = datetime.fromisoformat(r["timestamp"]).timestamp()
+            except (ValueError, TypeError):
+                continue
+            ent = r["entity_id"]
+            dom = r["domain"]
+            st = r["new_state"]
+            cutoff = epoch - window_s
+            while win and win[0][0] < cutoff:
+                win.popleft()
+            for a_epoch, a_ent, a_dom, a_st in win:
+                if a_dom == dom and a_ent != ent:
+                    pair_counts[(a_ent, a_st, ent, st)] += 1
+            win.append((epoch, ent, dom, st))
+            if len(win) > window_cap:
+                win.popleft()
+
+        for (ea, sa, eb, sb), count in pair_counts.most_common(15):
+            if count < MIN_OCCURRENCES:
+                break
             patterns.append(DetectedPattern(
                 pattern_type="sequence",
                 description=(
@@ -554,7 +570,7 @@ class PatternAnalyzer:
                     f"({count} times in 30 days)"
                 ),
                 entity_ids=[ea, eb],
-                confidence=confidence,
+                confidence=min(1.0, count / (MIN_OCCURRENCES * 3)),
                 occurrences=count,
                 details={"trigger": {"entity": ea, "state": sa},
                          "action": {"entity": eb, "state": sb}},
