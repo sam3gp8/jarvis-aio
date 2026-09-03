@@ -60,6 +60,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_search_memory)
         websocket_api.async_register_command(hass, ws_get_debug_log)
         websocket_api.async_register_command(hass, ws_get_cognitive_status)
+        websocket_api.async_register_command(hass, ws_run_analysis)
         websocket_api.async_register_command(hass, ws_get_calibration)
         websocket_api.async_register_command(hass, ws_list_models)
         websocket_api.async_register_command(hass, ws_suggestion_action)
@@ -2060,6 +2061,24 @@ async def ws_get_calibration(
             "calibration": {"n": 0}, "interruption_budget": {"judged": 0},
             "error": str(exc),
         })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/run_analysis",
+})
+@websocket_api.async_response
+async def ws_run_analysis(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Force a pattern-analysis pass now (manual 'Analyze Now')."""
+    try:
+        from . import cognitive_core
+        res = await cognitive_core.run_analysis_now(hass)
+        connection.send_result(msg["id"], res)
+    except Exception as exc:
+        connection.send_result(msg["id"], {"ran": False, "error": str(exc)})
 
 
 @websocket_api.websocket_command({

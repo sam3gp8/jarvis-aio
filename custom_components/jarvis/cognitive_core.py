@@ -2923,6 +2923,12 @@ def status() -> dict:
     stats = {}
     if _CORE.state_logger:
         stats = _CORE.state_logger.get_pattern_stats()
+    last_analysis = {}
+    try:
+        from .pattern_analyzer import get_analyzer
+        last_analysis = dict(get_analyzer()._last_result)
+    except Exception:
+        last_analysis = {}
     return {
         "running": _CORE.running,
         "tick_count": _CORE.tick_count,
@@ -2936,7 +2942,57 @@ def status() -> dict:
         if _CORE.last_tick else 0,
         "ignore_rules": len(list_ignores()),
         "learning": stats,
+        "last_analysis": last_analysis,
     }
+
+
+async def run_analysis_now(hass: HomeAssistant) -> dict:
+    """Force a pattern-analysis pass now, bypassing ONLY the 6-hour throttle.
+
+    The data-sufficiency gate still applies (>= 7 days and >= 50 recorded
+    changes), so this can't produce noise on a fresh install. Returns a result
+    dict the panel can show: whether it ran, and if not, why; if it did, how many
+    patterns were found and suggestions stored.
+    """
+    from .pattern_analyzer import get_analyzer, set_thresholds
+    analyzer = get_analyzer()
+    analyzer._last_analysis = 0.0  # bypass the 6h throttle for this manual run
+
+    stats = {}
+    if _CORE.state_logger:
+        try:
+            stats = await hass.async_add_executor_job(
+                _CORE.state_logger.get_pattern_stats)
+        except Exception:
+            stats = {}
+
+    if not await hass.async_add_executor_job(analyzer.should_analyze):
+        return {
+            "ran": False,
+            "reason": ("Not enough history yet — pattern learning needs about a "
+                       "week of data (\u2265 7 days and \u2265 50 recorded changes)."),
+            "days_of_data": stats.get("days_of_data", 0),
+            "state_changes": stats.get("state_changes", 0),
+        }
+
+    cfg = _CORE.config or {}
+    try:
+        _occ = int(cfg.get("pattern_min_occurrences", 4) or 4)
+    except Exception:
+        _occ = 4
+    try:
+        _conf = float(cfg.get("pattern_confidence", 0.55) or 0.55)
+    except Exception:
+        _conf = 0.55
+    set_thresholds(_occ, _conf)
+
+    patterns = await analyzer.analyze(hass)
+    res = dict(analyzer._last_result)
+    res["ran"] = True
+    res.setdefault("patterns_found", len(patterns))
+    res["state_changes"] = stats.get("state_changes", 0)
+    res["days_of_data"] = stats.get("days_of_data", 0)
+    return res
 
 
 # ── Proactive offer API (v5.9.07) ───────────────────────────────────────────

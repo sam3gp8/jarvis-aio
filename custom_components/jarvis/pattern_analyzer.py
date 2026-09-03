@@ -291,6 +291,7 @@ class PatternAnalyzer:
 
     def __init__(self):
         self._last_analysis: float = 0.0
+        self._last_result: dict = {}
         self._db = DB_PATH
 
     def _connect(self) -> Optional[sqlite3.Connection]:
@@ -371,6 +372,17 @@ class PatternAnalyzer:
         # that person's knowledge subject rather than "household".
         promoted = await hass.async_add_executor_job(
             self._promote_to_knowledge, patterns)
+
+        # Record the outcome of this pass so the panel can show "last analysis:
+        # ran at T, N found, M stored" — the difference between "never ran" and
+        # "ran, found nothing worth surfacing".
+        self._last_result = {
+            "ts": time.time(),
+            "patterns_found": len(patterns),
+            "new_suggestions": new_suggestions,
+            "person_routines": new_person_patterns,
+            "facts": promoted,
+        }
 
         if patterns:
             _LOGGER.info(

@@ -1,3 +1,9 @@
+## [7.66.0] — an "Analyze Now" button, and a last-analysis readout
+
+Pattern analysis normally runs on its own every six hours. There's now an **Analyze Now** button under Quick Actions to run a pass on demand — handy after changing settings or exposing new entities, instead of waiting or restarting. It bypasses only the six-hour wait, not the data requirement (still needs about a week of history), so it can't produce noise on a fresh install, and it tells you the outcome right away: how many patterns it found and how many new suggestions it stored.
+
+The Cognitive Core readout now also shows a **last analysis** line — when the most recent pass ran and what it produced — so you can tell the difference between "hasn't run yet" and "ran, but nothing consistent enough to suggest," at a glance.
+
 ## [7.65.0] — routines and automation suggestions form again on large histories
 
 If JARVIS had been running a while with a lot of activity but never produced any routines or automation suggestions, this is the fix. One part of the pattern analysis — detecting actions that reliably follow one another — was written in a way that slowed down dramatically as your history grew, to the point where on a large home it never finished a pass. Because suggestions are only saved after the full analysis completes, that one slow step quietly blocked everything, so nothing was ever suggested. It now runs in a single efficient pass and finishes quickly even on very large histories, so learned routines and suggestions come through as intended. A smaller inefficiency in the daily-routine detector was tidied up at the same time. No settings change; existing data is used as-is.

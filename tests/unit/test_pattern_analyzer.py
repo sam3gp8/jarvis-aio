@@ -112,6 +112,49 @@ def test_should_analyze_gates_on_min_days(analyzer, tmp_path):
     assert pa.should_analyze() is False  # < MIN_DAYS
 
 
+def _seed_enough(analyzer, tmp_path, name):
+    db = tmp_path / name
+    conn = _conn(db)
+    for d in range(0, 9):          # 9 distinct days (oldest 8d ago >= MIN_DAYS)
+        for h in range(6, 14):     # 8 rows/day -> 72 total >= 50
+            _add_state(conn, "light.x", "on" if h % 2 else "off", d, h)
+    conn.commit()
+    conn.close()
+    pa = analyzer.PatternAnalyzer()
+    pa._db = str(db)
+    return pa
+
+
+def test_should_analyze_throttle_blocks_recent(analyzer, tmp_path):
+    import time as _t
+    pa = _seed_enough(analyzer, tmp_path, "t1.db")
+    pa._last_analysis = _t.time()          # just analyzed
+    assert pa.should_analyze() is False    # 6h throttle blocks
+
+
+def test_reset_last_analysis_reenables(analyzer, tmp_path):
+    import time as _t
+    pa = _seed_enough(analyzer, tmp_path, "t2.db")
+    pa._last_analysis = _t.time()
+    assert pa.should_analyze() is False
+    pa._last_analysis = 0.0                 # the manual-run bypass
+    assert pa.should_analyze() is True
+
+
+def test_data_gate_holds_even_after_reset(analyzer, tmp_path):
+    # bypassing the throttle must NOT bypass the data gate — no noise on a fresh install
+    db = tmp_path / "t3.db"
+    conn = _conn(db)
+    for d in range(0, 2):
+        _add_state(conn, "light.x", "on", d, 18)
+    conn.commit()
+    conn.close()
+    pa = analyzer.PatternAnalyzer()
+    pa._db = str(db)
+    pa._last_analysis = 0.0
+    assert pa.should_analyze() is False
+
+
 # ── knowledge promotion ──────────────────────────────────────────────────────
 
 def _pattern(analyzer, conf, hour=18, state="on", entity="light.porch_test"):
