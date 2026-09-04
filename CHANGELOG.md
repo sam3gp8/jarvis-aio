@@ -1,3 +1,7 @@
+## [7.68.0] — option to use Home Assistant's default TTS voice
+
+New setting: **Use Home Assistant default voice**. JARVIS normally speaks with its own Piper voice (en_GB-jarvis-high). Turn this on and JARVIS stops requesting that specific voice, letting your TTS engine use whatever voice you've configured in Home Assistant — so a French install with a French Piper voice, for example, will simply be spoken in French, with no dependency on the JARVIS voice being downloaded. Off by default, so nothing changes unless you choose it. Find it under Settings, in the voice options.
+
 ## [7.67.0] — smarter "when this, do that" learning
 
 JARVIS's detection of actions that follow one another got two upgrades. It now spots these across different device types — a switch triggering a light, a cover triggering a fan — where before it could only relate devices of the same type. And when it turns one into a suggested automation, it uses the real, observed delay between the two events (a switch flip followed by a light ~90 seconds later becomes a 90-second delay) instead of a fixed one-minute guess; near-instant reactions get no artificial wait at all. The result is trigger-based suggestions that match what actually happens in your home.

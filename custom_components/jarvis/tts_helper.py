@@ -203,12 +203,29 @@ async def async_announce(
 
     is_piper = "piper" in tts_entity.lower()
 
+    # When the user prefers Home Assistant's configured voice, don't force the
+    # JARVIS Piper voice — omit the `voice` option entirely so the TTS entity
+    # uses its own default (e.g. a French fr_FR-tom voice on a French install).
+    # Default off keeps the JARVIS voice for everyone who has it. Read from the
+    # live runtime_config (seeded from config.json at setup, updated by the
+    # panel) so we don't import jarvis_config on this path.
+    use_ha_voice = False
+    try:
+        from .const import DOMAIN
+        for _ed in (hass.data.get(DOMAIN) or {}).values():
+            if isinstance(_ed, dict) and (
+                    _ed.get("runtime_config") or {}).get("tts_use_ha_voice"):
+                use_ha_voice = True
+                break
+    except Exception:
+        use_ha_voice = False
+
     service_data = {
         "media_player_entity_id": list(speakers),
         "message": text,
         "cache": True,
     }
-    if is_piper:
+    if is_piper and not use_ha_voice:
         # Request the JARVIS Piper voice. No `language`/`length_scale` keys: this
         # Piper build rejects length_scale ("Invalid options found") before any
         # audio plays. If the voice isn't installed (VoiceNotFoundError), the
