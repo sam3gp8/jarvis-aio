@@ -95,3 +95,49 @@ def test_sequence_scales_on_large_history(analyzer, tmp_path):
     elapsed = time.monotonic() - start
     assert isinstance(pats, list)
     assert elapsed < 10.0, f"sequence detection too slow on 15k rows: {elapsed:.1f}s"
+
+
+def test_cross_domain_sequence_with_measured_delay(analyzer, tmp_path):
+    # a switch triggering a light ~90s later — cross-domain, was impossible before
+    conn = _conn(tmp_path / "xd.db")
+    base = datetime.now() - timedelta(days=12)
+    for d in range(8):
+        t = base + timedelta(days=d, hours=18)
+        _insert(conn, "switch.trigger", "on", t)
+        _insert(conn, "light.follower", "on", t + timedelta(seconds=90))
+    conn.commit()
+    pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn)
+    m = [p for p in pats if p.details["trigger"]["entity"] == "switch.trigger"
+         and p.details["action"]["entity"] == "light.follower"]
+    assert m, "cross-domain switch->light sequence should be found"
+    assert 80 <= m[0].details["delay_seconds"] <= 100   # measured, ~90s
+    assert "later" in m[0].description
+
+
+def test_generate_automation_uses_measured_delay(analyzer):
+    import json
+    pa = analyzer.PatternAnalyzer()
+    p = analyzer.DetectedPattern(
+        pattern_type="sequence", description="x",
+        entity_ids=["switch.a", "light.b"], confidence=0.7, occurrences=8,
+        details={"trigger": {"entity": "switch.a", "state": "on"},
+                 "action": {"entity": "light.b", "state": "on"},
+                 "delay_seconds": 90})
+    auto = json.loads(pa._generate_automation(p))
+    assert auto["trigger"]["platform"] == "state"
+    delays = [a for a in auto["action"] if isinstance(a, dict) and "delay" in a]
+    assert delays and delays[0]["delay"] == "00:01:30"   # 90s, not hardcoded 60s
+
+
+def test_generate_automation_omits_tiny_delay(analyzer):
+    import json
+    pa = analyzer.PatternAnalyzer()
+    p = analyzer.DetectedPattern(
+        pattern_type="sequence", description="x",
+        entity_ids=["switch.a", "light.b"], confidence=0.7, occurrences=8,
+        details={"trigger": {"entity": "switch.a", "state": "on"},
+                 "action": {"entity": "light.b", "state": "on"},
+                 "delay_seconds": 5})
+    auto = json.loads(pa._generate_automation(p))
+    delays = [a for a in auto["action"] if isinstance(a, dict) and "delay" in a]
+    assert not delays   # near-immediate -> no awkward tiny wait

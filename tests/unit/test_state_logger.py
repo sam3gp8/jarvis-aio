@@ -91,6 +91,7 @@ def core_state(cc, fake_hass, monkeypatch, tmp_path):
     core.state_logger._db_path = str(tmp_path / "patterns.db")
     core.state_logger._init_db()
     monkeypatch.setattr(cc, "_CORE", core)
+    cc._PATTERN_LOG_LAST.clear()   # reset per-entity pattern-log rate limit
     return core
 
 

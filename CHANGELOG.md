@@ -1,3 +1,7 @@
+## [7.67.0] — smarter "when this, do that" learning
+
+JARVIS's detection of actions that follow one another got two upgrades. It now spots these across different device types — a switch triggering a light, a cover triggering a fan — where before it could only relate devices of the same type. And when it turns one into a suggested automation, it uses the real, observed delay between the two events (a switch flip followed by a light ~90 seconds later becomes a 90-second delay) instead of a fixed one-minute guess; near-instant reactions get no artificial wait at all. The result is trigger-based suggestions that match what actually happens in your home.
+
 ## [7.66.0] — an "Analyze Now" button, and a last-analysis readout
 
 Pattern analysis normally runs on its own every six hours. There's now an **Analyze Now** button under Quick Actions to run a pass on demand — handy after changing settings or exposing new entities, instead of waiting or restarting. It bypasses only the six-hour wait, not the data requirement (still needs about a week of history), so it can't produce noise on a fresh install, and it tells you the outcome right away: how many patterns it found and how many new suggestions it stored.

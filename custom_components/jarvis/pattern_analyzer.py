@@ -324,6 +324,49 @@ class PatternAnalyzer:
         except Exception:
             return False
 
+    def pattern_diagnostic(self) -> dict:
+        """Explain why routines may not be forming: the busiest sources (flood
+        check) and the strongest routine CANDIDATES with their distinct-day
+        coverage — so a near-miss (seen on almost enough days, or split across
+        adjacent hours) is visible instead of just "0 found". Pure DB read.
+        """
+        out = {"top_sources": [], "candidates": [], "total_days": 0,
+               "min_days": 0, "min_occurrences": MIN_OCCURRENCES}
+        conn = self._connect()
+        if not conn:
+            return out
+        try:
+            total_days = int((conn.execute(
+                "SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes "
+                "WHERE timestamp > datetime('now', '-30 days')").fetchone()[0]) or 0)
+            out["total_days"] = total_days
+            # coverage >= 0.3 -> need ceil(0.3 * total_days) distinct days
+            out["min_days"] = (total_days * 3 + 9) // 10 if total_days else 0
+            for e, c in conn.execute(
+                    "SELECT entity_id, COUNT(*) c FROM state_changes "
+                    "WHERE timestamp > datetime('now', '-30 days') "
+                    "GROUP BY entity_id ORDER BY c DESC LIMIT 10"):
+                out["top_sources"].append({"entity_id": e, "changes": int(c)})
+            for e, s, h, cnt, days in conn.execute(
+                    "SELECT entity_id, new_state, hour, COUNT(*) cnt, "
+                    "COUNT(DISTINCT date(timestamp)) days FROM state_changes "
+                    "WHERE timestamp > datetime('now', '-30 days') "
+                    "GROUP BY entity_id, new_state, hour HAVING cnt >= 2 "
+                    "ORDER BY days DESC, cnt DESC LIMIT 12"):
+                out["candidates"].append({
+                    "entity_id": e, "state": s, "hour": int(h),
+                    "occurrences": int(cnt), "days": int(days),
+                    "coverage": round(int(days) / total_days, 2) if total_days else 0.0,
+                })
+        except Exception:
+            pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return out
+
     async def analyze(self, hass: HomeAssistant) -> list[DetectedPattern]:
         """Run full pattern analysis. Returns detected patterns."""
         self._last_analysis = time.time()
@@ -535,9 +578,13 @@ class PatternAnalyzer:
         datetime()-wrapped comparison also defeated the timestamp index — on a
         large history (100k+ rows) it never finished, stalling the whole
         analyze() pass so no suggestions were ever stored. This reads rows in
-        indexed time order and counts cross-entity, same-domain pairs inside the
-        window, with a hard window cap so an activity burst can't blow up the
-        pairing.
+        indexed time order and counts cross-entity pairs inside the window, with
+        a hard window cap so an activity burst can't blow up the pairing.
+
+        Pairs are cross-DOMAIN (a switch can trigger a light, a cover a fan): a
+        real "when X, do Y" automation rarely stays within one domain. The
+        typical lag between trigger and action is measured so the suggested
+        automation carries the real delay instead of a fixed guess.
         """
         from collections import deque, Counter
         patterns: list = []
@@ -553,6 +600,7 @@ class PatternAnalyzer:
         window_cap = 200        # bound pairing work during activity bursts
         win: deque = deque()    # (epoch, entity, domain, state)
         pair_counts: Counter = Counter()
+        pair_lag: dict = {}     # (ea,sa,eb,sb) -> [sum_seconds, count] for mean lag
 
         for r in rows:
             try:
@@ -566,8 +614,16 @@ class PatternAnalyzer:
             while win and win[0][0] < cutoff:
                 win.popleft()
             for a_epoch, a_ent, a_dom, a_st in win:
-                if a_dom == dom and a_ent != ent:
-                    pair_counts[(a_ent, a_st, ent, st)] += 1
+                if a_ent != ent:                       # cross-domain allowed
+                    key = (a_ent, a_st, ent, st)
+                    pair_counts[key] += 1
+                    slot = pair_lag.get(key)
+                    lag = epoch - a_epoch
+                    if slot is None:
+                        pair_lag[key] = [lag, 1]
+                    else:
+                        slot[0] += lag
+                        slot[1] += 1
             win.append((epoch, ent, dom, st))
             if len(win) > window_cap:
                 win.popleft()
@@ -575,17 +631,20 @@ class PatternAnalyzer:
         for (ea, sa, eb, sb), count in pair_counts.most_common(15):
             if count < MIN_OCCURRENCES:
                 break
+            slot = pair_lag.get((ea, sa, eb, sb), [0.0, 1])
+            mean_lag = int(round(slot[0] / max(1, slot[1])))
             patterns.append(DetectedPattern(
                 pattern_type="sequence",
                 description=(
                     f"When {ea} turns {sa}, {eb} turns {sb} shortly after "
-                    f"({count} times in 30 days)"
+                    f"({count} times in 30 days, ~{mean_lag}s later)"
                 ),
                 entity_ids=[ea, eb],
                 confidence=min(1.0, count / (MIN_OCCURRENCES * 3)),
                 occurrences=count,
                 details={"trigger": {"entity": ea, "state": sa},
-                         "action": {"entity": eb, "state": sb}},
+                         "action": {"entity": eb, "state": sb},
+                         "delay_seconds": mean_lag},
             ))
 
         return patterns
@@ -885,6 +944,14 @@ class PatternAnalyzer:
                             f"{trigger.get('state','?')}",
                     "type": "manual_review",
                 }, indent=2)
+            # Use the measured typical lag (rounded to 5s); omit a delay under 15s
+            # so near-immediate reactions don't get an awkward tiny wait.
+            lag = int(d.get("delay_seconds", 60) or 0)
+            seq_action: list = []
+            if lag >= 15:
+                lag = int(round(lag / 5.0) * 5)
+                seq_action.append({"delay": f"00:{lag // 60:02d}:{lag % 60:02d}"})
+            seq_action.append(svc)
             return json.dumps({
                 "alias": f"JARVIS Learned: {action['entity']} after {trigger['entity']}",
                 "trigger": {
@@ -892,10 +959,7 @@ class PatternAnalyzer:
                     "entity_id": trigger["entity"],
                     "to": trigger["state"],
                 },
-                "action": [
-                    {"delay": "00:01:00"},
-                    svc,
-                ],
+                "action": seq_action,
             }, indent=2)
 
         if p.pattern_type == "repeated_command":

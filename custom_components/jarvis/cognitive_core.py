@@ -2092,6 +2092,20 @@ def _pattern_opted_in(entity_id: str, device_class: str = "") -> bool:
     return False
 
 
+# Per-entity rate limit for pattern logging (v7.67.0): entity_id -> last logged
+# epoch. Caps a flapping / high-frequency actuator from flooding the store.
+_PATTERN_LOG_LAST: dict = {}
+
+
+def _pattern_log_interval() -> float:
+    """Minimum seconds between logged pattern changes for the SAME entity.
+    Configurable via ``pattern_log_min_interval``; 0 disables the limit."""
+    try:
+        return max(0.0, float((_CORE.config or {}).get("pattern_log_min_interval", 60)))
+    except Exception:
+        return 60.0
+
+
 def _on_state_changed(event: Event) -> None:
     """Log state changes and check ignore rules."""
     if not _CORE.running:
@@ -2114,6 +2128,18 @@ def _on_state_changed(event: Event) -> None:
     # Skip unavailable/unknown transitions
     if new_val in ("unavailable", "unknown") or old_val == new_val:
         return
+
+    # Per-entity rate limit for pattern logging. A high-frequency actuator — a
+    # streaming media_player flipping playing/buffering/paused every few seconds
+    # — would otherwise flood the pattern store with tens of thousands of
+    # near-worthless rows that bloat every analysis pass. Cap each entity to one
+    # logged change per interval: infrequent routine transitions are unaffected,
+    # and entities are independent so cross-entity sequences still record. This
+    # also skips the per-event area/person lookups on the dropped churn.
+    _plog_now = time.time()
+    if (_plog_now - _PATTERN_LOG_LAST.get(entity_id, 0.0)) < _pattern_log_interval():
+        return
+    _PATTERN_LOG_LAST[entity_id] = _plog_now
 
     # Get area
     area_id = ""
@@ -2992,6 +3018,11 @@ async def run_analysis_now(hass: HomeAssistant) -> dict:
     res.setdefault("patterns_found", len(patterns))
     res["state_changes"] = stats.get("state_changes", 0)
     res["days_of_data"] = stats.get("days_of_data", 0)
+    try:
+        res["diagnostic"] = await hass.async_add_executor_job(
+            analyzer.pattern_diagnostic)
+    except Exception:
+        res["diagnostic"] = {}
     return res
 
 
