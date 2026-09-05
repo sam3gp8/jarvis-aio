@@ -1,3 +1,7 @@
+## [7.73.0] — Intrusion is now its own tab
+
+The intrusion snapshot and the intrusion log (with its real / false-alarm labeling) have moved out of Settings into a dedicated **Intrusion** tab, alongside Command Center, Residence, Settings, Logs, and Memory. Security review and labeling now have a home of their own instead of being buried in Settings — everything else about them works exactly as before.
+
 ## [7.72.0] — Analyze Now learns from your history, not just from now on
 
 Previously, enabling something like motion/presence learning only started recording from that moment, so a real habit took days to build up before it could be suggested. Analyze Now now backfills from Home Assistant's own recorded history: for any relevant entity JARVIS wasn't already tracking (a motion or occupancy sensor you just opted in, for example), it imports the recent past so patterns can surface right away — e.g. "car enters the bay, then the garage door closes" can be recognized from history instead of waiting for it to happen again seven times. It's careful about this: it only imports entities it wasn't already logging (no double-counting), and chatty sensors are throttled exactly as live logging throttles them, so importing history can't bloat the store. The button tells you how much it imported.

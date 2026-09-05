@@ -655,7 +655,9 @@ setTimeout(async () => {
       vbBtn2 && /DISABLE/.test(vbBtn2.textContent)],
   );
 
-  // ── Intrusion / Security panel (v6.68.0) ──
+  // ── Intrusion / Security panel (own tab, v7.73.0) ──
+  el._currentTab = "intrusion";
+  el._render();
   await el._fetchIntrusion();
   const intrBody = el.shadowRoot.getElementById("intr-body")?.innerHTML || "";
   const intrStatus = el.shadowRoot.getElementById("intr-status")?.textContent || "";
@@ -674,6 +676,8 @@ setTimeout(async () => {
   );
 
   // ── Wellbeing Context panel (v6.63.0) ──
+  el._currentTab = "settings";
+  el._render();
   await el._fetchBio();
   const bioStatus = el.shadowRoot.getElementById("bio-status")?.textContent || "";
   checks.push(
@@ -748,6 +752,8 @@ setTimeout(async () => {
   );
 
   // ── Intrusion Log + training (v6.76.0) ──
+  el._currentTab = "intrusion";
+  el._render();
   await el._wireIntrusionLog();
   const ilogBody = el.shadowRoot.getElementById("ilog-body")?.textContent || "";
   const ilogSide = el.shadowRoot.getElementById("ilog-learn")?.textContent || "";
@@ -764,6 +770,8 @@ setTimeout(async () => {
   );
 
   // ── Multi-Hazard Monitor panel (v6.71.0) ──
+  el._currentTab = "settings";
+  el._render();
   await el._wireHazard();
   const hazLoc = el.shadowRoot.getElementById("haz-loc")?.textContent || "";
   const hazOverall = el.shadowRoot.getElementById("hazard-overall")?.textContent || "";
