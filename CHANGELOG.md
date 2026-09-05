@@ -1,3 +1,7 @@
+## [7.71.0] — see patterns building toward suggestions
+
+When you run Analyze Now, JARVIS now shows patterns it has detected but that haven't recurred enough times yet to become a suggestion — for example "when the garage bay senses a car, the door closes (3/7)". This makes the difference between "JARVIS sees the pattern, it just needs to happen a few more times" and "JARVIS isn't seeing it at all" obvious at a glance, instead of leaving you guessing why a real habit hasn't turned into a suggestion. A suggestion is created once a trigger-based pattern has recurred enough to be trustworthy.
+
 ## [7.70.0] — learned automations gain a "when" — time-of-day conditions
 
 Trigger-based suggestions now include a time condition when the pattern clearly warrants one. If a "when motion, turn on the light" pattern only ever happens in the evening, the suggested automation is scoped to that window — so it won't fire the light at noon — and the window is read straight from when the behavior actually occurs (evenings, overnight, mornings; overnight windows wrap correctly). Patterns that happen throughout the day get no time condition, as they shouldn't. This is the first of the "And if" conditions; sun-position and presence conditions are still to come.

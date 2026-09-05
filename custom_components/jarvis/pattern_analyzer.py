@@ -433,6 +433,12 @@ class PatternAnalyzer:
         new_suggestions = 0
         new_person_patterns = 0
         _eff_threshold = _effective_threshold()
+        near_misses: list = []
+        # A sequence stores when count/(MIN_OCCURRENCES*3) >= threshold; surface
+        # how many recurrences a not-yet-stored one still needs.
+        _seq_needed = int(_eff_threshold * MIN_OCCURRENCES * 3)
+        if _eff_threshold * MIN_OCCURRENCES * 3 > _seq_needed:
+            _seq_needed += 1
         for p in patterns:
             if p.confidence >= _eff_threshold:
                 stored = await hass.async_add_executor_job(
@@ -446,6 +452,15 @@ class PatternAnalyzer:
                     if await hass.async_add_executor_job(
                             self._store_person_pattern, p):
                         new_person_patterns += 1
+            elif p.occurrences >= MIN_OCCURRENCES and len(near_misses) < 8:
+                # Detected but below the store bar — show it building so "not
+                # enough data yet" is distinguishable from "nothing detected".
+                near_misses.append({
+                    "type": p.pattern_type,
+                    "description": p.description,
+                    "occurrences": p.occurrences,
+                    "needed": _seq_needed if p.pattern_type == "sequence" else None,
+                })
 
         # Promote the most reliable routines/commands into the curated knowledge
         # store as *observed* facts, so they surface in the Memory tab (marked ~)
@@ -464,6 +479,7 @@ class PatternAnalyzer:
             "new_suggestions": new_suggestions,
             "person_routines": new_person_patterns,
             "facts": promoted,
+            "near_misses": near_misses,
         }
 
         if patterns:
