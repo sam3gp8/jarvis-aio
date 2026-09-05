@@ -1,3 +1,7 @@
+## [7.69.0] — learn "when motion, do X" automations (opt-in)
+
+New setting: **Learn motion/presence triggers**. Turn it on and JARVIS starts learning from your motion and occupancy sensors, so it can suggest trigger-based automations like "when the hallway senses motion, turn on the light" — the follow-on to the cross-device trigger learning added last release. It's off by default, and motion sensors are rate-limited hard when learning (one marker every few minutes, not every pulse) so enabling it can't bloat the pattern store. Door and window sensors remain a separate opt-in; ordinary devices are unaffected.
+
 ## [7.68.0] — option to use Home Assistant's default TTS voice
 
 New setting: **Use Home Assistant default voice**. JARVIS normally speaks with its own Piper voice (en_GB-jarvis-high). Turn this on and JARVIS stops requesting that specific voice, letting your TTS engine use whatever voice you've configured in Home Assistant — so a French install with a French Piper voice, for example, will simply be spoken in French, with no dependency on the JARVIS voice being downloaded. Off by default, so nothing changes unless you choose it. Find it under Settings, in the voice options.

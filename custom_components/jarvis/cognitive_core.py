@@ -2085,6 +2085,11 @@ def _pattern_opted_in(entity_id: str, device_class: str = "") -> bool:
         domain = entity_id.split(".")[0]
         if domain == "binary_sensor" and jarvis_config.get("pattern_learn_doors", False):
             return device_class in ("door", "window", "garage_door", "opening")
+        if domain == "binary_sensor" and jarvis_config.get("pattern_learn_motion", False):
+            # Motion/occupancy triggers — learnable for "when X, do Y" automations
+            # (motion → light). Chatty, so the class-aware rate limit below caps
+            # them hard; opt-in and off by default.
+            return device_class in ("motion", "occupancy", "presence", "moving")
         if domain in ("device_tracker", "person") and jarvis_config.get("pattern_learn_presence", False):
             return True
     except Exception:
@@ -2096,14 +2101,41 @@ def _pattern_opted_in(entity_id: str, device_class: str = "") -> bool:
 # epoch. Caps a flapping / high-frequency actuator from flooding the store.
 _PATTERN_LOG_LAST: dict = {}
 
+# Device classes that pulse rapidly — capped far harder than the base interval
+# (see _pattern_log_interval) so re-including them as triggers can't re-flood.
+_HIGH_FREQ_CLASSES = {"motion", "occupancy", "presence", "moving", "vibration", "sound"}
 
-def _pattern_log_interval() -> float:
+
+def _pattern_log_interval(device_class: str = "") -> float:
     """Minimum seconds between logged pattern changes for the SAME entity.
-    Configurable via ``pattern_log_min_interval``; 0 disables the limit."""
+
+    Base is configurable via ``pattern_log_min_interval`` (0 disables). High-
+    frequency trigger classes (motion/occupancy/presence) use a much larger
+    floor (``pattern_motion_min_interval``, default 5 min) so re-including them
+    as triggers logs at most one "it fired in this window" marker — enough for
+    sequence detection, never a flood.
+    """
     try:
-        return max(0.0, float((_CORE.config or {}).get("pattern_log_min_interval", 60)))
+        base = max(0.0, float((_CORE.config or {}).get("pattern_log_min_interval", 60)))
     except Exception:
-        return 60.0
+        base = 60.0
+    if device_class in _HIGH_FREQ_CLASSES:
+        try:
+            hf = float((_CORE.config or {}).get("pattern_motion_min_interval", 300))
+        except Exception:
+            hf = 300.0
+        return max(base, hf)
+    return base
+
+
+def _pattern_rate_ok(entity_id: str, now: float, device_class: str = "") -> bool:
+    """Per-entity rate gate for pattern logging. Returns True (and records the
+    time) when this entity may be logged now, False to drop it. Pure + testable
+    — a motion storm through this gate stays bounded to one log per interval."""
+    if (now - _PATTERN_LOG_LAST.get(entity_id, 0.0)) < _pattern_log_interval(device_class):
+        return False
+    _PATTERN_LOG_LAST[entity_id] = now
+    return True
 
 
 def _on_state_changed(event: Event) -> None:
@@ -2129,17 +2161,22 @@ def _on_state_changed(event: Event) -> None:
     if new_val in ("unavailable", "unknown") or old_val == new_val:
         return
 
-    # Per-entity rate limit for pattern logging. A high-frequency actuator — a
-    # streaming media_player flipping playing/buffering/paused every few seconds
-    # — would otherwise flood the pattern store with tens of thousands of
-    # near-worthless rows that bloat every analysis pass. Cap each entity to one
-    # logged change per interval: infrequent routine transitions are unaffected,
-    # and entities are independent so cross-entity sequences still record. This
-    # also skips the per-event area/person lookups on the dropped churn.
-    _plog_now = time.time()
-    if (_plog_now - _PATTERN_LOG_LAST.get(entity_id, 0.0)) < _pattern_log_interval():
+    _dc = ""
+    try:
+        _dc = new_state.attributes.get("device_class") or ""
+    except Exception:
+        _dc = ""
+
+    # Per-entity rate limit for pattern logging. A high-frequency source — a
+    # streaming media_player flipping playing/buffering/paused, or a motion
+    # sensor pulsing every few seconds — would otherwise flood the pattern store
+    # with tens of thousands of near-worthless rows that bloat every analysis
+    # pass. The gate caps each entity to one logged change per interval (motion/
+    # occupancy far harder, see _pattern_log_interval): infrequent routine
+    # transitions are unaffected, entities are independent so cross-entity
+    # sequences still record, and dropped churn skips the area/person lookups.
+    if not _pattern_rate_ok(entity_id, time.time(), _dc):
         return
-    _PATTERN_LOG_LAST[entity_id] = _plog_now
 
     # Get area
     area_id = ""
@@ -2195,7 +2232,6 @@ def _on_state_changed(event: Event) -> None:
             pass
         _fi = False
         try:
-            _dc = (new_state.attributes.get("device_class") or "") if new_state else ""
             _fi = _pattern_opted_in(entity_id, _dc)
         except Exception:
             _fi = False

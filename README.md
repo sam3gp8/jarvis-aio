@@ -17,9 +17,7 @@ An autonomous AI butler for Home Assistant — voice, vision, and a reasoning co
 
 ---
 
-JARVIS turns Home Assistant into a proactive household intelligence. It speaks in a custom voice, sees through your cameras, reasons about what's worth telling you, and quietly learns the rhythms of your home over weeks and months. It installs as a Home Assistant **custom integration** via HACS and runs entirely inside Home Assistant — no separate container.
-
-The guiding principle is **suggest, don't act** until you grant otherwise: JARVIS starts conservative, surfaces what it notices, and expands its autonomy only as you allow.
+It installs as a Home Assistant **custom integration** via HACS and runs entirely inside HA — no separate container, and no cloud account required to start. Its guiding principle is **suggest, don't act**: JARVIS starts conservative, surfaces what it notices, and widens its own autonomy only as you allow.
 
 ## Quick start (5 minutes, no cameras required)
 
@@ -35,9 +33,9 @@ Everything past this point — vision, doorbell analysis, the Iron Man HUD's liv
 
 **Voice & conversation.** A pluggable LLM brain (Groq, Gemini, OpenAI, Anthropic, or a local Ollama server) drives natural conversation through the Home Assistant voice pipeline, answered in a custom Piper TTS voice. Works with ESP32-S3 satellites, Wyoming, and Google speakers.
 
-**Web research & schedule awareness.** Ask JARVIS about the outside world — current events, facts, "what's the latest on…" — and it looks it up (DuckDuckGo Instant Answer out of the box, no API key; point it at a self-hosted SearXNG for richer results). It also reads your household `calendar.*` entities to surface upcoming events and flag scheduling conflicts — overlaps, and back-to-back commitments with too little gap between them.
+**Web research & schedule awareness.** Ask about the outside world — current events, facts, "what's the latest on…" — and JARVIS looks it up (DuckDuckGo out of the box, no key; or a self-hosted SearXNG). It reads your `calendar.*` entities too, surfacing upcoming events and flagging conflicts — overlaps and tight back-to-back transitions.
 
-**Answers from your own paperwork.** Drop appliance manuals and receipts (PDF, `.txt`, `.md`) into `/config/jarvis/documents`, and JARVIS ingests and chunks them. Then ask "what's the filter size for the furnace?" or "when did we buy the dishwasher?" and it answers from your documents, citing the source. Retrieval works by keyword out of the box; if you run Ollama, flip on **semantic search** and JARVIS embeds your documents via your Ollama server (`nomic-embed-text`) and stores the vectors in its own database — meaning-based matching with no ChromaDB and nothing extra to install.
+**Answers from your own paperwork.** Drop appliance manuals and receipts (PDF, `.txt`, `.md`) into `/config/jarvis/documents`, then ask "what's the filter size for the furnace?" or "when did we buy the dishwasher?" — JARVIS answers from your documents and cites the source. Keyword retrieval out of the box; with Ollama, flip on **semantic search** for meaning-based matching, with nothing extra to install.
 
 **The JARVIS voice.** Modelled on Stark's JARVIS: dry, precise, unflappable, quietly witty — and strictly situational about it. The wit is a scalpel, not a hammer, and it goes silent the instant something is wrong. JARVIS does not quip during a smoke alarm. A **banter level** setting (plain / dry / full) tunes how much character surfaces, and urgent and grave events always speak plainly regardless.
 
