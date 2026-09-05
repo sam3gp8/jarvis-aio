@@ -175,8 +175,14 @@ def normalize_suggestion_automation(stored_yaml: str) -> dict:
         else:
             norm_actions.append(a)
 
-    return {"installable": True, "alias": alias,
-            "trigger": triggers, "action": norm_actions}
+    out = {"installable": True, "alias": alias,
+           "trigger": triggers, "action": norm_actions}
+    # Preserve a learned "And if" condition (e.g. a time window) so it reaches
+    # the installed automation.
+    cond = data.get("condition")
+    if cond:
+        out["condition"] = [cond] if isinstance(cond, dict) else list(cond)
+    return out
 
 
 def service_for(entity_id: str, state: str) -> Optional[dict]:
@@ -284,6 +290,39 @@ def explain_suggestion(pattern_type: str, details: dict, count: int) -> dict:
         if not ev:
             ev.append(f"Observed {count} times")
     return {"headline": headline, "evidence": ev}
+
+
+def _time_window_condition(epochs: list) -> Optional[dict]:
+    """If the action times cluster into a clear daily window — a contiguous span
+    with a quiet period of at least 8 hours around it — return a Home Assistant
+    time condition ``{"after": "HH:MM:SS", "before": "HH:MM:SS"}``; otherwise
+    None. Uses local clock hours from the stored timestamps. Pure and bounded.
+
+    This is the tractable "And if": a motion→light pair that only ever happens in
+    the evening gets a time window so the suggested automation won't fire the
+    light at noon. Handles overnight windows (the HA time condition wraps).
+    """
+    if len(epochs) < MIN_OCCURRENCES:
+        return None
+    hours = sorted({datetime.fromtimestamp(e).hour for e in epochs})
+    if len(hours) == 1:
+        h = hours[0]
+        return {"after": f"{(h - 1) % 24:02d}:00:00",
+                "before": f"{(h + 1) % 24:02d}:00:00"}
+    # Largest circular gap between consecutive occurrence hours = the quiet period;
+    # the active window is its complement.
+    largest_gap = 0
+    gap_start = gap_end = hours[0]
+    for i in range(len(hours)):
+        cur = hours[i]
+        nxt = hours[(i + 1) % len(hours)]
+        gap = (nxt - cur) % 24
+        if gap > largest_gap:
+            largest_gap, gap_start, gap_end = gap, cur, nxt
+    if largest_gap < 8:
+        return None                       # spread across the day: no clear window
+    return {"after": f"{gap_end:02d}:00:00",
+            "before": f"{(gap_start + 1) % 24:02d}:00:00"}
 
 
 class PatternAnalyzer:
@@ -601,6 +640,7 @@ class PatternAnalyzer:
         win: deque = deque()    # (epoch, entity, domain, state)
         pair_counts: Counter = Counter()
         pair_lag: dict = {}     # (ea,sa,eb,sb) -> [sum_seconds, count] for mean lag
+        pair_times: dict = {}   # (ea,sa,eb,sb) -> [action epochs] (capped) for time window
 
         for r in rows:
             try:
@@ -624,6 +664,11 @@ class PatternAnalyzer:
                     else:
                         slot[0] += lag
                         slot[1] += 1
+                    tl = pair_times.get(key)
+                    if tl is None:
+                        pair_times[key] = [epoch]
+                    elif len(tl) < 40:
+                        tl.append(epoch)
             win.append((epoch, ent, dom, st))
             if len(win) > window_cap:
                 win.popleft()
@@ -633,18 +678,21 @@ class PatternAnalyzer:
                 break
             slot = pair_lag.get((ea, sa, eb, sb), [0.0, 1])
             mean_lag = int(round(slot[0] / max(1, slot[1])))
+            cond = _time_window_condition(pair_times.get((ea, sa, eb, sb), []))
+            desc = (f"When {ea} turns {sa}, {eb} turns {sb} shortly after "
+                    f"({count} times in 30 days, ~{mean_lag}s later)")
+            if cond:
+                desc += f", mostly between {cond['after'][:5]} and {cond['before'][:5]}"
             patterns.append(DetectedPattern(
                 pattern_type="sequence",
-                description=(
-                    f"When {ea} turns {sa}, {eb} turns {sb} shortly after "
-                    f"({count} times in 30 days, ~{mean_lag}s later)"
-                ),
+                description=desc,
                 entity_ids=[ea, eb],
                 confidence=min(1.0, count / (MIN_OCCURRENCES * 3)),
                 occurrences=count,
                 details={"trigger": {"entity": ea, "state": sa},
                          "action": {"entity": eb, "state": sb},
-                         "delay_seconds": mean_lag},
+                         "delay_seconds": mean_lag,
+                         "condition": cond},
             ))
 
         return patterns
@@ -952,7 +1000,7 @@ class PatternAnalyzer:
                 lag = int(round(lag / 5.0) * 5)
                 seq_action.append({"delay": f"00:{lag // 60:02d}:{lag % 60:02d}"})
             seq_action.append(svc)
-            return json.dumps({
+            auto = {
                 "alias": f"JARVIS Learned: {action['entity']} after {trigger['entity']}",
                 "trigger": {
                     "platform": "state",
@@ -960,7 +1008,15 @@ class PatternAnalyzer:
                     "to": trigger["state"],
                 },
                 "action": seq_action,
-            }, indent=2)
+            }
+            cond = d.get("condition")
+            if isinstance(cond, dict) and cond.get("after") and cond.get("before"):
+                auto["condition"] = [{
+                    "condition": "time",
+                    "after": cond["after"],
+                    "before": cond["before"],
+                }]
+            return json.dumps(auto, indent=2)
 
         if p.pattern_type == "repeated_command":
             return json.dumps({
@@ -1172,6 +1228,7 @@ async def install_approved_suggestion(hass, suggestion_id: int) -> dict:
             alias=norm["alias"],
             description=sug.get("description", ""),
             trigger=norm["trigger"],
+            condition=norm.get("condition"),
             action=norm["action"],
         )
         if result.get("success"):

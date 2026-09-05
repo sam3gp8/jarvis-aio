@@ -1,3 +1,7 @@
+## [7.70.0] — learned automations gain a "when" — time-of-day conditions
+
+Trigger-based suggestions now include a time condition when the pattern clearly warrants one. If a "when motion, turn on the light" pattern only ever happens in the evening, the suggested automation is scoped to that window — so it won't fire the light at noon — and the window is read straight from when the behavior actually occurs (evenings, overnight, mornings; overnight windows wrap correctly). Patterns that happen throughout the day get no time condition, as they shouldn't. This is the first of the "And if" conditions; sun-position and presence conditions are still to come.
+
 ## [7.69.0] — learn "when motion, do X" automations (opt-in)
 
 New setting: **Learn motion/presence triggers**. Turn it on and JARVIS starts learning from your motion and occupancy sensors, so it can suggest trigger-based automations like "when the hallway senses motion, turn on the light" — the follow-on to the cross-device trigger learning added last release. It's off by default, and motion sensors are rate-limited hard when learning (one marker every few minutes, not every pulse) so enabling it can't bloat the pattern store. Door and window sensors remain a separate opt-in; ordinary devices are unaffected.
