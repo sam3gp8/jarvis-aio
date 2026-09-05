@@ -368,8 +368,11 @@ def _sun_condition(epochs: list, lat, lon) -> Optional[dict]:
     return None
 
 
-def _condition_phrase(cond: Optional[dict]) -> str:
-    """Human tail for a pattern description given its learned condition."""
+def _condition_phrase(cond) -> str:
+    """Human tail for a pattern description given its learned condition(s).
+    Accepts a single condition dict, a list of them (ANDed), or None."""
+    if isinstance(cond, list):
+        return "".join(_condition_phrase(c) for c in cond)
     if not isinstance(cond, dict):
         return ""
     kind = cond.get("condition")
@@ -377,6 +380,12 @@ def _condition_phrase(cond: Optional[dict]) -> str:
         return ", mostly after dark"
     if kind == "time":
         return f", mostly between {cond.get('after', '')[:5]} and {cond.get('before', '')[:5]}"
+    if kind == "numeric_state":
+        ent = cond.get("entity_id", "")
+        if "below" in cond:
+            return f", mostly while {ent} is below {cond['below']:g}"
+        if "above" in cond:
+            return f", mostly while {ent} is above {cond['above']:g}"
     return ""
 
 
@@ -441,6 +450,38 @@ def _numeric_trigger_from(occ: list, baseline: list) -> Optional[dict]:
             return {"above": T}
 
     return None
+
+
+def _numeric_condition(times: list, sensor_hist: dict) -> Optional[dict]:
+    """Best numeric_state *condition* for an action whose occurrences (``times``)
+    consistently coincide with a sensor sitting on one side of a threshold — e.g.
+    "…and only while the temperature is below 62". Returns a self-describing HA
+    condition dict, or None. Reuses the same scorer as the numeric trigger, so it
+    shares the anti-spurious guards. ``sensor_hist`` maps sensor_id -> ``[(epoch,
+    float)]``."""
+    if not sensor_hist or len(times) < MIN_OCCURRENCES:
+        return None
+    best = None
+    best_cover = 0
+    for s_ent, events in sensor_hist.items():
+        ev = sorted((e, v) for e, v in events if isinstance(v, (int, float)))
+        if len(ev) < 10:
+            continue
+        epochs = [e for e, _ in ev]
+        values = [v for _, v in ev]
+        occ = [v for v in (_numeric_value_at(epochs, values, t) for t in times)
+               if v is not None]
+        if len(occ) < MIN_OCCURRENCES:
+            continue
+        trig = _numeric_trigger_from(occ, values)
+        if not trig:
+            continue
+        op, T = next(iter(trig.items()))
+        # Prefer the sensor whose readings cover the most occurrences.
+        if len(occ) > best_cover:
+            best_cover = len(occ)
+            best = {"condition": "numeric_state", "entity_id": s_ent, op: T}
+    return best
 
 
 class PatternAnalyzer:
@@ -538,14 +579,14 @@ class PatternAnalyzer:
                 self._find_time_routines, conn))
             patterns.extend(await hass.async_add_executor_job(
                 self._find_repeated_commands, conn))
-            _lat = getattr(hass.config, "latitude", None)
-            _lon = getattr(hass.config, "longitude", None)
-            patterns.extend(await hass.async_add_executor_job(
-                self._find_sequence_patterns, conn, _lat, _lon))
             try:
                 _sensor_hist = await self._fetch_numeric_sensor_history(hass)
             except Exception:
                 _sensor_hist = {}
+            _lat = getattr(hass.config, "latitude", None)
+            _lon = getattr(hass.config, "longitude", None)
+            patterns.extend(await hass.async_add_executor_job(
+                self._find_sequence_patterns, conn, _lat, _lon, _sensor_hist))
             patterns.extend(await hass.async_add_executor_job(
                 self._find_numeric_triggers, conn, _sensor_hist))
             patterns.extend(await hass.async_add_executor_job(
@@ -753,7 +794,8 @@ class PatternAnalyzer:
         return patterns
 
     def _find_sequence_patterns(self, conn: sqlite3.Connection,
-                                lat=None, lon=None) -> list[DetectedPattern]:
+                                lat=None, lon=None,
+                                sensor_hist=None) -> list[DetectedPattern]:
         """Find state changes that consistently follow each other within 10 min.
 
         Single-pass sliding window. This replaced an O(N^2) SQL self-join whose
@@ -822,10 +864,19 @@ class PatternAnalyzer:
             slot = pair_lag.get((ea, sa, eb, sb), [0.0, 1])
             mean_lag = int(round(slot[0] / max(1, slot[1])))
             times = pair_times.get((ea, sa, eb, sb), [])
-            # Prefer a sun condition ("after dark") when the action is
-            # consistently dark — it tracks the season. Fall back to a fixed
-            # time window otherwise.
-            cond = _sun_condition(times, lat, lon) or _time_window_condition(times)
+            # Accumulate every discriminator that consistently holds; HA ANDs a
+            # list of conditions. Prefer a sun condition ("after dark") over a
+            # fixed time window (it tracks the season), then add a numeric-state
+            # condition ("…while it's below/above X") when a sensor consistently
+            # sits on one side at the action times.
+            conds: list = []
+            tw = _sun_condition(times, lat, lon) or _time_window_condition(times)
+            if tw:
+                conds.append(tw)
+            nc = _numeric_condition(times, sensor_hist or {})
+            if nc:
+                conds.append(nc)
+            cond = conds if conds else None
             desc = (f"When {ea} turns {sa}, {eb} turns {sb} shortly after "
                     f"({count} times in 30 days, ~{mean_lag}s later)"
                     + _condition_phrase(cond))
@@ -1246,14 +1297,15 @@ class PatternAnalyzer:
     #   geo_location · template · event · homeassistant · mqtt · webhook ·
     #   device · calendar · tag · conversation · persistent_notification
     # HA CONDITION types:
-    #   time ✓(sequence) · sun ✓(sequence) · state · numeric_state · zone ·
-    #   template · trigger · device · and · or · not
+    #   time ✓(sequence) · sun ✓(sequence) · numeric_state ✓(sequence) ·
+    #   state · zone · template · trigger · device · and · or · not
     #
-    # Emitted today: TRIGGERS {state, time, numeric_state}; CONDITIONS {time, sun}.
+    # Emitted today: TRIGGERS {state, time, numeric_state};
+    #                CONDITIONS {time, sun, numeric_state} (ANDed as a list).
     # Next candidates (highest learn-value first):
-    #   • state/numeric_state + and/or conditions — "…and if someone is home"
-    #     (presence), "…and if it's below 60°F" — bounded discriminators like the
-    #     time/sun ones, attached when the action consistently coincides.
+    #   • state (presence) condition — "…and only when someone is home". Guard
+    #     against redundancy: motion/occupancy/door triggers already imply
+    #     presence, so attach it where it discriminates (esp. time routines).
     #   • zone trigger — arrival/departure (JARVIS already anticipates departure;
     #     make it a learned zone trigger too).
     #   • device trigger — button/remote presses ("press → scene").
@@ -1306,8 +1358,10 @@ class PatternAnalyzer:
                 "action": seq_action,
             }
             cond = d.get("condition")
-            if isinstance(cond, dict) and cond.get("condition"):
-                auto["condition"] = [cond]
+            conds = [c for c in (cond if isinstance(cond, list) else [cond])
+                     if isinstance(c, dict) and c.get("condition")]
+            if conds:
+                auto["condition"] = conds
             return json.dumps(auto, indent=2)
 
         if p.pattern_type == "numeric_trigger":

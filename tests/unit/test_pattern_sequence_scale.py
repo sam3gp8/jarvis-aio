@@ -156,8 +156,8 @@ def test_sequence_prefers_sun_condition_over_time(analyzer, tmp_path, monkeypatc
     conn.commit()
     pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, 40.7, -74.0)
     m = [p for p in pats if p.details["trigger"]["entity"] == "binary_sensor.hall_motion"]
-    assert m and m[0].details["condition"] == {
-        "condition": "sun", "after": "sunset", "before": "sunrise"}
+    assert m and m[0].details["condition"] == [{
+        "condition": "sun", "after": "sunset", "before": "sunrise"}]
     assert "after dark" in m[0].description
 
 
@@ -172,4 +172,4 @@ def test_sequence_falls_back_to_time_without_location(analyzer, tmp_path):
     conn.commit()
     pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, None, None)
     m = [p for p in pats if p.details["trigger"]["entity"] == "binary_sensor.hall_motion"]
-    assert m and m[0].details["condition"]["condition"] == "time"
+    assert m and m[0].details["condition"][0]["condition"] == "time"
