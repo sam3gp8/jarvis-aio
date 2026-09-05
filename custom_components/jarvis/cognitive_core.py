@@ -2011,6 +2011,46 @@ class StateLogger:
         except Exception:
             pass
 
+    def distinct_logged_entities(self) -> set:
+        """Entities already present in the pattern store — skipped on backfill so
+        importing history can't double-count what live logging already covers."""
+        import sqlite3
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                return {r[0] for r in conn.execute(
+                    "SELECT DISTINCT entity_id FROM state_changes")}
+        except Exception:
+            return set()
+
+    def bulk_insert_history(self, rows: list) -> int:
+        """Bulk-insert backfilled historical state changes. Each row is
+        (timestamp_iso, entity_id, domain, old_state, new_state); hour and
+        day_of_week are derived from the historical timestamp (not now), and the
+        source is tagged 'history'. Returns the number inserted."""
+        import sqlite3
+        prepared = []
+        for row in rows:
+            try:
+                ts, eid, dom, old, new = row
+                dt = datetime.fromisoformat(ts)
+            except Exception:
+                continue
+            prepared.append((ts, eid, dom, old, new, "", dt.hour, dt.weekday(),
+                             "history", "unknown", 0.0))
+        if not prepared:
+            return 0
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.executemany(
+                    "INSERT INTO state_changes "
+                    "(timestamp, entity_id, domain, old_state, new_state, "
+                    "area_id, hour, day_of_week, triggered_by, person, "
+                    "person_confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    prepared)
+            return len(prepared)
+        except Exception:
+            return 0
+
     def get_pattern_stats(self) -> dict:
         """Return learning statistics."""
         import sqlite3
@@ -3008,6 +3048,125 @@ def status() -> dict:
     }
 
 
+def _backfill_filter_states(events: list, interval: float, cap: int = 1000) -> list:
+    """Chronological ``(epoch, state)`` events → filtered ``[(epoch, state)]``
+    for backfill: drop unavailable/unknown and no-change, apply the per-entity
+    rate limit, and keep only the most recent ``cap``. This is the anti-flood
+    core — importing 30 days of a chatty motion sensor's history through this
+    stays bounded, so backfill can't reintroduce the flood that was just killed.
+    """
+    from collections import deque
+    out: deque = deque(maxlen=max(1, cap))
+    last = None
+    prev = None
+    for epoch, st in events:
+        if st is None or st in ("unavailable", "unknown") or st == prev:
+            continue
+        prev = st
+        if last is not None and (epoch - last) < interval:
+            continue
+        out.append((epoch, st))
+        last = epoch
+    return list(out)
+
+
+async def backfill_from_history(hass: HomeAssistant, days: int = 30) -> dict:
+    """Import recent recorder history for pattern-relevant entities JARVIS isn't
+    already logging (e.g. motion/occupancy just opted in), so Analyze Now can
+    find routines from PAST behavior instead of only data since a setting was
+    enabled. Safe by construction: applies the same domain filter + class-aware
+    rate limit as live logging (motion capped hard), only touches entities with
+    no existing rows (no double-count), and is capped per-entity and globally.
+    """
+    out = {"imported": 0, "entities": 0, "considered": 0}
+    if not _CORE.state_logger:
+        return out
+    try:
+        from homeassistant.components.recorder import get_instance, history
+        from homeassistant.util import dt as dt_util
+    except Exception:
+        return out
+
+    _meta = ("automation", "script", "scene", "input_boolean", "input_number")
+    _noisy = ("sensor", "binary_sensor", "weather", "sun", "update", "device_tracker")
+    dc_by: dict = {}
+    relevant: list = []
+    try:
+        for state in hass.states.async_all():
+            eid = state.entity_id
+            dom = eid.split(".")[0]
+            dc = state.attributes.get("device_class") or ""
+            dc_by[eid] = dc
+            if dom in _meta:
+                continue
+            if dom in _noisy and not _pattern_opted_in(eid, dc):
+                continue
+            relevant.append(eid)
+    except Exception:
+        return out
+    if not relevant:
+        return out
+
+    existing = await hass.async_add_executor_job(
+        _CORE.state_logger.distinct_logged_entities)
+    todo = [e for e in relevant if e not in existing][:250]   # cap breadth
+    out["considered"] = len(todo)
+    if not todo:
+        return out
+
+    try:
+        days = max(1, min(int(days), 30))
+    except Exception:
+        days = 30
+    end = dt_util.utcnow()
+    start = end - timedelta(days=days)
+
+    def _fetch():
+        return history.get_significant_states(
+            hass, start, end, todo, minimal_response=True, no_attributes=True)
+
+    try:
+        raw = await get_instance(hass).async_add_executor_job(_fetch)
+    except Exception as exc:
+        _LOGGER.debug("JARVIS backfill: history fetch failed: %s", exc)
+        return out
+    if not raw:
+        return out
+
+    rows: list = []
+    for eid, states in raw.items():
+        dom = eid.split(".")[0]
+        interval = _pattern_log_interval(dc_by.get(eid, ""))
+        events: list = []
+        for s in states:
+            try:
+                st = getattr(s, "state", None)
+                when = (getattr(s, "last_changed", None)
+                        or getattr(s, "last_updated", None))
+                if st is None and isinstance(s, dict):
+                    st = s.get("state")
+                    when = s.get("last_changed") or s.get("last_updated")
+                if st is None or when is None:
+                    continue
+                epoch = when.timestamp() if hasattr(when, "timestamp") else None
+                if epoch is not None:
+                    events.append((epoch, st))
+            except Exception:
+                continue
+        kept = _backfill_filter_states(events, interval)
+        for epoch, st in kept:
+            rows.append((datetime.fromtimestamp(epoch).isoformat(),
+                         eid, dom, "unknown", st))
+        if kept:
+            out["entities"] += 1
+        if len(rows) >= 20000:                                # global safety cap
+            break
+
+    out["imported"] = await hass.async_add_executor_job(
+        _CORE.state_logger.bulk_insert_history, rows)
+    return out
+
+
 async def run_analysis_now(hass: HomeAssistant) -> dict:
     """Force a pattern-analysis pass now, bypassing ONLY the 6-hour throttle.
 
@@ -3019,6 +3178,15 @@ async def run_analysis_now(hass: HomeAssistant) -> dict:
     from .pattern_analyzer import get_analyzer, set_thresholds
     analyzer = get_analyzer()
     analyzer._last_analysis = 0.0  # bypass the 6h throttle for this manual run
+
+    # Backfill recorder history for any pattern-relevant entities we aren't
+    # logging yet (e.g. motion/occupancy just opted in), so this finds routines
+    # from PAST behavior instead of only data since the setting was enabled.
+    backfill = {}
+    try:
+        backfill = await backfill_from_history(hass, days=30)
+    except Exception:
+        backfill = {}
 
     stats = {}
     if _CORE.state_logger:
@@ -3035,6 +3203,7 @@ async def run_analysis_now(hass: HomeAssistant) -> dict:
                        "week of data (\u2265 7 days and \u2265 50 recorded changes)."),
             "days_of_data": stats.get("days_of_data", 0),
             "state_changes": stats.get("state_changes", 0),
+            "backfill": backfill,
         }
 
     cfg = _CORE.config or {}
@@ -3054,6 +3223,7 @@ async def run_analysis_now(hass: HomeAssistant) -> dict:
     res.setdefault("patterns_found", len(patterns))
     res["state_changes"] = stats.get("state_changes", 0)
     res["days_of_data"] = stats.get("days_of_data", 0)
+    res["backfill"] = backfill
     try:
         res["diagnostic"] = await hass.async_add_executor_job(
             analyzer.pattern_diagnostic)

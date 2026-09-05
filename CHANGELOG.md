@@ -1,3 +1,7 @@
+## [7.72.0] — Analyze Now learns from your history, not just from now on
+
+Previously, enabling something like motion/presence learning only started recording from that moment, so a real habit took days to build up before it could be suggested. Analyze Now now backfills from Home Assistant's own recorded history: for any relevant entity JARVIS wasn't already tracking (a motion or occupancy sensor you just opted in, for example), it imports the recent past so patterns can surface right away — e.g. "car enters the bay, then the garage door closes" can be recognized from history instead of waiting for it to happen again seven times. It's careful about this: it only imports entities it wasn't already logging (no double-counting), and chatty sensors are throttled exactly as live logging throttles them, so importing history can't bloat the store. The button tells you how much it imported.
+
 ## [7.71.0] — see patterns building toward suggestions
 
 When you run Analyze Now, JARVIS now shows patterns it has detected but that haven't recurred enough times yet to become a suggestion — for example "when the garage bay senses a car, the door closes (3/7)". This makes the difference between "JARVIS sees the pattern, it just needs to happen a few more times" and "JARVIS isn't seeing it at all" obvious at a glance, instead of leaving you guessing why a real habit hasn't turned into a suggestion. A suggestion is created once a trigger-based pattern has recurred enough to be trustworthy.
