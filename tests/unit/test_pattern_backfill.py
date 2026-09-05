@@ -46,16 +46,8 @@ def test_sparse_events_all_kept(cc):
 
 def test_bulk_insert_and_distinct(cc, tmp_path, monkeypatch):
     db = str(tmp_path / "p.db")
-    conn = sqlite3.connect(db)
-    conn.executescript(
-        "CREATE TABLE state_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "timestamp TEXT, entity_id TEXT, domain TEXT, old_state TEXT, "
-        "new_state TEXT, area_id TEXT, hour INTEGER, day_of_week INTEGER, "
-        "triggered_by TEXT, person TEXT, person_confidence REAL)")
-    conn.commit()
-    conn.close()
-    sl = cc.StateLogger()
-    sl._db_path = db
+    # db_path injected → StateLogger builds its real schema here, never /config
+    sl = cc.StateLogger(db_path=db)
     t = datetime(2026, 6, 1, 18, 0, 0)
     n = sl.bulk_insert_history([
         (t.isoformat(), "binary_sensor.bay_occupancy", "binary_sensor", "unknown", "on"),

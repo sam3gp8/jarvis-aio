@@ -1,3 +1,7 @@
+## [7.75.0] — JARVIS learns sensor-threshold automations
+
+JARVIS can now suggest automations that fire when a sensor crosses a value, not just when something changes state or a time of day arrives. If a habit like "turn on the space heater once it drops below 65°" shows up consistently in your history, the suggestion is built as a numeric trigger — "when the temperature sensor goes below 65, turn on the heater" — so it acts on the reading itself. It looks at temperature, humidity, and light-level sensors, and only proposes a threshold when the action genuinely clusters on one side of it and the sensor really spends time on the other side too, so a sensor that simply stays low all the time won't produce a bogus rule. As with every learned automation, these are suggestions you approve, never changes JARVIS makes on its own.
+
 ## [7.74.0] — learned automations gain an "after dark" condition
 
 Trigger-based suggestions can now be scoped to "after dark" using the sun's position, not just a fixed clock window. When a pattern like "motion in the hall, turn on the light" consistently happens while the sun is down, the suggested automation is conditioned on sunset-to-sunrise — so it tracks the seasons and won't fire the light in daylight, without you picking any times. When the sun position doesn't cleanly explain the pattern, JARVIS falls back to the time-of-day window from before; patterns that happen at all hours still get no condition.

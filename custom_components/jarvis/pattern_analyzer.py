@@ -380,6 +380,69 @@ def _condition_phrase(cond: Optional[dict]) -> str:
     return ""
 
 
+def _numeric_value_at(epochs: list, values: list, t: float):
+    """Value of a numeric series (sorted epochs + parallel values) at/just before
+    time ``t``; None if ``t`` precedes the first reading. Pure, bisect-based."""
+    import bisect
+    if not epochs:
+        return None
+    i = bisect.bisect_right(epochs, t) - 1
+    if i < 0:
+        return None
+    return values[i]
+
+
+def _nice_threshold(v: float, op: str) -> float:
+    """Round a raw boundary to a whole-number threshold that still *includes* the
+    observed side: for 'below', one above the floor; for 'above', one below the
+    ceil."""
+    import math
+    return float(math.floor(v) + 1) if op == "below" else float(math.ceil(v) - 1)
+
+
+def _numeric_trigger_from(occ: list, baseline: list) -> Optional[dict]:
+    """Given a sensor's values AT an action's occurrences (``occ``) and its
+    overall values (``baseline``), decide whether the action consistently fires
+    on one side of a threshold. Returns ``{"below": T}`` / ``{"above": T}`` / None.
+
+    Guards against spurious correlation: the occurrence values must sit clearly
+    in the low (or high) part of the sensor's range AND the sensor must spend
+    real time on the *other* side of the threshold (a genuine crossing) — so a
+    sensor that is simply always low never yields a bogus "below" trigger.
+    """
+    import statistics
+    if len(occ) < MIN_OCCURRENCES or len(baseline) < 10:
+        return None
+    occ_s = sorted(occ)
+    base_s = sorted(baseline)
+
+    def pct(a, p):
+        return a[min(len(a) - 1, max(0, int(round(p / 100.0 * (len(a) - 1)))))]
+
+    base_med = statistics.median(base_s)
+    occ_med = statistics.median(occ_s)
+    base_p10, base_p90 = pct(base_s, 10), pct(base_s, 90)
+    rng = base_p90 - base_p10
+    if rng <= 0:
+        return None                                   # flat/constant sensor
+
+    # BELOW: occurrences concentrated low; sensor clearly rises above the bound.
+    occ_p90 = pct(occ_s, 90)
+    if occ_med < base_med and occ_p90 < base_med:
+        T = _nice_threshold(occ_p90, "below")
+        if base_p90 > T + 0.1 * rng:
+            return {"below": T}
+
+    # ABOVE: mirror image.
+    occ_p10 = pct(occ_s, 10)
+    if occ_med > base_med and occ_p10 > base_med:
+        T = _nice_threshold(occ_p10, "above")
+        if base_p10 < T - 0.1 * rng:
+            return {"above": T}
+
+    return None
+
+
 class PatternAnalyzer:
     """Analyzes accumulated state change data for behavioral patterns."""
 
@@ -479,6 +542,12 @@ class PatternAnalyzer:
             _lon = getattr(hass.config, "longitude", None)
             patterns.extend(await hass.async_add_executor_job(
                 self._find_sequence_patterns, conn, _lat, _lon))
+            try:
+                _sensor_hist = await self._fetch_numeric_sensor_history(hass)
+            except Exception:
+                _sensor_hist = {}
+            patterns.extend(await hass.async_add_executor_job(
+                self._find_numeric_triggers, conn, _sensor_hist))
             patterns.extend(await hass.async_add_executor_job(
                 self._find_presence_patterns, conn))
         except Exception as exc:
@@ -774,6 +843,130 @@ class PatternAnalyzer:
 
         return patterns
 
+    def _find_numeric_triggers(self, conn: sqlite3.Connection,
+                               sensor_hist: dict) -> list[DetectedPattern]:
+        """Learn "when a sensor crosses a threshold, an action happens" from
+        history. ``sensor_hist`` maps sensor_id -> chronological ``[(epoch,
+        float)]`` (fetched from the recorder by the caller and passed in, so this
+        stays unit-testable without the recorder). Bounded: the most active
+        actions only, few numeric sensors, strong consistency in the scorer.
+        """
+        patterns: list = []
+        if not sensor_hist:
+            return patterns
+        _ACT = ("light", "switch", "cover", "lock", "climate", "fan",
+                "media_player", "humidifier", "water_heater", "valve")
+        try:
+            rows = conn.execute(
+                "SELECT entity_id, new_state, timestamp FROM state_changes "
+                "WHERE timestamp > datetime('now', '-30 days') AND domain IN ({}) "
+                "ORDER BY timestamp".format(",".join("'%s'" % d for d in _ACT))
+            ).fetchall()
+        except Exception:
+            return patterns
+
+        action_times: dict = {}
+        for r in rows:
+            st = r["new_state"]
+            if st in ("unavailable", "unknown"):
+                continue
+            try:
+                ep = datetime.fromisoformat(r["timestamp"]).timestamp()
+            except (ValueError, TypeError):
+                continue
+            action_times.setdefault((r["entity_id"], st), []).append(ep)
+
+        prepared: dict = {}
+        for s_ent, events in sensor_hist.items():
+            ev = [(e, v) for e, v in events if isinstance(v, (int, float))]
+            if len(ev) >= 10:
+                ev.sort()
+                prepared[s_ent] = ([e for e, _ in ev], [v for _, v in ev])
+        if not prepared:
+            return patterns
+
+        # Most active actions only — bounds the sensor×action correlation work.
+        ranked = sorted(action_times.items(), key=lambda kv: len(kv[1]),
+                        reverse=True)[:20]
+        for (a_ent, a_st), times in ranked:
+            if len(times) < MIN_OCCURRENCES:
+                continue
+            for s_ent, (epochs, values) in prepared.items():
+                occ = []
+                for t in times:
+                    v = _numeric_value_at(epochs, values, t)
+                    if v is not None:
+                        occ.append(v)
+                if len(occ) < MIN_OCCURRENCES:
+                    continue
+                trig = _numeric_trigger_from(occ, values)
+                if not trig:
+                    continue
+                op, T = next(iter(trig.items()))
+                patterns.append(DetectedPattern(
+                    pattern_type="numeric_trigger",
+                    description=(f"When {s_ent} goes {op} {T:g}, {a_ent} turns "
+                                 f"{a_st} ({len(occ)} times in 30 days)"),
+                    entity_ids=[s_ent, a_ent],
+                    confidence=min(1.0, len(occ) / (MIN_OCCURRENCES * 3)),
+                    occurrences=len(occ),
+                    details={"trigger_sensor": s_ent, "op": op, "threshold": T,
+                             "action": {"entity": a_ent, "state": a_st}},
+                ))
+        return patterns
+
+    async def _fetch_numeric_sensor_history(self, hass) -> dict:
+        """Fetch recent recorder history for numeric sensors likely to drive
+        automations (temperature / humidity / illuminance). Returns
+        {sensor_id: [(epoch, float)]}. Bounded and failure-tolerant (→ {})."""
+        out: dict = {}
+        try:
+            from homeassistant.components.recorder import get_instance, history
+            from homeassistant.util import dt as dt_util
+        except Exception:
+            return out
+        wanted = ("temperature", "humidity", "illuminance")
+        ids: list = []
+        try:
+            for st in hass.states.async_all("sensor"):
+                if st.attributes.get("device_class") in wanted:
+                    ids.append(st.entity_id)
+        except Exception:
+            return out
+        ids = ids[:30]
+        if not ids:
+            return out
+        end = dt_util.utcnow()
+        start = end - timedelta(days=30)
+
+        def _fetch():
+            return history.get_significant_states(
+                hass, start, end, ids, minimal_response=True, no_attributes=True)
+
+        try:
+            raw = await get_instance(hass).async_add_executor_job(_fetch)
+        except Exception:
+            return out
+        for eid, states in (raw or {}).items():
+            series: list = []
+            for s in states:
+                try:
+                    val = getattr(s, "state", None)
+                    when = (getattr(s, "last_changed", None)
+                            or getattr(s, "last_updated", None))
+                    if val is None and isinstance(s, dict):
+                        val = s.get("state")
+                        when = s.get("last_changed") or s.get("last_updated")
+                    fv = float(val)
+                    ep = when.timestamp() if hasattr(when, "timestamp") else None
+                    if ep is not None:
+                        series.append((ep, fv))
+                except (TypeError, ValueError):
+                    continue
+            if len(series) >= 10:
+                out[eid] = series
+        return out
+
     def _find_presence_patterns(self, conn: sqlite3.Connection) -> list[DetectedPattern]:
         """Find state changes correlated with person arrivals/departures."""
         patterns = []
@@ -1048,18 +1241,16 @@ class PatternAnalyzer:
     # as coverage grows so future work knows the target.
     #
     # HA TRIGGER platforms:
-    #   state ✓(sequence, presence) · time ✓(time_routine) · numeric_state ·
-    #   time_pattern · sun · zone · geo_location · template · event ·
-    #   homeassistant · mqtt · webhook · device · calendar · tag · conversation ·
-    #   persistent_notification
+    #   state ✓(sequence, presence) · time ✓(time_routine) ·
+    #   numeric_state ✓(numeric_trigger) · time_pattern · sun · zone ·
+    #   geo_location · template · event · homeassistant · mqtt · webhook ·
+    #   device · calendar · tag · conversation · persistent_notification
     # HA CONDITION types:
     #   time ✓(sequence) · sun ✓(sequence) · state · numeric_state · zone ·
     #   template · trigger · device · and · or · not
     #
-    # Emitted today: TRIGGERS {state, time}; CONDITIONS {time, sun}.
+    # Emitted today: TRIGGERS {state, time, numeric_state}; CONDITIONS {time, sun}.
     # Next candidates (highest learn-value first):
-    #   • numeric_state trigger — "when temperature drops below X" (thresholds
-    #     mined from sensor history around an action).
     #   • state/numeric_state + and/or conditions — "…and if someone is home"
     #     (presence), "…and if it's below 60°F" — bounded discriminators like the
     #     time/sun ones, attached when the action consistently coincides.
@@ -1118,6 +1309,25 @@ class PatternAnalyzer:
             if isinstance(cond, dict) and cond.get("condition"):
                 auto["condition"] = [cond]
             return json.dumps(auto, indent=2)
+
+        if p.pattern_type == "numeric_trigger":
+            action = d.get("action", {})
+            svc = service_for(action.get("entity", ""), action.get("state", ""))
+            if not svc:
+                return json.dumps({
+                    "type": "manual_review",
+                    "note": (f"Consider: {action.get('entity','?')} when "
+                             f"{d.get('trigger_sensor','?')} {d.get('op','?')} "
+                             f"{d.get('threshold','?')}"),
+                }, indent=2)
+            trig = {"platform": "numeric_state",
+                    "entity_id": d["trigger_sensor"], d["op"]: d["threshold"]}
+            return json.dumps({
+                "alias": (f"JARVIS Learned: {action['entity']} when "
+                          f"{d['trigger_sensor']} {d['op']} {d['threshold']:g}"),
+                "trigger": trig,
+                "action": [svc],
+            }, indent=2)
 
         if p.pattern_type == "repeated_command":
             return json.dumps({

@@ -1845,9 +1845,9 @@ class AutonomyManager:
 class StateLogger:
     """Logs meaningful state changes for pattern learning."""
 
-    def __init__(self):
+    def __init__(self, db_path=None):
         self._last_states: dict[str, str] = {}
-        self._db_path = "/config/jarvis/patterns.db"
+        self._db_path = db_path or "/config/jarvis/patterns.db"
         self._init_db()
 
     def _init_db(self):
