@@ -1,3 +1,7 @@
+## [7.74.0] — learned automations gain an "after dark" condition
+
+Trigger-based suggestions can now be scoped to "after dark" using the sun's position, not just a fixed clock window. When a pattern like "motion in the hall, turn on the light" consistently happens while the sun is down, the suggested automation is conditioned on sunset-to-sunrise — so it tracks the seasons and won't fire the light in daylight, without you picking any times. When the sun position doesn't cleanly explain the pattern, JARVIS falls back to the time-of-day window from before; patterns that happen at all hours still get no condition.
+
 ## [7.73.0] — Intrusion is now its own tab
 
 The intrusion snapshot and the intrusion log (with its real / false-alarm labeling) have moved out of Settings into a dedicated **Intrusion** tab, alongside Command Center, Residence, Settings, Logs, and Memory. Security review and labeling now have a home of their own instead of being buried in Settings — everything else about them works exactly as before.

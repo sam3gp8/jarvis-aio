@@ -295,8 +295,8 @@ def explain_suggestion(pattern_type: str, details: dict, count: int) -> dict:
 def _time_window_condition(epochs: list) -> Optional[dict]:
     """If the action times cluster into a clear daily window — a contiguous span
     with a quiet period of at least 8 hours around it — return a Home Assistant
-    time condition ``{"after": "HH:MM:SS", "before": "HH:MM:SS"}``; otherwise
-    None. Uses local clock hours from the stored timestamps. Pure and bounded.
+    time condition ``{"condition": "time", "after": "HH:MM:SS", "before": ...}``;
+    otherwise None. Uses local clock hours from the stored timestamps. Pure.
 
     This is the tractable "And if": a motion→light pair that only ever happens in
     the evening gets a time window so the suggested automation won't fire the
@@ -307,7 +307,8 @@ def _time_window_condition(epochs: list) -> Optional[dict]:
     hours = sorted({datetime.fromtimestamp(e).hour for e in epochs})
     if len(hours) == 1:
         h = hours[0]
-        return {"after": f"{(h - 1) % 24:02d}:00:00",
+        return {"condition": "time",
+                "after": f"{(h - 1) % 24:02d}:00:00",
                 "before": f"{(h + 1) % 24:02d}:00:00"}
     # Largest circular gap between consecutive occurrence hours = the quiet period;
     # the active window is its complement.
@@ -321,8 +322,62 @@ def _time_window_condition(epochs: list) -> Optional[dict]:
             largest_gap, gap_start, gap_end = gap, cur, nxt
     if largest_gap < 8:
         return None                       # spread across the day: no clear window
-    return {"after": f"{gap_end:02d}:00:00",
+    return {"condition": "time",
+            "after": f"{gap_end:02d}:00:00",
             "before": f"{(gap_start + 1) % 24:02d}:00:00"}
+
+
+def _is_dark_at(epoch: float, lat: float, lon: float) -> Optional[bool]:
+    """True if the sun was below the horizon at ``epoch`` for the given location,
+    False if above, None if it can't be determined (astral missing/failure).
+    Thin wrapper around astral; the decision logic lives in _sun_condition so it
+    stays testable without astral."""
+    try:
+        from astral import LocationInfo
+        from astral.sun import sun as astral_sun
+        from datetime import timezone
+        dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+        loc = LocationInfo(latitude=float(lat), longitude=float(lon))
+        s = astral_sun(loc.observer, date=dt.date(), tzinfo=timezone.utc)
+        return dt < s["sunrise"] or dt > s["sunset"]
+    except Exception:
+        return None
+
+
+def _sun_condition(epochs: list, lat, lon) -> Optional[dict]:
+    """If the action consistently happens after dark, return an HA sun condition
+    ``{"condition": "sun", "after": "sunset", "before": "sunrise"}``; else None.
+    More precise than a fixed time window for "when it's dark" patterns because
+    it tracks the seasonal sunrise/sunset instead of a fixed clock time.
+    """
+    if lat is None or lon is None or len(epochs) < MIN_OCCURRENCES:
+        return None
+    dark = 0
+    total = 0
+    for e in epochs:
+        d = _is_dark_at(e, lat, lon)
+        if d is None:
+            continue
+        total += 1
+        if d:
+            dark += 1
+    if total < MIN_OCCURRENCES:
+        return None
+    if dark / total >= 0.8:               # consistently after dark
+        return {"condition": "sun", "after": "sunset", "before": "sunrise"}
+    return None
+
+
+def _condition_phrase(cond: Optional[dict]) -> str:
+    """Human tail for a pattern description given its learned condition."""
+    if not isinstance(cond, dict):
+        return ""
+    kind = cond.get("condition")
+    if kind == "sun":
+        return ", mostly after dark"
+    if kind == "time":
+        return f", mostly between {cond.get('after', '')[:5]} and {cond.get('before', '')[:5]}"
+    return ""
 
 
 class PatternAnalyzer:
@@ -420,8 +475,10 @@ class PatternAnalyzer:
                 self._find_time_routines, conn))
             patterns.extend(await hass.async_add_executor_job(
                 self._find_repeated_commands, conn))
+            _lat = getattr(hass.config, "latitude", None)
+            _lon = getattr(hass.config, "longitude", None)
             patterns.extend(await hass.async_add_executor_job(
-                self._find_sequence_patterns, conn))
+                self._find_sequence_patterns, conn, _lat, _lon))
             patterns.extend(await hass.async_add_executor_job(
                 self._find_presence_patterns, conn))
         except Exception as exc:
@@ -626,7 +683,8 @@ class PatternAnalyzer:
 
         return patterns
 
-    def _find_sequence_patterns(self, conn: sqlite3.Connection) -> list[DetectedPattern]:
+    def _find_sequence_patterns(self, conn: sqlite3.Connection,
+                                lat=None, lon=None) -> list[DetectedPattern]:
         """Find state changes that consistently follow each other within 10 min.
 
         Single-pass sliding window. This replaced an O(N^2) SQL self-join whose
@@ -694,11 +752,14 @@ class PatternAnalyzer:
                 break
             slot = pair_lag.get((ea, sa, eb, sb), [0.0, 1])
             mean_lag = int(round(slot[0] / max(1, slot[1])))
-            cond = _time_window_condition(pair_times.get((ea, sa, eb, sb), []))
+            times = pair_times.get((ea, sa, eb, sb), [])
+            # Prefer a sun condition ("after dark") when the action is
+            # consistently dark — it tracks the season. Fall back to a fixed
+            # time window otherwise.
+            cond = _sun_condition(times, lat, lon) or _time_window_condition(times)
             desc = (f"When {ea} turns {sa}, {eb} turns {sb} shortly after "
-                    f"({count} times in 30 days, ~{mean_lag}s later)")
-            if cond:
-                desc += f", mostly between {cond['after'][:5]} and {cond['before'][:5]}"
+                    f"({count} times in 30 days, ~{mean_lag}s later)"
+                    + _condition_phrase(cond))
             patterns.append(DetectedPattern(
                 pattern_type="sequence",
                 description=desc,
@@ -981,6 +1042,34 @@ class PatternAnalyzer:
             _LOGGER.debug("Store suggestion error: %s", exc)
             return False
 
+    # ── Home Assistant trigger / condition taxonomy (roadmap reference) ──────
+    # The long-term goal is for JARVIS to learn and emit the FULL range of HA
+    # triggers and conditions, not just the handful below. Keep this list current
+    # as coverage grows so future work knows the target.
+    #
+    # HA TRIGGER platforms:
+    #   state ✓(sequence, presence) · time ✓(time_routine) · numeric_state ·
+    #   time_pattern · sun · zone · geo_location · template · event ·
+    #   homeassistant · mqtt · webhook · device · calendar · tag · conversation ·
+    #   persistent_notification
+    # HA CONDITION types:
+    #   time ✓(sequence) · sun ✓(sequence) · state · numeric_state · zone ·
+    #   template · trigger · device · and · or · not
+    #
+    # Emitted today: TRIGGERS {state, time}; CONDITIONS {time, sun}.
+    # Next candidates (highest learn-value first):
+    #   • numeric_state trigger — "when temperature drops below X" (thresholds
+    #     mined from sensor history around an action).
+    #   • state/numeric_state + and/or conditions — "…and if someone is home"
+    #     (presence), "…and if it's below 60°F" — bounded discriminators like the
+    #     time/sun ones, attached when the action consistently coincides.
+    #   • zone trigger — arrival/departure (JARVIS already anticipates departure;
+    #     make it a learned zone trigger too).
+    #   • device trigger — button/remote presses ("press → scene").
+    #   • calendar / time_pattern — schedule-driven routines.
+    # Each is its own focused build: mine the discriminator from history, attach
+    # only when it consistently holds, keep the HA dict self-describing so
+    # _generate_automation and normalize pass it through unchanged.
     def _generate_automation(self, pattern: DetectedPattern) -> str:
         """Generate HA automation YAML from a detected pattern."""
         p = pattern
@@ -1026,12 +1115,8 @@ class PatternAnalyzer:
                 "action": seq_action,
             }
             cond = d.get("condition")
-            if isinstance(cond, dict) and cond.get("after") and cond.get("before"):
-                auto["condition"] = [{
-                    "condition": "time",
-                    "after": cond["after"],
-                    "before": cond["before"],
-                }]
+            if isinstance(cond, dict) and cond.get("condition"):
+                auto["condition"] = [cond]
             return json.dumps(auto, indent=2)
 
         if p.pattern_type == "repeated_command":

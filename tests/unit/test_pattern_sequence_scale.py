@@ -141,3 +141,35 @@ def test_generate_automation_omits_tiny_delay(analyzer):
     auto = json.loads(pa._generate_automation(p))
     delays = [a for a in auto["action"] if isinstance(a, dict) and "delay" in a]
     assert not delays   # near-immediate -> no awkward tiny wait
+
+
+def test_sequence_prefers_sun_condition_over_time(analyzer, tmp_path, monkeypatch):
+    # With location present and the action consistently dark, the detector should
+    # attach a sun condition (not a fixed time window).
+    monkeypatch.setattr(analyzer, "_is_dark_at", lambda e, lat, lon: True)
+    conn = _conn(tmp_path / "sun.db")
+    base = datetime.now() - timedelta(days=12)
+    for d in range(8):
+        t = base + timedelta(days=d, hours=20)
+        _insert(conn, "binary_sensor.hall_motion", "on", t)
+        _insert(conn, "light.hall", "on", t + timedelta(seconds=30))
+    conn.commit()
+    pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, 40.7, -74.0)
+    m = [p for p in pats if p.details["trigger"]["entity"] == "binary_sensor.hall_motion"]
+    assert m and m[0].details["condition"] == {
+        "condition": "sun", "after": "sunset", "before": "sunrise"}
+    assert "after dark" in m[0].description
+
+
+def test_sequence_falls_back_to_time_without_location(analyzer, tmp_path):
+    # No location → no sun check → the fixed time window is used instead.
+    conn = _conn(tmp_path / "notloc.db")
+    base = datetime.now() - timedelta(days=12)
+    for d in range(8):
+        t = base + timedelta(days=d, hours=20)
+        _insert(conn, "binary_sensor.hall_motion", "on", t)
+        _insert(conn, "light.hall", "on", t + timedelta(seconds=30))
+    conn.commit()
+    pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, None, None)
+    m = [p for p in pats if p.details["trigger"]["entity"] == "binary_sensor.hall_motion"]
+    assert m and m[0].details["condition"]["condition"] == "time"
