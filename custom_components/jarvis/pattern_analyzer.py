@@ -386,6 +386,10 @@ def _condition_phrase(cond) -> str:
             return f", mostly while {ent} is below {cond['below']:g}"
         if "above" in cond:
             return f", mostly while {ent} is above {cond['above']:g}"
+    if kind == "state":
+        ent = cond.get("entity_id", "")
+        st = cond.get("state", "")
+        return f", only when {ent} is {st}"
     return ""
 
 
@@ -575,8 +579,9 @@ class PatternAnalyzer:
             return patterns
 
         try:
+            person_map = self._person_entity_map(hass)
             patterns.extend(await hass.async_add_executor_job(
-                self._find_time_routines, conn))
+                self._find_time_routines, conn, person_map))
             patterns.extend(await hass.async_add_executor_job(
                 self._find_repeated_commands, conn))
             try:
@@ -659,7 +664,29 @@ class PatternAnalyzer:
 
         return patterns
 
-    def _find_time_routines(self, conn: sqlite3.Connection) -> list[DetectedPattern]:
+    def _person_entity_map(self, hass) -> dict:
+        """Map every way a person might be recorded (friendly name, normalized
+        name, or entity_id) -> that person's entity_id, so a routine's learned
+        owner can be resolved to a conditionable ``person.*`` entity."""
+        out: dict = {}
+        try:
+            from .identity import normalize
+        except Exception:
+            def normalize(n):
+                return "_".join((n or "").strip().lower().split())
+        try:
+            for st in hass.states.async_all("person"):
+                ent = st.entity_id
+                fn = st.attributes.get("friendly_name") or ent.split(".", 1)[-1]
+                for k in (fn, normalize(fn), ent):
+                    if k:
+                        out[k] = ent
+        except Exception:
+            return {}
+        return out
+
+    def _find_time_routines(self, conn: sqlite3.Connection,
+                            person_map: dict = None) -> list[DetectedPattern]:
         """Find entities that change state at similar times each day."""
         patterns = []
 
@@ -726,6 +753,14 @@ class PatternAnalyzer:
             days_str = f"on {positive_days} of {total_days} days"
             if person:
                 details["person"] = person
+                # If the owner resolves to a person entity, gate the routine on
+                # their presence — a time trigger has no inherent presence, so
+                # "only when home" is a real guard (and the user still approves
+                # it, so a deliberately away-running routine can be declined).
+                ent = (person_map or {}).get(person)
+                if ent:
+                    details["condition"] = {"condition": "state",
+                                            "entity_id": ent, "state": "home"}
                 desc = (f"{entity} turns {state} around {time_str} {days_str} "
                         f"when {person} is home")
             elif state in ("on", "off"):
@@ -1298,18 +1333,20 @@ class PatternAnalyzer:
     #   device · calendar · tag · conversation · persistent_notification
     # HA CONDITION types:
     #   time ✓(sequence) · sun ✓(sequence) · numeric_state ✓(sequence) ·
-    #   state · zone · template · trigger · device · and · or · not
+    #   state ✓(time_routine) · zone · template · trigger · device ·
+    #   and · or · not
     #
     # Emitted today: TRIGGERS {state, time, numeric_state};
-    #                CONDITIONS {time, sun, numeric_state} (ANDed as a list).
+    #                CONDITIONS {time, sun, numeric_state, state} (ANDed as a list).
     # Next candidates (highest learn-value first):
-    #   • state (presence) condition — "…and only when someone is home". Guard
-    #     against redundancy: motion/occupancy/door triggers already imply
-    #     presence, so attach it where it discriminates (esp. time routines).
     #   • zone trigger — arrival/departure (JARVIS already anticipates departure;
-    #     make it a learned zone trigger too).
-    #   • device trigger — button/remote presses ("press → scene").
+    #     recognize person/device_tracker home↔away transitions in a sequence and
+    #     emit a zone trigger, which is the semantic HA way to trigger on it).
+    #   • device trigger — button/remote presses ("press → scene") — needs event
+    #     capture; presses are not state_changes.
     #   • calendar / time_pattern — schedule-driven routines.
+    #   • state (presence) condition on sequences — the "away" direction only
+    #     ("…and nobody home"); "home" stays off sequences (motion implies it).
     # Each is its own focused build: mine the discriminator from history, attach
     # only when it consistently holds, keep the HA dict self-describing so
     # _generate_automation and normalize pass it through unchanged.
@@ -1319,14 +1356,20 @@ class PatternAnalyzer:
         d = p.details
 
         if p.pattern_type == "time_routine" and d.get("state") in ("on", "off"):
-            return json.dumps({
+            auto = {
                 "alias": f"JARVIS Learned: {p.entity_ids[0]} {d['state']} at {d['hour']:02d}:00",
                 "trigger": {"platform": "time", "at": f"{d['hour']:02d}:00:00"},
                 "action": {
                     "service": f"{p.entity_ids[0].split('.')[0]}.turn_{d['state']}",
                     "entity_id": p.entity_ids[0],
                 },
-            }, indent=2)
+            }
+            cond = d.get("condition")
+            conds = [c for c in (cond if isinstance(cond, list) else [cond])
+                     if isinstance(c, dict) and c.get("condition")]
+            if conds:
+                auto["condition"] = conds
+            return json.dumps(auto, indent=2)
 
         if p.pattern_type == "sequence":
             trigger = d.get("trigger", {})
