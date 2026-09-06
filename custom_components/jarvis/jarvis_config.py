@@ -183,6 +183,46 @@ def effective_config_with_runtime(entry=None, runtime_config: dict | None = None
     return cfg
 
 
+def runtime_get(hass, entry, key: str, default=None):
+    """Fast, single-key config read matching :func:`effective_config` precedence,
+    for hot paths that can't afford the blocking full merge on every read:
+    runtime_config (panel-live) → config.json → entry.options → entry.data →
+    default. In-memory after boot.
+
+    Use this instead of reading ``entry.options``/``entry.data`` directly — on a
+    panel-configured install those are empty, so a direct read silently returns
+    the default for anything set via the panel or config.json (the recurring
+    divergence class behind several past bugs). Never raises.
+    """
+    # runtime_config — the panel's live, no-reload values.
+    try:
+        from .const import DOMAIN
+        if hass is not None and entry is not None:
+            data = hass.data.get(DOMAIN, {}).get(getattr(entry, "entry_id", None), {})
+            rc = data.get("runtime_config", {}) if isinstance(data, dict) else {}
+            if key in rc and rc[key] not in (None, ""):
+                return rc[key]
+    except Exception:
+        pass
+    # config.json — the persisted panel config (wins over the entry, per
+    # effective_config); cached in-memory after boot.
+    try:
+        v = get(key, None)
+        if v not in (None, ""):
+            return v
+    except Exception:
+        pass
+    # entry options/data — authoritative on a YAML install, empty on a panel one.
+    if entry is not None:
+        opts = getattr(entry, "options", None) or {}
+        if key in opts:
+            return opts[key]
+        data_ = getattr(entry, "data", None) or {}
+        if key in data_:
+            return data_[key]
+    return default
+
+
 def set(key: str, value: Any) -> None:
     """Set a config value and persist to disk."""
     global _loaded

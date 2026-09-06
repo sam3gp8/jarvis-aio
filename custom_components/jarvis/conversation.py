@@ -306,24 +306,20 @@ class JarvisAgent(conversation.ConversationEntity):
     # ── Config helpers ────────────────────────────────────────────────────────
 
     def _opt(self, key: str, default=None):
-        """Read from options (Configure) first, then data, then default."""
-        return self.entry.options.get(key, self.entry.data.get(key, default))
+        """Config read via the canonical resolver (runtime_config → config.json →
+        options → data → default)."""
+        from . import jarvis_config
+        return jarvis_config.runtime_get(self.hass, self.entry, key, default)
 
     def _rt_opt(self, key: str, default=None):
         """
-        Runtime-aware read: panel runtime_config FIRST, then options, then data.
-        The panel writes model/provider changes to runtime_config; reading it
-        here lets those changes take effect on the next request without a
-        restart (run_agent re-resolves provider/model per call).
+        Runtime-aware read via the canonical resolver: panel runtime_config →
+        config.json → options → data → default. The panel writes model/provider
+        changes to runtime_config, so those take effect on the next request
+        without a restart (run_agent re-resolves provider/model per call).
         """
-        try:
-            data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
-            rc = data.get("runtime_config", {}) if isinstance(data, dict) else {}
-            if key in rc:
-                return rc[key]
-        except Exception:
-            pass
-        return self.entry.options.get(key, self.entry.data.get(key, default))
+        from . import jarvis_config
+        return jarvis_config.runtime_get(self.hass, self.entry, key, default)
 
     def _model(self) -> str:
         return self._opt(CONF_MODEL, DEFAULT_MODEL)

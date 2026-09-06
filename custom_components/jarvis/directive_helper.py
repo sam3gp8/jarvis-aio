@@ -27,10 +27,10 @@ def resolve_directive(entry: ConfigEntry | None) -> str:
     """Get the directive text based on this config entry."""
     if entry is None:
         return get_directive(DEFAULT_DIRECTIVE_PRESET, "")
-    preset = entry.options.get(
-        CONF_DIRECTIVE_PRESET, entry.data.get(CONF_DIRECTIVE_PRESET, DEFAULT_DIRECTIVE_PRESET)
-    )
-    custom = entry.options.get(CONF_DIRECTIVE, entry.data.get(CONF_DIRECTIVE, ""))
+    from . import jarvis_config
+    preset = jarvis_config.runtime_get(None, entry, CONF_DIRECTIVE_PRESET,
+                                       DEFAULT_DIRECTIVE_PRESET)
+    custom = jarvis_config.runtime_get(None, entry, CONF_DIRECTIVE, "")
     return get_directive(preset, custom)
 
 

@@ -102,9 +102,8 @@ def _as_float(value: object) -> float | None:
 
 
 def _resolve_honorific(hass: HomeAssistant, entry: ConfigEntry) -> str:
-    return entry.options.get(
-        CONF_HONORIFIC, entry.data.get(CONF_HONORIFIC, DEFAULT_HONORIFIC)
-    )
+    from . import jarvis_config
+    return jarvis_config.runtime_get(hass, entry, CONF_HONORIFIC, DEFAULT_HONORIFIC)
 
 
 def _resolve_tts_entity(hass: HomeAssistant) -> str:
@@ -142,9 +141,10 @@ def _resolve_broadcast_speakers(hass: HomeAssistant) -> list[str]:
                 if valid:
                     return valid
     group = ""
+    from . import jarvis_config
     for entry in hass.config_entries.async_entries(DOMAIN):
         group = (
-            entry.options.get(CONF_BROADCAST_GROUP, entry.data.get(CONF_BROADCAST_GROUP, ""))
+            jarvis_config.runtime_get(hass, entry, CONF_BROADCAST_GROUP, "")
             or group
         )
         if group:

@@ -62,15 +62,10 @@ def _camera_entry(hass: HomeAssistant):
 
 
 def _cfg_opt(hass: HomeAssistant, key: str, default=None):
-    """Runtime-aware config read (runtime_config → options → data → default)."""
-    entry = _camera_entry(hass)
-    if entry is None:
-        return default
-    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    rc = data.get("runtime_config", {}) if isinstance(data, dict) else {}
-    if key in rc:
-        return rc[key]
-    return entry.options.get(key, entry.data.get(key, default))
+    """Runtime-aware config read via the canonical resolver (runtime_config →
+    config.json → options → data → default)."""
+    from . import jarvis_config
+    return jarvis_config.runtime_get(hass, _camera_entry(hass), key, default)
 
 
 _PROVIDER_CACHE: dict = {}

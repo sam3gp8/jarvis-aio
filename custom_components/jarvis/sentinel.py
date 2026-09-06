@@ -22,6 +22,7 @@ from .const import (
 from .database import save_sentinel_event, save_message
 from .directive_helper import build_system_prompt
 from .tts_helper import resolve_tts_entity, async_announce
+from . import jarvis_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,7 +93,8 @@ class JarvisSentinel:
     def _tts_entity(self) -> str | None:
         if not self._entry:
             return None
-        configured = self._entry.options.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)
+        configured = jarvis_config.runtime_get(
+            self.hass, self._entry, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)
         return resolve_tts_entity(self.hass, configured)
 
     def _speakers(self) -> list[str]:
@@ -101,9 +103,8 @@ class JarvisSentinel:
             return []
         # v5.3: read broadcast_group, fall back to all media_players
         from .audio_routing import broadcast_target
-        broadcast_group = self._entry.options.get(
-            "broadcast_group", self._entry.data.get("broadcast_group", "")
-        ) or None
+        broadcast_group = jarvis_config.runtime_get(
+            self.hass, self._entry, "broadcast_group", "") or None
         return broadcast_target(self.hass, broadcast_group=broadcast_group)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -233,24 +234,13 @@ class JarvisSentinel:
     # ── Announcement ──────────────────────────────────────────────────────────
 
     async def _announce_rule(self, entity_id: str, rule: dict, minutes: int) -> None:
-        # v5.5.1: Check runtime_config (panel toggles) first, then entry.options,
-        # then entry.data. runtime_config is set by the panel's Settings toggles
-        # and takes immediate effect without entry reload.
+        # runtime_config → config.json → options → data, via the canonical
+        # resolver (immediate effect from panel toggles, no entry reload).
         if self._entry:
-            from .const import DOMAIN
-            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
-            rc = data.get("runtime_config", {}) if data else {}
-
-            announcements_enabled = bool(
-                rc.get("announcements_enabled",
-                       self._entry.options.get("announcements_enabled",
-                       self._entry.data.get("announcements_enabled", True)))
-            )
-            sentinel_enabled = bool(
-                rc.get("sentinel_enabled",
-                       self._entry.options.get("sentinel_enabled",
-                       self._entry.data.get("sentinel_enabled", True)))
-            )
+            announcements_enabled = bool(jarvis_config.runtime_get(
+                self.hass, self._entry, "announcements_enabled", True))
+            sentinel_enabled = bool(jarvis_config.runtime_get(
+                self.hass, self._entry, "sentinel_enabled", True))
             if not announcements_enabled:
                 _LOGGER.debug(
                     "Sentinel: announcements globally disabled, skipping rule %s for %s",
@@ -266,9 +256,8 @@ class JarvisSentinel:
 
             # v5.6.0: Per-rule disable check
             try:
-                disabled_raw = rc.get("disabled_sentinel_rules",
-                    self._entry.options.get("disabled_sentinel_rules",
-                    self._entry.data.get("disabled_sentinel_rules", "[]")))
+                disabled_raw = jarvis_config.runtime_get(
+                    self.hass, self._entry, "disabled_sentinel_rules", "[]")
                 if isinstance(disabled_raw, str):
                     import json as _json
                     disabled_list = _json.loads(disabled_raw)
@@ -313,20 +302,8 @@ class JarvisSentinel:
 
         # v5.6.5: Also send phone push notification for sentinel alerts
         try:
-            notify_svc = None
-            # Check runtime_config first (panel dropdown)
-            from .const import DOMAIN
-            for eid, rdata in self.hass.data.get(DOMAIN, {}).items():
-                if isinstance(rdata, dict):
-                    rc = rdata.get("runtime_config", {})
-                    if rc.get("notify_service"):
-                        notify_svc = rc["notify_service"]
-                        break
-            if not notify_svc and self._entry:
-                notify_svc = self._entry.options.get(
-                    "notify_service",
-                    self._entry.data.get("notify_service", ""),
-                )
+            notify_svc = jarvis_config.runtime_get(
+                self.hass, self._entry, "notify_service", "")
             if notify_svc:
                 domain, service = notify_svc.split(".", 1)
                 await self.hass.services.async_call(

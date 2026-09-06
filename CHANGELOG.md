@@ -1,3 +1,7 @@
+## [7.80.1] — panel/config settings honored consistently
+
+Settings you set through the JARVIS panel or config.json — the sentinel and announcement toggles, notification service, TTS engine, honorific, prime-directive preset, and the camera vision/reasoning options — are now read through a single resolver everywhere. Previously a few of these were read straight from the config entry, which is empty on a panel-configured install, so they could quietly fall back to defaults even though you'd set them. They now resolve in the correct order (live panel value, then saved config, then any entry value), so what you configure is what runs.
+
 ## [7.80.0] — lockdown notifications are fully localized
 
 The lockdown messages that list the specific doors and locks JARVIS just secured — and name any openings it couldn't secure remotely — now come through in your language, not just English. This was the last English-only piece of the safety notifications: it's assembled from device names with per-language grammar, so it's built from localized verb phrases, a localized list join (with the right conjunction and comma rules per language), and per-language sentence wrappers. French, German, Spanish, Italian, Dutch, and Portuguese are covered, with English as the fallback. Your device and room names are always left exactly as you named them. The openings-still-open phrasing is worded to read correctly regardless of a device's grammatical gender.

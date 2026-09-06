@@ -97,20 +97,17 @@ def _get_entry(hass: HomeAssistant):
 
 
 def _entry_opt(entry, key: str, default=None):
-    """Read from options, then data, then default."""
-    if entry is None:
-        return default
-    return entry.options.get(key, entry.data.get(key, default))
+    """Config read via the canonical resolver (no hass here, so runtime_config is
+    skipped): config.json → options → data → default."""
+    from . import jarvis_config
+    return jarvis_config.runtime_get(None, entry, key, default)
 
 
 def _runtime_opt(hass: HomeAssistant, entry, key: str, default=None):
-    """Read from runtime_config (panel toggles), then options, then data."""
-    if entry is not None:
-        data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-        rc = data.get("runtime_config", {})
-        if key in rc:
-            return rc[key]
-    return _entry_opt(entry, key, default)
+    """Runtime-aware config read via the canonical resolver (runtime_config →
+    config.json → options → data → default)."""
+    from . import jarvis_config
+    return jarvis_config.runtime_get(hass, entry, key, default)
 
 
 def _int_opt(hass: HomeAssistant, entry, key: str, default: int) -> int:
