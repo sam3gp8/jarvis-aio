@@ -393,6 +393,33 @@ def _condition_phrase(cond) -> str:
     return ""
 
 
+def _trigger_for(entity: str, state: str) -> dict:
+    """HA trigger for a learned sequence's trigger entity. A person or
+    device_tracker crossing home/away is emitted as a semantic *zone* trigger
+    (HA's recommended way to fire on arrival/departure); everything else stays a
+    state trigger."""
+    dom = entity.split(".")[0] if "." in entity else ""
+    if dom in ("person", "device_tracker"):
+        if state == "not_home":
+            return {"platform": "zone", "entity_id": entity,
+                    "zone": "zone.home", "event": "leave"}
+        if state == "home":
+            return {"platform": "zone", "entity_id": entity,
+                    "zone": "zone.home", "event": "enter"}
+    return {"platform": "state", "entity_id": entity, "to": state}
+
+
+def _trigger_phrase(entity: str, state: str) -> str:
+    """Readable lead-in for a sequence description given its trigger."""
+    dom = entity.split(".")[0] if "." in entity else ""
+    if dom in ("person", "device_tracker"):
+        if state == "not_home":
+            return f"When {entity} leaves home"
+        if state == "home":
+            return f"When {entity} arrives home"
+    return f"When {entity} turns {state}"
+
+
 def _numeric_value_at(epochs: list, values: list, t: float):
     """Value of a numeric series (sorted epochs + parallel values) at/just before
     time ``t``; None if ``t`` precedes the first reading. Pure, bisect-based."""
@@ -912,7 +939,7 @@ class PatternAnalyzer:
             if nc:
                 conds.append(nc)
             cond = conds if conds else None
-            desc = (f"When {ea} turns {sa}, {eb} turns {sb} shortly after "
+            desc = (f"{_trigger_phrase(ea, sa)}, {eb} turns {sb} shortly after "
                     f"({count} times in 30 days, ~{mean_lag}s later)"
                     + _condition_phrase(cond))
             patterns.append(DetectedPattern(
@@ -1328,22 +1355,21 @@ class PatternAnalyzer:
     #
     # HA TRIGGER platforms:
     #   state ✓(sequence, presence) · time ✓(time_routine) ·
-    #   numeric_state ✓(numeric_trigger) · time_pattern · sun · zone ·
-    #   geo_location · template · event · homeassistant · mqtt · webhook ·
-    #   device · calendar · tag · conversation · persistent_notification
+    #   numeric_state ✓(numeric_trigger) · zone ✓(sequence departure/arrival) ·
+    #   time_pattern · sun · geo_location · template · event · homeassistant ·
+    #   mqtt · webhook · device · calendar · tag · conversation ·
+    #   persistent_notification
     # HA CONDITION types:
     #   time ✓(sequence) · sun ✓(sequence) · numeric_state ✓(sequence) ·
     #   state ✓(time_routine) · zone · template · trigger · device ·
     #   and · or · not
     #
-    # Emitted today: TRIGGERS {state, time, numeric_state};
+    # Emitted today: TRIGGERS {state, time, numeric_state, zone};
     #                CONDITIONS {time, sun, numeric_state, state} (ANDed as a list).
     # Next candidates (highest learn-value first):
-    #   • zone trigger — arrival/departure (JARVIS already anticipates departure;
-    #     recognize person/device_tracker home↔away transitions in a sequence and
-    #     emit a zone trigger, which is the semantic HA way to trigger on it).
-    #   • device trigger — button/remote presses ("press → scene") — needs event
-    #     capture; presses are not state_changes.
+    #   • device trigger — button/remote presses ("press → scene") — the real
+    #     build: presses are events, not state_changes, so it needs event capture
+    #     (a listener + its own store) before any pattern can be mined.
     #   • calendar / time_pattern — schedule-driven routines.
     #   • state (presence) condition on sequences — the "away" direction only
     #     ("…and nobody home"); "home" stays off sequences (motion implies it).
@@ -1391,13 +1417,15 @@ class PatternAnalyzer:
                 lag = int(round(lag / 5.0) * 5)
                 seq_action.append({"delay": f"00:{lag // 60:02d}:{lag % 60:02d}"})
             seq_action.append(svc)
+            trig = _trigger_for(trigger["entity"], trigger["state"])
+            if trig.get("platform") == "zone":
+                verb = "leaves" if trig["event"] == "leave" else "arrives"
+                alias = f"JARVIS Learned: {action['entity']} when {trigger['entity']} {verb} home"
+            else:
+                alias = f"JARVIS Learned: {action['entity']} after {trigger['entity']}"
             auto = {
-                "alias": f"JARVIS Learned: {action['entity']} after {trigger['entity']}",
-                "trigger": {
-                    "platform": "state",
-                    "entity_id": trigger["entity"],
-                    "to": trigger["state"],
-                },
+                "alias": alias,
+                "trigger": trig,
                 "action": seq_action,
             }
             cond = d.get("condition")

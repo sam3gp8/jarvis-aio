@@ -1,3 +1,7 @@
+## [7.78.0] — learned arrival / departure automations
+
+When something you do consistently lines up with leaving or coming home — the garage closing shortly after you drive off, the entry lights coming on when you get back — the suggestion is now built as a proper arrival/departure trigger instead of a raw state change. Home Assistant treats "leaves home" and "arrives home" as zone events, which handle the edges of your home zone correctly, so these suggestions read as "when person.sam leaves home, close the garage" and behave the way presence automations are meant to. This applies to people and phone/device trackers crossing your home zone; other triggers are unchanged, and it only appears when the pattern is consistent.
+
 ## [7.77.0] — time routines can be gated on their owner being home
 
 When a daily routine is one person's habit — "the porch light goes on around 7pm, and it's Sam who's home when it does" — the suggested automation now carries a presence condition, so it only runs when that person is actually home instead of firing on the clock regardless. A time trigger has no built-in sense of who's around, so this is a real guard: the evening routine won't run to an empty house. It only attaches when the routine clearly belongs to one person and that person maps to a Home Assistant person entity, and like every learned automation it's a suggestion you approve — so a routine you deliberately want to run while away (a security light, say) can simply be declined. Household-wide routines with no single owner are unchanged.
