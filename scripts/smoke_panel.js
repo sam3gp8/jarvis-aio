@@ -552,7 +552,8 @@ setTimeout(async () => {
   );
 
   // ── pattern-engine suggestion: approve installs the automation (v6.52.0) ──
-  el._currentTab = "dashboard";
+  // v7.81.0: suggestions live on their own tab now, not the dashboard.
+  el._currentTab = "suggestions";
   el._render();
   const sugCard = el.shadowRoot.querySelector('.sug[data-sug-id="11"]');
   checks.push(
@@ -575,6 +576,17 @@ setTimeout(async () => {
     ["approve sends suggestion_action", _sugCalls.length === 1
       && _sugCalls[0].id === 11 && _sugCalls[0].action === "approve"],
     ["approved card is visually retired", sugCard?.style.opacity === "0.35"],
+  );
+
+  // v7.81.0: Suggestions is its own tab, with an empty state.
+  checks.push(
+    ["Suggestions tab button present", /data-tab="suggestions"/.test(el._html())],
+    ["suggestions empty state renders when none",
+      /sug-empty-title/.test(el._renderSuggestions({ suggestions: [] }))],
+    ["numeric_trigger has a typed label",
+      /SENSOR THRESHOLD/.test(el._renderSuggestions({ suggestions: [
+        { id: 99, pattern_type: "numeric_trigger", description: "x",
+          confidence: 0.8, count: 9, entities: [], evidence: [] }] }))],
   );
 
   // ── mmWave presence overview on the residence tab (v6.53.0) ──

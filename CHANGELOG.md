@@ -1,3 +1,7 @@
+## [7.81.0] — a dedicated Suggestions tab
+
+The automations JARVIS learns from your routines now have their own tab in the panel, instead of being tucked into the Command Center. Each suggestion shows what JARVIS observed, how confident it is, the devices involved, and the exact automation it would create — so you can review it properly and either approve it (which creates it in Home Assistant) or dismiss it. When there's nothing to review yet, the tab explains that JARVIS is still watching for patterns. Sensor-threshold suggestions (the "when it drops below X" kind) are labelled clearly alongside the routine, sequence, and presence types.
+
 ## [7.80.1] — panel/config settings honored consistently
 
 Settings you set through the JARVIS panel or config.json — the sentinel and announcement toggles, notification service, TTS engine, honorific, prime-directive preset, and the camera vision/reasoning options — are now read through a single resolver everywhere. Previously a few of these were read straight from the config entry, which is empty on a panel-configured install, so they could quietly fall back to defaults even though you'd set them. They now resolve in the correct order (live panel value, then saved config, then any entry value), so what you configure is what runs.
