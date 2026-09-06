@@ -123,6 +123,91 @@ MESSAGES: dict[str, dict[str, str]] = {
         "nl": "{honorific}, vergrendeling ingeschakeld — het huis was al volledig beveiligd.",
         "pt": "{honorific}, confinamento ativado — a casa já estava totalmente protegida.",
     },
+    # ── Composed lockdown pieces (device lists) ─────────────────────────────
+    # Verb phrases: {names} is a comma-joined device list and always follows the
+    # verb, so past participles stay invariable (no gender agreement with the
+    # device). de/nl place the participle after the object, as the grammar wants.
+    "lockdown_locked": {
+        "en": "locked {names}", "fr": "verrouillé {names}",
+        "de": "{names} verriegelt", "es": "bloqueado {names}",
+        "it": "bloccato {names}", "nl": "{names} vergrendeld",
+        "pt": "tranquei {names}",
+    },
+    "lockdown_closed": {
+        "en": "closed {names}", "fr": "fermé {names}",
+        "de": "{names} geschlossen", "es": "cerrado {names}",
+        "it": "chiuso {names}", "nl": "{names} gesloten",
+        "pt": "fechei {names}",
+    },
+    # Gap clauses — openings that can't be secured remotely. Phrased to avoid any
+    # adjective/pronoun agreeing with the (unknown-gender) device: impersonal /
+    # infinitive forms, so one wording is correct whatever the device is.
+    "lockdown_gap_one": {
+        "en": "{names} is open and I can't secure it remotely — you'll want to close it",
+        "fr": "{names} : impossible à verrouiller à distance, à fermer manuellement",
+        "de": "{names}: lässt sich nicht aus der Ferne sichern — bitte manuell schließen",
+        "es": "{names}: no se puede asegurar a distancia — hay que cerrarlo manualmente",
+        "it": "{names}: impossibile bloccare a distanza — da chiudere manualmente",
+        "nl": "{names}: niet op afstand te vergrendelen — graag handmatig sluiten",
+        "pt": "{names}: não dá para trancar à distância — feche manualmente",
+    },
+    "lockdown_gap_few": {
+        "en": "{names} are open and I can't secure them remotely — you'll want to close them",
+        "fr": "{names} : impossible à verrouiller à distance, à fermer manuellement",
+        "de": "{names}: lassen sich nicht aus der Ferne sichern — bitte manuell schließen",
+        "es": "{names}: no se pueden asegurar a distancia — hay que cerrarlos manualmente",
+        "it": "{names}: impossibile bloccare a distanza — da chiudere manualmente",
+        "nl": "{names}: niet op afstand te vergrendelen — graag handmatig sluiten",
+        "pt": "{names}: não dá para trancar à distância — feche manualmente",
+    },
+    "lockdown_gap_many": {
+        "en": "{count} openings are open and I can't secure them remotely — you'll want to close them",
+        "fr": "{count} ouvertures ne peuvent pas être verrouillées à distance — à fermer manuellement",
+        "de": "{count} Öffnungen lassen sich nicht aus der Ferne sichern — bitte manuell schließen",
+        "es": "{count} aberturas no se pueden asegurar a distancia — hay que cerrarlas manualmente",
+        "it": "{count} aperture non si possono bloccare a distanza — da chiudere manualmente",
+        "nl": "{count} openingen zijn niet op afstand te vergrendelen — graag handmatig sluiten",
+        "pt": "{count} aberturas não podem ser trancadas à distância — feche manualmente",
+    },
+    # Wrappers. The auxiliary ("I", "j'ai", "ich habe", …) lives in the wrapper
+    # so {did} — the joined verb phrases — reads naturally after it; pt uses the
+    # simple past and takes no auxiliary.
+    "lockdown_did": {
+        "en": "{honorific}, lockdown engaged — I {did}. The home is secure.",
+        "fr": "{honorific}, confinement activé — j'ai {did}. La maison est sécurisée.",
+        "de": "{honorific}, Sicherung aktiviert — ich habe {did}. Das Haus ist gesichert.",
+        "es": "{honorific}, confinamiento activado — he {did}. La casa está asegurada.",
+        "it": "{honorific}, blocco attivato — ho {did}. La casa è protetta.",
+        "nl": "{honorific}, vergrendeling ingeschakeld — ik heb {did}. Het huis is beveiligd.",
+        "pt": "{honorific}, confinamento ativado — {did}. A casa está segura.",
+    },
+    "lockdown_did_gap": {
+        "en": "{honorific}, lockdown engaged — I {did}, but {gap}.",
+        "fr": "{honorific}, confinement activé — j'ai {did}, mais {gap}.",
+        "de": "{honorific}, Sicherung aktiviert — ich habe {did}, aber {gap}.",
+        "es": "{honorific}, confinamiento activado — he {did}, pero {gap}.",
+        "it": "{honorific}, blocco attivato — ho {did}, ma {gap}.",
+        "nl": "{honorific}, vergrendeling ingeschakeld — ik heb {did}, maar {gap}.",
+        "pt": "{honorific}, confinamento ativado — {did}, mas {gap}.",
+    },
+    "lockdown_gap_only": {
+        "en": "{honorific}, lockdown engaged. Everything was already secured, but {gap}.",
+        "fr": "{honorific}, confinement activé. Tout était déjà sécurisé, mais {gap}.",
+        "de": "{honorific}, Sicherung aktiviert. Alles war bereits gesichert, aber {gap}.",
+        "es": "{honorific}, confinamiento activado. Todo ya estaba asegurado, pero {gap}.",
+        "it": "{honorific}, blocco attivato. Era già tutto protetto, ma {gap}.",
+        "nl": "{honorific}, vergrendeling ingeschakeld. Alles was al beveiligd, maar {gap}.",
+        "pt": "{honorific}, confinamento ativado. Tudo já estava seguro, mas {gap}.",
+    },
+    "lockdown_nighttime": {
+        "en": "{honorific}, nighttime lockdown: {body}. The house is secured.",
+        "fr": "{honorific}, confinement nocturne : {body}. La maison est sécurisée.",
+        "de": "{honorific}, nächtliche Sicherung: {body}. Das Haus ist gesichert.",
+        "es": "{honorific}, confinamiento nocturno: {body}. La casa está asegurada.",
+        "it": "{honorific}, blocco notturno: {body}. La casa è protetta.",
+        "nl": "{honorific}, nachtelijke vergrendeling: {body}. Het huis is beveiligd.",
+        "pt": "{honorific}, confinamento noturno: {body}. A casa está segura.",
+    },
 }
 
 
@@ -147,3 +232,28 @@ def message(key: str, lang: str | None, **params) -> str:
             return (table.get(_FALLBACK, "") or "").format(**params)
         except Exception:
             return table.get(_FALLBACK, "") or ""
+
+
+# Coordinating conjunction per language, for natural-language device lists.
+_AND: dict[str, str] = {
+    "en": "and", "fr": "et", "de": "und", "es": "y",
+    "it": "e", "nl": "en", "pt": "e",
+}
+# Languages that put a comma before the final conjunction (the "Oxford comma").
+_OXFORD = {"en"}
+
+
+def join_names(names, lang: str | None = None) -> str:
+    """Natural-language list join with the localized conjunction:
+    ['a'] -> 'a'; ['a','b'] -> 'a et b' (fr); ['a','b','c'] -> 'a, b, and c' (en).
+    Device/area names pass through untranslated."""
+    names = [n for n in (names or []) if n]
+    a = _AND.get(_norm(lang), "and")
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} {a} {names[1]}"
+    sep = f", {a} " if _norm(lang) in _OXFORD else f" {a} "
+    return f"{', '.join(names[:-1])}{sep}{names[-1]}"

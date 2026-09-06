@@ -1012,17 +1012,22 @@ class SafetyManager:
                     _LOGGER.warning("Cognitive lockdown: failed to close %s: %s", eid, exc)
 
         if unlocked or open_covers:
+            i18n = _notify_i18n()
+            lang = _hass_lang(self.hass)
             parts = []
             if unlocked:
-                parts.append(f"locked {', '.join(unlocked)}")
+                parts.append(i18n.message("lockdown_locked", lang,
+                                          names=i18n.join_names(unlocked, lang)))
             if open_covers:
-                parts.append(f"closed {', '.join(open_covers)}")
+                parts.append(i18n.message("lockdown_closed", lang,
+                                          names=i18n.join_names(open_covers, lang)))
             actions.append({
                 "type": "lockdown",
                 "urgency": "low",
-                "message": (
-                    f"{honorific.title()}, nighttime lockdown: {' and '.join(parts)}. "
-                    f"The house is secured."
+                "message": i18n.message(
+                    "lockdown_nighttime", lang,
+                    honorific=honorific.title(),
+                    body=i18n.join_names(parts, lang),
                 ),
                 "auto_act": True,
             })
@@ -1063,18 +1068,6 @@ class SafetyManager:
 
 # ── Lockdown (v5.9.36) ──────────────────────────────────────────────────────
 
-def _join_names(names: list) -> str:
-    """Natural-language join: [a] -> 'a', [a,b] -> 'a and b', [a,b,c] -> 'a, b, and c'."""
-    names = list(names)
-    if not names:
-        return ""
-    if len(names) == 1:
-        return names[0]
-    if len(names) == 2:
-        return f"{names[0]} and {names[1]}"
-    return f"{', '.join(names[:-1])}, and {names[-1]}"
-
-
 def build_lockdown_message(honorific: str, locked: list, closed: list,
                            open_names: list, lang: str = "en") -> str:
     """
@@ -1086,38 +1079,41 @@ def build_lockdown_message(honorific: str, locked: list, closed: list,
     gap to close by hand, never a footnote. The message never claims the home is
     secure while something is open, and never announces a non-event.
 
-    Localized only for the clean "already fully secured" case (no actions, no
-    open openings); the composed variants that stitch device lists together stay
-    English until a dedicated compositional-i18n pass, since a half-translated
-    device sentence reads worse than clean English.
+    Fully localized (v7.80.0): the composed variants are stitched from localized
+    verb phrases, a localized list join, and per-language wrappers, so a
+    non-English household gets the whole message — including the device list — in
+    their language. Device/area names pass through untranslated.
     """
+    i18n = _notify_i18n()
     h = (honorific or "sir").title()
 
     actions = []
     if locked:
-        actions.append(f"locked {_join_names(locked)}")
+        actions.append(i18n.message("lockdown_locked", lang,
+                                    names=i18n.join_names(locked, lang)))
     if closed:
-        actions.append(f"closed {_join_names(closed)}")
-    did = _join_names(actions)   # "locked X and closed Y", or "locked X", or ""
+        actions.append(i18n.message("lockdown_closed", lang,
+                                    names=i18n.join_names(closed, lang)))
+    did = i18n.join_names(actions, lang)   # localized "locked X and closed Y"
 
     def gap(names: list) -> str:
         if len(names) == 1:
-            return (f"{names[0]} is open and I can't secure it remotely — "
-                    f"you'll want to close it")
+            return i18n.message("lockdown_gap_one", lang,
+                                names=i18n.join_names(names, lang))
         if len(names) <= 3:
-            return (f"{_join_names(names)} are open and I can't secure them "
-                    f"remotely — you'll want to close them")
-        return (f"{len(names)} openings are open and I can't secure them "
-                f"remotely — you'll want to close them")
+            return i18n.message("lockdown_gap_few", lang,
+                                names=i18n.join_names(names, lang))
+        return i18n.message("lockdown_gap_many", lang, count=len(names))
 
     if did and open_names:
-        return f"{h}, lockdown engaged — I {did}, but {gap(open_names)}."
+        return i18n.message("lockdown_did_gap", lang, honorific=h, did=did,
+                            gap=gap(open_names))
     if did:
-        return f"{h}, lockdown engaged — I {did}. The home is secure."
+        return i18n.message("lockdown_did", lang, honorific=h, did=did)
     if open_names:
-        return (f"{h}, lockdown engaged. Everything was already secured, "
-                f"but {gap(open_names)}.")
-    return _notify_i18n().message("lockdown_already_secured", lang, honorific=h)
+        return i18n.message("lockdown_gap_only", lang, honorific=h,
+                            gap=gap(open_names))
+    return i18n.message("lockdown_already_secured", lang, honorific=h)
 
 
 class LockdownManager:

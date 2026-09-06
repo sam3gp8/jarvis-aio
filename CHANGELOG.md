@@ -1,3 +1,7 @@
+## [7.80.0] — lockdown notifications are fully localized
+
+The lockdown messages that list the specific doors and locks JARVIS just secured — and name any openings it couldn't secure remotely — now come through in your language, not just English. This was the last English-only piece of the safety notifications: it's assembled from device names with per-language grammar, so it's built from localized verb phrases, a localized list join (with the right conjunction and comma rules per language), and per-language sentence wrappers. French, German, Spanish, Italian, Dutch, and Portuguese are covered, with English as the fallback. Your device and room names are always left exactly as you named them. The openings-still-open phrasing is worded to read correctly regardless of a device's grammatical gender.
+
 ## [7.79.1] — clearer vision errors + no blocking SSL warning
 
 If a camera-vision model can't accept images (for example a text-only Groq model like gpt-oss), the analysis now fails with a plain message telling you to set a vision-capable model — such as moondream on Ollama, or a Llama/Qwen vision model on Groq — instead of a raw "content must be a string" API error. Separately, the vision and camera-reasoning providers are now built off the event loop and reused across analyses, so Home Assistant no longer logs a blocking-call warning about SSL setup when a camera is analyzed.

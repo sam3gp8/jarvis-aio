@@ -13,14 +13,19 @@ def cc(load):
     return load("cognitive_core")
 
 
+@pytest.fixture
+def i18n(load):
+    return load("notify_i18n")
+
+
 @pytest.mark.parametrize("names,expected", [
     ([], ""),
     (["a"], "a"),
     (["a", "b"], "a and b"),
     (["a", "b", "c"], "a, b, and c"),
 ])
-def test_join_names(cc, names, expected):
-    assert cc._join_names(names) == expected
+def test_join_names(i18n, names, expected):
+    assert i18n.join_names(names) == expected
 
 
 def test_already_secured(cc):
