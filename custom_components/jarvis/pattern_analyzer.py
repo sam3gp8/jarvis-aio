@@ -219,6 +219,10 @@ def service_for(entity_id: str, state: str) -> Optional[dict]:
     if domain in ("switch", "input_boolean") and s in ("on", "off"):
         return {"service": f"{domain}.turn_{s}", "entity_id": entity_id}
 
+    # a scene target is always activated via scene.turn_on
+    if domain == "scene":
+        return {"service": "scene.turn_on", "entity_id": entity_id}
+
     # climate, media_player, and everything else need parameters we don't infer
     # from a bare state — better to advise than to guess.
     return None
@@ -396,8 +400,10 @@ def _condition_phrase(cond) -> str:
 def _trigger_for(entity: str, state: str) -> dict:
     """HA trigger for a learned sequence's trigger entity. A person or
     device_tracker crossing home/away is emitted as a semantic *zone* trigger
-    (HA's recommended way to fire on arrival/departure); everything else stays a
-    state trigger."""
+    (HA's recommended way to fire on arrival/departure); an event.* entity
+    (button/remote) fires on every event, so it becomes a state trigger on the
+    entity with the specific press matched by a companion template condition (see
+    ``_trigger_extra_conditions``); everything else stays a state trigger."""
     dom = entity.split(".")[0] if "." in entity else ""
     if dom in ("person", "device_tracker"):
         if state == "not_home":
@@ -406,7 +412,25 @@ def _trigger_for(entity: str, state: str) -> dict:
         if state == "home":
             return {"platform": "zone", "entity_id": entity,
                     "zone": "zone.home", "event": "enter"}
+    if dom == "event":
+        return {"platform": "state", "entity_id": entity}
+    if dom == "scene":
+        # scene .state is a timestamp; any change to it is an activation
+        return {"platform": "state", "entity_id": entity}
     return {"platform": "state", "entity_id": entity, "to": state}
+
+
+def _trigger_extra_conditions(entity: str, state: str) -> list:
+    """Companion conditions a trigger requires beyond the learned ones. An
+    event.* entity fires on every press, so the specific press type is matched
+    by a template condition on ``event_type`` — the reliable, integration-
+    agnostic HA form for stateless event entities."""
+    dom = entity.split(".")[0] if "." in entity else ""
+    if dom == "event":
+        return [{"condition": "template",
+                 "value_template":
+                     "{{ trigger.to_state.attributes.event_type == '%s' }}" % state}]
+    return []
 
 
 def _trigger_phrase(entity: str, state: str) -> str:
@@ -417,6 +441,10 @@ def _trigger_phrase(entity: str, state: str) -> str:
             return f"When {entity} leaves home"
         if state == "home":
             return f"When {entity} arrives home"
+    if dom == "event":
+        return f"When {entity} is pressed ({state})"
+    if dom == "scene":
+        return f"When {entity} is activated"
     return f"When {entity} turns {state}"
 
 
@@ -1356,23 +1384,24 @@ class PatternAnalyzer:
     # HA TRIGGER platforms:
     #   state ✓(sequence, presence) · time ✓(time_routine) ·
     #   numeric_state ✓(numeric_trigger) · zone ✓(sequence departure/arrival) ·
-    #   time_pattern · sun · geo_location · template · event · homeassistant ·
+    #   event ✓(button/remote presses via event.* entities) ·
+    #   time_pattern · sun · geo_location · template · homeassistant ·
     #   mqtt · webhook · device · calendar · tag · conversation ·
     #   persistent_notification
+    #   (device: the device_id/type/subtype form is integration-specific and not
+    #    emitted; modern buttons/remotes surface as event.* entities, which is the
+    #    general path used here — a state trigger + a template on event_type.)
     # HA CONDITION types:
     #   time ✓(sequence) · sun ✓(sequence) · numeric_state ✓(sequence) ·
-    #   state ✓(time_routine) · zone · template · trigger · device ·
-    #   and · or · not
+    #   state ✓(time_routine) · template ✓(event-press match) ·
+    #   zone · trigger · device · and · or · not
     #
-    # Emitted today: TRIGGERS {state, time, numeric_state, zone};
-    #                CONDITIONS {time, sun, numeric_state, state} (ANDed as a list).
-    # Next candidates (highest learn-value first):
-    #   • device trigger — button/remote presses ("press → scene") — the real
-    #     build: presses are events, not state_changes, so it needs event capture
-    #     (a listener + its own store) before any pattern can be mined.
+    # Emitted today: TRIGGERS {state, time, numeric_state, zone, event};
+    #   CONDITIONS {time, sun, numeric_state, state, template} (ANDed as a list).
+    # Backlog (no longer the active list — revisit as desired):
     #   • calendar / time_pattern — schedule-driven routines.
-    #   • state (presence) condition on sequences — the "away" direction only
-    #     ("…and nobody home"); "home" stays off sequences (motion implies it).
+    #   • state (presence) condition on sequences — the "away" direction only.
+    #   • numeric_state condition on time routines ("at 7pm, only if below 65").
     # Each is its own focused build: mine the discriminator from history, attach
     # only when it consistently holds, keep the HA dict self-describing so
     # _generate_automation and normalize pass it through unchanged.
@@ -1418,9 +1447,13 @@ class PatternAnalyzer:
                 seq_action.append({"delay": f"00:{lag // 60:02d}:{lag % 60:02d}"})
             seq_action.append(svc)
             trig = _trigger_for(trigger["entity"], trigger["state"])
+            extra = _trigger_extra_conditions(trigger["entity"], trigger["state"])
             if trig.get("platform") == "zone":
                 verb = "leaves" if trig["event"] == "leave" else "arrives"
                 alias = f"JARVIS Learned: {action['entity']} when {trigger['entity']} {verb} home"
+            elif (trigger["entity"].split(".")[0] if "." in trigger["entity"]
+                    else "") == "event":
+                alias = f"JARVIS Learned: {action['entity']} on {trigger['entity']} press"
             else:
                 alias = f"JARVIS Learned: {action['entity']} after {trigger['entity']}"
             auto = {
@@ -1430,7 +1463,7 @@ class PatternAnalyzer:
             }
             cond = d.get("condition")
             conds = [c for c in (cond if isinstance(cond, list) else [cond])
-                     if isinstance(c, dict) and c.get("condition")]
+                     if isinstance(c, dict) and c.get("condition")] + extra
             if conds:
                 auto["condition"] = conds
             return json.dumps(auto, indent=2)

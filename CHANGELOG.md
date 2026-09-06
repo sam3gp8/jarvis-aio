@@ -1,3 +1,7 @@
+## [7.79.0] — learned button & remote automations ("press → scene")
+
+JARVIS can now learn what your buttons and remotes do. When a press consistently precedes an action — the living-room remote's single-press, then the movie scene — it suggests an automation triggered by that press. Modern Home Assistant exposes button and remote presses as event entities, and the suggestion fires on the specific press (single, double, hold) by matching the press type, so one button's different presses stay distinct. Scenes are now learnable as the target too, so "press → scene" resolves to activating that scene rather than each light individually. Button learning is opt-in — turn on button/remote learning to start recording presses — and as always the resulting automation is a suggestion you approve.
+
 ## [7.78.0] — learned arrival / departure automations
 
 When something you do consistently lines up with leaving or coming home — the garage closing shortly after you drive off, the entry lights coming on when you get back — the suggestion is now built as a proper arrival/departure trigger instead of a raw state change. Home Assistant treats "leaves home" and "arrives home" as zone events, which handle the edges of your home zone correctly, so these suggestions read as "when person.sam leaves home, close the garage" and behave the way presence automations are meant to. This applies to people and phone/device trackers crossing your home zone; other triggers are unchanged, and it only appears when the pattern is consistent.

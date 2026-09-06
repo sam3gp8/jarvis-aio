@@ -1966,14 +1966,16 @@ class StateLogger:
         """Record a state change for pattern analysis."""
         import sqlite3
         domain = entity_id.split(".")[0]
-        if domain in ("automation", "script", "scene", "input_boolean",
-                       "input_number"):
+        if domain in ("automation", "script", "input_boolean", "input_number"):
             return  # Meta entities, not useful for patterns
+        # scene is deliberately NOT skipped: a scene activation is a real,
+        # low-volume action worth learning as the target of "button → scene".
 
         # Noisy domains are skipped for pattern learning UNLESS the user opted
         # this entity/group in (e.g. garage door contacts, presence) — v7.11.0.
         if not force_include and domain in ("sensor", "binary_sensor", "weather",
-                                            "sun", "update", "device_tracker"):
+                                            "sun", "update", "device_tracker",
+                                            "event"):
             return  # Too noisy for pattern learning
 
         now = datetime.now()
@@ -2132,6 +2134,10 @@ def _pattern_opted_in(entity_id: str, device_class: str = "") -> bool:
             return device_class in ("motion", "occupancy", "presence", "moving")
         if domain in ("device_tracker", "person") and jarvis_config.get("pattern_learn_presence", False):
             return True
+        if domain == "event" and jarvis_config.get("pattern_learn_buttons", False):
+            # Button/remote presses surface as event.* entities; learnable for
+            # "press → scene/action" automations. Opt-in, off by default.
+            return True
     except Exception:
         pass
     return False
@@ -2206,6 +2212,25 @@ def _on_state_changed(event: Event) -> None:
         _dc = new_state.attributes.get("device_class") or ""
     except Exception:
         _dc = ""
+
+    # Event entities are stateless pulses — HA puts a timestamp in `.state`, but
+    # the meaningful value is the `event_type` attribute (e.g. "single",
+    # "double"). Substitute it so "button single-press → scene" is minable, and
+    # drop fires that carry no type. Scenes are similar: `.state` is a timestamp
+    # that changes on each activation, so record a stable "activated" marker.
+    _dom0 = entity_id.split(".", 1)[0]
+    if _dom0 == "event":
+        try:
+            _et = new_state.attributes.get("event_type") or ""
+        except Exception:
+            _et = ""
+        if not _et:
+            return
+        new_val = _et
+        old_val = ""
+    elif _dom0 == "scene":
+        new_val = "activated"
+        old_val = ""
 
     # Per-entity rate limit for pattern logging. A high-frequency source — a
     # streaming media_player flipping playing/buffering/paused, or a motion
