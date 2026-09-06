@@ -73,11 +73,19 @@ def _cfg_opt(hass: HomeAssistant, key: str, default=None):
     return entry.options.get(key, entry.data.get(key, default))
 
 
+_PROVIDER_CACHE: dict = {}
+
+
 def _make_client(hass: HomeAssistant, provider: str, model: str, fallback):
     """
     Create an LLM provider for the given provider/model from current config.
     Returns `fallback` if creation isn't possible (missing key, error) so the
     camera pipeline degrades gracefully rather than failing.
+
+    Successfully-created providers are cached by (provider, model, key, base_url)
+    so repeated camera analyses reuse one client — constructing a provider does
+    blocking SSL setup, so callers run this in an executor (see call sites) and
+    the cache keeps that off the hot path.
     """
     try:
         if not provider or not model:
@@ -89,14 +97,27 @@ def _make_client(hass: HomeAssistant, provider: str, model: str, fallback):
         if not api_key:
             return fallback
         base_url = _cfg_opt(hass, "llm_base_url", "") or None
+        key = (provider, model, api_key, base_url or "")
+        cached = _PROVIDER_CACHE.get(key)
+        if cached is not None:
+            return cached
         from .llm_provider import create_provider
-        return create_provider(provider, api_key, model, base_url)
+        client = create_provider(provider, api_key, model, base_url)
+        _PROVIDER_CACHE[key] = client
+        return client
     except Exception as exc:
         _LOGGER.warning(
             "camera: could not create %s/%s provider (%s) — using fallback",
             provider, model, exc,
         )
         return fallback
+
+
+def _vision_model_rejects_images(exc) -> bool:
+    """True when the error is the API refusing our image content because the
+    configured vision model is text-only — e.g. Groq's
+    'messages[1].content must be a string' 400 for gpt-oss / other LLMs."""
+    return "must be a string" in str(exc)
 
 
 def _parse_json_obj(raw: str):
@@ -942,7 +963,9 @@ async def async_analyze_camera(
     system = build_system_prompt(hass, honorific, task)
     vision_provider = _cfg_opt(hass, "vision_provider", "groq") or "groq"
     vision_model = _cfg_opt(hass, "vision_model", VISION_MODEL) or VISION_MODEL
-    vision_client = _make_client(hass, vision_provider, vision_model, groq_client)
+    # Construct off the event loop — creating a provider does blocking SSL setup.
+    vision_client = await hass.async_add_executor_job(
+        _make_client, hass, vision_provider, vision_model, groq_client)
     try:
         result = await hass.async_add_executor_job(
             lambda: vision_client.chat(
@@ -966,6 +989,23 @@ async def async_analyze_camera(
         )
         analysis = result["text"].strip()
     except Exception as exc:
+        # A text-only model rejects the image content array with a 400 like
+        # "messages[1].content must be a string". Surface the real cause and the
+        # fix instead of the raw API error.
+        if _vision_model_rejects_images(exc):
+            friendly = (
+                f"vision model '{vision_model}' does not accept images — set "
+                f"'vision_model' to a vision-capable model (e.g. 'moondream' on "
+                f"Ollama, or a Llama/Qwen vision model on Groq)"
+            )
+            _LOGGER.error("JARVIS vision (%s/%s): %s [raw: %s]",
+                          vision_provider, vision_model, friendly, exc)
+            try:
+                from .websocket import jarvis_log
+                jarvis_log("CAMERA", f"{camera_name}: {friendly}")
+            except Exception:
+                pass
+            return {"success": False, "error": friendly, "camera": camera_name}
         _LOGGER.error("JARVIS vision error (%s/%s): %s", vision_provider, vision_model, exc)
         try:
             from .websocket import jarvis_log
@@ -978,7 +1018,8 @@ async def async_analyze_camera(
     det_type = _guess_detection_type(prompt, analysis)
     rsn_provider = _cfg_opt(hass, "camera_reasoning_provider", "groq") or "groq"
     rsn_model = _cfg_opt(hass, "camera_reasoning_model", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
-    rsn_client = _make_client(hass, rsn_provider, rsn_model, groq_client)
+    rsn_client = await hass.async_add_executor_job(
+        _make_client, hass, rsn_provider, rsn_model, groq_client)
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,
     )

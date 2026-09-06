@@ -1,3 +1,7 @@
+## [7.79.1] — clearer vision errors + no blocking SSL warning
+
+If a camera-vision model can't accept images (for example a text-only Groq model like gpt-oss), the analysis now fails with a plain message telling you to set a vision-capable model — such as moondream on Ollama, or a Llama/Qwen vision model on Groq — instead of a raw "content must be a string" API error. Separately, the vision and camera-reasoning providers are now built off the event loop and reused across analyses, so Home Assistant no longer logs a blocking-call warning about SSL setup when a camera is analyzed.
+
 ## [7.79.0] — learned button & remote automations ("press → scene")
 
 JARVIS can now learn what your buttons and remotes do. When a press consistently precedes an action — the living-room remote's single-press, then the movie scene — it suggests an automation triggered by that press. Modern Home Assistant exposes button and remote presses as event entities, and the suggestion fires on the specific press (single, double, hold) by matching the press type, so one button's different presses stay distinct. Scenes are now learnable as the target too, so "press → scene" resolves to activating that scene rather than each light individually. Button learning is opt-in — turn on button/remote learning to start recording presses — and as always the resulting automation is a suggestion you approve.
