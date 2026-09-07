@@ -707,6 +707,7 @@ async def ws_get_panel_data(
                 "observer_enabled": observer_enabled_cfg,
                 "pattern_learn_doors":     bool(_runtime_opt(hass, entry, "pattern_learn_doors", False)),
                 "pattern_learn_presence":  bool(_runtime_opt(hass, entry, "pattern_learn_presence", False)),
+                "pattern_learn_buttons":   bool(_runtime_opt(hass, entry, "pattern_learn_buttons", False)),
                 "pattern_include_entities": _get_runtime_json(hass, entry, "pattern_include_entities", []),
                 "cognition_enabled": bool(_runtime_opt(hass, entry, "cognition_enabled", True)),
                 "camera_auto_analyze": bool(_runtime_opt(hass, entry, "camera_auto_analyze", True)),
@@ -729,6 +730,7 @@ async def ws_get_panel_data(
                 "memory_threading_max": _runtime_opt(hass, entry, "memory_threading_max", 12),
                 "continued_conversation_enabled": bool(_runtime_opt(hass, entry, "continued_conversation_enabled", False)),
                 "continued_conversation_speaker_reopen": bool(_runtime_opt(hass, entry, "continued_conversation_speaker_reopen", True)),
+                "continued_conversation_multi_satellite": bool(_runtime_opt(hass, entry, "continued_conversation_multi_satellite", False)),
                 "observer_group_debounce": _runtime_opt(hass, entry, "observer_group_debounce", 90),
                 "adaptive_interruption_budget": bool(_runtime_opt(hass, entry, "adaptive_interruption_budget", False)),
                 "adaptive_suggestion_threshold": bool(_runtime_opt(hass, entry, "adaptive_suggestion_threshold", False)),
@@ -1272,6 +1274,7 @@ PANEL_WRITABLE_KEYS = {
     "observer_enabled",
     "pattern_learn_doors",         # learn door/window activity for routines
     "pattern_learn_presence",      # learn presence/arrivals for routines
+    "pattern_learn_buttons",       # learn button/remote presses ("press -> scene")
     "pattern_include_entities",    # JSON list: specific entities to always learn
     "notify_service",
     "departure_alerts_enabled",
@@ -1285,6 +1288,7 @@ PANEL_WRITABLE_KEYS = {
     "memory_threading_max",
     "continued_conversation_enabled",
     "continued_conversation_speaker_reopen",   # bool: JARVIS times the follow-up mic reopen to the reply speaker finishing
+    "continued_conversation_multi_satellite",  # bool: follow-up follows the person to another room's satellite when the start room empties
     "disabled_sentinel_rules",   # JSON list of disabled rule IDs
     "satellite_pairings",        # JSON dict: {satellite_entity_id: cast_entity_id}
     "announcement_speakers",     # JSON list of cast entity IDs for announcements

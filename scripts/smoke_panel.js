@@ -798,6 +798,10 @@ setTimeout(async () => {
     ["anticipation exposes memory + continued-conv toggles",
       !!el.shadowRoot.querySelector('[data-cfg-key="memory_threading_enabled"]') &&
       !!el.shadowRoot.querySelector('[data-cfg-key="continued_conversation_enabled"]')],
+    ["multi-satellite follow toggle present",
+      !!el.shadowRoot.querySelector('[data-cfg-key="continued_conversation_multi_satellite"][data-cfg-val]')],
+    ["button-learning toggle present",
+      !!el.shadowRoot.querySelector('[data-cfg-key="pattern_learn_buttons"][data-cfg-val]')],
     ["anticipation numeric config wired", !!el.shadowRoot.querySelector('[data-cfg-key="departure_lead_minutes"]')],
     ["anticipation toggles carry data-cfg-val", !!el.shadowRoot.querySelector('[data-cfg-key="routine_alerts_enabled"][data-cfg-val]')],
     ["hazard card has three feed toggles",

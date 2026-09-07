@@ -1,3 +1,7 @@
+## [7.82.1] — two settings moved into the panel
+
+Two options that previously needed a config-file edit are now toggles in Settings, so you can turn them on without touching files. "Learn button & remote presses" lives with the other pattern-learning switches and lets JARVIS suggest press-to-scene automations. "Follow me between rooms" lives in the Anticipation & Memory card and moves a continued conversation to the satellite in the room you walked to once the room you started in is empty. Both are off until you turn them on.
+
 ## [7.82.0] — conversations can follow you between rooms
 
 When you're mid-conversation with JARVIS and walk to another room, the follow-up can now follow you. If the room you started in has gone completely empty by the time JARVIS is ready to listen again, and you've moved to another room that has a voice satellite, JARVIS reopens the microphone on that room's satellite instead — so you can keep talking where you are. It's deliberately cautious: it only moves the conversation when the starting room is clearly empty and the new room clearly has you in it, and it stays on the original satellite in any uncertain case, so a brief presence dropout never sends the follow-up to the wrong room. This is opt-in and off by default (config key `continued_conversation_multi_satellite`), and applies to homes with more than one satellite.
