@@ -1,3 +1,7 @@
+## [7.83.0] — announcements no longer blast every device by default
+
+JARVIS will no longer broadcast to every speaker (and every TV) when you haven't chosen where announcements should play. Until you pick your announcement speakers in Settings → Announcement Speakers — or set a broadcast group — briefings, sentinel alerts, and other announcements stay silent instead of playing on all devices at once. This fixes the first-launch experience where a test briefing came out of the whole house with no way to stop it, and where announcements took over TVs. "Brief me now" now tells you if no announcement speakers are set rather than doing nothing, and the sentinel and voice-test both use your chosen announcement speakers. If your announcements have gone quiet after updating, choose your speakers in Settings → Announcement Speakers and they'll return.
+
 ## [7.82.1] — two settings moved into the panel
 
 Two options that previously needed a config-file edit are now toggles in Settings, so you can turn them on without touching files. "Learn button & remote presses" lives with the other pattern-learning switches and lets JARVIS suggest press-to-scene automations. "Follow me between rooms" lives in the Anticipation & Memory card and moves a continued conversation to the satellite in the room you walked to once the room you started in is empty. Both are off until you turn them on.

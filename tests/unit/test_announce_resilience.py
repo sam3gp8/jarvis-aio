@@ -65,28 +65,73 @@ def routing(load, monkeypatch):
     return load("audio_routing")
 
 
-# ── broadcast target filtering ───────────────────────────────────────────────
+# ── broadcast target: silent-until-configured (v7.83.0) ─────────────────────
 
-def test_broadcast_skips_unavailable_players(routing, monkeypatch):
+def test_broadcast_silent_until_configured(routing, monkeypatch):
+    # Fresh install: nothing configured → [] (never blast every device / TV).
     players = {
         "media_player.kitchen": _State("media_player.kitchen", "idle"),
-        "media_player.dead_tv": _State("media_player.dead_tv", "unavailable"),
-        "media_player.unknown_one": _State("media_player.unknown_one", "unknown"),
+        "media_player.tv": _State("media_player.tv", "on"),
     }
     hass = _Hass(players)
     monkeypatch.setattr(routing, "_entities_by_domain", lambda h, d: list(players))
-    out = routing.broadcast_target(hass)
-    assert "media_player.kitchen" in out
-    assert "media_player.dead_tv" not in out
-    assert "media_player.unknown_one" not in out
+    assert routing.broadcast_target(hass) == []
 
 
-def test_broadcast_still_excludes_satellites(routing, monkeypatch):
-    ids = ["media_player.kitchen", "assist_satellite.basement"]
-    players = {i: _State(i, "idle") for i in ids}
+def test_broadcast_uses_broadcast_group(routing):
+    hass = _Hass({"media_player.home_group": _State("media_player.home_group", "idle")})
+    assert routing.broadcast_target(
+        hass, broadcast_group="media_player.home_group") == ["media_player.home_group"]
+
+
+def test_broadcast_group_missing_falls_silent(routing):
+    assert routing.broadcast_target(
+        _Hass({}), broadcast_group="media_player.gone") == []
+
+
+def test_broadcast_uses_announcement_speakers(routing):
+    hass = _Hass({
+        "media_player.kitchen": _State("media_player.kitchen", "idle"),
+        "media_player.den": _State("media_player.den", "idle"),
+    })
+    out = routing.broadcast_target(
+        hass, announcement_speakers=["media_player.kitchen", "media_player.den"])
+    assert out == ["media_player.kitchen", "media_player.den"]
+
+
+def test_broadcast_filters_missing_announcement_speakers(routing):
+    hass = _Hass({"media_player.kitchen": _State("media_player.kitchen", "idle")})
+    out = routing.broadcast_target(
+        hass, announcement_speakers=["media_player.kitchen", "media_player.gone"])
+    assert out == ["media_player.kitchen"]
+
+
+def test_broadcast_announcement_speakers_accepts_json_string(routing):
+    # panel/config may store the list as a JSON string
+    hass = _Hass({"media_player.kitchen": _State("media_player.kitchen", "idle")})
+    out = routing.broadcast_target(
+        hass, announcement_speakers='["media_player.kitchen"]')
+    assert out == ["media_player.kitchen"]
+
+
+def test_observer_critical_silent_until_configured(routing, monkeypatch):
+    # A critical alert broadcasts — but with nothing configured it must degrade
+    # to notify_only, never fall back to every speaker in the house.
+    players = {
+        "media_player.kitchen": _State("media_player.kitchen", "idle"),
+        "media_player.tv": _State("media_player.tv", "on"),
+    }
     hass = _Hass(players)
-    monkeypatch.setattr(routing, "_entities_by_domain", lambda h, d: ids)
-    assert routing.broadcast_target(hass) == ["media_player.kitchen"]
+    monkeypatch.setattr(routing, "_entities_by_domain", lambda h, d: list(players))
+    targets, mode = routing.observer_speak_target(hass, urgency="critical")
+    assert targets == [] and mode == "notify_only"
+
+
+def test_observer_critical_uses_announcement_speakers(routing):
+    hass = _Hass({"media_player.kitchen": _State("media_player.kitchen", "idle")})
+    targets, mode = routing.observer_speak_target(
+        hass, urgency="critical", announcement_speakers=["media_player.kitchen"])
+    assert targets == ["media_player.kitchen"] and mode == "broadcast"
 
 
 # ── per-speaker fallback ─────────────────────────────────────────────────────

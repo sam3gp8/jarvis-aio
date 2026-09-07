@@ -448,11 +448,10 @@ def observer_speak_target(
         if broadcast_group:
             if hass.states.get(broadcast_group):
                 return [broadcast_group]
-        # Fallback: all non-satellite speakers
-        return [
-            s for s in _entities_by_domain(hass, "media_player")
-            if not s.startswith("assist_satellite.")
-        ]
+        # Silent until configured — never fall back to every speaker in the house
+        # (v7.83.0). A fresh install with nothing selected stays quiet rather
+        # than broadcasting to all devices, including TVs.
+        return []
 
     # ─── CRITICAL ────────────────────────────────────────────────────────────
     if urgency == "critical":
@@ -524,34 +523,43 @@ def broadcast_target(
     hass: HomeAssistant,
     *,
     broadcast_group: Optional[str] = None,
+    announcement_speakers: Optional[list] = None,
 ) -> list[str]:
     """
     Pick speakers for explicit broadcast announcements (briefing, sentinel alert,
     doorbell, face recognition). These are always to-everyone, not room-routed.
 
     Priority:
-      1. Configured broadcast_group entity (single entity, typically a Cast group)
-      2. All media_player entities that are not satellites (aggregate)
-      3. Empty list (no audio output)
+      1. Configured announcement_speakers (the panel selection), validated present
+      2. Configured broadcast_group entity (single entity, typically a Cast group)
+      3. Empty list — SILENT.
+
+    Silent-until-configured (v7.83.0): with neither announcement_speakers nor a
+    broadcast_group set, this returns [] rather than every media player in the
+    house. A fresh install must never blast all speakers (and every TV) on the
+    first announcement — the user chooses their announcement speakers in
+    Settings first. Broadcasting to all was the cause of the first-launch
+    "it played on all 17 devices with no cancel" reports.
     """
+    spk = announcement_speakers
+    if isinstance(spk, str):
+        try:
+            import json as _json
+            spk = _json.loads(spk)
+        except Exception:
+            spk = [s.strip() for s in spk.split(",") if s.strip()]
+    if isinstance(spk, (list, tuple)):
+        valid = [s for s in spk if s and hass.states.get(s) is not None]
+        if valid:
+            return valid
+
     if broadcast_group:
         state = hass.states.get(broadcast_group)
         if state is not None:
             return [broadcast_group]
 
-    # Fallback — every speaker that isn't a satellite
-    # Skip targets that can never render audio (v6.78.2). tts.speak carries the
-    # whole list in one call, so a single unavailable entity used to fail the
-    # entire broadcast — an off TV could silence the morning briefing.
-    out = []
-    for s in _entities_by_domain(hass, "media_player"):
-        if s.startswith("assist_satellite."):
-            continue
-        st = hass.states.get(s)
-        if st is not None and st.state in ("unavailable", "unknown"):
-            continue
-        out.append(s)
-    return out
+    # Silent until the user configures announcement speakers / a broadcast group.
+    return []
 
 
 # ─── Bedroom / sleep detection helpers ───────────────────────────────────────

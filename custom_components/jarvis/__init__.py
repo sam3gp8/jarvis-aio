@@ -1308,9 +1308,14 @@ def _register_services(
         """Play a test tone using JARVIS Piper voice on the broadcast group."""
         from .tts_helper import resolve_tts_entity, async_announce
         from .audio_routing import broadcast_target
-        tts_entity = resolve_tts_entity(hass, entry.options.get("tts_engine", entry.data.get("tts_engine", "auto")))
-        broadcast_group = entry.options.get("broadcast_group", entry.data.get("broadcast_group", ""))
-        speakers = broadcast_target(hass, broadcast_group=broadcast_group)
+        from . import jarvis_config
+        cfg = jarvis_config.effective_config(entry)
+        tts_entity = resolve_tts_entity(hass, cfg.get("tts_engine", "auto"))
+        speakers = broadcast_target(
+            hass,
+            broadcast_group=(cfg.get("broadcast_group") or None),
+            announcement_speakers=cfg.get("announcement_speakers"),
+        )
         if tts_entity and speakers:
             await async_announce(
                 hass,
@@ -1321,7 +1326,10 @@ def _register_services(
             )
             _LOGGER.info("Test TTS sent via %s → %s", tts_entity, speakers)
         else:
-            _LOGGER.warning("Test TTS: no TTS entity (%s) or speakers (%s)", tts_entity, speakers)
+            _LOGGER.warning(
+                "Test TTS: no announcement speakers configured — choose speakers "
+                "in Settings → Announcement Speakers (tts=%s, speakers=%s)",
+                tts_entity, speakers)
 
     hass.services.async_register(DOMAIN, "test_tts", _test_tts)
 

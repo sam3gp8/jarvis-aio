@@ -273,6 +273,7 @@ async def async_briefing(
         save_message, "assistant", f"[Briefing] {briefing_text}", "briefing"
     )
 
+    announced = False
     if announce:
         _LOGGER.info(
             "JARVIS briefing announce: tts=%s, speakers=%s, text_len=%d, first_50=%s",
@@ -284,8 +285,12 @@ async def async_briefing(
         elif not tts_entity:
             _LOGGER.warning("JARVIS briefing: no TTS entity resolved")
         elif not speakers:
-            _LOGGER.warning("JARVIS briefing: no speakers available")
+            _LOGGER.warning(
+                "JARVIS briefing: no announcement speakers configured — choose "
+                "them in Settings \u2192 Announcement Speakers")
         else:
             await async_announce(hass, briefing_text, tts_entity, speakers)
+            announced = True
 
-    return {"success": True, "briefing": briefing_text, "context": context}
+    return {"success": True, "briefing": briefing_text, "context": context,
+            "announced": announced}

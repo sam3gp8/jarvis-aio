@@ -98,14 +98,17 @@ class JarvisSentinel:
         return resolve_tts_entity(self.hass, configured)
 
     def _speakers(self) -> list[str]:
-        """Sentinel speakers — v5.3 uses broadcast_target from HA area registry."""
+        """Sentinel speakers — announcement_speakers (panel selection) or
+        broadcast_group; silent until one is configured."""
         if not self._entry:
             return []
-        # v5.3: read broadcast_group, fall back to all media_players
         from .audio_routing import broadcast_target
         broadcast_group = jarvis_config.runtime_get(
             self.hass, self._entry, "broadcast_group", "") or None
-        return broadcast_target(self.hass, broadcast_group=broadcast_group)
+        announcement_speakers = jarvis_config.runtime_get(
+            self.hass, self._entry, "announcement_speakers", None)
+        return broadcast_target(self.hass, broadcast_group=broadcast_group,
+                                announcement_speakers=announcement_speakers)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
