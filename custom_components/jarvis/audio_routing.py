@@ -111,11 +111,30 @@ def satellites_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
 
 
 def speakers_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
-    """All media_player entities whose area matches."""
-    return [
-        e for e in _entities_by_domain(hass, "media_player")
-        if entity_area(hass, e) == area_id
-    ]
+    """Audio-capable media_players in the area, for routing TTS / announcements.
+
+    Excludes screens: any media_player with device_class 'tv', and the user's
+    designated movie player (``movie_media_player``). TTS is audio and must never
+    route to a television — otherwise a TV in the room picks up proactive/room
+    speech (e.g. a Samsung TV in the living room getting an observer comment).
+    A movie player still plays movies; it just isn't a speech target.
+    """
+    try:
+        from . import jarvis_config
+        movie = jarvis_config.get("movie_media_player", "") or ""
+    except Exception:
+        movie = ""
+    out = []
+    for e in _entities_by_domain(hass, "media_player"):
+        if entity_area(hass, e) != area_id:
+            continue
+        if e == movie:
+            continue
+        st = hass.states.get(e)
+        if st is not None and st.attributes.get("device_class") == "tv":
+            continue
+        out.append(e)
+    return out
 
 
 def presence_entities_in_area(hass: HomeAssistant, area_id: str) -> list[str]:

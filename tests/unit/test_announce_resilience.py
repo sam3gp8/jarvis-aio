@@ -134,6 +134,24 @@ def test_observer_critical_uses_announcement_speakers(routing):
     assert targets == ["media_player.kitchen"] and mode == "broadcast"
 
 
+def test_speakers_in_area_excludes_tv_and_movie_player(routing, monkeypatch):
+    # A living room with a real speaker, a TV (device_class tv), and a projector
+    # designated as the movie player. TTS routing must return only the speaker.
+    spk = _State("media_player.living_room_speaker", "idle")
+    tv = _State("media_player.samsung_tv", "on"); tv.attributes = {"device_class": "tv"}
+    proj = _State("media_player.projector", "idle")   # movie_media_player, no dc
+    players = {s.entity_id: s for s in (spk, tv, proj)}
+    hass = _Hass(players)
+    monkeypatch.setattr(routing, "_entities_by_domain", lambda h, d: list(players))
+    monkeypatch.setattr(routing, "entity_area", lambda h, e: "living_room")
+    import sys, types
+    pkg = routing.__name__.rsplit(".", 1)[0]
+    jc = types.SimpleNamespace(
+        get=lambda k, d=None: "media_player.projector" if k == "movie_media_player" else d)
+    monkeypatch.setitem(sys.modules, f"{pkg}.jarvis_config", jc)
+    assert routing.speakers_in_area(hass, "living_room") == ["media_player.living_room_speaker"]
+
+
 # ── per-speaker fallback ─────────────────────────────────────────────────────
 
 async def test_batch_success_makes_one_call(tts):
