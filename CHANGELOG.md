@@ -1,3 +1,7 @@
+## [7.81.1] — Vision model picker guidance
+
+The Vision entry under Settings → AI Models now shows a short hint that it needs an image-capable model — moondream on Ollama, or a Groq vision model — and that a text-only model (like gpt-oss) will fail on camera analysis. This heads off a confusing setup where camera analysis errors out only because the wrong kind of model was chosen for vision; the other model roles are unaffected.
+
 ## [7.81.0] — a dedicated Suggestions tab
 
 The automations JARVIS learns from your routines now have their own tab in the panel, instead of being tucked into the Command Center. Each suggestion shows what JARVIS observed, how confident it is, the devices involved, and the exact automation it would create — so you can review it properly and either approve it (which creates it in Home Assistant) or dismiss it. When there's nothing to review yet, the tab explains that JARVIS is still watching for patterns. Sensor-threshold suggestions (the "when it drops below X" kind) are labelled clearly alongside the routine, sequence, and presence types.

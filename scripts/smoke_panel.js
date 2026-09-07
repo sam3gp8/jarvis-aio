@@ -789,6 +789,11 @@ setTimeout(async () => {
   const hazOverall = el.shadowRoot.getElementById("hazard-overall")?.textContent || "";
   checks.push(
     ["hazard card present with enable toggle", !!el.shadowRoot.querySelector('[data-cfg-key="hazard_monitor_enabled"]')],
+    ["vision model row carries the image-capable hint",
+      (() => { const row = el.shadowRoot.querySelector('.model-row[data-role="vision"]');
+        return !!row && /image-capable/.test(row.textContent) && !!row.querySelector('.model-hint'); })()],
+    ["non-vision model rows have no hint",
+      !el.shadowRoot.querySelector('.model-row[data-role="reasoning"] .model-hint')],
     ["anticipation & memory card present", !!el.shadowRoot.querySelector('[data-cfg-key="departure_alerts_enabled"]')],
     ["anticipation exposes memory + continued-conv toggles",
       !!el.shadowRoot.querySelector('[data-cfg-key="memory_threading_enabled"]') &&
