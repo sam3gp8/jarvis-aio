@@ -13,9 +13,14 @@ explicit offer to act — it will not hold the mic open after a plain statement.
 The external-speaker reopen timing IS implemented here (schedule_reopen): for a
 mic-only satellite whose reply plays on a separate speaker, JARVIS watches that
 speaker and reopens the satellite mic only once it goes idle — so the mic doesn't
-capture JARVIS's own reply. The fuller ambient behavior (no-wake response,
-barge-in, multi-satellite continuity) is still to come and is validated on the
-real satellites.
+capture JARVIS's own reply.
+
+Multi-satellite continuity is implemented too (opt-in): if the starting room has
+gone completely empty by reopen time and the person has moved to another room
+that has a satellite, the follow-up mic reopens on that room's satellite so the
+conversation follows them. It stays on the original satellite in any ambiguous
+case. Barge-in and always-on no-wake response remain firmware/hardware concerns
+on the satellite itself and are out of scope here.
 """
 from __future__ import annotations
 
@@ -90,6 +95,47 @@ def _speech_seconds(text: str) -> float:
     return min(20.0, max(1.5, len(text or "") / 12.0 + 0.8))
 
 
+def _multi_satellite_enabled() -> bool:
+    """Whether the follow-up may hand off to a satellite in another room once the
+    starting room has emptied (default off — opt-in, conservative)."""
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("continued_conversation_multi_satellite", False))
+    except Exception:
+        return False
+
+
+def _pick_reopen_target(hass, original_satellite: str) -> str:
+    """Which satellite to reopen for the follow-up.
+
+    Default (and whenever handoff is off): the original satellite. With
+    multi-satellite handoff on: if the starting room is COMPLETELY EMPTY and the
+    person has moved to another room that has a satellite, reopen that room's
+    satellite so the conversation follows them. Deliberately conservative — it
+    hands off only on a clearly-empty start room *and* a clearly-occupied room
+    that owns a satellite; anything ambiguous stays on the original satellite, so
+    a brief presence dropout never throws the follow-up into the wrong room.
+    """
+    if not _multi_satellite_enabled():
+        return original_satellite
+    try:
+        from . import audio_routing
+        start_area = audio_routing.entity_area(hass, original_satellite)
+        # No resolvable area, or the start room still reads occupied → stay put.
+        if not start_area or audio_routing.is_area_occupied(hass, start_area):
+            return original_satellite
+        # Start room empty: hand the follow-up to a satellite in an occupied room.
+        for area in audio_routing.currently_occupied_areas(hass):
+            if area == start_area:
+                continue
+            sats = audio_routing.satellites_in_area(hass, area)
+            if sats:
+                return sats[0]
+    except Exception:
+        pass
+    return original_satellite
+
+
 async def _reopen_after_speaker(hass, satellite_entity_id: str,
                                 speaker_entity_id: str, reply_text: str) -> None:
     """Wait for the reply to finish on `speaker_entity_id`, then reopen the
@@ -120,11 +166,14 @@ async def _reopen_after_speaker(hass, satellite_entity_id: str,
         # so the mic still reopens at a sane time.
         await asyncio.sleep(est)
 
+    # Presence has settled by now (we waited for the reply to finish), so decide
+    # whether to follow the person to another room's satellite.
+    target = _pick_reopen_target(hass, satellite_entity_id)
     try:
         await hass.services.async_call(
             "assist_satellite",
             "start_conversation",
-            {"entity_id": satellite_entity_id, "start_message": ""},
+            {"entity_id": target, "start_message": ""},
             blocking=False,
         )
     except Exception:

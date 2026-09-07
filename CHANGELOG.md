@@ -1,3 +1,7 @@
+## [7.82.0] — conversations can follow you between rooms
+
+When you're mid-conversation with JARVIS and walk to another room, the follow-up can now follow you. If the room you started in has gone completely empty by the time JARVIS is ready to listen again, and you've moved to another room that has a voice satellite, JARVIS reopens the microphone on that room's satellite instead — so you can keep talking where you are. It's deliberately cautious: it only moves the conversation when the starting room is clearly empty and the new room clearly has you in it, and it stays on the original satellite in any uncertain case, so a brief presence dropout never sends the follow-up to the wrong room. This is opt-in and off by default (config key `continued_conversation_multi_satellite`), and applies to homes with more than one satellite.
+
 ## [7.81.1] — Vision model picker guidance
 
 The Vision entry under Settings → AI Models now shows a short hint that it needs an image-capable model — moondream on Ollama, or a Groq vision model — and that a text-only model (like gpt-oss) will fail on camera analysis. This heads off a confusing setup where camera analysis errors out only because the wrong kind of model was chosen for vision; the other model roles are unaffected.
