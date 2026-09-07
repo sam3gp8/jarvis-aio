@@ -825,6 +825,22 @@ setTimeout(async () => {
       /M3\.4/.test(hazBody) && /Tornado/.test(hazBody) && /Wildfire/.test(hazBody)]);
   }
 
+  // v7.84.0: Settings sub-navigation groups cards into sections.
+  const _card = (title) => [...el.shadowRoot.querySelectorAll(".settings-grid > .panel")]
+    .find(p => (p.querySelector(".head span")?.textContent || "").trim() === title);
+  const _subnav = el.shadowRoot.querySelectorAll(".settings-subnav-btn");
+  el._settingsSection = "safety";
+  el._applySettingsSections();
+  const _haz = _card("Hazard Monitor");
+  const _gen = _card("General");
+  checks.push(
+    ["settings sub-nav renders section buttons", _subnav.length >= 5],
+    ["sub-nav shows the active section's cards", !!_haz && _haz.style.display !== "none"],
+    ["sub-nav hides other sections' cards", !!_gen && _gen.style.display === "none"],
+  );
+  el._settingsSection = "general";
+  el._applySettingsSections();
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();

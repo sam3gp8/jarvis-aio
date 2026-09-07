@@ -1,3 +1,7 @@
+## [7.84.0] — Settings organized into sections
+
+The Settings tab now has a sub-navigation bar that groups everything into six sections — General, Voice & Audio, Learning, Safety & Energy, Cameras, and Home & Extras — so you see one focused group at a time instead of scrolling one long wall of cards. It opens on General, and switching sections is instant. Nothing was removed or renamed; the same settings are just organized, which should make it far easier for new users to find their way around.
+
 ## [7.83.1] — spoken announcements never route to a TV
 
 JARVIS no longer speaks through televisions. Room-based speech — proactive observer comments and room-targeted announcements — now skips any media player reported as a TV, as well as the media player you've designated for movies. Previously, if a room had a TV alongside a speaker (or only a TV), proactive speech could play through the television; now it uses the room's actual speaker, or stays quiet if the room has none. Your movie/TV player still plays movies as before — it's simply never used as a voice output. This complements the previous change so neither broadcast announcements nor room speech can take over a TV.
