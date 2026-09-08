@@ -192,8 +192,14 @@ def presence_entities_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
     'motion' or 'presence') in the given area."""
     occupancy_classes = ("occupancy", "motion", "presence")
     all_bs = _entities_by_domain(hass, "binary_sensor")
+    try:
+        from .entity_filter import is_excluded as _excl
+    except Exception:
+        _excl = lambda _h, _e: False
     out = []
     for e in all_bs:
+        if _excl(hass, e):
+            continue
         state = hass.states.get(e)
         if state is None:
             continue
@@ -219,8 +225,14 @@ def all_areas_with_satellite(hass: HomeAssistant) -> set[str]:
 def all_areas_with_presence(hass: HomeAssistant) -> set[str]:
     """Areas that have at least one occupancy/motion/presence sensor."""
     occupancy_classes = ("occupancy", "motion", "presence")
+    try:
+        from .entity_filter import is_excluded as _excl
+    except Exception:
+        _excl = lambda _h, _e: False
     out = set()
     for s in hass.states.async_all("binary_sensor"):
+        if _excl(hass, s.entity_id):
+            continue
         dc = s.attributes.get("device_class")
         if dc not in occupancy_classes:
             continue

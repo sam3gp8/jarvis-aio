@@ -70,11 +70,17 @@ def get_presence_summary(hass: HomeAssistant) -> dict:
     # Room detection via mmWave sensors — Aqara FP2 exposes sensor.*_presence
     # with occupancy attributes, or binary_sensor.*_occupancy. We scan both.
     rooms: dict[str, list[str]] = {}
+    try:
+        from .entity_filter import is_excluded as _excl
+    except Exception:
+        _excl = lambda _h, _e: False
     for state in hass.states.async_all("binary_sensor"):
         if state.state != "on":
             continue
         if state.attributes.get("device_class") != "occupancy":
             continue
+        if _excl(hass, state.entity_id):
+            continue  # user excluded this sensor (e.g. a virtual occupancy sensor)
         name = state.attributes.get("friendly_name", state.entity_id)
         # Try to extract the room from the name (e.g. "Kitchen Presence")
         room = name.lower().replace("presence", "").replace("occupancy", "").strip()

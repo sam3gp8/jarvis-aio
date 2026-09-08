@@ -1,3 +1,13 @@
+## [7.85.0] — Exclude entities from JARVIS
+
+You can now tell JARVIS which entities to ignore. In Settings → Excluded Entities (under Learning) you can exclude:
+
+- **Specific entities**, one at a time,
+- **Whole domains** (e.g. every `light` or `switch`), and
+- **By Home Assistant label**, to exclude a whole group at once.
+
+Excluded entities are dropped everywhere JARVIS looks on its own — presence detection, room routing, the observer, and routine learning — so noise sources stop interfering. A common case: a virtual occupancy sensor from another integration that JARVIS was treating as a real room-presence sensor; exclude it and it no longer affects presence or where JARVIS speaks. Excluding an entity only removes it from JARVIS's awareness — Home Assistant still has it, and JARVIS can still control it if you ask for it by name.
+
 ## [7.84.2] — Settings sub-tabs on translated UIs; temperatures follow your unit system
 
 Two fixes for non-English / metric households:

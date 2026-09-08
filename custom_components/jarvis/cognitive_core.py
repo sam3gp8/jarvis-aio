@@ -2196,6 +2196,15 @@ def _on_state_changed(event: Event) -> None:
     if _CORE.ignore_mgr and _CORE.ignore_mgr.is_ignored(entity_id):
         return
 
+    # User exclusion (specific entities / domains / labels) — don't monitor,
+    # log, or learn from it at all.
+    try:
+        from .entity_filter import is_excluded
+        if is_excluded(_CORE.hass, entity_id):
+            return
+    except Exception:
+        pass
+
     old_val = old_state.state if old_state else "unknown"
     new_val = new_state.state
 

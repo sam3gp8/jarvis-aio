@@ -176,6 +176,15 @@ def _should_pre_filter(event: Event) -> bool:
     if not entity_id:
         return True
 
+    # User exclusion (specific entities / domains / labels) — drop before any
+    # further processing so an excluded entity never reaches the observer.
+    try:
+        from .entity_filter import is_excluded
+        if _STATE.hass is not None and is_excluded(_STATE.hass, entity_id):
+            return True
+    except Exception:
+        pass
+
     # Cheap entity-id substring blocklist — catches measurement noise
     if _entity_id_looks_noisy(entity_id):
         return True

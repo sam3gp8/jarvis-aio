@@ -709,6 +709,10 @@ async def ws_get_panel_data(
                 "pattern_learn_presence":  bool(_runtime_opt(hass, entry, "pattern_learn_presence", False)),
                 "pattern_learn_buttons":   bool(_runtime_opt(hass, entry, "pattern_learn_buttons", False)),
                 "pattern_include_entities": _get_runtime_json(hass, entry, "pattern_include_entities", []),
+                "excluded_entities": _get_runtime_json(hass, entry, "excluded_entities", []),
+                "excluded_domains": _get_runtime_json(hass, entry, "excluded_domains", []),
+                "excluded_labels": _get_runtime_json(hass, entry, "excluded_labels", []),
+                "available_labels": _available_labels(hass),
                 "cognition_enabled": bool(_runtime_opt(hass, entry, "cognition_enabled", True)),
                 "camera_auto_analyze": bool(_runtime_opt(hass, entry, "camera_auto_analyze", True)),
                 "camera_auto_analyze_motion": bool(_runtime_opt(hass, entry, "camera_auto_analyze_motion", False)),
@@ -1276,6 +1280,9 @@ PANEL_WRITABLE_KEYS = {
     "pattern_learn_presence",      # learn presence/arrivals for routines
     "pattern_learn_buttons",       # learn button/remote presses ("press -> scene")
     "pattern_include_entities",    # JSON list: specific entities to always learn
+    "excluded_entities",           # JSON list: entity_ids removed from JARVIS's awareness
+    "excluded_domains",            # JSON list: whole domains removed from awareness
+    "excluded_labels",             # JSON list: HA labels whose entities are removed from awareness
     "notify_service",
     "departure_alerts_enabled",
     "routine_alerts_enabled",
@@ -1924,6 +1931,21 @@ def _get_memory_stats() -> dict:
         return get_memory_stats()
     except Exception:
         return {"backend": "unavailable", "total_memories": 0}
+
+
+def _available_labels(hass: HomeAssistant) -> list:
+    """[{id, name}] of Home Assistant labels, for the exclusion label picker.
+    Empty list if the label registry isn't available on this HA version."""
+    try:
+        from homeassistant.helpers import label_registry as _lr
+        reg = _lr.async_get(hass)
+        out = []
+        for lbl in reg.labels.values():
+            out.append({"id": lbl.label_id, "name": lbl.name})
+        out.sort(key=lambda x: (x.get("name") or "").lower())
+        return out
+    except Exception:
+        return []
 
 
 def _get_runtime_json(hass: HomeAssistant, entry, key: str, default):

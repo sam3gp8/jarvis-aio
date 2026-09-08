@@ -854,6 +854,17 @@ setTimeout(async () => {
   el._settingsSection = "general";
   el._applySettingsSections();
 
+  // v7.85.0: Excluded entities card — three chip pickers + maps to Learning.
+  const _exclCard = _card("Excluded Entities");
+  checks.push(
+    ["excluded-entities card renders three pickers",
+      !!el.shadowRoot.querySelector("#excl-ent-add")
+      && !!el.shadowRoot.querySelector("#excl-dom-add")
+      && !!el.shadowRoot.querySelector("#excl-lab-add")],
+    ["excluded-entities card maps to the Learning section",
+      !!_exclCard && _exclCard.dataset.section === "learning"],
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();
