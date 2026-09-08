@@ -252,6 +252,13 @@ async def _speak_tts(
     hass: HomeAssistant, targets: list[str], message: str, profile: dict
 ) -> None:
     """Call tts.speak, retrying without options if the engine rejects them."""
+    try:
+        from .audio_routing import drop_display_targets
+        targets = drop_display_targets(hass, targets, "proactive_audio")
+    except Exception:
+        pass
+    if not targets:
+        return
     payload = {
         "entity_id": _resolve_tts_entity(hass),
         "media_player_entity_id": targets,

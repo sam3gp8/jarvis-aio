@@ -190,3 +190,32 @@ async def test_no_tts_entity_is_a_noop(tts):
     hass = _Hass({})
     await tts.async_announce(hass, "hello", None, ["media_player.a"])
     assert hass.calls == []
+
+
+def test_drop_display_targets_filters_tv_and_movie(routing, load):
+    # The output choke point strips TVs + the movie player from ANY target list,
+    # regardless of how they were resolved — the safety net for TV takeovers.
+    # movie_media_player is read from runtime_config (hass.data), not jarvis_config.
+    const = load("const")
+    spk = _State("media_player.living_room_speaker", "idle")
+    tv = _State("media_player.samsung_tv", "on"); tv.attributes = {"device_class": "tv"}
+    movie = _State("media_player.projector", "idle")
+    players = {s.entity_id: s for s in (spk, tv, movie)}
+    hass = _Hass(players)
+    hass.data = {const.DOMAIN: {"e1": {"runtime_config": {
+        "movie_media_player": "media_player.projector"}}}}
+    kept = routing.drop_display_targets(
+        hass,
+        ["media_player.living_room_speaker", "media_player.samsung_tv", "media_player.projector"],
+        "unit-test")
+    assert kept == ["media_player.living_room_speaker"]
+
+
+def test_drop_display_targets_keeps_plain_speakers(routing, load):
+    const = load("const")
+    hass = _Hass({"media_player.kitchen": _State("media_player.kitchen", "idle"),
+                  "media_player.den": _State("media_player.den", "idle")})
+    hass.data = {const.DOMAIN: {}}
+    kept = routing.drop_display_targets(
+        hass, ["media_player.kitchen", "media_player.den"], "unit-test")
+    assert kept == ["media_player.kitchen", "media_player.den"]

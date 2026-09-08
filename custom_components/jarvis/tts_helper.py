@@ -199,6 +199,16 @@ async def async_announce(
     if not text or not tts_entity or not speakers:
         return False
 
+    # Final safety net: never speak through a TV/movie player, whatever routing
+    # produced this list. Logs (with context) if it has to drop one.
+    try:
+        from .audio_routing import drop_display_targets
+        speakers = drop_display_targets(hass, speakers, context)
+    except Exception:
+        pass
+    if not speakers:
+        return False
+
     _LOGGER.debug("JARVIS announce [%s]: %s → %s", context, tts_entity, speakers)
 
     is_piper = "piper" in tts_entity.lower()

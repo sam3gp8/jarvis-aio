@@ -504,6 +504,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         restore_keys = set(PANEL_WRITABLE_KEYS) | {
             "broadcast_group", "observer_quiet_start",
             "observer_quiet_end", "bedroom_areas",
+            "movie_media_player",  # so TTS routing can exclude the TV in-memory
         }
         rc = {k: cfg[k] for k in restore_keys if k in cfg}
         if rc:

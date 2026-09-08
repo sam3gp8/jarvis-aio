@@ -1,3 +1,7 @@
+## [7.84.1] — hard backstop: JARVIS never speaks through a TV
+
+A final safety net now sits at the point where any spoken output is sent: every announcement and reply has its target list stripped of televisions (any media player reported as a TV, and the media player you've designated for movies) before it plays — no matter which feature produced it. Earlier fixes handled the known routing paths; this closes any remaining one, so a TV can't be spoken to even through a path we haven't traced. When it has to drop a TV target, it logs which feature tried, so any unexpected attempt is now traceable. Your movie/TV player still plays movies; it is simply never a voice target.
+
 ## [7.84.0] — Settings organized into sections
 
 The Settings tab now has a sub-navigation bar that groups everything into six sections — General, Voice & Audio, Learning, Safety & Energy, Cameras, and Home & Extras — so you see one focused group at a time instead of scrolling one long wall of cards. It opens on General, and switching sections is instant. Nothing was removed or renamed; the same settings are just organized, which should make it far easier for new users to find their way around.

@@ -824,6 +824,14 @@ def _get_announcement_speakers() -> list[str] | None:
 async def _speak(message: str, *, targets: list[str]) -> None:
     """Call tts.speak for each target using configured TTS engine."""
     hass = _STATE.hass
+    # Final safety net: never speak through a TV/movie player.
+    try:
+        from .audio_routing import drop_display_targets
+        targets = drop_display_targets(hass, targets, "observer")
+    except Exception:
+        pass
+    if not targets:
+        return
     _LOGGER.info("Observer speaking → %s: %s", targets, message)
 
     # Resolve TTS entity from config (same as the rest of JARVIS)

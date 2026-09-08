@@ -137,6 +137,56 @@ def speakers_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
     return out
 
 
+def _is_display_target(hass: HomeAssistant, entity_id: str, movie: str) -> bool:
+    """True if this media_player is a screen (a TV or the designated movie
+    player) and must never be a TTS/announcement target."""
+    if not entity_id:
+        return False
+    if movie and entity_id == movie:
+        return True
+    st = hass.states.get(entity_id)
+    if st is not None and st.attributes.get("device_class") == "tv":
+        return True
+    return False
+
+
+def drop_display_targets(hass: HomeAssistant, targets, context: str = "") -> list[str]:
+    """Final safety choke point: strip TVs and the designated movie player from a
+    TTS target list, no matter how those targets were resolved. Every speech path
+    (async_announce, the observer's raw tts.speak, proactive audio) runs its
+    targets through here so a television can never be spoken to — even via a
+    routing path we haven't accounted for.
+
+    Any drop is logged at WARNING with the caller context, so an unexpected TV
+    target is immediately traceable to the feature that produced it.
+    """
+    # Read the designated movie player from the in-memory runtime_config (seeded
+    # from config.json at setup) — NOT via jarvis_config.get(), whose lazy load()
+    # mutates shared module state and would perturb unrelated code/tests.
+    movie = ""
+    try:
+        from .const import DOMAIN
+        for _ed in (hass.data.get(DOMAIN) or {}).values():
+            if isinstance(_ed, dict):
+                rc = _ed.get("runtime_config") or {}
+                mv = rc.get("movie_media_player")
+                if mv:
+                    movie = mv
+                    break
+    except Exception:
+        movie = ""
+    kept, dropped = [], []
+    for t in list(targets or []):
+        (dropped if _is_display_target(hass, t, movie) else kept).append(t)
+    if dropped:
+        _LOGGER.warning(
+            "JARVIS: refused to send TTS to display target(s) %s (context=%s) — "
+            "a routing path tried to speak through a TV; speaking to %s instead",
+            dropped, context or "?", kept or "nothing",
+        )
+    return kept
+
+
 def presence_entities_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
     """All binary_sensor.*_occupancy entities (device_class='occupancy' or
     'motion' or 'presence') in the given area."""
@@ -326,7 +376,7 @@ def reply_target(
             _LOGGER.debug("device_id->area lookup failed: %s", exc)
 
     # ── Priority 0: explicit panel pairing ────────────────────────────────
-    _LOGGER.warning(
+    _LOGGER.debug(
         "reply_target ENTRY: sat_entity=%s, device_id=%s, sat_area=%s, "
         "pairings=%s",
         sat_entity, device_id, sat_area,
