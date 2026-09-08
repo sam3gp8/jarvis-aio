@@ -838,6 +838,19 @@ setTimeout(async () => {
     ["sub-nav shows the active section's cards", !!_haz && _haz.style.display !== "none"],
     ["sub-nav hides other sections' cards", !!_gen && _gen.style.display === "none"],
   );
+  // v7.84.2 regression guard: sub-nav must survive UI localization. _localizeDOM
+  // rewrites heading text AFTER render, so sections are stamped (data-section)
+  // from the English heading at render time. Simulate a translated heading and
+  // confirm the card still resolves to its section instead of stranding in
+  // "general" (which left every non-General sub-tab empty for non-English users).
+  const _hazSpan = _haz && _haz.querySelector(".head span");
+  if (_hazSpan) _hazSpan.textContent = "Surveillance des dangers"; // FR; not in MAP
+  el._settingsSection = "safety";
+  el._applySettingsSections();
+  checks.push(
+    ["sub-nav section survives a translated heading (localized UI)",
+      !!_haz && _haz.dataset.section === "safety" && _haz.style.display !== "none"],
+  );
   el._settingsSection = "general";
   el._applySettingsSections();
 

@@ -452,6 +452,19 @@ class JarvisAgent(conversation.ConversationEntity):
         import datetime as _dt
         ctx_parts = [f"Current time: {_dt.datetime.now().strftime('%A %B %-d, %-I:%M %p')}."]
 
+        # Temperature unit, so freeform mentions (not just quoted sensor values)
+        # follow the household's Home Assistant unit system rather than defaulting
+        # to Fahrenheit.
+        try:
+            _tu = self.hass.config.units.temperature_unit
+            if _tu:
+                ctx_parts.append(
+                    f"This household uses {_tu} for temperature; always express "
+                    f"temperatures in {_tu}."
+                )
+        except Exception:
+            pass
+
         try:
             presence = presence_context_string(self.hass)
             if presence:

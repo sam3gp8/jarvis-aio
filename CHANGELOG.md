@@ -1,3 +1,10 @@
+## [7.84.2] — Settings sub-tabs on translated UIs; temperatures follow your unit system
+
+Two fixes for non-English / metric households:
+
+- **Settings sub-tabs work on a translated interface.** On a non-English UI, every Settings sub-tab except the first showed no cards — the section grouping was matching on the on-screen heading text, which the interface translates. Sections are now tracked independently of the displayed language, so every sub-tab shows its cards in any language.
+- **Temperatures follow Home Assistant's unit system everywhere.** JARVIS already reported sensor temperatures in your configured unit; now its freeform spoken remarks do too, so a metric home hears Celsius throughout instead of an occasional Fahrenheit value. Set your unit in Home Assistant (Settings → System → General) and JARVIS follows it — there's no separate switch to keep in sync.
+
 ## [7.84.1] — hard backstop: JARVIS never speaks through a TV
 
 A final safety net now sits at the point where any spoken output is sent: every announcement and reply has its target list stripped of televisions (any media player reported as a TV, and the media player you've designated for movies) before it plays — no matter which feature produced it. Earlier fixes handled the known routing paths; this closes any remaining one, so a TV can't be spoken to even through a path we haven't traced. When it has to drop a TV target, it logs which feature tried, so any unexpected attempt is now traceable. Your movie/TV player still plays movies; it is simply never a voice target.

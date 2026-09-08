@@ -47,3 +47,15 @@ def test_handler_is_actually_a_method_of_jarvis_agent():
             assert "_handle_message_impl" in methods
             return
     raise AssertionError("JarvisAgent class not found")
+
+
+def test_context_includes_household_temperature_unit():
+    """Freeform LLM output must follow Home Assistant's unit system rather than
+    defaulting to Fahrenheit. The live-context builder reads the configured
+    temperature unit and instructs the model to express temperatures in it, so a
+    metric household hears Celsius even when JARVIS isn't quoting a sensor."""
+    src = SRC.read_text()
+    assert "config.units.temperature_unit" in src, \
+        "conversation context must read HA's configured temperature unit"
+    assert "temperatures in" in src, \
+        "context must instruct the model which temperature unit to use"
