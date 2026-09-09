@@ -1,3 +1,7 @@
+## [7.85.1] — fix: Settings page blank when a configured entity was removed
+
+The Settings page could fail to open with a blank screen if a setting still pointed at an entity that no longer exists — most often the departure travel-time sensor, but the same flaw affected the presence-tracker and door/opening pickers. Building those dropdowns threw an error on the missing entity, which aborted the whole panel render. Those pickers now handle a missing entity gracefully (showing its id), and the panel as a whole no longer goes blank if any single part errors while drawing — it shows a short error notice with details in the browser console instead.
+
 ## [7.85.0] — Exclude entities from JARVIS
 
 You can now tell JARVIS which entities to ignore. In Settings → Excluded Entities (under Learning) you can exclude:

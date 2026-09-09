@@ -854,6 +854,17 @@ setTimeout(async () => {
   el._settingsSection = "general";
   el._applySettingsSections();
 
+  // v7.85.1: option builders must tolerate a stale/missing selected entity (a
+  // removed entity still referenced in config). This threw and blanked the whole
+  // panel — _travelSensorOptions('sensor.gone') reading undefined.attributes.
+  let _builderSafe = true;
+  try {
+    el._travelSensorOptions("sensor.does_not_exist_xyz");
+    el._trackerOptions("person.does_not_exist_xyz");
+    el._doorEntityOptions("binary_sensor.does_not_exist_xyz");
+  } catch (_e) { _builderSafe = false; }
+  checks.push(["entity option builders tolerate a stale selected entity", _builderSafe]);
+
   // v7.85.0: Excluded entities card — three chip pickers + maps to Learning.
   const _exclCard = _card("Excluded Entities");
   checks.push(
