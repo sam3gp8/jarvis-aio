@@ -133,8 +133,16 @@ def _area_name(hass: HomeAssistant, area_id: str) -> str:
 
 
 def _entities_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
-    """All entity_ids whose (entity area) or (device area) matches."""
+    """All entity_ids whose (entity area) or (device area) matches.
+
+    Skips user-excluded entities so the room card (light count, capabilities,
+    last motion) doesn't show or count entities the user has excluded.
+    """
     from homeassistant.helpers import entity_registry as er, device_registry as dr
+    try:
+        from .entity_filter import is_excluded
+    except Exception:
+        is_excluded = lambda _h, _e: False
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)
     out = []
@@ -145,6 +153,8 @@ def _entities_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
             if dev:
                 ent_area = dev.area_id
         if ent_area == area_id:
+            if is_excluded(hass, ent.entity_id):
+                continue
             out.append(ent.entity_id)
     return out
 

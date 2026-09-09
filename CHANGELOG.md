@@ -1,3 +1,7 @@
+## [7.85.2] — excluded entities now dropped from room cards and group commands
+
+Following up on entity exclusion (7.85.0): excluded entities were still appearing on the room cards and in area commands. Now an excluded entity is left out of a room card's light count, its capabilities list, and its last-motion reading, and it no longer takes part in area or group commands (e.g. "turn on the living-room lights" skips it). Controlling an excluded entity by name still works, as before. This completes exclusion so an excluded item genuinely drops out of JARVIS's day-to-day behaviour, not just its background monitoring.
+
 ## [7.85.1] — fix: Settings page blank when a configured entity was removed
 
 The Settings page could fail to open with a blank screen if a setting still pointed at an entity that no longer exists — most often the departure travel-time sensor, but the same flaw affected the presence-tracker and door/opening pickers. Building those dropdowns threw an error on the missing entity, which aborted the whole panel render. Those pickers now handle a missing entity gracefully (showing its id), and the panel as a whole no longer goes blank if any single part errors while drawing — it shows a short error notice with details in the browser console instead.

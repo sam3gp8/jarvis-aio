@@ -1,6 +1,7 @@
 """Entity exclusion: the is_excluded predicate and its application at a
 representative choke point (presence detection — the reporter's scenario)."""
 import json
+import re
 import types
 
 from fakes import FakeHass
@@ -85,3 +86,26 @@ def test_presence_summary_includes_sensor_when_not_excluded(load):
                  device_class="occupancy", friendly_name="Ghost Occupancy")
     rooms = presence.get_presence_summary(h).get("rooms", {})
     assert "ghost" in rooms
+
+
+
+def test_room_card_path_applies_exclusion():
+    """The room-card area enumeration must consult the exclusion filter, so an
+    excluded entity is never counted (light count) or listed (capabilities)."""
+    import pathlib
+    src = pathlib.Path("custom_components/jarvis/websocket.py").read_text()
+    m = re.search(r"def _entities_in_area\(.*?\n(.*?)\n\n\ndef ", src, re.S)
+    assert m, "could not isolate _entities_in_area"
+    body = m.group(1)
+    assert "is_excluded" in body, "_entities_in_area must filter excluded entities"
+
+
+def test_area_command_path_applies_exclusion():
+    """Area/group commands ('turn on the living-room lights') must skip excluded
+    entities so they don't participate in group logic."""
+    import pathlib
+    src = pathlib.Path("custom_components/jarvis/local_engine.py").read_text()
+    m = re.search(r"def _find_entities_in_area\(.*?\n(.*?)\n\n\ndef ", src, re.S)
+    assert m, "could not isolate _find_entities_in_area"
+    body = m.group(1)
+    assert "is_excluded" in body, "_find_entities_in_area must filter excluded entities"

@@ -462,6 +462,10 @@ def _find_entities_in_area(hass, area_name, domain):
     try:
         from homeassistant.helpers import (
             area_registry as areg, entity_registry as er, device_registry as dr)
+        try:
+            from .entity_filter import is_excluded
+        except Exception:
+            is_excluded = lambda _h, _e: False
         area_reg = areg.async_get(hass)
         ent_reg = er.async_get(hass)
         dev_reg = dr.async_get(hass)
@@ -480,6 +484,11 @@ def _find_entities_in_area(hass, area_name, domain):
                 device = dev_reg.async_get(entry.device_id)
                 in_area = device and device.area_id == target.id
             if in_area:
+                # Excluded entities don't take part in area/group commands
+                # ("turn on the living-room lights"); a by-name request still
+                # resolves them through a different path.
+                if is_excluded(hass, entry.entity_id):
+                    continue
                 state = hass.states.get(entry.entity_id)
                 if state:
                     results.append((entry.entity_id,
