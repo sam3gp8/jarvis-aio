@@ -1,3 +1,7 @@
+## [7.85.3] — full UI translations for German, Spanish, Italian, Dutch, Portuguese
+
+Five languages that were roughly half-translated are now complete: German, Spanish, Italian, Dutch, and Portuguese each cover the full interface (302/302 strings), matching French. If your Home Assistant is set to one of these, the JARVIS panel is now fully localized rather than falling back to English for the newer controls. The remaining partially-translated languages will be filled in over subsequent updates.
+
 ## [7.85.2] — excluded entities now dropped from room cards and group commands
 
 Following up on entity exclusion (7.85.0): excluded entities were still appearing on the room cards and in area commands. Now an excluded entity is left out of a room card's light count, its capabilities list, and its last-motion reading, and it no longer takes part in area or group commands (e.g. "turn on the living-room lights" skips it). Controlling an excluded entity by name still works, as before. This completes exclusion so an excluded item genuinely drops out of JARVIS's day-to-day behaviour, not just its background monitoring.
