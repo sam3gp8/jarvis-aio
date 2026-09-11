@@ -1,3 +1,7 @@
+## [7.85.5] — excluding an entity now silences already-learnt rules immediately
+
+Completes the exclusion behaviour: excluding an entity now takes effect for rules that were already active, not just new ones. A door/window/garage/lock that Sentinel had already picked up stops being reported the moment you exclude it (by entity, domain, or label) — e.g. an unlocked lock no longer repeats its reminder. Appliance cycle-complete announcements skip excluded entities the same way, even for a cycle already in progress. Nothing is erased or "unlearnt" — exclusion simply gates these at run time, so removing the exclusion brings the behaviour back.
+
 ## [7.85.4] — full UI translations for Russian, Polish, Brazilian Portuguese, Swedish
 
 Four more languages are now fully translated (302/302), joining French, German, Spanish, Italian, Dutch and Portuguese: Russian, Polish, Brazilian Portuguese, and Swedish. Ten of the interface languages are now complete. The remaining partially-translated languages (Czech, Danish, Finnish, Norwegian, Romanian, Slovak, Turkish, Ukrainian) will follow in subsequent updates.

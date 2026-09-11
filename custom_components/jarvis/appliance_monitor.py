@@ -409,6 +409,12 @@ def _discover_sensors(hass: HomeAssistant) -> dict[str, _SensorState]:
 
         fname = state.attributes.get("friendly_name", "")
         eid = state.entity_id
+        try:
+            from .entity_filter import is_excluded
+            if is_excluded(hass, eid):
+                continue
+        except Exception:
+            pass
 
         # Method 1: Direct keyword match
         atype = _classify_appliance(eid, fname)
@@ -956,6 +962,15 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
     """Announce appliance cycle completion through JARVIS audio pipeline."""
     hass = _MON.hass
     config = _MON.config
+
+    # User-excluded entities never announce — immediate effect even for an
+    # appliance already mid-cycle when it was excluded.
+    try:
+        from .entity_filter import is_excluded
+        if is_excluded(hass, getattr(sensor, "entity_id", "")):
+            return
+    except Exception:
+        pass
 
     # Never announce continuous-cycle or user-excluded appliances (fridges, A/C,
     # stoves/ovens). This is the single chokepoint, so it catches native,

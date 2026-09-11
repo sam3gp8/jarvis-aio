@@ -217,12 +217,18 @@ class JarvisSentinel:
     @callback
     def _check_durations(self, now) -> None:  # noqa: ARG002
         """Called every 60 s — check duration-based rules."""
+        try:
+            from .entity_filter import is_excluded as _excl
+        except Exception:
+            _excl = lambda _h, _e: False
         utcnow = dt_util.utcnow().replace(tzinfo=None)
         for rule in self._rules:
             threshold = rule.get("for_minutes")
             if not threshold:
                 continue
             for entity_id in self._entity_cache:
+                if _excl(self.hass, entity_id):
+                    continue
                 key = f"{entity_id}:{rule['id']}"
                 started = self._state_start.get(key)
                 if started is None:
@@ -237,6 +243,14 @@ class JarvisSentinel:
     # ── Announcement ──────────────────────────────────────────────────────────
 
     async def _announce_rule(self, entity_id: str, rule: dict, minutes: int) -> None:
+        # Excluded entities take no part in Sentinel rules — this also silences an
+        # already-learnt entity the moment it's excluded, without purging state.
+        try:
+            from .entity_filter import is_excluded
+            if is_excluded(self.hass, entity_id):
+                return
+        except Exception:
+            pass
         # runtime_config → config.json → options → data, via the canonical
         # resolver (immediate effect from panel toggles, no entry reload).
         if self._entry:
@@ -352,10 +366,15 @@ class JarvisSentinel:
 
     def _collect_entity_ids(self) -> list[str]:
         """Resolve entity IDs from rules — explicit or by domain/device_class scan."""
+        try:
+            from .entity_filter import is_excluded
+        except Exception:
+            is_excluded = lambda _h, _e: False
         ids: set[str] = set()
         for rule in self._rules:
             if rule.get("entity_id"):
-                ids.add(rule["entity_id"])
+                if not is_excluded(self.hass, rule["entity_id"]):
+                    ids.add(rule["entity_id"])
             else:
                 domain       = rule.get("domain")
                 device_class = rule.get("device_class")
@@ -363,6 +382,8 @@ class JarvisSentinel:
                     if domain and not state.entity_id.startswith(domain + "."):
                         continue
                     if device_class and state.attributes.get("device_class") != device_class:
+                        continue
+                    if is_excluded(self.hass, state.entity_id):
                         continue
                     ids.add(state.entity_id)
         return list(ids)
