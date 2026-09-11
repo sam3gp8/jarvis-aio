@@ -1,3 +1,7 @@
+## [7.85.4] — full UI translations for Russian, Polish, Brazilian Portuguese, Swedish
+
+Four more languages are now fully translated (302/302), joining French, German, Spanish, Italian, Dutch and Portuguese: Russian, Polish, Brazilian Portuguese, and Swedish. Ten of the interface languages are now complete. The remaining partially-translated languages (Czech, Danish, Finnish, Norwegian, Romanian, Slovak, Turkish, Ukrainian) will follow in subsequent updates.
+
 ## [7.85.3] — full UI translations for German, Spanish, Italian, Dutch, Portuguese
 
 Five languages that were roughly half-translated are now complete: German, Spanish, Italian, Dutch, and Portuguese each cover the full interface (302/302 strings), matching French. If your Home Assistant is set to one of these, the JARVIS panel is now fully localized rather than falling back to English for the newer controls. The remaining partially-translated languages will be filled in over subsequent updates.
