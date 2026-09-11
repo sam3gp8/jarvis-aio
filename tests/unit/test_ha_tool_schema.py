@@ -19,20 +19,24 @@ AGENT = Path(__file__).resolve().parents[2] / "custom_components" / "jarvis" / "
 
 def _load_fn():
     # Load just the function's source region to avoid importing the whole agent
-    # (which needs HA). Exec the two module-level defs it depends on.
-    import types, re
+    # (which needs HA). Exec the module-level defs it depends on: the _DROP
+    # sentinel, _json_safe_schema, and _ha_tools_to_openai_format itself.
+    import types, ast, logging
     src = AGENT.read_text()
-    # Extract _ha_tools_to_openai_format via ast
-    import ast
     tree = ast.parse(src)
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name == "_ha_tools_to_openai_format")
     mod = types.ModuleType("agent_stub")
-    import logging
     mod.__dict__["_LOGGER"] = logging.getLogger("stub")
     mod.__dict__["Sequence"] = list
-    code = ast.get_source_segment(src, fn)
-    exec(compile(code, "<agent_fn>", "exec"), mod.__dict__)
+    wanted = {"_json_safe_schema", "_ha_tools_to_openai_format"}
+    for n in tree.body:
+        seg = None
+        if isinstance(n, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "_DROP" for t in n.targets):
+            seg = ast.get_source_segment(src, n)
+        elif isinstance(n, ast.FunctionDef) and n.name in wanted:
+            seg = ast.get_source_segment(src, n)
+        if seg is not None:
+            exec(compile(seg, "<agent_fn>", "exec"), mod.__dict__)
     return mod.__dict__["_ha_tools_to_openai_format"]
 
 

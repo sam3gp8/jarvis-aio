@@ -2557,6 +2557,35 @@ async def _create_provider_with_fallback(
 
 # ── Main agent loop ─────────────────────────────────────────────────────────
 
+_DROP = object()
+
+
+def _json_safe_schema(obj):
+    """Return a JSON-serializable copy of a converted schema, dropping any value
+    that isn't JSON-safe.
+
+    voluptuous_openapi's ``convert()`` returns an ``UNSUPPORTED`` sentinel (a
+    plain object in older versions, a ``_Unsupported`` instance in newer HA) for
+    schema elements it can't represent, nested inside the returned dict. That
+    sentinel isn't JSON-serializable, so it makes the whole LLM request fail with
+    "Object of type _Unsupported is not JSON serializable". Stripping every
+    non-JSON value (rather than matching a specific sentinel) fixes it across all
+    voluptuous_openapi versions and leaves the rest of the schema intact.
+    """
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            sv = _json_safe_schema(v)
+            if sv is not _DROP:
+                out[k] = sv
+        return out
+    if isinstance(obj, (list, tuple)):
+        return [sv for sv in (_json_safe_schema(v) for v in obj) if sv is not _DROP]
+    if obj is None or isinstance(obj, (str, bool, int, float)):
+        return obj
+    return _DROP  # sentinels (UNSUPPORTED / _Unsupported), Schema objects, etc.
+
+
 def _ha_tools_to_openai_format(ha_tools: Sequence, custom_serializer=None) -> list[dict]:
     """Convert HA LLM API tool definitions to OpenAI function-calling format.
 
@@ -2564,9 +2593,12 @@ def _ha_tools_to_openai_format(ha_tools: Sequence, custom_serializer=None) -> li
     serializable — passing it straight through makes the whole LLM request fail
     with "Object of type Schema is not JSON serializable". Convert each schema to
     a JSON Schema dict via voluptuous_openapi, using the API's custom serializer
-    so HA's selector types (entity ids, areas, etc.) render correctly. If a single
-    tool's schema can't be converted, fall back to an empty object schema for that
-    tool so one odd tool never breaks the entire call.
+    so HA's selector types (entity ids, areas, etc.) render correctly. The
+    converted dict can still contain an UNSUPPORTED / _Unsupported sentinel for
+    elements voluptuous_openapi can't represent, so it's run through
+    _json_safe_schema to strip anything non-serializable. If a single tool's
+    schema can't be converted, fall back to an empty object schema for that tool
+    so one odd tool never breaks the entire call.
     """
     try:
         from voluptuous_openapi import convert
@@ -2584,6 +2616,12 @@ def _ha_tools_to_openai_format(ha_tools: Sequence, custom_serializer=None) -> li
                     "JARVIS: couldn't convert schema for HA tool %s: %s",
                     getattr(t, "name", "?"), exc)
                 params = None
+            if params is not None:
+                # Strip any UNSUPPORTED / _Unsupported sentinel (or other
+                # non-JSON value) the conversion left in the schema.
+                params = _json_safe_schema(params)
+                if not isinstance(params, dict):
+                    params = None
         if not params:
             params = {"type": "object", "properties": {}}
         tools.append({

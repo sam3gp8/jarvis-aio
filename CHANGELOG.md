@@ -1,3 +1,7 @@
+## [7.85.6] — fix: LLM calls failing with "_Unsupported is not JSON serializable"
+
+On newer Home Assistant (2026.9+), every request that needed the LLM could fail with `Object of type _Unsupported is not JSON serializable`, while simple/local replies still worked — affecting Groq and custom OpenAI-compatible providers alike. Cause: when JARVIS converts Home Assistant's tool definitions into the function-calling format for the model, the newer schema converter leaves an internal "unsupported" marker in the result for any schema element it can't represent, and that marker can't be turned into JSON — so the whole request was rejected before it reached the provider. JARVIS now strips those unserializable markers from the tool schema, so LLM-backed responses work again. No configuration change needed.
+
 ## [7.85.5] — excluding an entity now silences already-learnt rules immediately
 
 Completes the exclusion behaviour: excluding an entity now takes effect for rules that were already active, not just new ones. A door/window/garage/lock that Sentinel had already picked up stops being reported the moment you exclude it (by entity, domain, or label) — e.g. an unlocked lock no longer repeats its reminder. Appliance cycle-complete announcements skip excluded entities the same way, even for a cycle already in progress. Nothing is erased or "unlearnt" — exclusion simply gates these at run time, so removing the exclusion brings the behaviour back.
