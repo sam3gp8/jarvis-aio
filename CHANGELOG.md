@@ -1,3 +1,7 @@
+## [7.85.8] — full UI translations for Finnish, Romanian, Turkish, Ukrainian (all languages complete)
+
+The final four languages are now fully translated (302/302): Finnish, Romanian, Turkish, and Ukrainian. With these, all 18 interface languages are complete — Czech, Danish, Dutch, English, Finnish, French, German, Italian, Norwegian Bokmål, Polish, Portuguese, Brazilian Portuguese, Romanian, Russian, Slovak, Spanish, Swedish, Turkish, and Ukrainian all cover the full panel. Set your language in Home Assistant and the JARVIS panel follows it end to end.
+
 ## [7.85.7] — full UI translations for Danish, Norwegian, Czech, Slovak
 
 Four more languages are now fully translated (302/302): Danish, Norwegian Bokmål, Czech, and Slovak. Fourteen of the interface languages are now complete; the last four (Finnish, Romanian, Turkish, Ukrainian) will follow.
