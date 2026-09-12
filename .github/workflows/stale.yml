@@ -1,0 +1,35 @@
+# Closes an issue/PR ~2 days after you post a fix, unless someone replies.
+# It ONLY touches items you label "awaiting-response" — nothing else is affected.
+name: Auto-close answered issues
+
+on:
+  schedule:
+    - cron: '0 9 * * *'    # once a day at 09:00 UTC
+  workflow_dispatch:         # also runnable by hand from the Actions tab
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  close-answered:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v10
+
+          # "awaiting-response" acts as the stale label — you apply it by hand.
+          stale-issue-label: 'awaiting-response'
+          stale-pr-label: 'awaiting-response'
+          days-before-stale: -1        # never auto-label; only your label counts
+
+          days-before-close: 2         # close 2 days after you apply the label…
+          remove-stale-when-updated: true   # …unless a reply arrives (then cancel)
+
+          close-issue-reason: 'completed'
+          close-issue-message: >
+            Closing this out — the fix above hasn't had a reply in a couple of
+            days, so I'll take it as resolved. If it's still not working, just
+            comment and I'll reopen it.
+          close-pr-message: >
+            Closing after a couple of days with no activity since the last
+            update. Comment any time and I'll reopen it.
