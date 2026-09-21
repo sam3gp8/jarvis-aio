@@ -10,6 +10,7 @@ downstream persistence (covered elsewhere).
 import asyncio
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 import pytest
@@ -136,6 +137,37 @@ class _ThreadedHass(FakeHass):
         return await loop.run_in_executor(None, func, *args)
 
 
+class _QueuedThreadedHass(FakeHass):
+    """A single-worker executor whose worker starts deliberately occupied."""
+
+    def __init__(self):
+        super().__init__()
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.release_worker = threading.Event()
+        self.blocker_started = threading.Event()
+        self.job_submitted = asyncio.Event()
+        self.job_finished = asyncio.Event()
+        self.blocker = self.executor.submit(self._block_worker)
+
+    def _block_worker(self):
+        self.blocker_started.set()
+        self.release_worker.wait()
+
+    async def async_add_executor_job(self, func, *args):
+        loop = asyncio.get_running_loop()
+        future = loop.run_in_executor(self.executor, func, *args)
+        self.job_submitted.set()
+        try:
+            return await future
+        finally:
+            self.job_finished.set()
+
+    async def shutdown(self):
+        self.release_worker.set()
+        await asyncio.wrap_future(self.blocker)
+        self.executor.shutdown(wait=True)
+
+
 async def test_analyze_finder_runs_on_a_different_thread(pa, tmp_path, monkeypatch):
     # Regression test for the "SQLite objects created in a thread can only be
     # used in that same thread" error: _connect() opens conn on this test's
@@ -167,3 +199,57 @@ async def test_analyze_finder_runs_on_a_different_thread(pa, tmp_path, monkeypat
         "so this test can't distinguish the fix from its absence"
     )
     assert any(p.pattern_type == "time_routine" for p in stored)
+
+
+async def test_analyze_cancellation_after_handoff_leaves_cleanup_to_worker(
+        pa, tmp_path, monkeypatch):
+    db = str(tmp_path / "cancel.db")
+    conn = sqlite3.connect(db)
+    conn.executescript(_SCHEMA)
+    conn.commit()
+    conn.close()
+
+    an, _stored = _capture(pa, db, monkeypatch)
+    opened_connections = []
+    worker_completed = threading.Event()
+    worker_errors = []
+    real_connect = an._connect
+    real_run_all_finders = an._run_all_finders
+
+    def _capture_connection():
+        connection = real_connect()
+        opened_connections.append(connection)
+        return connection
+
+    def _record_worker_result(*args):
+        try:
+            return real_run_all_finders(*args)
+        except BaseException as exc:
+            worker_errors.append(exc)
+            raise
+        finally:
+            worker_completed.set()
+
+    monkeypatch.setattr(an, "_connect", _capture_connection)
+    monkeypatch.setattr(an, "_run_all_finders", _record_worker_result)
+    hass = _QueuedThreadedHass()
+
+    try:
+        assert await asyncio.to_thread(hass.blocker_started.wait, 2)
+        analysis = asyncio.create_task(an.analyze(hass))
+        await asyncio.wait_for(hass.job_submitted.wait(), timeout=2)
+
+        analysis.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await analysis
+
+        hass.release_worker.set()
+        assert await asyncio.to_thread(worker_completed.wait, 2)
+        await asyncio.wait_for(hass.job_finished.wait(), timeout=2)
+
+        assert not worker_errors
+        assert len(opened_connections) == 1
+        with pytest.raises(sqlite3.ProgrammingError):
+            opened_connections[0].execute("SELECT 1")
+    finally:
+        await hass.shutdown()
