@@ -18,6 +18,7 @@ or dismisses via conversation or the panel.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -675,13 +676,21 @@ class PatternAnalyzer:
             executor_job = hass.async_add_executor_job(
                 self._run_all_finders, conn, person_map, _lat, _lon, _sensor_hist)
             handed_off = True
-            patterns = await executor_job
+            # Shielded: if this await is cancelled, only our wait on the job
+            # stops — the job itself is not cancelled, so it can't be pulled
+            # out of the executor queue before _run_all_finders starts (which
+            # would skip its finally and leak conn). The job still runs to
+            # completion and closes conn itself.
+            patterns = await asyncio.shield(executor_job)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             _LOGGER.warning("Pattern analysis error: %s", exc)
         finally:
-            # _run_all_finders closes conn itself once handed off (including
-            # on cancellation of this await); only close here if that never
-            # happened, e.g. an error before the executor job was scheduled.
+            # _run_all_finders closes conn itself once handed off (it always
+            # runs to completion now, shielded from this coroutine's own
+            # cancellation); only close here if that never happened, e.g. an
+            # error before the executor job was scheduled.
             if not handed_off:
                 conn.close()
 
