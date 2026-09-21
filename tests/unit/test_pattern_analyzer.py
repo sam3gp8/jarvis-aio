@@ -1,5 +1,6 @@
 """Tests for the pattern analyzer (v6.26.0) — detectors + knowledge promotion."""
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 import pytest
@@ -321,3 +322,37 @@ def test_store_person_pattern_no_person_is_noop(analyzer, tmp_path):
     pa._db = str(db)
     assert pa._store_person_pattern(_pattern(analyzer, 0.9)) is False
     assert pa.get_person_patterns() == []
+
+
+# ── cross-thread connection contract ─────────────────────────────────────────
+# FakeHass.async_add_executor_job runs synchronously on the caller's thread
+# (tests/fakes.py), so the analyze() integration tests never actually hand the
+# connection to a different OS thread and would still pass even without
+# check_same_thread=False. This test uses a REAL ThreadPoolExecutor to open the
+# connection on this (main) thread and run a finder on a genuinely different
+# worker thread, the same handoff analyze() performs against real HA.
+
+def test_run_all_finders_on_real_worker_thread(analyzer, tmp_path):
+    db = tmp_path / "p.db"
+    conn = _conn(db)
+    for d in range(1, 9):
+        _add_state(conn, "light.porch_test", "on", d, 18)
+    conn.commit()
+    conn.close()
+
+    pa = analyzer.PatternAnalyzer()
+    pa._db = str(db)
+    # _connect() is what production code calls before handing the connection
+    # off to the executor job; it must be opened with check_same_thread=False
+    # for the cross-thread use below to be legal.
+    conn = pa._connect()
+    assert conn is not None
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(pa._run_all_finders, conn, {}, None, None, {})
+        patterns = future.result()  # re-raises any sqlite3.ProgrammingError
+
+    assert any(p.entity_ids == ["light.porch_test"] for p in patterns)
+    # _run_all_finders is documented to close the connection itself.
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
