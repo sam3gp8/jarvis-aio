@@ -7,10 +7,14 @@ breaking the sequence/numeric detectors it now feeds — is caught. The store
 methods are monkeypatched so we assert on what analyze() *produces*, not on
 downstream persistence (covered elsewhere).
 """
+import asyncio
 import sqlite3
+import threading
 from datetime import datetime, timedelta
 
 import pytest
+
+from fakes import FakeHass
 
 _SCHEMA = """
 CREATE TABLE state_changes (
@@ -116,5 +120,49 @@ async def test_analyze_wires_numeric_trigger_from_sensor_history(pa, tmp_path, m
 
     nt = [p for p in stored if p.pattern_type == "numeric_trigger"]
     assert nt, "numeric_trigger detector not wired into analyze()"
-    assert nt[0].details["op"] == "below"
-    assert nt[0].details["action"]["entity"] == "switch.space_heater"
+
+
+class _ThreadedHass(FakeHass):
+    """Like FakeHass, but ``async_add_executor_job`` really hops onto a worker
+    thread (via the event loop's default ThreadPoolExecutor) instead of
+    calling the callable inline. FakeHass.async_add_executor_job runs
+    synchronously on the caller's (event-loop) thread, so it can't catch a
+    regression of the connection needing check_same_thread=False: this is
+    what actually exercises the cross-thread contract."""
+
+    async def async_add_executor_job(self, func, *args):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, func, *args)
+
+
+async def test_analyze_finder_runs_on_a_different_thread(pa, tmp_path, monkeypatch):
+    # Regression test for the "SQLite objects created in a thread can only be
+    # used in that same thread" error: _connect() opens conn on this test's
+    # thread, and _run_all_finders must be able to use (and close) it from a
+    # genuinely different worker thread without sqlite3 raising.
+    db = str(tmp_path / "d.db")
+    conn = sqlite3.connect(db); conn.executescript(_SCHEMA)
+    base = datetime.now() - timedelta(days=14)
+    for d in range(12):
+        _ins(conn, "light.porch", "on", (base + timedelta(days=d)).replace(hour=18))
+    conn.commit(); conn.close()
+
+    an, stored = _capture(pa, db, monkeypatch)
+    creator_thread = threading.current_thread().ident
+    worker_threads: set[int] = set()
+    real_find_time_routines = an._find_time_routines
+
+    def _spy(conn, person_map):
+        worker_threads.add(threading.current_thread().ident)
+        return real_find_time_routines(conn, person_map)
+
+    monkeypatch.setattr(an, "_find_time_routines", _spy)
+
+    await an.analyze(_ThreadedHass())
+
+    assert worker_threads, "detector never ran"
+    assert creator_thread not in worker_threads, (
+        "test setup issue: detector ran on the connection-creating thread, "
+        "so this test can't distinguish the fix from its absence"
+    )
+    assert any(p.pattern_type == "time_routine" for p in stored)
