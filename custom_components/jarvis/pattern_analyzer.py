@@ -555,11 +555,10 @@ class PatternAnalyzer:
         """Open a connection to patterns.db.
 
         ``check_same_thread=False`` is required because :meth:`analyze` opens
-        the connection on the event loop thread and then hands it to a
-        sequence of ``hass.async_add_executor_job`` calls that each run on a
-        (possibly different) executor thread. The connection is only ever
-        used by one of those awaited jobs at a time, never concurrently, so
-        disabling SQLite's same-thread check is safe here.
+        the connection on the event loop thread and then hands it off to
+        :meth:`_run_all_finders`, which runs on a single executor thread. That
+        thread both uses and closes the connection, so it never touches the
+        thread that created it.
         """
         try:
             if not Path(self._db).exists():
@@ -633,6 +632,28 @@ class PatternAnalyzer:
                 pass
         return out
 
+    def _run_all_finders(self, conn: sqlite3.Connection, person_map: dict,
+                         lat, lon, sensor_hist: dict) -> list[DetectedPattern]:
+        """Run every DB-based pattern finder and close ``conn`` before returning.
+
+        Everything from first use to close of the connection happens on this
+        one executor thread. If ``analyze()`` is cancelled while awaiting this
+        job, the underlying worker thread still runs to completion (a running
+        executor job cannot be interrupted), so closing ``conn`` here — rather
+        than back on the event-loop thread once the await is abandoned — means
+        the close can never race a still-running query on this connection.
+        """
+        patterns: list[DetectedPattern] = []
+        try:
+            patterns.extend(self._find_time_routines(conn, person_map))
+            patterns.extend(self._find_repeated_commands(conn))
+            patterns.extend(self._find_sequence_patterns(conn, lat, lon, sensor_hist))
+            patterns.extend(self._find_numeric_triggers(conn, sensor_hist))
+            patterns.extend(self._find_presence_patterns(conn))
+        finally:
+            conn.close()
+        return patterns
+
     async def analyze(self, hass: HomeAssistant) -> list[DetectedPattern]:
         """Run full pattern analysis. Returns detected patterns."""
         self._last_analysis = time.time()
@@ -642,28 +663,26 @@ class PatternAnalyzer:
         if not conn:
             return patterns
 
+        handed_off = False
         try:
             person_map = self._person_entity_map(hass)
-            patterns.extend(await hass.async_add_executor_job(
-                self._find_time_routines, conn, person_map))
-            patterns.extend(await hass.async_add_executor_job(
-                self._find_repeated_commands, conn))
             try:
                 _sensor_hist = await self._fetch_numeric_sensor_history(hass)
             except Exception:
                 _sensor_hist = {}
             _lat = getattr(hass.config, "latitude", None)
             _lon = getattr(hass.config, "longitude", None)
-            patterns.extend(await hass.async_add_executor_job(
-                self._find_sequence_patterns, conn, _lat, _lon, _sensor_hist))
-            patterns.extend(await hass.async_add_executor_job(
-                self._find_numeric_triggers, conn, _sensor_hist))
-            patterns.extend(await hass.async_add_executor_job(
-                self._find_presence_patterns, conn))
+            handed_off = True
+            patterns = await hass.async_add_executor_job(
+                self._run_all_finders, conn, person_map, _lat, _lon, _sensor_hist)
         except Exception as exc:
             _LOGGER.warning("Pattern analysis error: %s", exc)
         finally:
-            conn.close()
+            # _run_all_finders closes conn itself once handed off (including
+            # on cancellation of this await); only close here if that never
+            # happened, e.g. an error before the executor job was scheduled.
+            if not handed_off:
+                conn.close()
 
         # Store high-confidence patterns as suggestions
         new_suggestions = 0
