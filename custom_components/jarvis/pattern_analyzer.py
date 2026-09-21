@@ -672,9 +672,10 @@ class PatternAnalyzer:
                 _sensor_hist = {}
             _lat = getattr(hass.config, "latitude", None)
             _lon = getattr(hass.config, "longitude", None)
-            handed_off = True
-            patterns = await hass.async_add_executor_job(
+            executor_job = hass.async_add_executor_job(
                 self._run_all_finders, conn, person_map, _lat, _lon, _sensor_hist)
+            handed_off = True
+            patterns = await executor_job
         except Exception as exc:
             _LOGGER.warning("Pattern analysis error: %s", exc)
         finally:
