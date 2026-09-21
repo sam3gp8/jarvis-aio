@@ -552,10 +552,19 @@ class PatternAnalyzer:
         self._db = DB_PATH
 
     def _connect(self) -> Optional[sqlite3.Connection]:
+        """Open a connection to patterns.db.
+
+        ``check_same_thread=False`` is required because :meth:`analyze` opens
+        the connection on the event loop thread and then hands it to a
+        sequence of ``hass.async_add_executor_job`` calls that each run on a
+        (possibly different) executor thread. The connection is only ever
+        used by one of those awaited jobs at a time, never concurrently, so
+        disabling SQLite's same-thread check is safe here.
+        """
         try:
             if not Path(self._db).exists():
                 return None
-            conn = sqlite3.connect(self._db)
+            conn = sqlite3.connect(self._db, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             return conn
         except Exception:
