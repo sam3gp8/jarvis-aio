@@ -646,11 +646,19 @@ class PatternAnalyzer:
         """
         patterns: list[DetectedPattern] = []
         try:
-            patterns.extend(self._find_time_routines(conn, person_map))
-            patterns.extend(self._find_repeated_commands(conn))
-            patterns.extend(self._find_sequence_patterns(conn, lat, lon, sensor_hist))
-            patterns.extend(self._find_numeric_triggers(conn, sensor_hist))
-            patterns.extend(self._find_presence_patterns(conn))
+            finders = (
+                ("time routines", lambda: self._find_time_routines(conn, person_map)),
+                ("repeated commands", lambda: self._find_repeated_commands(conn)),
+                ("sequence patterns", lambda: self._find_sequence_patterns(
+                    conn, lat, lon, sensor_hist)),
+                ("numeric triggers", lambda: self._find_numeric_triggers(conn, sensor_hist)),
+                ("presence patterns", lambda: self._find_presence_patterns(conn)),
+            )
+            for name, finder in finders:
+                try:
+                    patterns.extend(finder())
+                except Exception as exc:
+                    _LOGGER.warning("Pattern finder %s failed: %s", name, exc)
         finally:
             conn.close()
         return patterns
