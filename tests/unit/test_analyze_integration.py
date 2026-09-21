@@ -120,7 +120,8 @@ async def test_analyze_wires_numeric_trigger_from_sensor_history(pa, tmp_path, m
 
     nt = [p for p in stored if p.pattern_type == "numeric_trigger"]
     assert nt, "numeric_trigger detector not wired into analyze()"
-
+    assert nt[0].details["op"] == "below"
+    assert nt[0].details["action"]["entity"] == "switch.space_heater"
 
 class _ThreadedHass(FakeHass):
     """Like FakeHass, but ``async_add_executor_job`` really hops onto a worker
