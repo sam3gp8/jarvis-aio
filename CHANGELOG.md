@@ -1,3 +1,7 @@
+## [7.99.1] — clearer automation suggestions
+
+The Suggestions tab now tells you what each learned automation would actually **do**, not just what JARVIS noticed. An actionable pattern reads like *"When the front door opens, JARVIS can turn on the hallway light"* instead of restating the trigger, and a pattern with no real device action to take — two cameras that just happen to go idle around the same time — now says so plainly rather than looking like something worth automating. Entity names in the review card are friendlier too (no more raw `{'entity': …, 'state': …}` text or doubled-up slugs like `eliana_s_room_eliana_s_room`).
+
 ## [7.99.0] — reliable web search on Gemini & Groq, plus stability fixes
 
 Web research is much more dependable now. Asking JARVIS a current-events or "look it up" question with **Gemini** or **Groq** as the Main Agent previously could fail — a thought-signature error, an empty reply, or a "no clear answer" — instead of relaying results. Those provider-specific request quirks are handled now, so real web searches actually complete. There's also a new **opt-in** setting, *Escalate to LLM web search* (off by default), that lets JARVIS fall back to the configured model's own live web grounding (Gemini's Google Search today) when the default DuckDuckGo/SearXNG lookup comes back empty — useful for fast-moving facts the default backend can't answer.
