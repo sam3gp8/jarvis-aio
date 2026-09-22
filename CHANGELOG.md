@@ -1,3 +1,13 @@
+## [7.99.0] — reliable web search on Gemini & Groq, plus stability fixes
+
+Web research is much more dependable now. Asking JARVIS a current-events or "look it up" question with **Gemini** or **Groq** as the Main Agent previously could fail — a thought-signature error, an empty reply, or a "no clear answer" — instead of relaying results. Those provider-specific request quirks are handled now, so real web searches actually complete. There's also a new **opt-in** setting, *Escalate to LLM web search* (off by default), that lets JARVIS fall back to the configured model's own live web grounding (Gemini's Google Search today) when the default DuckDuckGo/SearXNG lookup comes back empty — useful for fast-moving facts the default backend can't answer.
+
+Two stability fixes round it out:
+- Fixed an intermittent crash in the pattern analyzer where its database connection was used across threads (`SQLite objects created in a thread can only be used in that same thread`), which showed up as a logged warning and lost pattern analysis.
+- Fixed a blocking call and a race condition in Observer mode management, so manual/auto mode changes are handled with proper thread-safe, lock-free reads and can't interleave with an in-flight auto-evaluation.
+
+Thanks to @PhoenixB (Pascal Jerney) for these contributions (#53, #54, #56).
+
 ## [7.98.1] — release notes for the community floor-plan & 3D-view fixes
 
 Two contributions from **@PhoenixB** (#49, #50) landed just ahead of 7.98.0 and were swept into that tag without their own notes — this release documents them. No new code beyond what already merged; verified integrated (importer suite 27/27, audit clean, frontend syntax OK).
