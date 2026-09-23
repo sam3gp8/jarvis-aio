@@ -29,7 +29,7 @@ Please describe the tests you ran and how to reproduce them.
 - [ ] `python3 scripts/audit.py`
 - [ ] `python3 -m pytest tests/ -q`
 - [ ] `node --check custom_components/jarvis/frontend/jarvis-panel.js`
-- [ ] `NODE_PATH=... node scripts/smoke_panel.js` (when the dashboard changed)
+- [ ] `npm install jsdom --no-save && NODE_PATH=node_modules node scripts/smoke_panel.js` (when the dashboard changed)
 - [ ] Hassfest and HACS validation (when the integration metadata or structure changed)
 - [ ] Manual testing in Home Assistant
 
