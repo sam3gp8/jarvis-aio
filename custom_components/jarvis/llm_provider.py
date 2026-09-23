@@ -653,6 +653,8 @@ def create_tier_provider(
 def _classify_conn_error(exc) -> str:
     """Map a provider/client exception to a config-flow error key."""
     msg = str(exc).lower()
+    if isinstance(exc, TimeoutError):
+        return "cannot_connect"
     if any(t in msg for t in ("auth", "api key", "api_key", "401", "403",
                               "unauthorized", "invalid key", "permission")):
         return "invalid_auth"

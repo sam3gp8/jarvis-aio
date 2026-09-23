@@ -224,6 +224,19 @@ async def test_provider_key_step_shows_error_when_model_fetch_fails(
     assert res["type"] == "form" and res["errors"]["base"] == "invalid_auth"
 
 
+async def test_provider_key_step_shows_connect_error_on_timeout(
+    config_flow, fake_hass, monkeypatch, tmp_path, load,
+):
+    async def _timeout(hass, provider, api_key, base_url):
+        raise TimeoutError()
+    websocket = load("websocket")
+    monkeypatch.setattr(websocket, "_fetch_models", _timeout, raising=False)
+
+    flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
+    res = await flow.async_step_openai({"api_key": "bad"})
+    assert res["type"] == "form" and res["errors"]["base"] == "cannot_connect"
+
+
 async def test_provider_key_step_shows_unknown_when_models_empty(
     config_flow, fake_hass, monkeypatch, tmp_path, load,
 ):

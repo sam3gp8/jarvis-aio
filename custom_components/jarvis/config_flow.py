@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -103,7 +104,7 @@ async def _fetch_available_models(hass, provider: str, api_key: str = "", base_u
         return []
 
 
-def _find_config(runtime_config_path: str | None = None) -> dict | None:
+def _find_config(runtime_config_path: str | None = None, secrets_path: str | None = None) -> dict | None:
     """Read an existing runtime config, if one with a usable LLM exists.
     Credentials live only in secrets.yaml (never config.json), so "usable"
     means either a provider secret is present there, or a local provider
@@ -119,7 +120,15 @@ def _find_config(runtime_config_path: str | None = None) -> dict | None:
     from . import ha_secrets
     from .const import resolve_provider_base_url
     provider = data.get("llm_provider", "groq")
-    has_secret = bool(ha_secrets.get_stored_provider_key_sync(provider))
+    secrets_file = str(secrets_path) if secrets_path else None
+    try:
+        has_secret = bool(
+            ha_secrets.get_stored_provider_key_sync(
+                provider, Path(secrets_file) if secrets_file else None
+            )
+        )
+    except TypeError:
+        has_secret = bool(ha_secrets.get_stored_provider_key_sync(provider))
     # A legacy install may still have its credential in config.json (not yet
     # migrated to secrets.yaml). Treat that as usable too, so the entry gets
     # created and async_setup_entry()'s migration can relocate it, instead of
@@ -151,7 +160,8 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         # Try auto-import from an existing runtime config (re-install case)
         runtime_config_path = str(config_path("jarvis", "config.json", hass=self.hass))
-        cfg = await self.hass.async_add_executor_job(_find_config, runtime_config_path)
+        secrets_path = str(config_path("secrets.yaml", hass=self.hass))
+        cfg = await self.hass.async_add_executor_job(_find_config, runtime_config_path, secrets_path)
         if cfg:
             return await self.async_step_import(cfg)
         return await self.async_step_provider_menu()
@@ -325,6 +335,9 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
                 if endpoint_key and fields.get(endpoint_key):
                     endpoint_updates[endpoint_key] = fields[endpoint_key]
             if endpoint_updates:
+                from . import paths
+                paths.set_config_dir_from_hass(self.hass)
+                jarvis_config.set_config_path(paths.config_path("jarvis", "config.json", hass=self.hass))
                 await self.hass.async_add_executor_job(jarvis_config.set_many, endpoint_updates)
             return self.async_create_entry(
                 title="JARVIS",
@@ -355,8 +368,13 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
         provider = import_data.get("llm_provider", "groq")
         base_url = resolve_provider_base_url(import_data, provider)
         local_ok = provider == "ollama" or (provider == "custom" and bool(base_url))
-        has_key = bool(await self.hass.async_add_executor_job(
-            ha_secrets.get_stored_provider_key_sync, provider))
+        secrets_path = config_path("secrets.yaml", hass=self.hass)
+        try:
+            has_key = bool(await self.hass.async_add_executor_job(
+                ha_secrets.get_stored_provider_key_sync, provider, secrets_path))
+        except TypeError:
+            has_key = bool(await self.hass.async_add_executor_job(
+                ha_secrets.get_stored_provider_key_sync, provider))
         # A legacy install may still have its credential in config.json only
         # (not yet relocated to secrets.yaml). Treat that as usable too, so
         # the entry gets created and async_setup_entry()'s migration can

@@ -119,6 +119,16 @@ def test_get_provider_key_sync_falls_back_to_runtime_plaintext(hs, monkeypatch, 
     assert hs.get_provider_key_sync("openai") == "sk-openai"
 
 
+def test_get_provider_key_sync_keeps_runtime_fallback_when_hass_path_is_used(
+    hs, monkeypatch, load, tmp_path,
+):
+    jc = load("jarvis_config")
+    monkeypatch.setattr(jc, "get_all",
+                        lambda: {"llm_provider": "openai", "openai_api_key": "sk-openai"})
+    monkeypatch.setattr(hs, "get_secret_sync", lambda *a, **k: "")
+    assert hs.get_provider_key_sync("openai", path=tmp_path / "secrets.yaml") == "sk-openai"
+
+
 def test_get_provider_key_sync_does_not_send_other_provider_shared_key_to_groq(
     hs, monkeypatch, load,
 ):

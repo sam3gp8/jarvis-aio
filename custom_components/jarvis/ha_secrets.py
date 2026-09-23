@@ -254,7 +254,7 @@ def get_provider_key_sync(provider: str, path: Path | None = None) -> str:
     yet be updated, fall back to that legacy in-memory value so auth keeps working.
     Blocking — call via the executor from async code."""
     val = get_stored_provider_key_sync(provider, path)
-    if not val and path is None:
+    if not val:
         try:
             from . import jarvis_config
             val = get_legacy_provider_key(jarvis_config.get_all(), provider)
