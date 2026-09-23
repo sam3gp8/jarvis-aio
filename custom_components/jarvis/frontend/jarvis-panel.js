@@ -1791,12 +1791,23 @@ class JarvisPanel extends HTMLElement {
       footSpans[footSpans.length - 2].textContent = live.dominant.last_motion;
       footSpans[footSpans.length - 1].textContent = live.dominant.satellite;
     }
-    // Area tiles — patch active state only (names don't change)
+    // Area tiles — patch active state and the light-toggle pill (names don't change)
     const areaEls = root.querySelectorAll(".area");
     areaEls.forEach((el, i) => {
       const a = live.areas[i];
       if (!a) return;
       el.classList.toggle("active", !!a.active);
+      const lightBtn = el.querySelector(".area-light");
+      if (lightBtn) {
+        const lit = (a.lights_total || 0) > 0 && (a.lights_on || 0) > 0;
+        lightBtn.classList.toggle("on", lit);
+        const ctlOn = (this._liveData && this._liveData.config && this._liveData.config.light_control_enabled) !== false;
+        lightBtn.title = `${a.lights_on}/${a.lights_total} lights on${ctlOn ? ' — tap to toggle' : ''}`;
+        const dotLabel = lightBtn.lastChild;
+        if (dotLabel && dotLabel.nodeType === Node.TEXT_NODE) {
+          dotLabel.textContent = lit ? 'ON' : 'OFF';
+        }
+      }
     });
 
     // Activity feed — rebuild rows in place (v6.43.x: previously the feed
