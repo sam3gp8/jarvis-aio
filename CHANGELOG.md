@@ -1,3 +1,11 @@
+## [7.99.4] — cleaner setup, correct config paths, and a live area-light button
+
+Two contributions from **@PhoenixB** (Pascal Jerney).
+
+**Setup validation and Home Assistant config paths (#64).** Fresh installs are tidier and more correct. Cloud provider API keys are now validated during setup by calling each provider's *model-list* endpoint instead of firing a throwaway chat completion, so the log no longer fills with spurious setup-time `POST /chat/completions` errors — while still telling apart an invalid key, a connectivity problem, and an empty model list. And JARVIS now resolves its storage paths through Home Assistant's own config-directory API (`hass.config.path(...)`) rather than assuming a hardcoded `/config`, so config, secrets, databases, documents, memory, embeddings, reminders, routines, intrusion snapshots, diagnostics and learned state all land in the right place on non-standard installs. The only remaining `/config` fallback is centralized in one module for non-HA/test contexts.
+
+**Live area-light toggle (#65).** Toggling an area light from **Dashboard → Command Center → Areas** already changed the light in Home Assistant, but the ON/OFF button stayed stale until you refreshed the dashboard. The live DOM patch now updates the button's state, label, styling and tooltip immediately — no full re-render needed.
+
 ## [7.99.3] — Floor Plan Editor gets its own Settings tab
 
 The Floor Plan Editor now lives on its own **Settings → Floor Plan** sub-tab instead of showing up at the bottom of every Settings section. Doorbell Training, which had the same problem, now sits under **Cameras** where it belongs. No change to the editor itself — just where it appears.
