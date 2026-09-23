@@ -469,9 +469,12 @@ def _watch_candidates(folders: list[str], seen: dict[str, float]) -> list[tuple[
             if not directory.is_dir():
                 continue
             for path in sorted(directory.iterdir()):
-                if not path.is_file() or path.suffix.lower() not in _SUPPORTED:
+                try:
+                    if not path.is_file() or path.suffix.lower() not in _SUPPORTED:
+                        continue
+                    stat = path.stat()
+                except OSError:
                     continue
-                stat = path.stat()
                 if stat.st_size > _MAX_FILE_MB * 1_000_000:
                     continue
                 key = str(path)

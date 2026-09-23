@@ -87,3 +87,19 @@ async def test_skips_oversized_files(docs, monkeypatch):
     _write(docs._docs_dir, "big.txt", "x" * 5000)
     res = await docs.auto_ingest_new(None)
     assert res["new_files"] == 0
+
+
+def test_stat_failure_does_not_abort_folder_scan(docs, monkeypatch):
+    _write(docs._docs_dir, "gone.txt")
+    _write(docs._docs_dir, "kept.txt")
+    original_stat = docs.Path.stat
+
+    def _flaky_stat(path):
+        if path.name == "gone.txt":
+            raise OSError("file disappeared")
+        return original_stat(path)
+
+    monkeypatch.setattr(docs.Path, "stat", _flaky_stat)
+    candidates = docs._watch_candidates([str(docs._docs_dir)], {})
+
+    assert [path for path, _ in candidates] == [str(docs._docs_dir / "kept.txt")]
