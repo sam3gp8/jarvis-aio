@@ -2,6 +2,9 @@
 classification across wearables, the sleep signal that enriches sleep detection,
 opt-in gating, and — most importantly — that the output is non-clinical: plain
 readings with a disclaimer, no thresholds, diagnoses, or health alarms."""
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 
@@ -166,6 +169,84 @@ def test_wellbeing_no_entities_message(bio, monkeypatch):
     res = bio.wellbeing_context(_Hass())
     assert res["available"] is False
     assert "wearable" in res["summary"].lower()
+
+
+@pytest.mark.asyncio
+async def test_ws_biometrics_call_uses_executor_wrapped_callable(load, fake_hass, monkeypatch):
+    components = sys.modules.setdefault("homeassistant.components", type(sys)("homeassistant.components"))
+    ws_api = type(sys)("homeassistant.components.websocket_api")
+    ws_api.ActiveConnection = object
+    ws_api.async_register_command = lambda *a, **k: None
+    ws_api.websocket_command = lambda *a, **k: (lambda func: func)
+    ws_api.async_response = lambda func: func
+    sys.modules["homeassistant.components.websocket_api"] = ws_api
+    components.websocket_api = ws_api
+    sys.modules.pop("jc.websocket", None)
+    ws = load("websocket")
+    bio = load("biometrics")
+    jarvis_config = load("jarvis_config")
+    made = {}
+
+    async def fake_add_executor_job(func, *args):
+        # Home Assistant rejects keyword args for async_add_executor_job; the
+        # worker must receive a callable and positional state snapshot.
+        made["func"] = func
+        made["args"] = args
+        return func(*args)
+
+    fake_hass.async_add_executor_job = fake_add_executor_job
+    monkeypatch.setattr(jarvis_config, "get", lambda *a, **k: False)
+    monkeypatch.setattr(bio, "discover", lambda hass=None, states=None: {"heart_rate": []})
+
+    await ws.ws_biometrics(
+        fake_hass,
+        SimpleNamespace(
+            send_result=lambda *_args, **_kwargs: None,
+            send_error=lambda *_args, **_kwargs: None,
+        ),
+        {"id": 1, "action": "status"},
+    )
+
+    assert callable(made["func"])
+    assert made["args"][0] is None
+    assert made["args"][1] == []
+
+
+@pytest.mark.asyncio
+async def test_observer_activity_log_uses_zero_arg_executor_callable(load, fake_hass, monkeypatch):
+    observer = load("observer")
+    db = load("database")
+    saved = []
+
+    async def fake_add_executor_job(func, *args):
+        # Reproduce HA's API contract: executor jobs accept only positional args,
+        # so the worker must get a zero-argument callable.
+        assert not args
+        return func()
+
+    async def fake_classify(*a, **k):
+        return {"worth_considering": False}
+
+    fake_hass.async_add_executor_job = fake_add_executor_job
+    observer._STATE.hass = fake_hass
+    observer._STATE.config = {}
+    monkeypatch.setattr(observer.classifier, "classify", fake_classify)
+    monkeypatch.setattr(observer.audio_routing, "entity_area", lambda *_a, **_k: "kitchen")
+    monkeypatch.setattr(observer, "get_recent_context", lambda *_a, **_k: "quiet")
+    monkeypatch.setattr(db, "save_activity", lambda **kwargs: saved.append(kwargs))
+
+    event = SimpleNamespace(data={
+        "entity_id": "binary_sensor.front_door",
+        "old_state": SimpleNamespace(state="closed", attributes={}),
+        "new_state": SimpleNamespace(
+            state="open",
+            attributes={"friendly_name": "Front Door", "device_class": "door"},
+        ),
+    })
+
+    await observer._process_event(event)
+
+    assert saved and saved[0]["entity_id"] == "binary_sensor.front_door"
 
 
 # ── agent tool registration ──────────────────────────────────────────────────

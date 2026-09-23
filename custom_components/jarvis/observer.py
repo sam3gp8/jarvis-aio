@@ -595,13 +595,14 @@ async def _process_event(event: Event) -> None:
             try:
                 from .database import save_activity
                 await _STATE.hass.async_add_executor_job(
-                    save_activity,
-                    entity_id=entity_id,
-                    category="classified",
-                    urgency="low",
-                    message=f"{friendly_name}: {old_state.state} → {new_state.state} — not worth considering",
-                    was_spoken=False,
-                    source="observer",
+                    lambda: save_activity(
+                        entity_id=entity_id,
+                        category="classified",
+                        urgency="low",
+                        message=f"{friendly_name}: {old_state.state} → {new_state.state} — not worth considering",
+                        was_spoken=False,
+                        source="observer",
+                    )
                 )
             except Exception:
                 pass
@@ -614,13 +615,14 @@ async def _process_event(event: Event) -> None:
         try:
             from .database import save_activity
             await _STATE.hass.async_add_executor_job(
-                save_activity,
-                entity_id=entity_id,
-                category=category,
-                urgency=urgency_hint,
-                message=f"{friendly_name}: {old_state.state} → {new_state.state} — flagged for reasoning",
-                was_spoken=False,
-                source="observer",
+                lambda: save_activity(
+                    entity_id=entity_id,
+                    category=category,
+                    urgency=urgency_hint,
+                    message=f"{friendly_name}: {old_state.state} → {new_state.state} — flagged for reasoning",
+                    was_spoken=False,
+                    source="observer",
+                )
             )
         except Exception:
             pass

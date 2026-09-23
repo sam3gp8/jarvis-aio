@@ -2449,7 +2449,7 @@ async def ws_biometrics(
         states = (hass.states.async_all("sensor")
                   + hass.states.async_all("binary_sensor"))
         found = await hass.async_add_executor_job(
-            biometrics.discover, states=states
+            biometrics.discover, None, states
         )
         # flatten discovered entities for the panel
         entities = []
