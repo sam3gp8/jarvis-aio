@@ -1,3 +1,7 @@
+## [7.99.3] — Floor Plan Editor gets its own Settings tab
+
+The Floor Plan Editor now lives on its own **Settings → Floor Plan** sub-tab instead of showing up at the bottom of every Settings section. Doorbell Training, which had the same problem, now sits under **Cameras** where it belongs. No change to the editor itself — just where it appears.
+
 ## [7.99.2] — only real automations in Suggestions
 
 The Suggestions tab now only shows patterns that can actually become an automation — a trigger **and** an action JARVIS can take. Correlations with no action to perform (two sensors or cameras that just happen to change around the same time, like a pair of alarm sensors going quiet together) are no longer surfaced as suggestions, and any that were already in your review list are cleared on the next analysis pass. An automation needs something to *do*, not just something to notice.
