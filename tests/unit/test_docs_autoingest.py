@@ -94,10 +94,10 @@ def test_stat_failure_does_not_abort_folder_scan(docs, monkeypatch):
     _write(docs._docs_dir, "kept.txt")
     original_stat = docs.Path.stat
 
-    def _flaky_stat(path):
+    def _flaky_stat(path, *args, **kwargs):
         if path.name == "gone.txt":
             raise OSError("file disappeared")
-        return original_stat(path)
+        return original_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(docs.Path, "stat", _flaky_stat)
     candidates = docs._watch_candidates([str(docs._docs_dir)], {})
