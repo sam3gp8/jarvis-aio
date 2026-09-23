@@ -1805,7 +1805,9 @@ class JarvisPanel extends HTMLElement {
       lightBtn.title = `${a.lights_on}/${a.lights_total} lights on${ctlOn ? ' — tap to toggle' : ''}`;
       const dotLabel = lightBtn.lastChild;
       if (dotLabel && dotLabel.nodeType === Node.TEXT_NODE) {
-        dotLabel.textContent = lit ? 'ON' : 'OFF';
+dotLabel.textContent = lightBtn.classList.contains("adl")
+        ? `${a.lights_on}/${a.lights_total} ${lit ? 'ON' : 'OFF'}`
+        : (lit ? 'ON' : 'OFF');
       }
     });
 
