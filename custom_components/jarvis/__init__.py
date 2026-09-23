@@ -122,6 +122,23 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up JARVIS from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    from . import paths
+    paths.set_config_dir_from_hass(hass)
+
+    # Several storage helpers expose sync APIs and are imported before hass is
+    # available. Seed their module-level defaults once HA tells us its config dir.
+    from . import jarvis_config as _path_jc
+    _path_jc.set_config_path(paths.config_path("jarvis", "config.json", hass=hass))
+    from . import database as _path_db
+    from . import ha_secrets as _path_hs
+    from . import reminders as _path_reminders
+    from . import routines as _path_routines
+    from . import websocket as _path_ws
+    _path_db.DB_PATH = paths.config_path("jarvis", "conversations.db", hass=hass)
+    _path_hs.SECRETS_PATH = paths.config_path("secrets.yaml", hass=hass)
+    _path_reminders.DB_PATH = paths.config_path("jarvis", "reminders.db", hass=hass)
+    _path_routines.ROUTINE_FILE = paths.config_path_str("jarvis_routines.yaml", hass=hass)
+    _path_ws._LOG_FILE = paths.config_path("jarvis", "jarvis.log", hass=hass)
 
     # ── Run config migrations if entry is from an older schema ──────────────
     current_version = entry.data.get("schema_version", 1)

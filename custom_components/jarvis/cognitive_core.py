@@ -36,6 +36,8 @@ from typing import Optional
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.util import dt as dt_util
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
 TICK_INTERVAL = 30  # seconds between evaluations
@@ -48,10 +50,10 @@ ALARM_ARMED_STATES = {
 LOCKDOWN_DOOR_COVER_CLASSES = {"door", "garage", "garage_door"}
 LOCKDOWN_BREACH_COOLDOWN = 120  # seconds between repeat breach announcements
 LOCKDOWN_SECURE_VERIFY_DELAY = 25  # seconds to wait before confirming a close actually took (slow covers)
-LOCKDOWN_STATE_PATH = "/config/jarvis/lockdown_state.json"  # survives reboots/reloads
+LOCKDOWN_STATE_PATH = config_path_str("jarvis", "lockdown_state.json")  # survives reboots/reloads
 FREEZE_WARN_TEMP_F = 35  # outdoor temp (°F) that triggers pipe concern
 FREEZE_CRITICAL_TEMP_F = 20  # act immediately
-IGNORE_FILE = "/config/.jarvis_ignore_rules.json"
+IGNORE_FILE = config_path_str(".jarvis_ignore_rules.json")
 
 
 def _temp_to_f(value: float, unit: str) -> float:
@@ -130,7 +132,7 @@ INTRUSION_RESPONSE_TIMEOUT_SECS = 120
 # A suggestion that the user approves repeatedly earns the right to auto-apply.
 AUTONOMY_TRUST_THRESHOLD = 3     # approvals of same pattern → auto-execute tier
 AUTONOMY_MIN_CONFIDENCE = 0.80   # confidence floor for auto-execution
-AUTONOMY_FILE = "/config/jarvis/autonomy_grants.json"
+AUTONOMY_FILE = config_path_str("jarvis", "autonomy_grants.json")
 
 
 # ── Ignore System ───────────────────────────────────────────────────────────
@@ -1843,7 +1845,7 @@ class StateLogger:
 
     def __init__(self, db_path=None):
         self._last_states: dict[str, str] = {}
-        self._db_path = db_path or "/config/jarvis/patterns.db"
+        self._db_path = db_path or config_path_str("jarvis", "patterns.db")
         self._init_db()
 
     def _init_db(self):
@@ -2495,7 +2497,8 @@ async def _tick():
                     from .websocket import jarvis_log
                     jarvis_log("LEARN", f"anticipation: {pred.get('message','')[:80]}")
                 await hass.async_add_executor_job(
-                    cognition.save_to_db, "/config/jarvis/patterns.db"
+                    cognition.save_to_db,
+                    config_path_str("jarvis", "patterns.db", hass=hass),
                 )
     except Exception as exc:
         _LOGGER.debug("Cognition anticipation tick error: %s", exc)
@@ -3387,7 +3390,10 @@ async def start(hass: HomeAssistant, config: dict) -> None:
     # restarts and keeps accumulating across days.
     try:
         from . import cognition
-        await hass.async_add_executor_job(cognition.load_from_db, "/config/jarvis/patterns.db")
+        await hass.async_add_executor_job(
+            cognition.load_from_db,
+            config_path_str("jarvis", "patterns.db", hass=hass),
+        )
     except Exception as exc:
         _LOGGER.debug("cognition load on start failed: %s", exc)
 

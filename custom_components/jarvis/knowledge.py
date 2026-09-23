@@ -28,9 +28,11 @@ import sqlite3
 import time
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = "/config/jarvis/knowledge.db"
+DB_PATH = config_path_str("jarvis", "knowledge.db")
 
 KINDS = ("fact", "preference", "event", "profile")
 SOURCES = ("stated", "observed", "inferred")

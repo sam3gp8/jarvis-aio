@@ -20,9 +20,11 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = "/config/jarvis/patterns.db"
+DB_PATH = config_path_str("jarvis", "patterns.db")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS person_patterns (

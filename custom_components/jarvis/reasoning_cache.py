@@ -29,9 +29,11 @@ import time
 from pathlib import Path
 from threading import Lock
 
+from .paths import config_path
+
 _LOGGER = logging.getLogger(__name__)
 
-CACHE_PATH = Path("/config/jarvis/reasoning_cache.json")
+CACHE_PATH = config_path("jarvis", "reasoning_cache.json")
 REFRESH_AGE = 14 * 86400        # re-validate a learned decision via cloud after 2 weeks
 MAX_ENTRIES = 2000              # bound the cache
 _NUMERIC_RE = re.compile(r"^-?\d+(\.\d+)?$")

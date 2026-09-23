@@ -29,6 +29,7 @@ from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
+from .paths import config_path
 from .const import (
     CONF_API_KEY,
     CONF_HONORIFIC,
@@ -67,7 +68,7 @@ _LOGGER = logging.getLogger(__name__)
 # The panel's runtime config — survives integration removal, so a re-install
 # can pick everything back up without re-entry. (v6.45.0: the legacy add-on
 # path /config/jarvis_config.json is no longer read.)
-_RUNTIME_CONFIG_PATH = "/config/jarvis/config.json"
+_RUNTIME_CONFIG_PATH = str(config_path("jarvis", "config.json"))
 
 # Providers offered in the "add a provider" menu — ollama needs no key, every
 # other one gets its own dedicated credential field (PROVIDER_API_KEY_FIELDS)
@@ -102,15 +103,16 @@ async def _fetch_available_models(hass, provider: str, api_key: str = "", base_u
         return []
 
 
-def _find_config() -> dict | None:
+def _find_config(runtime_config_path: str | None = None) -> dict | None:
     """Read an existing runtime config, if one with a usable LLM exists.
     Credentials live only in secrets.yaml (never config.json), so "usable"
     means either a provider secret is present there, or a local provider
     (ollama/custom) is set up with a base URL and needs no key."""
     try:
-        if not os.path.exists(_RUNTIME_CONFIG_PATH):
+        runtime_config_path = runtime_config_path or _RUNTIME_CONFIG_PATH
+        if not os.path.exists(runtime_config_path):
             return None
-        with open(_RUNTIME_CONFIG_PATH) as f:
+        with open(runtime_config_path) as f:
             data = json.load(f)
     except Exception:
         return None
@@ -148,7 +150,8 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
         provider-picker menu only if no config file exists.
         """
         # Try auto-import from an existing runtime config (re-install case)
-        cfg = await self.hass.async_add_executor_job(_find_config)
+        runtime_config_path = str(config_path("jarvis", "config.json", hass=self.hass))
+        cfg = await self.hass.async_add_executor_job(_find_config, runtime_config_path)
         if cfg:
             return await self.async_step_import(cfg)
         return await self.async_step_provider_menu()

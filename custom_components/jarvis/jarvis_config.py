@@ -23,9 +23,11 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from .paths import config_path
+
 _LOGGER = logging.getLogger(__name__)
 
-CONFIG_PATH = Path("/config/jarvis/config.json")
+CONFIG_PATH = config_path("jarvis", "config.json")
 _lock = threading.Lock()
 _cache: dict = {}
 _loaded = False
@@ -35,6 +37,15 @@ _entry_credential_fallback: dict[str, str] = {}
 # file is sidelined — never deleted — and defaults take over, so a typo in
 # the file can no longer kill integration setup (which killed the panel).
 last_load_error: Optional[str] = None
+
+
+def set_config_path(path: str | Path) -> None:
+    """Point the runtime config store at Home Assistant's active config dir."""
+    global CONFIG_PATH, _loaded
+    new_path = Path(path)
+    if new_path != CONFIG_PATH:
+        CONFIG_PATH = new_path
+        _loaded = False
 
 
 def _ensure_dir():

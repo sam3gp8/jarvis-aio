@@ -20,11 +20,12 @@ from homeassistant.helpers.event import async_track_time_interval
 from datetime import timedelta
 
 from .presence import get_presence_summary
+from .paths import config_path
 from .tts_helper import async_announce
 
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = Path("/config/jarvis/reminders.db")
+DB_PATH = config_path("jarvis", "reminders.db")
 QUIET_START = time(22, 0)
 QUIET_END   = time(7, 0)
 

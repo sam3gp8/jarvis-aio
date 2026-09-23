@@ -33,10 +33,12 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-PATTERNS_DB = "/config/jarvis/patterns.db"
-ACTIVITY_DB = "/config/jarvis/conversations.db"
+PATTERNS_DB = config_path_str("jarvis", "patterns.db")
+ACTIVITY_DB = config_path_str("jarvis", "conversations.db")
 
 DEFAULT_WINDOW_SECS = 1800     # look back 30 min before the event
 AFTER_WINDOW_SECS = 120        # small tail after, for context

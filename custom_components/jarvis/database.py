@@ -7,9 +7,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from .paths import config_path
+
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = Path("/config/jarvis/conversations.db")
+DB_PATH = config_path("jarvis", "conversations.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (

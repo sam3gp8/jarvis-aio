@@ -15,11 +15,12 @@ import yaml
 
 from homeassistant.core import HomeAssistant, ServiceCall
 
+from .paths import config_path_str
 from .tts_helper import async_announce
 
 _LOGGER = logging.getLogger(__name__)
 
-ROUTINE_FILE = "/config/jarvis_routines.yaml"
+ROUTINE_FILE = config_path_str("jarvis_routines.yaml")
 
 # Sensible defaults — user can override by creating /config/jarvis_routines.yaml
 DEFAULT_ROUTINES: dict[str, list[dict]] = {

@@ -333,7 +333,8 @@ def _find_entity(hass, name_fragment, domain_hint=None):
     # ── Tier 0: Check learned aliases ───────────────────────────────
     try:
         import json as _json, os as _os
-        learn_file = "/config/.jarvis_learned.json"
+        from .paths import config_path_str as _config_path_str
+        learn_file = _config_path_str(".jarvis_learned.json", hass=hass)
         if _os.path.exists(learn_file):
             with open(learn_file) as f:
                 learned = _json.load(f)

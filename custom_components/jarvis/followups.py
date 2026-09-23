@@ -19,9 +19,11 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = "/config/jarvis/patterns.db"
+DB_PATH = config_path_str("jarvis", "patterns.db")
 MAX_OPEN = 25                 # safety valve: the agent can't queue unbounded work
 MAX_DELAY_MINUTES = 7 * 24 * 60   # a week out, at most
 STATUSES = ("pending", "done", "cancelled", "failed")

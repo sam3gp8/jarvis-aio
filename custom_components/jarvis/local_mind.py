@@ -37,9 +37,11 @@ import time
 from collections import deque
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = "/config/jarvis/patterns.db"
+DB_PATH = config_path_str("jarvis", "patterns.db")
 
 # History lookups are cached briefly so a chatty entity doesn't hammer sqlite.
 _HIST_TTL = 600.0          # seconds

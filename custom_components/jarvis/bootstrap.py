@@ -32,6 +32,8 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .paths import config_path
+
 _LOGGER = logging.getLogger(__name__)
 
 SUPERVISOR = "http://supervisor"
@@ -41,7 +43,7 @@ HF_ROOT = "https://huggingface.co/jgkawell/jarvis/resolve/main"
 # Canonical Piper voices repo — always hosts en_GB-jarvis high + medium.
 PIPER_VOICES_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/jarvis"
 MIN_ONNX_SIZE = 1_000_000  # smaller ⇒ corrupt download
-MARKER_PATH = Path("/config/jarvis/.bootstrap_done")
+MARKER_PATH = config_path("jarvis", ".bootstrap_done")
 
 REQUIRED_ADDONS = {
     "core_piper":        "Piper TTS",

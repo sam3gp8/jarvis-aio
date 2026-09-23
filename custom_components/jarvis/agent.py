@@ -1508,7 +1508,9 @@ async def _exec_bulk_control(hass: HomeAssistant, args: dict) -> str:
 
 # ── Learning memory ─────────────────────────────────────────────────────────
 
-_LEARN_FILE = "/config/.jarvis_learned.json"
+from .paths import config_path_str
+
+_LEARN_FILE = config_path_str(".jarvis_learned.json")
 
 
 def _load_learned() -> dict:

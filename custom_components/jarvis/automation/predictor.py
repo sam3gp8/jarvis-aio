@@ -18,11 +18,18 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from threading import Lock
+
+try:
+    from ..paths import config_path_str
+except ImportError:  # standalone unit-test import
+    def config_path_str(*parts: str, hass=None) -> str:
+        return str((Path("/") / "config").joinpath(*parts))
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_MATRIX_PATH = "/config/jarvis/habit_matrix.json"
+DEFAULT_MATRIX_PATH = config_path_str("jarvis", "habit_matrix.json")
 DEFAULT_BUCKET_MINUTES = 30
 DEFAULT_THRESHOLD = 0.90
 DEFAULT_LEAD_MINUTES = 7          # how far ahead "pre-emptive" looks (5–10 min)

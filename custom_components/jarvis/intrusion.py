@@ -24,10 +24,12 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from .paths import config_path, config_path_str, has_hass_config_path
+
 _LOGGER = logging.getLogger(__name__)
 
 # Servable snapshot dir: /config/www/... is exposed at /local/...
-SNAPSHOT_DIR = "/config/www/jarvis/intrusion"
+SNAPSHOT_DIR = config_path_str("www", "jarvis", "intrusion")
 SNAPSHOT_URL_BASE = "/local/jarvis/intrusion"
 _MAX_SNAPSHOTS = 40           # keep the last N, prune older
 
@@ -66,6 +68,9 @@ async def capture_snapshot(hass, camera_entity: str,
     if not camera_entity:
         return None
     try:
+        global SNAPSHOT_DIR
+        if has_hass_config_path(hass):
+            SNAPSHOT_DIR = config_path_str("www", "jarvis", "intrusion", hass=hass)
         from homeassistant.components.camera import async_get_image as _get_image
         image = await _get_image(hass, camera_entity, timeout=10)
         content = getattr(image, "content", None)
@@ -211,7 +216,7 @@ def status() -> dict:
 # alerts regardless of how many times a pattern was called a false alarm. The
 # learning only damps the noisy, unconfirmed path.
 
-LOG_PATH = Path("/config/jarvis/intrusion_log.json")
+LOG_PATH = config_path("jarvis", "intrusion_log.json")
 _MAX_LOG = 200                 # keep the last N events
 _LEARN_WINDOW = 30 * 86400.0   # labels older than this stop counting
 _LEARN_MIN_FALSE = 3           # this many false labels ⇒ damp the weak alerts

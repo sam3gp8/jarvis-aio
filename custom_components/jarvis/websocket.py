@@ -1473,6 +1473,7 @@ from pathlib import Path as _Path
 import threading as _threading
 import queue as _queue
 import json as _json_mod
+from .paths import config_path as _config_path
 
 _DEBUG_LOG: _deque = _deque(maxlen=500)
 # A dedicated buffer for conversation + reply-routing entries only, so a burst of
@@ -1480,7 +1481,7 @@ _DEBUG_LOG: _deque = _deque(maxlen=500)
 # the reply-delivery decisions before they're read from diagnostics.
 _CONV_CATEGORIES = frozenset({"CONV", "LOCAL", "AGENT", "REPLY", "ROUTE", "OFFLINE", "ERROR"})
 _CONV_LOG: _deque = _deque(maxlen=80)
-_LOG_FILE = _Path("/config/jarvis/jarvis.log")
+_LOG_FILE = _config_path("jarvis", "jarvis.log")
 
 
 def _read_integration_version() -> str:

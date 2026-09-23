@@ -5,6 +5,7 @@ async_get_secret. Paths resolve at call time, so monkeypatching SECRETS_PATH
 takes effect (guarding the default-binding trap).
 """
 import pytest
+import types
 
 
 @pytest.fixture
@@ -63,6 +64,19 @@ async def test_async_get_secret_via_executor(hs, fake_hass, tmp_path, monkeypatc
     p.write_text("jarvis_imap_password: async_pw\n")
     monkeypatch.setattr(hs, "SECRETS_PATH", p)   # resolved at call time
     assert await hs.async_get_secret(fake_hass, "jarvis_imap_password") == "async_pw"
+
+
+async def test_async_provider_key_uses_hass_config_path(hs, fake_hass, tmp_path, monkeypatch):
+    p = tmp_path / "home-assistant" / "secrets.yaml"
+    fake_hass.config = types.SimpleNamespace(
+        path=lambda name: str(p.parent / name),
+        time_zone="America/New_York",
+    )
+    monkeypatch.setattr(hs, "SECRETS_PATH", tmp_path / "wrong" / "secrets.yaml")
+
+    assert await hs.async_set_provider_key(fake_hass, "gemini", "gk_real") is True
+    assert hs.get_secret_sync("jarvis_gemini_api_key", path=p) == "gk_real"
+    assert not hs.SECRETS_PATH.exists()
 
 
 async def test_async_get_secret_no_hass(hs, tmp_path, monkeypatch):

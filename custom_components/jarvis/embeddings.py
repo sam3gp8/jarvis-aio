@@ -28,9 +28,11 @@ import sqlite3
 import struct
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-_DB_PATH = "/config/jarvis.db"
+_DB_PATH = config_path_str("jarvis.db")
 _DEFAULT_MODEL = "nomic-embed-text"
 # Holds the most specific reason the last embed attempt failed, so the health
 # status can say *why* (model not pulled / unreachable / HTTP error) instead of

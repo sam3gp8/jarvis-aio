@@ -25,9 +25,11 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-LOG_DIR = "/config/jarvis"
+LOG_DIR = config_path_str("jarvis")
 LOG_PATH = os.path.join(LOG_DIR, "doorbell_log.jsonl")
 MAX_RECORDS = 5000  # ring the file so it can't grow unbounded
 

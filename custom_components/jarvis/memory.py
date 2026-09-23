@@ -21,9 +21,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-MEMORY_DIR = "/config/jarvis_memory"
+MEMORY_DIR = config_path_str("jarvis_memory")
+_DB_PATH = config_path_str("jarvis.db")
 _chromadb_available = False
 _collection = None
 _fts_available = False
@@ -60,8 +63,7 @@ def _init_fts():
     global _fts_available
     try:
         import sqlite3
-        db_path = "/config/jarvis.db"
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(_DB_PATH)
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
             USING fts5(content, metadata, timestamp)
@@ -126,7 +128,7 @@ def store_memory(
     if _fts_available:
         try:
             import sqlite3, json
-            conn = sqlite3.connect("/config/jarvis.db")
+            conn = sqlite3.connect(_DB_PATH)
             conn.execute(
                 "INSERT INTO memory_fts (content, metadata, timestamp) VALUES (?, ?, ?)",
                 (text, json.dumps(metadata), ts),
@@ -187,7 +189,7 @@ def search_memory(
     if _fts_available:
         try:
             import sqlite3, json
-            conn = sqlite3.connect("/config/jarvis.db")
+            conn = sqlite3.connect(_DB_PATH)
             conn.row_factory = sqlite3.Row
             # FTS5 MATCH query
             query_clean = " OR ".join(query.split()[:8])  # limit query terms
@@ -251,7 +253,7 @@ def get_memory_stats() -> dict:
     elif _fts_available:
         try:
             import sqlite3
-            conn = sqlite3.connect("/config/jarvis.db")
+            conn = sqlite3.connect(_DB_PATH)
             row = conn.execute("SELECT COUNT(*) FROM memory_fts").fetchone()
             conn.close()
             stats["backend"] = "fts5"

@@ -35,12 +35,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-DOCS_DIR = "/config/jarvis/documents"
-MEMORY_DIR = "/config/jarvis_memory"          # same Chroma client as memory.py
+DOCS_DIR = config_path_str("jarvis", "documents")
+MEMORY_DIR = config_path_str("jarvis_memory")          # same Chroma client as memory.py
 _COLLECTION_NAME = "jarvis_documents"
-_DB_PATH = "/config/jarvis.db"
+_DB_PATH = config_path_str("jarvis.db")
 
 _CHUNK_CHARS = 900            # ~1 chunk ≈ a paragraph or two — good recall granularity
 _CHUNK_OVERLAP = 150         # carry context across chunk boundaries

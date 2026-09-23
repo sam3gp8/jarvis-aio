@@ -30,6 +30,8 @@ import threading
 import time
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
 # Guards WRITERS only (set_mode()/auto_evaluate(), run on executor threads from
@@ -41,7 +43,7 @@ _LOGGER = logging.getLogger(__name__)
 # event loop can never block on the executor thread's file I/O in _persist().
 _state_lock = threading.RLock()
 
-MODE_STATE_PATH = "/config/jarvis/mode_state.json"
+MODE_STATE_PATH = config_path_str("jarvis", "mode_state.json")
 DEFAULT_MODE = "normal"
 
 # Behavior fields a mode may override. A mode dict need only include the fields
