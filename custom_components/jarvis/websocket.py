@@ -2446,7 +2446,11 @@ async def ws_biometrics(
             )
             jarvis_log("BIO", "biometric context disabled")
         enabled = bool(jarvis_config.get("biometrics_enabled", False))
-        found = await hass.async_add_executor_job(biometrics.discover, hass)
+        states = (hass.states.async_all("sensor")
+                  + hass.states.async_all("binary_sensor"))
+        found = await hass.async_add_executor_job(
+            biometrics.discover, states=states
+        )
         # flatten discovered entities for the panel
         entities = []
         for kind, ents in found.items():

@@ -86,14 +86,16 @@ def _classify(entity_id: str, name: str, unit: str, device_class: str) -> Option
     return None
 
 
-def discover(hass) -> dict:
+def discover(hass=None, states=None) -> dict:
     """Find biometric entities on the system, grouped by kind. Returns
     {kind: [{entity, value, unit, name}]}. Never raises."""
     found: dict[str, list] = {}
-    try:
-        states = hass.states.async_all("sensor") + hass.states.async_all("binary_sensor")
-    except Exception:
-        return found
+    if states is None:
+        try:
+            states = (hass.states.async_all("sensor")
+                      + hass.states.async_all("binary_sensor"))
+        except Exception:
+            return found
     for st in states:
         try:
             eid = st.entity_id

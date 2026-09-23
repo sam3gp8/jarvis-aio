@@ -594,7 +594,8 @@ async def _process_event(event: Event) -> None:
             # Still log to activity feed so the panel shows observer is working
             try:
                 from .database import save_activity
-                save_activity(
+                await _STATE.hass.async_add_executor_job(
+                    save_activity,
                     entity_id=entity_id,
                     category="classified",
                     urgency="low",
@@ -612,7 +613,8 @@ async def _process_event(event: Event) -> None:
         # Log the flagged event to activity feed
         try:
             from .database import save_activity
-            save_activity(
+            await _STATE.hass.async_add_executor_job(
+                save_activity,
                 entity_id=entity_id,
                 category=category,
                 urgency=urgency_hint,

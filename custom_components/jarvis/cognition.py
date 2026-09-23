@@ -896,14 +896,18 @@ def predict_routine_start(hass, now: float = None) -> list:
 
 async def async_predict_routine_start(hass, now: float = None) -> list:
     """Loop-owned predictor with decision-record writes on the executor."""
-    out, pending = _predict_routine_start_loop(hass, now)
+    from . import person_patterns
+    routines = await hass.async_add_executor_job(person_patterns.read)
+    out, pending = _predict_routine_start_loop(hass, now, routines)
     for key, today, args in pending:
         await hass.async_add_executor_job(_log_decision, *args)
         _RECUR_ALERTED[key] = today
     return out
 
 
-def _predict_routine_start_loop(hass, now: float = None) -> tuple[list, list]:
+def _predict_routine_start_loop(
+    hass, now: float = None, routines: list | None = None
+) -> tuple[list, list]:
     import json as _json
     now = now or time.time()
     out = []
@@ -912,8 +916,9 @@ def _predict_routine_start_loop(hass, now: float = None) -> tuple[list, list]:
         from . import jarvis_config
         if not bool(jarvis_config.get("routine_alerts_enabled", True)):
             return out, pending
-        from . import person_patterns
-        routines = person_patterns.read()
+        if routines is None:
+            from . import person_patterns
+            routines = person_patterns.read()
         if not routines:
             return out, pending
         try:
