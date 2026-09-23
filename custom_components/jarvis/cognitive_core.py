@@ -1744,6 +1744,8 @@ class AutonomyManager:
 
     def __init__(self):
         self._grants: dict[str, dict] = {}  # pattern_key -> {approvals,granted,...}
+        self._async_lock = asyncio.Lock()
+        self._sync_lock = __import__("threading").RLock()
         self._load()
 
     def _load(self) -> None:
@@ -1758,14 +1760,29 @@ class AutonomyManager:
     @staticmethod
     def _save_snapshot(grants: dict[str, dict]) -> None:
         try:
-            os.makedirs(os.path.dirname(AUTONOMY_FILE), exist_ok=True)
-            with open(AUTONOMY_FILE, "w", encoding="utf-8") as f:
-                json.dump(grants, f, indent=2)
+            directory = os.path.dirname(AUTONOMY_FILE) or "."
+            os.makedirs(directory, exist_ok=True)
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=directory, prefix=".autonomy_", suffix=".tmp"
+            )
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    json.dump(grants, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, AUTONOMY_FILE)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except Exception as exc:
             _LOGGER.warning("Autonomy grants save failed: %s", exc)
 
     def _save(self) -> None:
-        self._save_snapshot(self._grants)
+        with self._sync_lock:
+            self._save_snapshot(self._grants)
 
     async def _async_save(self, hass) -> None:
         snapshot = {key: dict(value) for key, value in self._grants.items()}
@@ -1777,47 +1794,51 @@ class AutonomyManager:
         User accepted an offer. Increment its trust counter; may promote to
         autonomous. Returns the updated grant record.
         """
-        if not pattern_key:
-            return {}
-        g = self._grants.get(pattern_key, {
-            "approvals": 0, "granted": False, "confidence": confidence,
-            "first_seen": dt_util.utcnow().isoformat(),
-        })
-        g["approvals"] = g.get("approvals", 0) + 1
-        g["confidence"] = max(g.get("confidence", 0.0), confidence)
-        g["last_accepted"] = dt_util.utcnow().isoformat()
-        if (not g["granted"]
-                and g["approvals"] >= AUTONOMY_TRUST_THRESHOLD
-                and g["confidence"] >= AUTONOMY_MIN_CONFIDENCE):
-            g["granted"] = True
-            g["granted_at"] = dt_util.utcnow().isoformat()
-            _LOGGER.info(
-                "Autonomy GRANTED for '%s' after %d acceptances",
-                pattern_key, g["approvals"],
-            )
-        self._grants[pattern_key] = g
-        if persist:
-            self._save()
-        return g
+        with self._sync_lock:
+            if not pattern_key:
+                return {}
+            g = self._grants.get(pattern_key, {
+                "approvals": 0, "granted": False, "confidence": confidence,
+                "first_seen": dt_util.utcnow().isoformat(),
+            })
+            g["approvals"] = g.get("approvals", 0) + 1
+            g["confidence"] = max(g.get("confidence", 0.0), confidence)
+            g["last_accepted"] = dt_util.utcnow().isoformat()
+            if (not g["granted"]
+                    and g["approvals"] >= AUTONOMY_TRUST_THRESHOLD
+                    and g["confidence"] >= AUTONOMY_MIN_CONFIDENCE):
+                g["granted"] = True
+                g["granted_at"] = dt_util.utcnow().isoformat()
+                _LOGGER.info(
+                    "Autonomy GRANTED for '%s' after %d acceptances",
+                    pattern_key, g["approvals"],
+                )
+            self._grants[pattern_key] = g
+            if persist:
+                self._save_snapshot(self._grants)
+            return g
 
     async def async_record_acceptance(self, hass, pattern_key: str,
                                       confidence: float = 1.0) -> dict:
-        grant = self.record_acceptance(pattern_key, confidence, persist=False)
-        await self._async_save(hass)
-        return grant
+        async with self._async_lock:
+            grant = self.record_acceptance(pattern_key, confidence, persist=False)
+            await self._async_save(hass)
+            return grant
 
     def record_rejection(self, pattern_key: str, *, persist: bool = True) -> None:
         """User declined an offer — reset trust toward this pattern."""
-        if pattern_key in self._grants:
-            self._grants[pattern_key]["approvals"] = 0
-            self._grants[pattern_key]["granted"] = False
-            self._grants[pattern_key]["last_rejected"] = dt_util.utcnow().isoformat()
-            if persist:
-                self._save()
+        with self._sync_lock:
+            if pattern_key in self._grants:
+                self._grants[pattern_key]["approvals"] = 0
+                self._grants[pattern_key]["granted"] = False
+                self._grants[pattern_key]["last_rejected"] = dt_util.utcnow().isoformat()
+                if persist:
+                    self._save_snapshot(self._grants)
 
     async def async_record_rejection(self, hass, pattern_key: str) -> None:
-        self.record_rejection(pattern_key, persist=False)
-        await self._async_save(hass)
+        async with self._async_lock:
+            self.record_rejection(pattern_key, persist=False)
+            await self._async_save(hass)
 
     def is_autonomous(self, pattern_key: str) -> bool:
         """True if JARVIS may perform this convenience action without asking.
@@ -1847,10 +1868,11 @@ class AutonomyManager:
         return False
 
     async def async_revoke(self, hass, pattern_key: str) -> bool:
-        changed = self.revoke(pattern_key, persist=False)
-        if changed:
-            await self._async_save(hass)
-        return changed
+        async with self._async_lock:
+            changed = self.revoke(pattern_key, persist=False)
+            if changed:
+                await self._async_save(hass)
+            return changed
 
     def list_grants(self) -> list[dict]:
         """All tracked patterns with their trust state."""
@@ -2515,10 +2537,10 @@ async def _tick():
                 cognition.sample_occupancy(hass, now_t)
                 cognition.sample_presence(hass, now_t)
                 preds = (cognition.predict(hass, now_t)
-                         + cognition.predict_overdue(hass, now_t)
-                         + cognition.predict_presence(hass, now_t)
+                         + await cognition.async_predict_overdue(hass, now_t)
+                         + await cognition.async_predict_presence(hass, now_t)
                          + cognition.predict_proximity(hass, now_t)
-                         + cognition.predict_routine_start(hass, now_t))
+                         + await cognition.async_predict_routine_start(hass, now_t))
                 preds += await cognition.predict_departure(hass, now_t)
                 for pred in preds:
                     actions.append(pred)

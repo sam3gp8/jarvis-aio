@@ -32,6 +32,7 @@ import hashlib
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -52,6 +53,7 @@ _chroma_ok = False
 _collection = None
 _fts_ok = False
 _initialized = False
+_INGEST_LOCK = threading.RLock()
 
 
 # ── init (mirrors memory.py) ─────────────────────────────────────────────────
@@ -246,51 +248,52 @@ def ingest_file(path: str) -> dict:
     {"source", "chunks", "ok", "chunk_texts"?, "error"?}. Never raises.
     chunk_texts is included on success so an async caller can also embed them
     for semantic search (v6.57.0)."""
-    _ensure_init()
-    source = os.path.basename(path)
-    text, err = extract_text(path)
-    if err:
-        return {"source": source, "chunks": 0, "ok": False, "error": err}
-    chunks = chunk_text(text)
-    if not chunks:
-        return {"source": source, "chunks": 0, "ok": False,
-                "error": "no extractable text (scanned image PDF?)"}
-
-    _forget_source(source)
-    ingested = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
-
-    if _chroma_ok and _collection is not None:
-        try:
-            _collection.add(
-                documents=chunks,
-                metadatas=[{"source": source, "chunk": i, "ingested": ingested}
-                           for i in range(len(chunks))],
-                ids=[_doc_id(source, i, c) for i, c in enumerate(chunks)],
-            )
-            return {"source": source, "chunks": len(chunks), "ok": True,
-                    "chunk_texts": chunks, "ingested": ingested}
-        except Exception as exc:
-            _LOGGER.debug("doc chroma add failed: %s", exc)
-
-    if _fts_ok:
-        try:
-            import sqlite3
-            conn = sqlite3.connect(_DB_PATH)
-            conn.executemany(
-                "INSERT INTO document_fts (content, source, chunk_id, ingested) "
-                "VALUES (?, ?, ?, ?)",
-                [(c, source, str(i), ingested) for i, c in enumerate(chunks)],
-            )
-            conn.commit()
-            conn.close()
-            return {"source": source, "chunks": len(chunks), "ok": True,
-                    "chunk_texts": chunks, "ingested": ingested}
-        except Exception as exc:
+    with _INGEST_LOCK:
+        _ensure_init()
+        source = os.path.basename(path)
+        text, err = extract_text(path)
+        if err:
+            return {"source": source, "chunks": 0, "ok": False, "error": err}
+        chunks = chunk_text(text)
+        if not chunks:
             return {"source": source, "chunks": 0, "ok": False,
-                    "error": f"fts store failed: {exc}"}
+                    "error": "no extractable text (scanned image PDF?)"}
 
-    return {"source": source, "chunks": 0, "ok": False,
-            "error": "no vector or FTS store available"}
+        _forget_source(source)
+        ingested = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+
+        if _chroma_ok and _collection is not None:
+            try:
+                _collection.add(
+                    documents=chunks,
+                    metadatas=[{"source": source, "chunk": i, "ingested": ingested}
+                               for i in range(len(chunks))],
+                    ids=[_doc_id(source, i, c) for i, c in enumerate(chunks)],
+                )
+                return {"source": source, "chunks": len(chunks), "ok": True,
+                        "chunk_texts": chunks, "ingested": ingested}
+            except Exception as exc:
+                _LOGGER.debug("doc chroma add failed: %s", exc)
+
+        if _fts_ok:
+            try:
+                import sqlite3
+                conn = sqlite3.connect(_DB_PATH)
+                conn.executemany(
+                    "INSERT INTO document_fts (content, source, chunk_id, ingested) "
+                    "VALUES (?, ?, ?, ?)",
+                    [(c, source, str(i), ingested) for i, c in enumerate(chunks)],
+                )
+                conn.commit()
+                conn.close()
+                return {"source": source, "chunks": len(chunks), "ok": True,
+                        "chunk_texts": chunks, "ingested": ingested}
+            except Exception as exc:
+                return {"source": source, "chunks": 0, "ok": False,
+                        "error": f"fts store failed: {exc}"}
+
+        return {"source": source, "chunks": 0, "ok": False,
+                "error": "no vector or FTS store available"}
 
 
 async def ingest_directory_async(hass, directory: str = DOCS_DIR) -> dict:
@@ -623,34 +626,35 @@ async def search_documents_async(hass, query: str, k: int = 4) -> list[dict]:
 def ingest_directory(directory: str = DOCS_DIR) -> dict:
     """Ingest every supported file in the documents directory. Returns a
     summary with per-file results. Creates the directory if missing."""
-    _ensure_init()
-    d = Path(directory)
-    try:
-        d.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
-        return {"ok": False, "error": f"cannot access {directory}: {exc}",
-                "files": [], "total_chunks": 0}
-
-    results = []
-    total_chunks = 0
-    for f in sorted(d.iterdir()):
-        if not f.is_file() or f.suffix.lower() not in _SUPPORTED:
-            continue
+    with _INGEST_LOCK:
+        _ensure_init()
+        d = Path(directory)
         try:
-            if f.stat().st_size > _MAX_FILE_MB * 1_000_000:
-                results.append({"source": f.name, "chunks": 0, "ok": False,
-                                "error": f"larger than {_MAX_FILE_MB}MB — skipped"})
-                continue
-        except Exception:
-            pass
-        res = ingest_file(str(f))
-        results.append(res)
-        total_chunks += res.get("chunks", 0)
+            d.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            return {"ok": False, "error": f"cannot access {directory}: {exc}",
+                    "files": [], "total_chunks": 0}
 
-    ok_files = sum(1 for r in results if r.get("ok"))
-    return {"ok": True, "files": results, "files_ingested": ok_files,
-            "files_seen": len(results), "total_chunks": total_chunks,
-            "directory": directory}
+        results = []
+        total_chunks = 0
+        for f in sorted(d.iterdir()):
+            if not f.is_file() or f.suffix.lower() not in _SUPPORTED:
+                continue
+            try:
+                if f.stat().st_size > _MAX_FILE_MB * 1_000_000:
+                    results.append({"source": f.name, "chunks": 0, "ok": False,
+                                    "error": f"larger than {_MAX_FILE_MB}MB — skipped"})
+                    continue
+            except Exception:
+                pass
+            res = ingest_file(str(f))
+            results.append(res)
+            total_chunks += res.get("chunks", 0)
+
+        ok_files = sum(1 for r in results if r.get("ok"))
+        return {"ok": True, "files": results, "files_ingested": ok_files,
+                "files_seen": len(results), "total_chunks": total_chunks,
+                "directory": directory}
 
 
 # ── retrieval ────────────────────────────────────────────────────────────────

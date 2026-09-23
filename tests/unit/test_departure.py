@@ -4,6 +4,7 @@ predict_departure is async and computes travel time from device-tracking origin
 to the event's geocoded location via open-source routing (travel.py), with an
 explicit sensor as an optional override and a fixed default lead as the fallback.
 """
+import asyncio
 import datetime
 import time
 
@@ -138,3 +139,19 @@ async def test_no_oss_call_without_location(cog, cal, fake_hass, load, monkeypat
     monkeypatch.setattr(travel, "travel_minutes", _tm)
     assert await cog.predict_departure(fake_hass, now) == []          # default lead, not yet
     assert called["n"] == 0                                           # no routing without a location
+
+
+async def test_dedup_only_after_executor_logging_finishes(cog, cal, fake_hass, monkeypatch):
+    holder, cfg = cal
+    now, now_dt = _now()
+    holder["list"] = [_ev(now_dt + datetime.timedelta(minutes=20))]
+
+    async def _cancel(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(fake_hass, "async_add_executor_job", _cancel)
+
+    with pytest.raises(asyncio.CancelledError):
+        await cog.predict_departure(fake_hass, now)
+
+    assert "depart:Dentist:%s" % (now_dt.strftime("%Y%m%d%H%M")) not in cog._RECUR_ALERTED
