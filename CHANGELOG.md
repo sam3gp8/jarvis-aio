@@ -1,3 +1,9 @@
+## [7.99.5] — JARVIS speaks your household's language everywhere
+
+If your Home Assistant is set to a non-English language, JARVIS's **status briefings, camera/vision analysis, and sentinel notices** now come back in that language too — not just chat replies. Previously only the *conversation* path steered to your configured language, so proactive and task output stayed in English on, say, a German or Russian install (the problem reported in Discussion #55).
+
+The household-language directive is now the single source of truth wired into **every** task prompt, using the same 25+ languages already supported for chat. **English installs are byte-for-byte unaffected** — the directive is empty for English or unset config, so nothing changes there. Your own input language still wins: write to JARVIS in another language and it replies in that one. Fixes #55.
+
 ## [7.99.4] — cleaner setup, correct config paths, and a live area-light button
 
 Two contributions from **@PhoenixB** (Pascal Jerney).
