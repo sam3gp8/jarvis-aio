@@ -203,7 +203,9 @@ def dismiss_intrusion(reason: str = "") -> dict:
 
 async def async_dismiss_intrusion(hass, reason: str = "") -> dict:
     result, decision_id = _dismiss_intrusion_state(reason)
-    persist_task = asyncio.create_task(hass.async_add_executor_job(_persist_dismissal, decision_id))
+    persist_task = hass.async_add_executor_job(
+        _persist_dismissal, decision_id
+    )
     try:
         await asyncio.shield(persist_task)
     except asyncio.CancelledError:
