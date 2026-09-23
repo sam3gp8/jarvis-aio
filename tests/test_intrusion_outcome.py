@@ -9,8 +9,11 @@ module globals it touches in a finally.
 """
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
+
+import pytest
 
 
 def _install_dr(monkeypatch, outcome_ok=True):
@@ -88,3 +91,36 @@ def test_set_last_decision_id_ignores_none(load):
         assert intr._last_decision_id == 7
     finally:
         _reset(intr)
+
+
+def test_set_last_decision_id_ignores_stale_generation(load):
+    intr = load("intrusion")
+    intr._last_decision_id = None
+    generation = intr.begin_decision_generation()
+    intr._last_decision_id = 42
+    try:
+        intr._dismiss_intrusion_state("faa")
+        intr.set_last_decision_id(99, generation=generation)
+        assert intr._last_decision_id is None
+    finally:
+        _reset(intr)
+
+
+@pytest.mark.asyncio
+async def test_async_record_acceptance_persists_after_cancellation(load):
+    manager = load("cognitive_core").AutonomyManager()
+    calls = []
+
+    async def fake_save(_hass):
+        calls.append("save")
+        await asyncio.sleep(0)
+
+    manager._async_save = fake_save
+    task = asyncio.create_task(manager.async_record_acceptance(object(), "pattern_x"))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert calls == ["save"]
+    assert manager._grants["pattern_x"]["approvals"] == 1

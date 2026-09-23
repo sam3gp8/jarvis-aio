@@ -17,6 +17,7 @@ panel. Everything here is defensive and never raises to the caller.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -39,6 +40,14 @@ _ACK_WINDOW = 300.0           # an acknowledgement holds the auto-escalation thi
 _last_snapshot: dict = {}     # {path, url, camera, ts} of the most recent capture
 _false_alarms: list = []      # recent {ts, camera, area} for learning
 _last_decision_id: Optional[int] = None  # decision_record row id of the latest intrusion
+_decision_generation = 0
+
+
+def begin_decision_generation() -> int:
+    """Start a fresh intrusion decision cycle and invalidate stale record IDs."""
+    global _decision_generation
+    _decision_generation += 1
+    return _decision_generation
 
 
 def acknowledge(reason: str = "") -> dict:
@@ -127,11 +136,18 @@ def last_snapshot() -> Optional[dict]:
 
 # ── false-alarm call-off ─────────────────────────────────────────────────────
 
-def set_last_decision_id(record_id) -> None:
+def set_last_decision_id(record_id, *, generation: Optional[int] = None) -> None:
     """Remember the decision_record row id of the most recent intrusion, so a
     later call-off attaches its outcome to *that* record rather than guessing
-    the most-recent-of-kind (which mis-attributes when intrusions overlap)."""
+    the most-recent-of-kind (which mis-attributes when intrusions overlap).
+
+    A stale task can resume after a dismissal. When a generation is supplied, it
+    only updates the active decision if it still matches the current intrusion
+    cycle.
+    """
     global _last_decision_id
+    if generation is not None and generation != _decision_generation:
+        return
     if record_id is not None:
         try:
             _last_decision_id = int(record_id)
@@ -144,7 +160,8 @@ def _dismiss_intrusion_state(reason: str = "") -> tuple[dict, int | None]:
     window so the SafetyManager stops escalating, and records it. The
     SafetyManager consults is_called_off() and clears its investigation. Never
     raises."""
-    global _called_off_until, _last_decision_id
+    global _called_off_until, _last_decision_id, _decision_generation
+    _decision_generation += 1
     _called_off_until = time.time() + _CALLOFF_COOLDOWN
     rec = {
         "ts": int(time.time()),
@@ -186,7 +203,12 @@ def dismiss_intrusion(reason: str = "") -> dict:
 
 async def async_dismiss_intrusion(hass, reason: str = "") -> dict:
     result, decision_id = _dismiss_intrusion_state(reason)
-    await hass.async_add_executor_job(_persist_dismissal, decision_id)
+    persist_task = asyncio.create_task(hass.async_add_executor_job(_persist_dismissal, decision_id))
+    try:
+        await asyncio.shield(persist_task)
+    except asyncio.CancelledError:
+        await asyncio.shield(persist_task)
+        raise
     return result
 
 

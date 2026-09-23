@@ -589,9 +589,12 @@ class SafetyManager:
                 "intrusion_alert", _lang, honorific=honorific.title(),
                 where=where, ctx=ctx)
             # Decision Record (v7.39.0): log the proactive intrusion judgement. Best-effort;
-            # a logging failure must never affect the alert.
+            # a logging failure must never affect the alert. The generation is
+            # captured before the executor job so a stale call-off cannot publish an
+            # old decision record after a newer intrusion cycle has started.
             try:
-                from . import decision_record
+                from . import decision_record, intrusion as _intr_rec
+                _dec_gen = _intr_rec.begin_decision_generation()
                 _rid = await self.hass.async_add_executor_job(
                     lambda: decision_record.record(
                         "intrusion",
@@ -603,8 +606,7 @@ class SafetyManager:
                     )
                 )
                 try:  # so a later call-off attaches to this exact record
-                    from . import intrusion as _intr_rec
-                    _intr_rec.set_last_decision_id(_rid)
+                    _intr_rec.set_last_decision_id(_rid, generation=_dec_gen)
                 except Exception:
                     pass
             except Exception:
@@ -1823,7 +1825,12 @@ class AutonomyManager:
                                       confidence: float = 1.0) -> dict:
         async with self._async_lock:
             grant = self.record_acceptance(pattern_key, confidence, persist=False)
-            await self._async_save(hass)
+            save_task = asyncio.create_task(self._async_save(hass))
+            try:
+                await asyncio.shield(save_task)
+            except asyncio.CancelledError:
+                await asyncio.shield(save_task)
+                raise
             return grant
 
     def record_rejection(self, pattern_key: str, *, persist: bool = True) -> None:
@@ -1839,7 +1846,12 @@ class AutonomyManager:
     async def async_record_rejection(self, hass, pattern_key: str) -> None:
         async with self._async_lock:
             self.record_rejection(pattern_key, persist=False)
-            await self._async_save(hass)
+            save_task = asyncio.create_task(self._async_save(hass))
+            try:
+                await asyncio.shield(save_task)
+            except asyncio.CancelledError:
+                await asyncio.shield(save_task)
+                raise
 
     def is_autonomous(self, pattern_key: str) -> bool:
         """True if JARVIS may perform this convenience action without asking.
@@ -1872,7 +1884,12 @@ class AutonomyManager:
         async with self._async_lock:
             changed = self.revoke(pattern_key, persist=False)
             if changed:
-                await self._async_save(hass)
+                save_task = asyncio.create_task(self._async_save(hass))
+                try:
+                    await asyncio.shield(save_task)
+                except asyncio.CancelledError:
+                    await asyncio.shield(save_task)
+                    raise
             return changed
 
     def list_grants(self) -> list[dict]:
