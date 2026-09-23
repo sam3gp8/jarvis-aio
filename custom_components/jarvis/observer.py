@@ -733,20 +733,20 @@ async def _process_event(event: Event) -> None:
                 "Observer: user sleeping, suppressing %s urgency message '%s'",
                 final_urgency, message[:80],
             )
-            await output_gate.async_record_announcement(hass,
+            await output_gate.async_record_announcement(_STATE.hass,
                 entity_id=entity_id, category=category,
                 urgency=final_urgency, message=message, was_spoken=False,
             )
             return
 
         # Output gate
-        allowed, gate_reason = await output_gate.async_can_announce(hass,
+        allowed, gate_reason = await output_gate.async_can_announce(_STATE.hass,
             entity_id=entity_id, category=category,
             urgency=final_urgency, message=message,
         )
         if not allowed:
             _LOGGER.info("Observer suppressed '%s' — %s", message, gate_reason)
-            await output_gate.async_record_announcement(hass,
+            await output_gate.async_record_announcement(_STATE.hass,
                 entity_id=entity_id, category=category,
                 urgency=final_urgency, message=message, was_spoken=False,
             )
@@ -781,7 +781,7 @@ async def _process_event(event: Event) -> None:
 
         if mode == "suppressed":
             _LOGGER.info("Observer route-suppressed '%s'", message)
-            await output_gate.async_record_announcement(hass,
+            await output_gate.async_record_announcement(_STATE.hass,
                 entity_id=entity_id, category=category,
                 urgency=final_urgency, message=message, was_spoken=False,
             )
@@ -790,7 +790,7 @@ async def _process_event(event: Event) -> None:
         if mode == "notify_only":
             _LOGGER.info("Observer notify-only '%s'", message)
             await _send_notification(message, urgency=final_urgency)
-            await output_gate.async_record_announcement(hass,
+            await output_gate.async_record_announcement(_STATE.hass,
                 entity_id=entity_id, category=category,
                 urgency=final_urgency, message=message, was_spoken=False,
             )
@@ -809,7 +809,7 @@ async def _process_event(event: Event) -> None:
                 "Observer: announcements disabled, logging but not speaking: %s",
                 message[:80],
             )
-            await output_gate.async_record_announcement(hass,
+            await output_gate.async_record_announcement(_STATE.hass,
                 entity_id=entity_id, category=category,
                 urgency=final_urgency, message=message, was_spoken=False,
             )
@@ -822,7 +822,7 @@ async def _process_event(event: Event) -> None:
         # Actually speak
         await _speak(message, targets=targets)
 
-        await output_gate.async_record_announcement(hass,
+        await output_gate.async_record_announcement(_STATE.hass,
             entity_id=entity_id, category=category,
             urgency=final_urgency, message=message, was_spoken=True,
         )
