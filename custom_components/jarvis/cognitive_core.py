@@ -1755,15 +1755,24 @@ class AutonomyManager:
             _LOGGER.warning("Autonomy grants load failed: %s", exc)
             self._grants = {}
 
-    def _save(self) -> None:
+    @staticmethod
+    def _save_snapshot(grants: dict[str, dict]) -> None:
         try:
             os.makedirs(os.path.dirname(AUTONOMY_FILE), exist_ok=True)
             with open(AUTONOMY_FILE, "w", encoding="utf-8") as f:
-                json.dump(self._grants, f, indent=2)
+                json.dump(grants, f, indent=2)
         except Exception as exc:
             _LOGGER.warning("Autonomy grants save failed: %s", exc)
 
-    def record_acceptance(self, pattern_key: str, confidence: float = 1.0) -> dict:
+    def _save(self) -> None:
+        self._save_snapshot(self._grants)
+
+    async def _async_save(self, hass) -> None:
+        snapshot = {key: dict(value) for key, value in self._grants.items()}
+        await hass.async_add_executor_job(self._save_snapshot, snapshot)
+
+    def record_acceptance(self, pattern_key: str, confidence: float = 1.0,
+                          *, persist: bool = True) -> dict:
         """
         User accepted an offer. Increment its trust counter; may promote to
         autonomous. Returns the updated grant record.
@@ -1787,16 +1796,28 @@ class AutonomyManager:
                 pattern_key, g["approvals"],
             )
         self._grants[pattern_key] = g
-        self._save()
+        if persist:
+            self._save()
         return g
 
-    def record_rejection(self, pattern_key: str) -> None:
+    async def async_record_acceptance(self, hass, pattern_key: str,
+                                      confidence: float = 1.0) -> dict:
+        grant = self.record_acceptance(pattern_key, confidence, persist=False)
+        await self._async_save(hass)
+        return grant
+
+    def record_rejection(self, pattern_key: str, *, persist: bool = True) -> None:
         """User declined an offer — reset trust toward this pattern."""
         if pattern_key in self._grants:
             self._grants[pattern_key]["approvals"] = 0
             self._grants[pattern_key]["granted"] = False
             self._grants[pattern_key]["last_rejected"] = dt_util.utcnow().isoformat()
-            self._save()
+            if persist:
+                self._save()
+
+    async def async_record_rejection(self, hass, pattern_key: str) -> None:
+        self.record_rejection(pattern_key, persist=False)
+        await self._async_save(hass)
 
     def is_autonomous(self, pattern_key: str) -> bool:
         """True if JARVIS may perform this convenience action without asking.
@@ -1814,15 +1835,22 @@ class AutonomyManager:
             pass
         return True
 
-    def revoke(self, pattern_key: str) -> bool:
+    def revoke(self, pattern_key: str, *, persist: bool = True) -> bool:
         """Manually revoke autonomy for a pattern (back to offer-only)."""
         if pattern_key in self._grants:
             self._grants[pattern_key]["granted"] = False
             self._grants[pattern_key]["approvals"] = 0
             self._grants[pattern_key]["revoked_at"] = dt_util.utcnow().isoformat()
-            self._save()
+            if persist:
+                self._save()
             return True
         return False
+
+    async def async_revoke(self, hass, pattern_key: str) -> bool:
+        changed = self.revoke(pattern_key, persist=False)
+        if changed:
+            await self._async_save(hass)
+        return changed
 
     def list_grants(self) -> list[dict]:
         """All tracked patterns with their trust state."""
@@ -2484,16 +2512,13 @@ async def _tick():
             now_t = time.time()
             if now_t - getattr(_CORE, "_last_cog_cycle", 0.0) >= cognition.OCC_SAMPLE_INTERVAL:
                 _CORE._last_cog_cycle = now_t
-                def _sync_predictions():
-                    cognition.sample_occupancy(hass, now_t)
-                    cognition.sample_presence(hass, now_t)
-                    return (cognition.predict(hass, now_t)
-                            + cognition.predict_overdue(hass, now_t)
-                            + cognition.predict_presence(hass, now_t)
-                            + cognition.predict_proximity(hass, now_t)
-                            + cognition.predict_routine_start(hass, now_t))
-
-                preds = await hass.async_add_executor_job(_sync_predictions)
+                cognition.sample_occupancy(hass, now_t)
+                cognition.sample_presence(hass, now_t)
+                preds = (cognition.predict(hass, now_t)
+                         + cognition.predict_overdue(hass, now_t)
+                         + cognition.predict_presence(hass, now_t)
+                         + cognition.predict_proximity(hass, now_t)
+                         + cognition.predict_routine_start(hass, now_t))
                 preds += await cognition.predict_departure(hass, now_t)
                 for pred in preds:
                     actions.append(pred)
@@ -3328,8 +3353,8 @@ async def accept_pending_offer() -> dict:
     ok = await _execute_action_data(_CORE.hass, offer.get("action_data", {}))
     pkey = offer.get("pattern_key", "")
     if ok and pkey and _CORE.autonomy_mgr:
-        grant = await _CORE.hass.async_add_executor_job(
-            _CORE.autonomy_mgr.record_acceptance, pkey, 0.9
+        grant = await _CORE.autonomy_mgr.async_record_acceptance(
+            _CORE.hass, pkey, 0.9
         )
         _CORE.actions_taken += 1
         return {
@@ -3351,9 +3376,28 @@ def decline_pending_offer() -> dict:
     return {"ok": True}
 
 
+async def async_decline_pending_offer() -> dict:
+    """Clear the offer on the loop and persist autonomy changes off-loop."""
+    offer = _CORE.pending_offer
+    _CORE.pending_offer = None
+    if offer and _CORE.autonomy_mgr:
+        pkey = offer.get("pattern_key", "")
+        if pkey:
+            await _CORE.autonomy_mgr.async_record_rejection(_CORE.hass, pkey)
+    return {"ok": True}
+
+
 def revoke_autonomy(pattern_key: str) -> dict:
     """Revoke a previously-granted autonomous action."""
     if _CORE.autonomy_mgr and _CORE.autonomy_mgr.revoke(pattern_key):
+        return {"ok": True, "pattern_key": pattern_key}
+    return {"ok": False, "reason": "no such grant"}
+
+
+async def async_revoke_autonomy(pattern_key: str) -> dict:
+    """Mutate autonomy state on the loop and persist its snapshot off-loop."""
+    if _CORE.autonomy_mgr and await _CORE.autonomy_mgr.async_revoke(
+            _CORE.hass, pattern_key):
         return {"ok": True, "pattern_key": pattern_key}
     return {"ok": False, "reason": "no such grant"}
 

@@ -1694,9 +1694,7 @@ async def _exec_manage_autonomy(hass: HomeAssistant, args: dict) -> str:
             pkey = args.get("pattern_key", "")
             if not pkey:
                 return json.dumps({"error": "pattern_key required for revoke"})
-            result = await hass.async_add_executor_job(
-                cognitive_core.revoke_autonomy, pkey
-            )
+            result = await cognitive_core.async_revoke_autonomy(pkey)
             return json.dumps(result)
         # default: list
         status = cognitive_core.status()
@@ -2196,8 +2194,8 @@ async def _exec_dismiss_intrusion(hass: HomeAssistant, args: dict) -> str:
     """Call off an active intrusion as a false alarm (v6.68.0)."""
     try:
         from . import intrusion, cognitive_core
-        res = await hass.async_add_executor_job(
-            intrusion.dismiss_intrusion, args.get("reason", "")
+        res = await intrusion.async_dismiss_intrusion(
+            hass, args.get("reason", "")
         )
         # Also clear any live investigation in the SafetyManager immediately.
         try:

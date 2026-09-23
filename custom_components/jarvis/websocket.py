@@ -604,7 +604,7 @@ async def ws_get_panel_data(
             hass.async_add_executor_job(_get_knowledge_stats),
             hass.async_add_executor_job(_get_suggestions),
             hass.async_add_executor_job(_get_goals),
-            hass.async_add_executor_job(_get_observer_stats),
+            _async_get_observer_stats(hass),
             hass.async_add_executor_job(_get_memory_stats),
             hass.async_add_executor_job(_get_camera_overrides),
             hass.async_add_executor_job(_get_camera_names),
@@ -1220,7 +1220,7 @@ def _get_reasoning_stats() -> dict:
     return out
 
 
-def _get_observer_stats() -> dict:
+def _get_observer_stats(recent=None, reasoning_stats=None) -> dict:
     """Return observer pipeline stats for the tuning dashboard."""
     try:
         from . import observer as obs
@@ -1232,7 +1232,8 @@ def _get_observer_stats() -> dict:
         calls_last_hour = sum(1 for ts in state.classifier_timestamps if ts > now - 3600) if hasattr(state, 'classifier_timestamps') else 0
 
         # Activity stats from DB
-        recent = get_recent_activity(hours=24, limit=500)
+        if recent is None:
+            recent = get_recent_activity(hours=24, limit=500)
         total_events = len(recent)
         spoken = sum(1 for e in recent if e.get("was_spoken"))
         flagged = sum(1 for e in recent if "flagged" in (e.get("message") or ""))
@@ -1267,7 +1268,7 @@ def _get_observer_stats() -> dict:
             "cog_routines": cog_stats.get("routines", 0),
             "cog_presence": cog_stats.get("presence_routines", 0),
             "presence": presence,
-            **_get_reasoning_stats(),
+            **(reasoning_stats or _get_reasoning_stats()),
         }
     except Exception:
         return {"running": False, "calls_last_hour": 0, "rate_limit": 30,
@@ -1277,6 +1278,15 @@ def _get_observer_stats() -> dict:
                 "cog_predictable": 0, "cog_routines": 0, "cog_presence": 0,
                 "presence": [], "learned_patterns": 0, "cloud_calls": 0,
                 "local_decisions": 0, "local_rate": 0, "llm_breaker": "closed"}
+
+
+async def _async_get_observer_stats(hass) -> dict:
+    from .database import get_recent_activity
+    recent, reasoning_stats = await asyncio.gather(
+        hass.async_add_executor_job(get_recent_activity, 24, 500),
+        hass.async_add_executor_job(_get_reasoning_stats),
+    )
+    return _get_observer_stats(recent, reasoning_stats)
 
 
 # ─── Activity log WebSocket command ──────────────────────────────────────────
@@ -2571,8 +2581,8 @@ async def ws_intrusion(
     try:
         from . import intrusion
         if msg["action"] == "dismiss":
-            res = await hass.async_add_executor_job(
-                intrusion.dismiss_intrusion, msg.get("reason", "panel")
+            res = await intrusion.async_dismiss_intrusion(
+                hass, msg.get("reason", "panel")
             )
             try:
                 from . import cognitive_core

@@ -302,7 +302,19 @@ _STT_CORRECTIONS = {
 }
 
 
-def _find_entity(hass, name_fragment, domain_hint=None):
+def _load_learned_aliases() -> dict:
+    try:
+        import json as _json
+        learn_file = "/config/.jarvis_learned.json"
+        with open(learn_file) as f:
+            learned = _json.load(f)
+        aliases = learned.get("alias", {})
+        return aliases if isinstance(aliases, dict) else {}
+    except Exception:
+        return {}
+
+
+def _find_entity(hass, name_fragment, domain_hint=None, learned_aliases=None):
     """
     Fuzzy-match a name fragment against HA entities. v5.7.08.
 
@@ -331,21 +343,13 @@ def _find_entity(hass, name_fragment, domain_hint=None):
         return None
 
     # ── Tier 0: Check learned aliases ───────────────────────────────
-    try:
-        import json as _json, os as _os
-        learn_file = "/config/.jarvis_learned.json"
-        if _os.path.exists(learn_file):
-            with open(learn_file) as f:
-                learned = _json.load(f)
-            aliases = learned.get("alias", {})
-            if fragment in aliases:
-                resolved_id = aliases[fragment]
-                state = hass.states.get(resolved_id)
-                if state:
-                    _LOGGER.info("Entity resolve: alias '%s' → %s", fragment, resolved_id)
-                    return (resolved_id, state.attributes.get("friendly_name", resolved_id))
-    except Exception:
-        pass
+    aliases = learned_aliases or {}
+    if fragment in aliases:
+        resolved_id = aliases[fragment]
+        state = hass.states.get(resolved_id)
+        if state:
+            _LOGGER.info("Entity resolve: alias '%s' → %s", fragment, resolved_id)
+            return (resolved_id, state.attributes.get("friendly_name", resolved_id))
 
     domains = [domain_hint] if domain_hint else [
         "light", "switch", "lock", "cover", "climate",
@@ -902,6 +906,7 @@ async def try_local(hass, text, honorific="sir", force=False):
 
     # Single-entity patterns
     _last_failed_name = None  # Track for end-of-loop error
+    learned_aliases = await hass.async_add_executor_job(_load_learned_aliases)
     for pattern, action, domain_hint in _INTENT_PATTERNS:
         if action == "scene":
             continue
@@ -916,9 +921,9 @@ async def try_local(hass, text, honorific="sir", force=False):
         extra_arg = groups[1] if len(groups) > 1 else None
         if not name_frag:
             continue
-        resolved = await hass.async_add_executor_job(
-            _find_entity, hass, name_frag, domain_hint
-        ) or await hass.async_add_executor_job(_find_entity, hass, name_frag, None)
+        resolved = _find_entity(
+            hass, name_frag, domain_hint, learned_aliases
+        ) or _find_entity(hass, name_frag, None, learned_aliases)
         if not resolved:
             # Track failure but keep trying other patterns/domains
             _last_failed_name = name_frag
@@ -1045,9 +1050,7 @@ async def try_local(hass, text, honorific="sir", force=False):
     # like "what are your capabilities" get fed wholesale to the resolver,
     # which wastes a full registry scan and (previously) logged noise.
     if complexity < 40 and _looks_like_entity_name(normalized):
-        resolved = await hass.async_add_executor_job(
-            _find_entity, hass, normalized, None
-        )
+        resolved = _find_entity(hass, normalized, None, learned_aliases)
         if resolved:
             entity_id, fname = resolved
             state = hass.states.get(entity_id)

@@ -97,7 +97,8 @@ def _budget_multiplier() -> float:
     return mult
 
 
-def can_announce(
+def _can_announce_with_multiplier(
+    budget_multiplier: float,
     *,
     entity_id: str,
     category: str,
@@ -126,9 +127,8 @@ def can_announce(
     if category in _STATE.muted_categories:
         return False, f"category {category} is muted"
 
-    # Rate limit — tightened by the adaptive interruption budget when enabled
-    # (a no-op multiplier of 1.0 keeps the base cap otherwise).
-    eff_max = max(1, int(round(max_per_hour * _budget_multiplier())))
+    # Rate limit — tightened by the adaptive interruption budget when enabled.
+    eff_max = max(1, int(round(max_per_hour * budget_multiplier)))
     recent = _recent_within(_STATE.history, 3600)
     if len(recent) >= eff_max and urgency not in ("high",):
         return False, f"rate limit ({len(recent)}/{eff_max}/hour)"
@@ -144,12 +144,53 @@ def can_announce(
     return True, "ok"
 
 
+def can_announce(
+    *,
+    entity_id: str,
+    category: str,
+    urgency: str,
+    message: str,
+    max_per_hour: int = DEFAULT_MAX_PER_HOUR,
+    dedup_minutes: int = DEFAULT_DEDUP_MINUTES,
+) -> tuple[bool, str]:
+    return _can_announce_with_multiplier(
+        _budget_multiplier(), entity_id=entity_id, category=category,
+        urgency=urgency, message=message, max_per_hour=max_per_hour,
+        dedup_minutes=dedup_minutes)
+
+
+async def _budget_multiplier_async(hass) -> float:
+    try:
+        from . import jarvis_config
+        enabled = await hass.async_add_executor_job(
+            jarvis_config.get, "adaptive_interruption_budget", False
+        )
+        if not enabled:
+            return 1.0
+    except Exception:
+        return 1.0
+    now = _now()
+    if now - _BUDGET_CACHE["ts"] < 60.0:
+        return _BUDGET_CACHE["mult"]
+    try:
+        from . import decision_record
+        budget = await hass.async_add_executor_job(
+            decision_record.interruption_budget
+        )
+        mult = float(budget.get("multiplier", 1.0))
+    except Exception:
+        mult = 1.0
+    _BUDGET_CACHE.update(ts=now, mult=mult)
+    return mult
+
+
 async def async_can_announce(hass, **kwargs) -> tuple[bool, str]:
-    """Run the gate, including its adaptive-budget DB read, off the event loop."""
-    return await hass.async_add_executor_job(partial(can_announce, **kwargs))
+    """Evaluate gate state on the loop; query adaptive budget in an executor."""
+    multiplier = await _budget_multiplier_async(hass)
+    return _can_announce_with_multiplier(multiplier, **kwargs)
 
 
-def record_announcement(
+def _record_announcement_state(
     *,
     entity_id: str,
     category: str,
@@ -172,6 +213,10 @@ def record_announcement(
             "timestamp": _now(),
             "message": message,
         })
+def _save_announcement_activity(
+    *, entity_id: str, category: str, urgency: str, message: str,
+    was_spoken: bool,
+) -> None:
     # v5.4.8: persist to SQLite for panel activity log
     try:
         from .database import save_activity
@@ -187,9 +232,28 @@ def record_announcement(
         pass  # DB write failure is non-fatal
 
 
+def record_announcement(
+    *,
+    entity_id: str,
+    category: str,
+    urgency: str,
+    message: str,
+    was_spoken: bool,
+) -> None:
+    _record_announcement_state(
+        entity_id=entity_id, category=category, urgency=urgency,
+        message=message, was_spoken=was_spoken)
+    _save_announcement_activity(
+        entity_id=entity_id, category=category, urgency=urgency,
+        message=message, was_spoken=was_spoken)
+
+
 async def async_record_announcement(hass, **kwargs) -> None:
-    """Record in-memory history and persist activity off the event loop."""
-    await hass.async_add_executor_job(partial(record_announcement, **kwargs))
+    """Update gate state on the loop and persist activity off the event loop."""
+    _record_announcement_state(**kwargs)
+    await hass.async_add_executor_job(
+        partial(_save_announcement_activity, **kwargs)
+    )
 
 
 def shush(

@@ -139,7 +139,7 @@ def set_last_decision_id(record_id) -> None:
             pass
 
 
-def dismiss_intrusion(reason: str = "") -> dict:
+def _dismiss_intrusion_state(reason: str = "") -> tuple[dict, int | None]:
     """Declare the current/last intrusion a false alarm. Sets a suppression
     window so the SafetyManager stops escalating, and records it. The
     SafetyManager consults is_called_off() and clears its investigation. Never
@@ -156,22 +156,38 @@ def dismiss_intrusion(reason: str = "") -> dict:
         del _false_alarms[:-50]
     _LOGGER.info("JARVIS: intrusion called off by user%s — suppressing escalation "
                  "for %ds", f" ({reason})" if reason else "", int(_CALLOFF_COOLDOWN))
+    decision_id = _last_decision_id
+    _last_decision_id = None
+    return {"ok": True, "suppressed_seconds": int(_CALLOFF_COOLDOWN), "recorded": rec}, decision_id
+
+
+def _persist_dismissal(decision_id: int | None) -> None:
     try:  # Decision Record outcome: a called-off intrusion was a false alarm.
         from . import decision_record
-        if _last_decision_id is not None:
+        if decision_id is not None:
             # Attach the verdict to the exact record for this intrusion.
             if not decision_record.set_outcome(
-                    _last_decision_id, "wrong", "dismiss_intrusion"):
+                    decision_id, "wrong", "dismiss_intrusion"):
                 # Already judged or gone — fall back to most-recent-of-kind.
                 decision_record.set_outcome_recent(
                     "intrusion", "wrong", "dismiss_intrusion", max_age=7200.0)
-            _last_decision_id = None
         else:
             decision_record.set_outcome_recent(
                 "intrusion", "wrong", "dismiss_intrusion", max_age=7200.0)
     except Exception:
         pass
-    return {"ok": True, "suppressed_seconds": int(_CALLOFF_COOLDOWN), "recorded": rec}
+
+
+def dismiss_intrusion(reason: str = "") -> dict:
+    result, decision_id = _dismiss_intrusion_state(reason)
+    _persist_dismissal(decision_id)
+    return result
+
+
+async def async_dismiss_intrusion(hass, reason: str = "") -> dict:
+    result, decision_id = _dismiss_intrusion_state(reason)
+    await hass.async_add_executor_job(_persist_dismissal, decision_id)
+    return result
 
 
 def is_called_off() -> bool:
