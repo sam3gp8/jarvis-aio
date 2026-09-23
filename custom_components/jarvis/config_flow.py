@@ -75,6 +75,17 @@ _RUNTIME_CONFIG_PATH = "/config/jarvis/config.json"
 _PROVIDER_STEPS = ("groq", "openai", "anthropic", "gemini", "custom", "ollama")
 
 
+async def _validate_provider_key(hass, provider: str, api_key: str) -> str | None:
+    """Validate a cloud provider key without issuing a chat completion."""
+    try:
+        from .websocket import _fetch_models
+        models = await _fetch_models(hass, provider, api_key, "")
+    except Exception as exc:
+        from .llm_provider import _classify_conn_error
+        return _classify_conn_error(exc)
+    return None if models else "unknown"
+
+
 def _legacy_provider_key(data: dict[str, Any], provider: str) -> str:
     """The selected provider's legacy plaintext runtime credential, if any."""
     from . import ha_secrets
@@ -158,15 +169,13 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_step_simple_key(self, provider: str, user_input: dict[str, Any] | None) -> dict:
         """Shared body for the single-API-key-field provider steps."""
-        from .llm_provider import test_connection
-
         errors: dict[str, str] = {}
         if user_input is not None:
             api_key = (user_input.get(CONF_API_KEY) or "").strip()
             if not api_key:
                 errors["base"] = "need_llm"
             else:
-                conn_err = await test_connection(self.hass, provider, api_key, DEFAULT_MODEL, None)
+                conn_err = await _validate_provider_key(self.hass, provider, api_key)
                 if conn_err:
                     errors["base"] = conn_err
                 else:
