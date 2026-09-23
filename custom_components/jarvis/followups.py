@@ -168,11 +168,13 @@ async def async_process_due(
             })
             try:
                 from . import database
-                database.save_activity(
-                    category="followup", urgency="low",
-                    message=f"Follow-up #{row['id']} ran: "
-                            f"{row['instruction'][:120]} → {result[:160]}",
-                    source="agent")
+                await hass.async_add_executor_job(
+                    lambda: database.save_activity(
+                        category="followup", urgency="low",
+                        message=f"Follow-up #{row['id']} ran: "
+                                f"{row['instruction'][:120]} → {result[:160]}",
+                        source="agent")
+                )
             except Exception:
                 pass
         except Exception as exc:

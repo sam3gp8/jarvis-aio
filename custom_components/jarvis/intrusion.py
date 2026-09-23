@@ -71,13 +71,11 @@ async def capture_snapshot(hass, camera_entity: str,
         content = getattr(image, "content", None)
         if not content:
             return None
-        os.makedirs(SNAPSHOT_DIR, exist_ok=True)
         ts = int(time.time())
         slug = camera_entity.split(".", 1)[-1]
         fname = f"{tag}_{slug}_{ts}.jpg"
         path = os.path.join(SNAPSHOT_DIR, fname)
-        await hass.async_add_executor_job(_write_bytes, path, content)
-        _prune_old()
+        await hass.async_add_executor_job(_store_snapshot, path, content)
         info = {
             "path": path,
             "url": f"{SNAPSHOT_URL_BASE}/{fname}",
@@ -97,6 +95,12 @@ async def capture_snapshot(hass, camera_entity: str,
 def _write_bytes(path: str, data: bytes) -> None:
     with open(path, "wb") as f:
         f.write(data)
+
+
+def _store_snapshot(path: str, data: bytes) -> None:
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+    _write_bytes(path, data)
+    _prune_old()
 
 
 def _prune_old() -> None:

@@ -269,7 +269,9 @@ async def scan_backlog(
                 res = await analyze_image(img, label)
                 if res and res.get("success"):
                     cam = res.get("camera", dev_id)
-                    log_event(cam, f"nest:{dev_id}", "backlog", res)
+                    await hass.async_add_executor_job(
+                        log_event, cam, f"nest:{dev_id}", "backlog", res
+                    )
                     report["analyzed"] += 1
                     remaining -= 1
             except Exception as exc:

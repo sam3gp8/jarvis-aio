@@ -591,13 +591,15 @@ class SafetyManager:
             # a logging failure must never affect the alert.
             try:
                 from . import decision_record
-                _rid = decision_record.record(
-                    "intrusion",
-                    observation={"location": where, "breach": breach_name,
-                                 "alarm_armed": armed, "presence": "away"},
-                    interpretation={"assessment": "possible intrusion — investigating from the point of entry"},
-                    decision="raise initial intrusion alert and investigate silently",
-                    reason="motion while away with corroborating breach (open entry or armed alarm)",
+                _rid = await self.hass.async_add_executor_job(
+                    lambda: decision_record.record(
+                        "intrusion",
+                        observation={"location": where, "breach": breach_name,
+                                     "alarm_armed": armed, "presence": "away"},
+                        interpretation={"assessment": "possible intrusion — investigating from the point of entry"},
+                        decision="raise initial intrusion alert and investigate silently",
+                        reason="motion while away with corroborating breach (open entry or armed alarm)",
+                    )
                 )
                 try:  # so a later call-off attaches to this exact record
                     from . import intrusion as _intr_rec
@@ -2482,13 +2484,16 @@ async def _tick():
             now_t = time.time()
             if now_t - getattr(_CORE, "_last_cog_cycle", 0.0) >= cognition.OCC_SAMPLE_INTERVAL:
                 _CORE._last_cog_cycle = now_t
-                cognition.sample_occupancy(hass, now_t)
-                cognition.sample_presence(hass, now_t)
-                preds = (cognition.predict(hass, now_t)
-                         + cognition.predict_overdue(hass, now_t)
-                         + cognition.predict_presence(hass, now_t)
-                         + cognition.predict_proximity(hass, now_t)
-                         + cognition.predict_routine_start(hass, now_t))
+                def _sync_predictions():
+                    cognition.sample_occupancy(hass, now_t)
+                    cognition.sample_presence(hass, now_t)
+                    return (cognition.predict(hass, now_t)
+                            + cognition.predict_overdue(hass, now_t)
+                            + cognition.predict_presence(hass, now_t)
+                            + cognition.predict_proximity(hass, now_t)
+                            + cognition.predict_routine_start(hass, now_t))
+
+                preds = await hass.async_add_executor_job(_sync_predictions)
                 preds += await cognition.predict_departure(hass, now_t)
                 for pred in preds:
                     actions.append(pred)
@@ -3323,7 +3328,9 @@ async def accept_pending_offer() -> dict:
     ok = await _execute_action_data(_CORE.hass, offer.get("action_data", {}))
     pkey = offer.get("pattern_key", "")
     if ok and pkey and _CORE.autonomy_mgr:
-        grant = _CORE.autonomy_mgr.record_acceptance(pkey, confidence=0.9)
+        grant = await _CORE.hass.async_add_executor_job(
+            _CORE.autonomy_mgr.record_acceptance, pkey, 0.9
+        )
         _CORE.actions_taken += 1
         return {
             "ok": True, "pattern_key": pkey,

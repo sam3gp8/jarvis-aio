@@ -76,7 +76,7 @@ async def async_run_routine(
     Run a named routine by iterating through its steps.
     """
     name: str = call.data["name"].lower().strip()
-    routines = _load_routines()
+    routines = await hass.async_add_executor_job(_load_routines)
 
     if name not in routines:
         _LOGGER.warning("JARVIS: unknown routine '%s'", name)

@@ -1022,7 +1022,7 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
 
     # Route through output gate
     from . import output_gate
-    allowed, reason = output_gate.can_announce(
+    allowed, reason = await output_gate.async_can_announce(hass,
         entity_id=sensor.entity_id,
         category="appliance",
         urgency="medium",
@@ -1030,7 +1030,7 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
     )
     if not allowed:
         _LOGGER.debug("Appliance announcement suppressed: %s", reason)
-        output_gate.record_announcement(
+        await output_gate.async_record_announcement(hass,
             entity_id=sensor.entity_id, category="appliance",
             urgency="medium", message=message, was_spoken=False,
         )
@@ -1051,7 +1051,7 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
 
     if not announcements_on:
         _LOGGER.debug("Appliance: announcements disabled, logging only")
-        output_gate.record_announcement(
+        await output_gate.async_record_announcement(hass,
             entity_id=sensor.entity_id, category="appliance",
             urgency="medium", message=message, was_spoken=False,
         )
@@ -1098,7 +1098,7 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
         )
 
         if mode in ("suppressed", "notify_only") or not targets:
-            output_gate.record_announcement(
+            await output_gate.async_record_announcement(hass,
                 entity_id=sensor.entity_id, category="appliance",
                 urgency="medium", message=message, was_spoken=False,
             )
@@ -1129,12 +1129,12 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
                 hass, message, tts_entity, targets,
                 context="appliance",
             )
-            output_gate.record_announcement(
+            await output_gate.async_record_announcement(hass,
                 entity_id=sensor.entity_id, category="appliance",
                 urgency="medium", message=message, was_spoken=True,
             )
         else:
-            output_gate.record_announcement(
+            await output_gate.async_record_announcement(hass,
                 entity_id=sensor.entity_id, category="appliance",
                 urgency="medium", message=message, was_spoken=False,
             )

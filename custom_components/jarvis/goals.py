@@ -385,11 +385,13 @@ async def async_process_due(
 
         try:
             from . import database
-            database.save_activity(
-                category="goal", urgency="low",
-                message=f"Goal #{gid} '{g['title']}' engaged (run {runs}): "
-                        f"{(result or 'no report')[:160]}",
-                source="agent")
+            await hass.async_add_executor_job(
+                lambda: database.save_activity(
+                    category="goal", urgency="low",
+                    message=f"Goal #{gid} '{g['title']}' engaged (run {runs}): "
+                            f"{(result or 'no report')[:160]}",
+                    source="agent")
+            )
         except Exception:
             pass
 

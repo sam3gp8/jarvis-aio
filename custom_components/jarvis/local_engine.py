@@ -916,7 +916,9 @@ async def try_local(hass, text, honorific="sir", force=False):
         extra_arg = groups[1] if len(groups) > 1 else None
         if not name_frag:
             continue
-        resolved = _find_entity(hass, name_frag, domain_hint) or _find_entity(hass, name_frag, None)
+        resolved = await hass.async_add_executor_job(
+            _find_entity, hass, name_frag, domain_hint
+        ) or await hass.async_add_executor_job(_find_entity, hass, name_frag, None)
         if not resolved:
             # Track failure but keep trying other patterns/domains
             _last_failed_name = name_frag
@@ -1043,7 +1045,9 @@ async def try_local(hass, text, honorific="sir", force=False):
     # like "what are your capabilities" get fed wholesale to the resolver,
     # which wastes a full registry scan and (previously) logged noise.
     if complexity < 40 and _looks_like_entity_name(normalized):
-        resolved = _find_entity(hass, normalized, None)
+        resolved = await hass.async_add_executor_job(
+            _find_entity, hass, normalized, None
+        )
         if resolved:
             entity_id, fname = resolved
             state = hass.states.get(entity_id)

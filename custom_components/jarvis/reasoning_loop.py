@@ -505,7 +505,7 @@ async def decide(
         domain, device_class, classifier_category, from_state, to_state,
         anyone_home, classifier_urgency)
 
-    cached = reasoning_cache.get(sig)
+    cached = await hass.async_add_executor_job(reasoning_cache.get, sig)
     if cached is not None and not rich:
         reasoning_cache.note_hit(sig)
         dec = await _decision_from_cache(
@@ -620,7 +620,9 @@ async def decide(
 
         if not result.get("speak"):
             # Learn this "stay silent" decision so the pattern is handled locally next time.
-            reasoning_cache.remember(sig, False, classifier_urgency)
+            await hass.async_add_executor_job(
+                reasoning_cache.remember, sig, False, classifier_urgency
+            )
             return {
                 "speak": False,
                 "reason": result.get("reason", "reasoning declined"),
@@ -635,7 +637,9 @@ async def decide(
             urgency = classifier_urgency
 
         # Learn the speak decision (urgency) for this pattern.
-        reasoning_cache.remember(sig, True, urgency)
+        await hass.async_add_executor_job(
+            reasoning_cache.remember, sig, True, urgency
+        )
 
         return {
             "speak": True,
@@ -646,7 +650,9 @@ async def decide(
         _LOGGER.warning("Reasoning loop failed: %s", exc)
         connectivity.record_failure()
         # Fall back to a stale learned decision if we have one, else the Local Mind.
-        stale = reasoning_cache.get(sig, ignore_age=True)
+        stale = await hass.async_add_executor_job(
+            lambda: reasoning_cache.get(sig, ignore_age=True)
+        )
         if stale is not None:
             reasoning_cache.note_hit(sig)
             return await _decision_from_cache(

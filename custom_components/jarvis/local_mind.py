@@ -411,7 +411,9 @@ async def assess(hass, *, honorific: str, entity_id: str = "", domain: str = "",
             history_profile, entity_id, to_state, hour)
     except Exception:
         history = {"grade": "unknown", "days": 0, "at_hour": 0, "total": 0}
-    prior = _case_prior(domain, device_class, category, anyone_home)
+    prior = await hass.async_add_executor_job(
+        _case_prior, domain, device_class, category, anyone_home
+    )
     dec = assess_core(
         honorific=honorific, entity_id=entity_id, domain=domain,
         device_class=device_class, category=category, from_state=from_state,

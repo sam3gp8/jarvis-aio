@@ -837,7 +837,8 @@ async def predict_departure(hass, now: float = None) -> list:
             _RECUR_ALERTED[key] = today
             mins_to = max(0, int((start_dt - now_dt).total_seconds() // 60))
             loc_str = (" at %s" % loc) if loc else ""
-            _log_decision(
+            await hass.async_add_executor_job(
+                _log_decision,
                 "anticipation_departure",
                 {"event": title, "location": loc or None, "minutes_until": mins_to},
                 {"predicted": "departure imminent — should leave soon"},

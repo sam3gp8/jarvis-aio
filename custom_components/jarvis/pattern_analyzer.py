@@ -692,9 +692,9 @@ class PatternAnalyzer:
                 pass
         return out
 
-    def _run_all_finders(self, conn: sqlite3.Connection, person_map: dict,
+    def _run_all_finders(self, person_map: dict,
                          lat, lon, sensor_hist: dict) -> list[DetectedPattern]:
-        """Run every DB-based pattern finder and close ``conn`` before returning.
+        """Open the DB, run every finder, and close it on one executor thread.
 
         Everything from first use to close of the connection happens on this
         one executor thread. If ``analyze()`` is cancelled while awaiting this
@@ -703,6 +703,9 @@ class PatternAnalyzer:
         than back on the event-loop thread once the await is abandoned — means
         the close can never race a still-running query on this connection.
         """
+        conn = self._connect()
+        if not conn:
+            return []
         patterns: list[DetectedPattern] = []
         try:
             finders = (
@@ -726,12 +729,6 @@ class PatternAnalyzer:
         """Run full pattern analysis. Returns detected patterns."""
         self._last_analysis = time.time()
         patterns = []
-
-        conn = self._connect()
-        if not conn:
-            return patterns
-
-        handed_off = False
         try:
             person_map = self._person_entity_map(hass)
             try:
@@ -741,8 +738,7 @@ class PatternAnalyzer:
             _lat = getattr(hass.config, "latitude", None)
             _lon = getattr(hass.config, "longitude", None)
             executor_job = hass.async_add_executor_job(
-                self._run_all_finders, conn, person_map, _lat, _lon, _sensor_hist)
-            handed_off = True
+                self._run_all_finders, person_map, _lat, _lon, _sensor_hist)
             # Shielded: if this await is cancelled, only our wait on the job
             # stops — the job itself is not cancelled, so it can't be pulled
             # out of the executor queue before _run_all_finders starts (which
@@ -753,13 +749,6 @@ class PatternAnalyzer:
             raise
         except Exception as exc:
             _LOGGER.warning("Pattern analysis error: %s", exc)
-        finally:
-            # _run_all_finders closes conn itself once handed off (it always
-            # runs to completion now, shielded from this coroutine's own
-            # cancellation); only close here if that never happened, e.g. an
-            # error before the executor job was scheduled.
-            if not handed_off:
-                conn.close()
 
         # Clear any pending suggestions that aren't actionable automations —
         # legacy rows stored before the actionability filter, so the review list
@@ -769,7 +758,7 @@ class PatternAnalyzer:
         # Store high-confidence patterns as suggestions
         new_suggestions = 0
         new_person_patterns = 0
-        _eff_threshold = _effective_threshold()
+        _eff_threshold = await hass.async_add_executor_job(_effective_threshold)
         near_misses: list = []
         # A sequence stores when count/(MIN_OCCURRENCES*3) >= threshold; surface
         # how many recurrences a not-yet-stored one still needs.

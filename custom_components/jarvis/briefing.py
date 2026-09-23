@@ -180,7 +180,9 @@ async def async_briefing(
                 context_lines.append(f"Away: {', '.join(away)}.")
 
     if include_events:
-        events = _gather_overnight_events(hass, overnight_hours)
+        events = await hass.async_add_executor_job(
+            _gather_overnight_events, hass, overnight_hours
+        )
         if events:
             context_lines.append(
                 f"Events in the last {overnight_hours} hours:\n- " + "\n- ".join(events)

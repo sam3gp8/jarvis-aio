@@ -342,14 +342,8 @@ def test_run_all_finders_on_real_worker_thread(analyzer, tmp_path):
 
     pa = analyzer.PatternAnalyzer()
     pa._db = str(db)
-    # _connect() is what production code calls before handing the connection
-    # off to the executor job; it must be opened with check_same_thread=False
-    # for the cross-thread use below to be legal.
-    conn = pa._connect()
-    assert conn is not None
-
     with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(pa._run_all_finders, conn, {}, None, None, {})
+        future = pool.submit(pa._run_all_finders, {}, None, None, {})
         patterns = future.result()  # re-raises any sqlite3.ProgrammingError
 
     assert any(p.entity_ids == ["light.porch_test"] for p in patterns)

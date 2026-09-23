@@ -23,6 +23,7 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Optional
 
 _LOGGER = logging.getLogger(__name__)
@@ -143,6 +144,11 @@ def can_announce(
     return True, "ok"
 
 
+async def async_can_announce(hass, **kwargs) -> tuple[bool, str]:
+    """Run the gate, including its adaptive-budget DB read, off the event loop."""
+    return await hass.async_add_executor_job(partial(can_announce, **kwargs))
+
+
 def record_announcement(
     *,
     entity_id: str,
@@ -179,6 +185,11 @@ def record_announcement(
         )
     except Exception:
         pass  # DB write failure is non-fatal
+
+
+async def async_record_announcement(hass, **kwargs) -> None:
+    """Record in-memory history and persist activity off the event loop."""
+    await hass.async_add_executor_job(partial(record_announcement, **kwargs))
 
 
 def shush(

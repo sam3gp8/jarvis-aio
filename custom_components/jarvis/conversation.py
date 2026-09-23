@@ -930,11 +930,15 @@ class JarvisAgent(conversation.ConversationEntity):
                         offer_reply = f"I wasn't able to complete that, {honorific}."
                     jarvis_log("OFFER", f"accepted: {offer_reply[:60]}")
                 elif deny:
-                    cognitive_core.decline_pending_offer()
+                    await self.hass.async_add_executor_job(
+                        cognitive_core.decline_pending_offer
+                    )
                     offer_reply = f"Understood, {honorific}. I'll leave it."
                     jarvis_log("OFFER", "declined")
                 else:
-                    cognitive_core.decline_pending_offer()
+                    await self.hass.async_add_executor_job(
+                        cognitive_core.decline_pending_offer
+                    )
         except Exception as exc:
             _LOGGER.debug("Offer handling skipped: %s", exc)
 
