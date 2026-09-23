@@ -129,3 +129,74 @@ def test_panel_actions_still_wired():
     assert "sug-approve" in panel
     assert "sug-dismiss" in panel
     assert "sug-yaml-btn" in panel
+
+
+# ── only real automations (trigger + action) are surfaced ────────────────────
+
+_SUG_SCHEMA = """
+CREATE TABLE suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created TEXT NOT NULL, description TEXT NOT NULL, automation_yaml TEXT,
+    status TEXT DEFAULT 'pending', confidence REAL DEFAULT 0.0,
+    pattern_count INTEGER DEFAULT 0, approved_at TEXT, dismissed_at TEXT,
+    pattern_type TEXT DEFAULT '', entity_ids TEXT DEFAULT '',
+    details TEXT DEFAULT '{}'
+);
+"""
+
+
+def _seq_pattern(pa, trig, ts, act, as_, desc):
+    return pa.DetectedPattern(
+        pattern_type="sequence", description=desc,
+        entity_ids=[trig, act], confidence=1.0, occurrences=99,
+        details={"trigger": {"entity": trig, "state": ts},
+                 "action": {"entity": act, "state": as_},
+                 "delay_seconds": 10, "condition": None})
+
+
+def test_non_actionable_sequence_is_not_stored(pa, tmp_path):
+    import sqlite3
+    db = str(tmp_path / "sug.db")
+    c = sqlite3.connect(db); c.executescript(_SUG_SCHEMA); c.commit(); c.close()
+    an = pa.PatternAnalyzer(); an._db = db
+
+    # Two sensors that merely co-occur — no device action to take.
+    non_act = _seq_pattern(pa, "binary_sensor.a", "off",
+                           "binary_sensor.b", "off", "corr A->B")
+    assert an._store_suggestion(non_act) is False
+    # A real trigger -> device action.
+    act = _seq_pattern(pa, "binary_sensor.front_door", "on",
+                       "light.hall", "on", "door->light")
+    assert an._store_suggestion(act) is True
+
+    c = sqlite3.connect(db)
+    descs = [r[0] for r in c.execute(
+        "SELECT description FROM suggestions WHERE status='pending'").fetchall()]
+    c.close()
+    assert "door->light" in descs and "corr A->B" not in descs
+
+
+def test_purge_removes_legacy_non_actionable_suggestions(pa, tmp_path):
+    import json
+    import sqlite3
+    db = str(tmp_path / "sug2.db")
+    c = sqlite3.connect(db); c.executescript(_SUG_SCHEMA)
+    c.execute("INSERT INTO suggestions (created, description, automation_yaml, "
+              "status) VALUES ('t','bad',?, 'pending')",
+              (json.dumps({"type": "manual_review", "note": "x"}),))
+    c.execute("INSERT INTO suggestions (created, description, automation_yaml, "
+              "status) VALUES ('t','good',?, 'pending')",
+              (json.dumps({"alias": "a",
+                           "trigger": {"platform": "state",
+                                       "entity_id": "binary_sensor.x", "to": "on"},
+                           "action": {"service": "light.turn_on",
+                                      "entity_id": "light.y"}}),))
+    c.commit(); c.close()
+
+    an = pa.PatternAnalyzer(); an._db = db
+    assert an._purge_non_actionable_suggestions() == 1
+    c = sqlite3.connect(db)
+    left = [r[0] for r in c.execute(
+        "SELECT description FROM suggestions WHERE status='pending'").fetchall()]
+    c.close()
+    assert left == ["good"]

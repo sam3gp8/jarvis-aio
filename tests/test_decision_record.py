@@ -168,7 +168,7 @@ def test_suggestion_store_records_decision(load, monkeypatch, tmp_path):
 
     an = pa.PatternAnalyzer()
     an._db = db
-    monkeypatch.setattr(an, "_generate_automation", lambda p: "{}")
+    monkeypatch.setattr(an, "_generate_automation", lambda p: __import__("json").dumps({"alias": "a", "trigger": {"platform": "time", "at": "18:00:00"}, "action": {"service": "light.turn_on", "entity_id": "light.porch"}}))
 
     captured = {}
 
@@ -213,7 +213,7 @@ def test_suggestion_store_survives_record_failure(load, monkeypatch, tmp_path):
 
     an = pa.PatternAnalyzer()
     an._db = db
-    monkeypatch.setattr(an, "_generate_automation", lambda p: "{}")
+    monkeypatch.setattr(an, "_generate_automation", lambda p: __import__("json").dumps({"alias": "a", "trigger": {"platform": "time", "at": "18:00:00"}, "action": {"service": "light.turn_on", "entity_id": "light.porch"}}))
 
     def boom(*a, **k):
         raise RuntimeError("db down")

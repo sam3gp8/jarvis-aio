@@ -761,6 +761,11 @@ class PatternAnalyzer:
             if not handed_off:
                 conn.close()
 
+        # Clear any pending suggestions that aren't actionable automations —
+        # legacy rows stored before the actionability filter, so the review list
+        # only ever shows real trigger+action automations.
+        await hass.async_add_executor_job(self._purge_non_actionable_suggestions)
+
         # Store high-confidence patterns as suggestions
         new_suggestions = 0
         new_person_patterns = 0
@@ -1435,8 +1440,44 @@ class PatternAnalyzer:
         from . import person_patterns
         return person_patterns.read(person, db_path=self._db)
 
+    def _purge_non_actionable_suggestions(self) -> int:
+        """Delete pending suggestions that can never become an automation — a
+        trigger with no device action to take. Clears rows stored before the
+        actionability filter existed (and any a generator change later renders
+        non-installable). Returns how many were removed. Never raises."""
+        try:
+            conn = sqlite3.connect(self._db)
+        except Exception:
+            return 0
+        removed = 0
+        try:
+            rows = conn.execute(
+                "SELECT id, automation_yaml FROM suggestions "
+                "WHERE status = 'pending'"
+            ).fetchall()
+            for rid, yml in rows:
+                if not normalize_suggestion_automation(yml or "").get("installable"):
+                    conn.execute("DELETE FROM suggestions WHERE id = ?", (rid,))
+                    removed += 1
+            if removed:
+                conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+        return removed
+
     def _store_suggestion(self, pattern: DetectedPattern) -> bool:
-        """Store a pattern as a suggestion in the DB. Returns True if new."""
+        """Store a pattern as a suggestion in the DB. Returns True if new.
+
+        A suggestion is only worth surfacing if it becomes a real automation —
+        a trigger AND a device action to take. A pattern whose "action" has no
+        service to call (two sensors or cameras that merely change state around
+        the same time) is a correlation, not an automation, so it is never
+        stored for review."""
+        auto_yaml = self._generate_automation(pattern)
+        if not normalize_suggestion_automation(auto_yaml).get("installable"):
+            return False
         try:
             conn = sqlite3.connect(self._db)
             # Check if similar suggestion already exists
@@ -1453,9 +1494,6 @@ class PatternAnalyzer:
                 conn.commit()
                 conn.close()
                 return False
-
-            # Generate automation YAML suggestion
-            auto_yaml = self._generate_automation(pattern)
 
             _cur = conn.execute(
                 "INSERT INTO suggestions (created, description, automation_yaml, "
