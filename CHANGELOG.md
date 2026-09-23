@@ -1,3 +1,7 @@
+## [7.99.2] — only real automations in Suggestions
+
+The Suggestions tab now only shows patterns that can actually become an automation — a trigger **and** an action JARVIS can take. Correlations with no action to perform (two sensors or cameras that just happen to change around the same time, like a pair of alarm sensors going quiet together) are no longer surfaced as suggestions, and any that were already in your review list are cleared on the next analysis pass. An automation needs something to *do*, not just something to notice.
+
 ## [7.99.1] — clearer automation suggestions
 
 The Suggestions tab now tells you what each learned automation would actually **do**, not just what JARVIS noticed. An actionable pattern reads like *"When the front door opens, JARVIS can turn on the hallway light"* instead of restating the trigger, and a pattern with no real device action to take — two cameras that just happen to go idle around the same time — now says so plainly rather than looking like something worth automating. Entity names in the review card are friendlier too (no more raw `{'entity': …, 'state': …}` text or doubled-up slugs like `eliana_s_room_eliana_s_room`).
