@@ -1,3 +1,13 @@
+## [7.99.8] — briefing, area-targeting, and startup-noise fixes
+
+Three fixes.
+
+**Full briefings again on non-English homes (fixes #79).** A regression from 7.99.5's language work: welcome-home briefings still opened with a hard-coded English greeting, which fought the "respond in your language" directive. On the reasoning tier that conflict burned the token budget and the briefing truncated to just "Good evening, Sir." with no weather or personality (and sometimes stray English). The greeting is now asked for in the household's configured language, and the reasoning-tier budget was raised so there's room to produce the whole briefing.
+
+**`jarvis.speak` finds rooms by alias or slug (fixes #77).** Targeting an area by an alias, or by a spacing/underscore variant (e.g. `home office` for "Home Office", `living_room` for "Living Room"), or by name when the area's id is a ULID, previously dropped the announcement as "unknown area." It now matches against each area's id, name, and aliases, and a genuine miss lists the known area names so it explains itself.
+
+**Quieter startup (fixes #78).** On first boot / entry reload, JARVIS unconditionally removed its panels before registering them, which made Home Assistant log "Removing unknown panel …" noise. Panel removal now checks the panel is actually registered first.
+
 ## [7.99.7] — deleted memories stay deleted
 
 A fix from **@PhoenixB** (#75, closes #71). When you deleted a curated knowledge fact from the panel — a household or per-person memory — it could quietly come back on its own after the next pattern-analysis run: the analyzer kept re-observing the same routine and re-inserting the identical fact. Deletions now stick.
