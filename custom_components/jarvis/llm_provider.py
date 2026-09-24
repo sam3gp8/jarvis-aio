@@ -9,6 +9,7 @@ Supported backends today:
   - groq        (default — fast, free tier, OpenAI-compatible API)
   - openai      (OpenAI direct, or any OpenAI-compatible endpoint)
   - ollama      (local, self-hosted via OpenAI-compatible endpoint)
+  - gemini      (Google GenAI SDK via the native Interactions API)
   - anthropic   (Claude API)
   - custom      (any OpenAI-compatible endpoint with a base_url)
 
@@ -271,6 +272,145 @@ class OllamaProvider(OpenAIProvider):
                 "options": {"num_ctx": num_ctx}}
 
 
+# ─── Gemini (Google GenAI Interactions API) ──────────────────────────────────
+
+class GeminiProvider(LLMProvider):
+    """Google Gemini through the native Interactions API.
+
+    JARVIS callers retain OpenAI-shaped messages and tools. This adapter
+    translates them at the provider boundary and chains interactions on the
+    Gemini server so returned function-call steps retain their signatures.
+    """
+    name = "gemini"
+
+    def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
+        super().__init__(api_key, model, base_url)
+        try:
+            from google import genai
+        except ImportError as exc:
+            raise RuntimeError(
+                "google-genai package not installed — `pip install google-genai`"
+            ) from exc
+        kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            kwargs["http_options"] = {"base_url": base_url}
+        self._client = genai.Client(**kwargs)
+        self._previous_interaction_id: Optional[str] = None
+        self._previous_messages: list[dict] = []
+
+    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None):
+        system_instruction = self._system_instruction(messages)
+        continuation = self._is_continuation(messages)
+        new_messages = messages[len(self._previous_messages):] if continuation else messages
+        input_items = self._input_items(new_messages)
+        if not input_items:
+            input_items = self._input_items(messages)
+
+        kwargs: dict[str, Any] = {
+            "model": model_override or self.model,
+            "input": input_items,
+            "generation_config": {
+                "max_output_tokens": max_tokens,
+                "temperature": temperature,
+            },
+        }
+        if system_instruction:
+            kwargs["system_instruction"] = system_instruction
+        if tools:
+            kwargs["tools"] = [
+                {"type": "function", **tool["function"]}
+                for tool in tools
+                if tool.get("type") == "function" and tool.get("function")
+            ]
+        if continuation and self._previous_interaction_id:
+            kwargs["previous_interaction_id"] = self._previous_interaction_id
+
+        resp = self._client.interactions.create(**kwargs)
+        self._previous_interaction_id = getattr(resp, "id", None)
+        self._previous_messages = [dict(message) for message in messages]
+        tool_calls = []
+        for step in getattr(resp, "steps", []) or []:
+            if getattr(step, "type", None) == "function_call":
+                tool_calls.append({
+                    "id": getattr(step, "id", ""),
+                    "name": getattr(step, "name", ""),
+                    "args": getattr(step, "arguments", {}) or {},
+                })
+        return {
+            "text": (getattr(resp, "output_text", "") or "").strip(),
+            "tool_calls": tool_calls,
+            "raw": resp,
+        }
+
+    def supports_vision(self) -> bool:
+        return True
+
+    def _is_continuation(self, messages: list[dict]) -> bool:
+        return bool(self._previous_interaction_id and len(messages) >= len(self._previous_messages)
+                    and messages[:len(self._previous_messages)] == self._previous_messages)
+
+    @staticmethod
+    def _system_instruction(messages: list[dict]) -> str:
+        return "\n\n".join(
+            GeminiProvider._text_content(message.get("content"))
+            for message in messages if message.get("role") == "system"
+        ).strip()
+
+    @staticmethod
+    def _text_content(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                part.get("text", "") for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+        return str(content or "")
+
+    def _input_items(self, messages: list[dict]) -> list[dict]:
+        call_names = {
+            call.get("id", ""): (call.get("function", {}) or {}).get("name", "")
+            for message in messages if message.get("role") == "assistant"
+            for call in message.get("tool_calls", []) or []
+        }
+        items = []
+        for message in messages:
+            role = message.get("role")
+            if role == "user":
+                items.append({"type": "user_input", "content": self._content_parts(message.get("content"))})
+            elif role == "tool":
+                call_id = message.get("tool_call_id", "")
+                items.append({
+                    "type": "function_result",
+                    "name": call_names.get(call_id, ""),
+                    "call_id": call_id,
+                    "result": [{"type": "text", "text": self._text_content(message.get("content"))}],
+                })
+        return items
+
+    @staticmethod
+    def _content_parts(content: Any) -> list[dict]:
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}]
+        if not isinstance(content, list):
+            return [{"type": "text", "text": str(content or "")}]
+        parts = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                parts.append({"type": "text", "text": part.get("text", "")})
+            elif part.get("type") == "image_url":
+                url = (part.get("image_url") or {}).get("url", "")
+                if url.startswith("data:"):
+                    header, data = url.split(",", 1)
+                    mime_type = header.split(":", 1)[1].split(";", 1)[0]
+                    parts.append({"type": "image", "mime_type": mime_type, "data": data})
+                elif url:
+                    parts.append({"type": "image", "uri": url})
+        return parts or [{"type": "text", "text": ""}]
+
+
 # ─── Anthropic ───────────────────────────────────────────────────────────────
 
 class AnthropicProvider(LLMProvider):
@@ -463,7 +603,7 @@ PROVIDERS = {
     "groq":      GroqProvider,
     "openai":    OpenAIProvider,
     "ollama":    OllamaProvider,    # Ollama's OpenAI-compatible API, tuned local
-    "gemini":    OpenAIProvider,    # Gemini exposes an OpenAI-compatible API
+    "gemini":    GeminiProvider,    # Google GenAI SDK / native Interactions API
     "custom":    OpenAIProvider,    # Any OpenAI-compatible endpoint
     "anthropic": AnthropicProvider,
 }
@@ -506,7 +646,7 @@ def create_provider(
 
     provider_name: 'groq' | 'openai' | 'gemini' | 'ollama' | 'anthropic' | 'custom'
     For 'ollama', set base_url to e.g. 'http://homeassistant.local:11434/v1'
-    For 'gemini', base_url defaults to Google's OpenAI-compat endpoint.
+    Gemini uses Google's native Interactions API through the google-genai SDK.
     For 'custom', set base_url to whatever OpenAI-compatible endpoint you want.
     """
     provider_name = provider_name.lower().strip()
@@ -523,8 +663,6 @@ def create_provider(
     # Default base URLs for provider-specific cases
     if provider_name == "ollama" and not base_url:
         base_url = "http://homeassistant.local:11434/v1"
-    elif provider_name == "gemini" and not base_url:
-        base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
     try:
         return cls(api_key=api_key, model=model, base_url=base_url)
