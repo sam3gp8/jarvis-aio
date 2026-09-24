@@ -1990,14 +1990,18 @@ async def _configured_providers(hass: HomeAssistant, entry) -> list[str]:
 async def _fetch_models(hass, provider: str, api_key: str, base_url: str) -> list[str]:
     """
     Query a provider's models endpoint and return a sorted list of model IDs.
-    Uses HA's shared aiohttp session (off-loop network I/O). Each provider has
-    a different endpoint/auth/response shape; we normalise to a list of strings.
+    Uses the native google-genai SDK for Gemini and HA's shared aiohttp session
+    for other providers. Each provider has a different response shape; we
+    normalise to a list of strings.
     """
+    provider = (provider or "").lower()
+    if provider == "gemini":
+        return await hass.async_add_executor_job(_fetch_gemini_models, api_key)
+
     from homeassistant.helpers import aiohttp_client
     import async_timeout
 
     session = aiohttp_client.async_get_clientsession(hass)
-    provider = (provider or "").lower()
     url = ""
     headers: dict = {}
 
@@ -2010,8 +2014,6 @@ async def _fetch_models(hass, provider: str, api_key: str, base_url: str) -> lis
     elif provider == "anthropic":
         url = "https://api.anthropic.com/v1/models"
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
-    elif provider == "gemini":
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     elif provider == "ollama":
         base = (base_url or "").rstrip("/")
         if not base:
@@ -2035,16 +2037,7 @@ async def _fetch_models(hass, provider: str, api_key: str, base_url: str) -> lis
 
     # Normalise per provider
     models: list[str] = []
-    if provider == "gemini":
-        for m in data.get("models", []):
-            name = m.get("name", "")
-            if name.startswith("models/"):
-                name = name[len("models/"):]
-            # only generative chat models
-            methods = m.get("supportedGenerationMethods", [])
-            if name and (not methods or "generateContent" in methods):
-                models.append(name)
-    elif provider in ("ollama", "custom") and url.endswith("/api/tags"):
+    if provider in ("ollama", "custom") and url.endswith("/api/tags"):
         for m in data.get("models", []):
             n = m.get("name")
             if n:
@@ -2056,6 +2049,20 @@ async def _fetch_models(hass, provider: str, api_key: str, base_url: str) -> lis
             if mid:
                 models.append(mid)
 
+    return sorted(set(models))
+
+
+def _fetch_gemini_models(api_key: str) -> list[str]:
+    """List Gemini text-generation models via Google's current GenAI SDK."""
+    from google import genai
+
+    client = genai.Client(api_key=api_key)
+    models = []
+    for model in client.models.list():
+        name = str(getattr(model, "name", "") or "").removeprefix("models/")
+        supported_actions = getattr(model, "supported_actions", None) or []
+        if name and (not supported_actions or "generateContent" in supported_actions):
+            models.append(name)
     return sorted(set(models))
 
 

@@ -168,6 +168,39 @@ async def test_fetch_models_uses_resolved_api_key_in_auth_header(fake_hass, monk
     assert seen["headers"]["Authorization"] == "Bearer " + "sk-openai"
 
 
+async def test_fetch_models_gemini_uses_genai_sdk(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    captured = {}
+
+    class _Models:
+        def list(self):
+            return [
+                types.SimpleNamespace(
+                    name="models/gemini-3.1-flash-lite",
+                    supported_actions=["generateContent"],
+                ),
+                types.SimpleNamespace(
+                    name="models/gemini-embedding-001",
+                    supported_actions=["embedContent"],
+                ),
+            ]
+
+    def _client(**kwargs):
+        captured["client"] = kwargs
+        return types.SimpleNamespace(models=_Models())
+
+    genai = types.SimpleNamespace(Client=_client)
+    google = types.ModuleType("google")
+    google.genai = genai
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.genai", genai)
+
+    models = await websocket._fetch_models(fake_hass, "gemini", "AIza-key", "")
+
+    assert captured["client"] == {"api_key": "AIza-key"}
+    assert models == ["gemini-3.1-flash-lite"]
+
+
 async def test_fetch_models_custom_uses_models_endpoint_without_v1_suffix(fake_hass, monkeypatch):
     websocket = _load_websocket_module()
     seen = {}
