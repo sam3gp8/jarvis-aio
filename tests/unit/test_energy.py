@@ -24,7 +24,8 @@ def _clean_modes_stub():
 
 
 class _State:
-    def __init__(self, state, unit="W", **attrs):
+    def __init__(self, state, unit="W", entity_id=None, **attrs):
+        self.entity_id = entity_id or "sensor.mock"
         self.state = state
         self.attributes = {"unit_of_measurement": unit, **attrs}
 
@@ -188,6 +189,22 @@ def test_autonomous_never_sheds_critical(energy, monkeypatch):
     })
     # no sheddable loads → no offer at all
     assert energy.evaluate_for_proactive(_Hass()) is None
+
+
+def test_find_whole_home_meter_prefers_suffix_free_sensor(energy):
+    states = {
+        "sensor.electric_consumption_1": _State("4200", "W", entity_id="sensor.electric_consumption_1", friendly_name="Electric Consumption (1)", device_class="power"),
+        "sensor.electric_consumption": _State("4000", "W", entity_id="sensor.electric_consumption", friendly_name="Electric Consumption", device_class="power"),
+    }
+    assert energy._find_whole_home_meter(states) == "sensor.electric_consumption"
+
+
+def test_fallback_meter_ignores_non_sensor_snapshot_entries(energy):
+    states = {
+        "light.main_meter": _State("4100", "W", entity_id="light.main_meter", friendly_name="Main meter", device_class="power"),
+        "sensor.main_meter": _State("3900", "W", entity_id="sensor.main_meter", friendly_name="Main meter", device_class="power"),
+    }
+    assert energy._fallback_meter(_Hass(), states) == "sensor.main_meter"
 
 
 # ── agent tool registration ──────────────────────────────────────────────────

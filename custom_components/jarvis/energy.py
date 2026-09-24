@@ -144,30 +144,62 @@ def _read_whole_home_watts(hass, states=None) -> tuple[Optional[float], str]:
 
 def _find_whole_home_meter(states) -> Optional[str]:
     candidates = []
-    for state in states.values():
-        if not state.entity_id.startswith("sensor."):
+    for entity_id, state in states.items():
+        entity_id = getattr(state, "entity_id", entity_id)
+        if not entity_id.startswith("sensor."):
             continue
-        dc = state.attributes.get("device_class", "")
-        unit = (state.attributes.get("unit_of_measurement") or "").lower()
-        fname = (state.attributes.get("friendly_name") or "").lower()
+        dc = getattr(state, "attributes", {}).get("device_class", "")
+        unit = (getattr(state, "attributes", {}).get("unit_of_measurement") or "").lower()
+        fname = (getattr(state, "attributes", {}).get("friendly_name") or "").lower()
         if dc != "power" and unit not in ("w", "kw"):
             continue
-        if not any(kw in fname or kw.replace(" ", "_") in state.entity_id.lower()
+        if not any(kw in fname or kw.replace(" ", "_") in entity_id.lower()
                    for kw in ("electric consumption", "home energy",
                               "total consumption", "main power", "whole house",
                               "grid consumption", "mains power")):
             continue
+        import re as _re
+        has_suffix = bool(_re.search(r"\(\d+\)$", fname.strip()))
         try:
             watts = float(state.state) * (1000 if unit == "kw" else 1)
         except (ValueError, TypeError):
             watts = 0.0
-        candidates.append((state.entity_id, watts))
-    return max(candidates, key=lambda item: item[1])[0] if candidates else None
+        candidates.append((entity_id, watts, has_suffix))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (not item[2], item[1]))[0]
 
 
 def _fallback_meter(hass, states=None) -> Optional[str]:
-    source = states.values() if states is not None else hass.states.async_all("sensor")
-    for state in source:
+    if states is not None:
+        candidates = []
+        for key, state in states.items():
+            eid = getattr(state, "entity_id", key)
+            if not eid.startswith("sensor."):
+                continue
+            dc = getattr(state, "attributes", {}).get("device_class", "")
+            unit = (getattr(state, "attributes", {}).get("unit_of_measurement") or "").lower()
+            fname = (getattr(state, "attributes", {}).get("friendly_name") or "").lower()
+            if dc != "power" and unit not in ("w", "kw"):
+                continue
+            for kw in ("electric consumption", "home energy", "total consumption",
+                       "main power", "whole house", "grid consumption", "mains power"):
+                if kw in fname:
+                    return eid
+            try:
+                watts = float(state.state) * (1000 if unit == "kw" else 1)
+            except (ValueError, TypeError):
+                watts = 0.0
+            candidates.append((eid, watts))
+        if candidates:
+            return max(candidates, key=lambda item: item[1])[0]
+        return None
+
+    candidates = []
+    for state in hass.states.async_all("sensor"):
+        eid = getattr(state, "entity_id", "")
+        if not eid.startswith("sensor."):
+            continue
         dc = state.attributes.get("device_class", "")
         unit = (state.attributes.get("unit_of_measurement") or "").lower()
         fname = (state.attributes.get("friendly_name") or "").lower()
@@ -176,7 +208,14 @@ def _fallback_meter(hass, states=None) -> Optional[str]:
         for kw in ("electric consumption", "home energy", "total consumption",
                    "main power", "whole house", "grid consumption", "mains power"):
             if kw in fname:
-                return state.entity_id
+                return eid
+        try:
+            watts = float(state.state) * (1000 if unit == "kw" else 1)
+        except (ValueError, TypeError):
+            watts = 0.0
+        candidates.append((eid, watts))
+    if candidates:
+        return max(candidates, key=lambda item: item[1])[0]
     return None
 
 

@@ -4,12 +4,19 @@ When `adaptive_interruption_budget` is off (default), the hourly announcement ca
 is unchanged. When on, the multiplier from decision_record.interruption_budget()
 scales the cap down, so JARVIS interrupts less after a run of dismissed alerts.
 """
+import asyncio
+
 import pytest
 
 
 @pytest.fixture
 def og(load):
     return load("output_gate")
+
+
+class _Hass:
+    async def async_add_executor_job(self, func, *args, **kwargs):
+        return func(*args, **kwargs)
 
 
 def _fill(og, n):
@@ -62,3 +69,32 @@ def test_cap_tightened_when_adaptive_on(og, load, monkeypatch):
         entity_id="e", category="x", urgency="low", message="new")
     assert allowed is False                                # blocked at the tightened cap
     assert f"/{half}/hour" in reason
+
+
+def test_async_reservation_tracks_owner_only(og):
+    hass = _Hass()
+    og._STATE.reservations.clear()
+    og._STATE.history.clear()
+    og._STATE.recent_messages.clear()
+
+    async def _run():
+        allowed1, reason1, reservation1 = await og.async_reserve_announcement(
+            hass, entity_id="e", category="x", urgency="low", message="alpha"
+        )
+        allowed2, reason2, reservation2 = await og.async_reserve_announcement(
+            hass, entity_id="f", category="y", urgency="low", message="beta"
+        )
+        assert allowed1 and allowed2 and reason1 == "ok" and reason2 == "ok"
+        assert reservation1 != reservation2
+        await og.async_record_announcement(
+            hass, reservation_id=reservation1,
+            entity_id="e", category="x", urgency="low", message="alpha", was_spoken=True,
+        )
+        assert len(og._STATE.reservations) == 1
+        await og.async_record_announcement(
+            hass, reservation_id=reservation2,
+            entity_id="f", category="y", urgency="low", message="beta", was_spoken=True,
+        )
+        assert len(og._STATE.reservations) == 0
+
+    asyncio.run(_run())
