@@ -1,3 +1,11 @@
+## [7.99.6] — no more blocking-call warnings; a smoother event loop
+
+A large reliability contribution from **@PhoenixB** (#66). JARVIS was doing synchronous filesystem and SQLite work directly on Home Assistant's event loop — reasoning-cache reads/writes, document ingestion, snapshots, routines, alias lookups, doorbell logging, and the panel/calibration/decision-record/cognition/goals/follow-ups/output-gate database paths. That produced Home Assistant "blocking call" warnings and could momentarily delay other HA tasks.
+
+All of those are now delegated to executor workers, with SQLite connections kept on the thread that opens them, and Home Assistant state reads snapshotted on the loop before any off-loop work. Behavior is unchanged — JARVIS just stops blocking the event loop, so the warnings go away and the system stays responsive. Update and restart the integration to see the warnings clear.
+
+Along the way this also hardened a few concurrency paths: the intrusion decision-record generation is now cancellation-safe, and the announcement gate uses ownership-safe reservation tokens (released in `finally`) so the rate cap can't be bypassed or leaked. Whole-home energy-meter selection keeps preferring the true (suffix-free) meter.
+
 ## [7.99.5] — JARVIS speaks your household's language everywhere
 
 If your Home Assistant is set to a non-English language, JARVIS's **status briefings, camera/vision analysis, and sentinel notices** now come back in that language too — not just chat replies. Previously only the *conversation* path steered to your configured language, so proactive and task output stayed in English on, say, a German or Russian install (the problem reported in Discussion #55).
