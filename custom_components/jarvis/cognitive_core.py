@@ -633,6 +633,9 @@ class SafetyManager:
             except Exception:
                 if _dec_gen is not None:
                     _intr_rec.set_last_decision_id(None, generation=_dec_gen)
+            finally:
+                if _dec_gen is not None:
+                    _intr_rec.clear_pending_generation(_dec_gen)
             # Learned damping (v6.76.0): if this location/time pattern has been
             # repeatedly labelled a false alarm, stay QUIET on this initial
             # low-confidence ping. The investigation still runs underneath, so a

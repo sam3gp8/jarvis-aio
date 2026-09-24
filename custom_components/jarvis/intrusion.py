@@ -56,6 +56,11 @@ def begin_decision_generation() -> int:
     return _decision_generation
 
 
+def clear_pending_generation(generation: int) -> None:
+    """Clear a decision generation after its producer exits or is cancelled."""
+    _pending_decision_generations.discard(generation)
+
+
 def acknowledge(reason: str = "") -> dict:
     """User acknowledges the alert ('I see it', 'I'm looking', 'standby') WITHOUT
     declaring it a false alarm. This holds the no-response auto-escalation for a
