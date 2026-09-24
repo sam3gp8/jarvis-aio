@@ -21,6 +21,7 @@ from .const import (
     JARVIS_PERSONA,
     get_directive,
 )
+from .language import language_directive
 
 
 def resolve_directive(entry: ConfigEntry | None) -> str:
@@ -65,5 +66,12 @@ def build_system_prompt(
     combined = f"{directive}\n\n---\n\n{persona}"
     if task_context:
         combined = f"{combined}\n\n---\n\n{task_context.strip()}"
+
+    # Steer every task prompt (briefings, camera analysis, sentinel, …) to the
+    # household's configured language. Empty for English installs, so they are
+    # unaffected. This mirrors the conversation path in agent.run_agent.
+    language = language_directive(hass)
+    if language:
+        combined = f"{combined}\n\n---\n\n{language.strip()}"
 
     return combined.replace("{honorific}", honorific)

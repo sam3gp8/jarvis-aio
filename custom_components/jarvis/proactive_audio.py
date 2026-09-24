@@ -35,6 +35,7 @@ from .boot_guard import AlertBuffer
 from .const import CONF_BROADCAST_GROUP, CONF_HONORIFIC, DEFAULT_HONORIFIC, DOMAIN
 from .diagnostics import FaultLog, InfrastructureTriage
 from .intent import LocalIntentRouter
+from .paths import config_path_str
 from .state_ledger import StateLedger
 from .vision import SpatialContextEngine
 from .vision import volume_damping_factor as spatial_volume_damping
@@ -402,7 +403,7 @@ def _state_ledger(hass: HomeAssistant) -> StateLedger:
     store = hass.data.setdefault(DOMAIN, {})
     ledger = store.get("_state_ledger")
     if ledger is None:
-        ledger = StateLedger()
+        ledger = StateLedger(path=config_path_str("jarvis", "state_ledger.jsonl", hass=hass))
         store["_state_ledger"] = ledger
     return ledger
 
@@ -577,8 +578,8 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
     _boot_begin(hass)
 
     honorific = _resolve_honorific(hass, entry)
-    fault_log = FaultLog()
-    predictor = PredictiveHabitMatrix()
+    fault_log = FaultLog(path=config_path_str("jarvis", "fault_history.json", hass=hass))
+    predictor = PredictiveHabitMatrix(path=config_path_str("jarvis", "habit_matrix.json", hass=hass))
 
     async def _run_audit(_now=None) -> None:
         if not _boot_ready(hass):

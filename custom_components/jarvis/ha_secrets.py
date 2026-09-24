@@ -24,12 +24,23 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
+from .paths import config_path, has_hass_config_path
+
 _LOGGER = logging.getLogger(__name__)
 
-SECRETS_PATH = Path("/config/secrets.yaml")
+SECRETS_PATH = config_path("secrets.yaml")
 
 
 _SECRETS_CACHE = None            # cached read of the default SECRETS_PATH
+
+
+def _path_from_hass(hass, path: Path | None = None) -> Path | None:
+    """Resolve Home Assistant's real secrets.yaml path when hass is available."""
+    if path is not None:
+        return path
+    if hass is not None and has_hass_config_path(hass):
+        return config_path("secrets.yaml", hass=hass)
+    return None
 
 
 def _reset_secrets_cache() -> None:
@@ -99,7 +110,9 @@ async def async_get_secret(hass, key: str, default: Any = None) -> Any:
     if hass is None:
         return get_secret_sync(key, default)
     try:
-        return await hass.async_add_executor_job(get_secret_sync, key, default)
+        return await hass.async_add_executor_job(
+            get_secret_sync, key, default, _path_from_hass(hass)
+        )
     except Exception:
         _LOGGER.debug("JARVIS async_get_secret failed")
         return default
@@ -203,6 +216,8 @@ async def promote_shared_secret_for_provider(hass, provider: str, path: Path | N
     if not field or field == "api_key":
         return False
 
+    path = _path_from_hass(hass, path)
+
     shared_secret = secret_key_for("api_key")
     provider_secret = secret_key_for(field)
 
@@ -239,7 +254,7 @@ def get_provider_key_sync(provider: str, path: Path | None = None) -> str:
     yet be updated, fall back to that legacy in-memory value so auth keeps working.
     Blocking — call via the executor from async code."""
     val = get_stored_provider_key_sync(provider, path)
-    if not val and path is None:
+    if not val:
         try:
             from . import jarvis_config
             val = get_legacy_provider_key(jarvis_config.get_all(), provider)
@@ -254,7 +269,9 @@ async def async_get_provider_key(hass, provider: str) -> str:
     """:func:`get_provider_key_sync`, off the event loop."""
     if hass is None:
         return get_provider_key_sync(provider)
-    return await hass.async_add_executor_job(get_provider_key_sync, provider)
+    return await hass.async_add_executor_job(
+        get_provider_key_sync, provider, _path_from_hass(hass)
+    )
 
 
 def set_provider_key_sync(provider: str, value: str, path: Path | None = None) -> bool:
@@ -268,7 +285,9 @@ def set_provider_key_sync(provider: str, value: str, path: Path | None = None) -
 
 async def async_set_provider_key(hass, provider: str, value: str) -> bool:
     """:func:`set_provider_key_sync`, off the event loop."""
-    return await hass.async_add_executor_job(set_provider_key_sync, provider, value)
+    return await hass.async_add_executor_job(
+        set_provider_key_sync, provider, value, _path_from_hass(hass)
+    )
 
 
 async def relocate_entry_credentials(hass, entry) -> int:
@@ -283,6 +302,7 @@ async def relocate_entry_credentials(hass, entry) -> int:
     """
     data = dict(getattr(entry, "data", {}) or {})
     options = dict(getattr(entry, "options", {}) or {})
+    secrets_path = _path_from_hass(hass)
     values = dict(data)
     for key, value in options.items():
         # HA may retain an empty options placeholder after an older entry was
@@ -316,9 +336,13 @@ async def relocate_entry_credentials(hass, entry) -> int:
         # config overlays and tier builders actually consume.
         field = canonical_provider_key(key, provider)
         secret_name = secret_key_for(field)
-        existing = await hass.async_add_executor_job(get_secret_sync, secret_name, "")
+        existing = await hass.async_add_executor_job(
+            get_secret_sync, secret_name, "", secrets_path
+        )
         if not existing:
-            if await hass.async_add_executor_job(set_secret_sync, secret_name, value):
+            if await hass.async_add_executor_job(
+                set_secret_sync, secret_name, value, secrets_path
+            ):
                 moved += 1
                 migrated_keys.append(key)
         else:
@@ -377,8 +401,8 @@ def set_secret_sync(key: str, value, path: Path | None = None) -> bool:
                 except Exception:
                     pass
         return True
-    except Exception:
-        _LOGGER.warning("JARVIS: could not write requested secret")
+    except Exception as exc:
+        _LOGGER.warning("JARVIS: could not write requested secret: %s", exc)
         return False
 
 
@@ -401,6 +425,7 @@ async def relocate_plaintext_credentials(hass, entry=None) -> int:
     """
     from . import jarvis_config
     removed = 0
+    secrets_path = _path_from_hass(hass)
     try:
         cfg = await hass.async_add_executor_job(jarvis_config.get_all)
     except Exception:
@@ -423,12 +448,18 @@ async def relocate_plaintext_credentials(hass, entry=None) -> int:
         field = canonical_provider_key(ck, provider)
         skey = secret_key_for(field)
         try:
-            existing = await hass.async_add_executor_job(get_secret_sync, skey, None)
+            existing = await hass.async_add_executor_job(
+                get_secret_sync, skey, None, secrets_path
+            )
             if existing != val:
-                ok = await hass.async_add_executor_job(set_secret_sync, skey, val)
+                ok = await hass.async_add_executor_job(
+                    set_secret_sync, skey, val, secrets_path
+                )
                 if not ok:
                     continue  # write failed — leave config.json's copy as fallback
-                check = await hass.async_add_executor_job(get_secret_sync, skey, None)
+                check = await hass.async_add_executor_job(
+                    get_secret_sync, skey, None, secrets_path
+                )
                 if check != val:
                     continue  # verify failed — leave config.json's copy as fallback
             await hass.async_add_executor_job(jarvis_config.delete, ck)

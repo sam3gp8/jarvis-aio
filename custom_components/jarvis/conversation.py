@@ -105,7 +105,9 @@ _LOGGER = logging.getLogger(__name__)
 
 MAX_HISTORY  = 20   # messages kept in per-conversation context window
 MAX_ITERS    = 8    # max agentic tool-call iterations per request
-PERSONA_FILE = "/config/jarvis_persona.txt"
+from .paths import config_path_str
+
+PERSONA_FILE = config_path_str("jarvis_persona.txt")
 
 # Module-level persona cache. Loaded lazily via executor to avoid blocking
 # the event loop with file I/O on every conversation turn. Invalidated

@@ -286,6 +286,20 @@ setTimeout(async () => {
   checks.push(
     ["live patch keeps activity filter applied", el.shadowRoot.querySelectorAll("#activity-feed .evt").length === 1],
   );
+
+  // ── toggling a light must flip the area-light pill without a full re-render ──
+  const garageLightBtn = () => el.shadowRoot.querySelector('.area[data-area-id="garage"] .area-light');
+  checks.push(["garage light pill starts ON", garageLightBtn()?.classList.contains("on") === true]);
+  PANEL.areas[0].lights_on = 0;
+  el._patchLiveDom(PANEL);
+  checks.push(
+    ["live patch flips light pill OFF without a full re-render", garageLightBtn()?.classList.contains("on") === false],
+    ["live patch updates the OFF text", /OFF/.test(garageLightBtn()?.textContent || "")],
+    ["live patch updates the light-count tooltip", garageLightBtn()?.title === "0/1 lights on — tap to toggle"],
+  );
+  PANEL.areas[0].lights_on = 1;
+  el._patchLiveDom(PANEL);
+  checks.push(["live patch flips light pill back ON", garageLightBtn()?.classList.contains("on") === true]);
   el._activitySearch = "zzz-no-match";
   el._updateActivityFeed();
   checks.push(

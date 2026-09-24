@@ -256,7 +256,8 @@ def reflect(hass=None, *, db_path: Optional[str] = None,
                 path = getattr(core, "_db_path", None) if core else None
             except Exception:
                 path = None
-            path = path or "/config/jarvis/patterns.db"
+            from .paths import config_path_str
+            path = path or config_path_str("jarvis", "patterns.db", hass=hass)
         rows = _load_rows(path, lookback_days)
         if not rows:
             return ""

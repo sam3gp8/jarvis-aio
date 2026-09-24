@@ -1791,12 +1791,24 @@ class JarvisPanel extends HTMLElement {
       footSpans[footSpans.length - 2].textContent = live.dominant.last_motion;
       footSpans[footSpans.length - 1].textContent = live.dominant.satellite;
     }
-    // Area tiles — patch active state only (names don't change)
     const areaEls = root.querySelectorAll(".area");
-    areaEls.forEach((el, i) => {
-      const a = live.areas[i];
+    areaEls.forEach((el) => {
+      const a = live.areas.find((area) => area.id === el.getAttribute("data-area-id"));
+      if (a) el.classList.toggle("active", !!a.active);
+    });
+    const ctlOn = live.config?.light_control_enabled !== false;
+    root.querySelectorAll(".area-light").forEach((lightBtn) => {
+      const a = live.areas.find((area) => area.id === lightBtn.getAttribute("data-light-area"));
       if (!a) return;
-      el.classList.toggle("active", !!a.active);
+      const lit = (a.lights_total || 0) > 0 && (a.lights_on || 0) > 0;
+      lightBtn.classList.toggle("on", lit);
+      lightBtn.title = `${a.lights_on}/${a.lights_total} lights on${ctlOn ? ' — tap to toggle' : ''}`;
+      const dotLabel = lightBtn.lastChild;
+      if (dotLabel && dotLabel.nodeType === Node.TEXT_NODE) {
+dotLabel.textContent = lightBtn.classList.contains("adl")
+        ? `${a.lights_on}/${a.lights_total} ${lit ? 'ON' : 'OFF'}`
+        : (lit ? 'ON' : 'OFF');
+      }
     });
 
     // Activity feed — rebuild rows in place (v6.43.x: previously the feed

@@ -18,12 +18,19 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 import time
 from threading import Lock
 
+try:
+    from .paths import config_path_str
+except ImportError:  # standalone unit-test import
+    def config_path_str(*parts: str, hass=None) -> str:
+        return str((Path("/") / "config").joinpath(*parts))
+
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_LEDGER_PATH = "/config/jarvis/state_ledger.jsonl"
+DEFAULT_LEDGER_PATH = config_path_str("jarvis", "state_ledger.jsonl")
 MAX_RECORDS = 5000
 
 

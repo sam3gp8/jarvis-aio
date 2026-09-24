@@ -157,11 +157,9 @@ async def test_user_step_shows_provider_menu(config_flow, fake_hass, monkeypatch
 async def test_groq_step_saves_key_and_loops_back_to_menu(
     config_flow, fake_hass, monkeypatch, tmp_path, load,
 ):
-    llm_provider = load("llm_provider")
-
-    async def _ok(hass, provider, api_key, model, base_url):
+    async def _ok(hass, provider, api_key):
         return None
-    monkeypatch.setattr(llm_provider, "test_connection", _ok)
+    monkeypatch.setattr(config_flow, "_validate_provider_key", _ok)
 
     flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
     res = await flow.async_step_groq({"api_key": "gsk_new"})
@@ -169,14 +167,95 @@ async def test_groq_step_saves_key_and_loops_back_to_menu(
     assert flow._provider_keys["groq"]["api_key"] == "gsk_new"
 
 
+async def test_gemini_step_validates_key_without_chat_completion(
+    config_flow, fake_hass, monkeypatch, tmp_path, load,
+):
+    seen = {}
+
+    async def _fake_fetch_models(hass, provider, api_key, base_url):
+        seen.update(provider=provider, api_key=api_key, base_url=base_url)
+        return ["gemini-2.5-flash"]
+    websocket = load("websocket")
+    monkeypatch.setattr(websocket, "_fetch_models", _fake_fetch_models, raising=False)
+
+    async def _fail_if_called(*args, **kwargs):
+        raise AssertionError("fresh setup should not POST a chat completion")
+    llm_provider = load("llm_provider")
+    monkeypatch.setattr(llm_provider, "test_connection", _fail_if_called)
+
+    flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
+    res = await flow.async_step_gemini({"api_key": "AIza-key"})
+    assert res["type"] == "menu" and res["step_id"] == "provider_menu"
+    assert seen == {"provider": "gemini", "api_key": "AIza-key", "base_url": ""}
+
+
+async def test_openai_step_uses_models_endpoint_instead_of_chat_completion(
+    config_flow, fake_hass, monkeypatch, tmp_path, load,
+):
+    seen = {}
+
+    async def _fake_fetch_models(hass, provider, api_key, base_url):
+        seen.update(provider=provider, api_key=api_key, base_url=base_url)
+        return ["gpt-4o-mini"]
+    websocket = load("websocket")
+    monkeypatch.setattr(websocket, "_fetch_models", _fake_fetch_models, raising=False)
+
+    async def _fail_if_called(*args, **kwargs):
+        raise AssertionError("fresh setup should not POST a chat completion")
+    llm_provider = load("llm_provider")
+    monkeypatch.setattr(llm_provider, "test_connection", _fail_if_called)
+
+    flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
+    res = await flow.async_step_openai({"api_key": "sk-key"})
+    assert res["type"] == "menu" and res["step_id"] == "provider_menu"
+    assert seen == {"provider": "openai", "api_key": "sk-key", "base_url": ""}
+
+
+async def test_provider_key_step_shows_error_when_model_fetch_fails(
+    config_flow, fake_hass, monkeypatch, tmp_path, load,
+):
+    async def _fail(hass, provider, api_key, base_url):
+        raise Exception("401 Unauthorized")
+    websocket = load("websocket")
+    monkeypatch.setattr(websocket, "_fetch_models", _fail, raising=False)
+
+    flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
+    res = await flow.async_step_openai({"api_key": "bad"})
+    assert res["type"] == "form" and res["errors"]["base"] == "invalid_auth"
+
+
+async def test_provider_key_step_shows_connect_error_on_timeout(
+    config_flow, fake_hass, monkeypatch, tmp_path, load,
+):
+    async def _timeout(hass, provider, api_key, base_url):
+        raise TimeoutError()
+    websocket = load("websocket")
+    monkeypatch.setattr(websocket, "_fetch_models", _timeout, raising=False)
+
+    flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
+    res = await flow.async_step_openai({"api_key": "bad"})
+    assert res["type"] == "form" and res["errors"]["base"] == "cannot_connect"
+
+
+async def test_provider_key_step_shows_unknown_when_models_empty(
+    config_flow, fake_hass, monkeypatch, tmp_path, load,
+):
+    async def _empty(hass, provider, api_key, base_url):
+        return []
+    websocket = load("websocket")
+    monkeypatch.setattr(websocket, "_fetch_models", _empty, raising=False)
+
+    flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
+    res = await flow.async_step_openai({"api_key": "sk-key"})
+    assert res["type"] == "form" and res["errors"]["base"] == "unknown"
+
+
 async def test_groq_step_shows_error_on_bad_key(
     config_flow, fake_hass, monkeypatch, tmp_path, load,
 ):
-    llm_provider = load("llm_provider")
-
-    async def _bad(hass, provider, api_key, model, base_url):
+    async def _bad(hass, provider, api_key):
         return "invalid_auth"
-    monkeypatch.setattr(llm_provider, "test_connection", _bad)
+    monkeypatch.setattr(config_flow, "_validate_provider_key", _bad)
 
     flow = _user_flow(config_flow, fake_hass, monkeypatch, tmp_path)
     res = await flow.async_step_groq({"api_key": "wrong"})

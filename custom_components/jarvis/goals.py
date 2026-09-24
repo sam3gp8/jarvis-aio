@@ -33,9 +33,11 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = "/config/jarvis/patterns.db"
+DB_PATH = config_path_str("jarvis", "patterns.db")
 MAX_ACTIVE = 10            # concurrent outcomes JARVIS may pursue
 MAX_RUNS = 120             # per-goal engagement budget (runaway guard)
 DEFAULT_INTERVAL_MIN = 30  # re-engage cadence when the model doesn't set one

@@ -112,7 +112,8 @@ def _gather_overnight_events(hass: HomeAssistant, hours: int = 12) -> list[str]:
     """Sentinel events from the database in the last N hours."""
     import sqlite3
     from pathlib import Path
-    db = Path("/config/jarvis/conversations.db")
+    from .paths import config_path
+    db = config_path("jarvis", "conversations.db", hass=hass)
     events = []
     try:
         if not db.exists():

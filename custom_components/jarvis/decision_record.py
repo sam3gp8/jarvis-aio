@@ -29,7 +29,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-_DEFAULT_DB = "/config/jarvis/decisions.db"
+from .paths import config_path_str
+
+_DEFAULT_DB = config_path_str("jarvis", "decisions.db")
 
 # Recognised outcome verdicts (set by the outcome-capture layer in a later phase).
 OUTCOME_GOOD = "good"            # the decision was useful / acted upon

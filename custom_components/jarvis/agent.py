@@ -1508,7 +1508,9 @@ async def _exec_bulk_control(hass: HomeAssistant, args: dict) -> str:
 
 # ── Learning memory ─────────────────────────────────────────────────────────
 
-_LEARN_FILE = "/config/.jarvis_learned.json"
+from .paths import config_path_str
+
+_LEARN_FILE = config_path_str(".jarvis_learned.json")
 
 
 def _load_learned() -> dict:
@@ -3016,39 +3018,18 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
         return json.dumps({"error": "sub-agent failed: %s" % exc})
 
 
-_LANG_NAMES = {
-    "fr": "French", "de": "German", "es": "Spanish", "it": "Italian",
-    "nl": "Dutch", "pt": "Portuguese", "pl": "Polish", "sv": "Swedish",
-    "nb": "Norwegian", "no": "Norwegian", "da": "Danish", "fi": "Finnish",
-    "cs": "Czech", "ru": "Russian", "uk": "Ukrainian", "tr": "Turkish",
-    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ar": "Arabic",
-    "he": "Hebrew", "el": "Greek", "hu": "Hungarian", "ro": "Romanian",
-    "sk": "Slovak", "ca": "Catalan", "id": "Indonesian", "th": "Thai",
-    "vi": "Vietnamese",
-}
-
-
 def _language_directive(hass) -> str:
-    """A system-prompt block steering replies to the home's configured language.
+    """Household-language system-prompt block.
 
-    Uses Home Assistant's ``language`` so a non-English household gets replies in
-    its own language. Returns ``""`` for English installs (which are therefore
-    completely unaffected). The user's own input language still wins if they
-    write in something else.
+    Thin wrapper over :func:`directive_helper.language_directive`, which is the
+    single source of truth so conversation replies (here) and every task prompt
+    built via ``build_system_prompt`` (briefings, camera analysis, sentinel, …)
+    steer to the same configured language. Returns ``""`` for English installs.
     """
-    try:
-        lang = (getattr(hass.config, "language", None) or "en").split("-")[0].lower()
-    except Exception:
-        return ""
-    if not lang or lang == "en":
-        return ""
-    lname = _LANG_NAMES.get(lang, lang)
-    return (
-        f"## Language\n"
-        f"Respond in {lname} by default — this household's configured language "
-        f"is {lname}. If the user writes to you in another language, reply in "
-        f"that language instead. Keep entity names and proper nouns unchanged.\n\n"
-    )
+    from .language import language_directive
+    directive = language_directive(hass)
+    # run_agent expects a trailing blank line before the next prompt section.
+    return f"{directive}\n" if directive else ""
 
 
 async def run_agent(

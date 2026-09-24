@@ -29,11 +29,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from .paths import config_path_str
+
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-DB_PATH = "/config/jarvis/patterns.db"
+DB_PATH = config_path_str("jarvis", "patterns.db")
 MIN_DAYS = 7           # Don't analyze until we have this much data
 MIN_OCCURRENCES = 5    # Pattern must repeat this many times
 CONFIDENCE_THRESHOLD = 0.65  # Minimum to create a suggestion

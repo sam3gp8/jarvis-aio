@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -29,6 +30,7 @@ from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
+from .paths import config_path
 from .const import (
     CONF_API_KEY,
     CONF_HONORIFIC,
@@ -67,12 +69,23 @@ _LOGGER = logging.getLogger(__name__)
 # The panel's runtime config — survives integration removal, so a re-install
 # can pick everything back up without re-entry. (v6.45.0: the legacy add-on
 # path /config/jarvis_config.json is no longer read.)
-_RUNTIME_CONFIG_PATH = "/config/jarvis/config.json"
+_RUNTIME_CONFIG_PATH = str(config_path("jarvis", "config.json"))
 
 # Providers offered in the "add a provider" menu — ollama needs no key, every
 # other one gets its own dedicated credential field (PROVIDER_API_KEY_FIELDS)
 # so configuring one never overwrites another's key.
 _PROVIDER_STEPS = ("groq", "openai", "anthropic", "gemini", "custom", "ollama")
+
+
+async def _validate_provider_key(hass, provider: str, api_key: str) -> str | None:
+    """Validate a cloud provider key without issuing a chat completion."""
+    try:
+        from .websocket import _fetch_models
+        models = await _fetch_models(hass, provider, api_key, "")
+    except Exception as exc:
+        from .llm_provider import _classify_conn_error
+        return _classify_conn_error(exc)
+    return None if models else "unknown"
 
 
 def _legacy_provider_key(data: dict[str, Any], provider: str) -> str:
@@ -91,22 +104,31 @@ async def _fetch_available_models(hass, provider: str, api_key: str = "", base_u
         return []
 
 
-def _find_config() -> dict | None:
+def _find_config(runtime_config_path: str | None = None, secrets_path: str | None = None) -> dict | None:
     """Read an existing runtime config, if one with a usable LLM exists.
     Credentials live only in secrets.yaml (never config.json), so "usable"
     means either a provider secret is present there, or a local provider
     (ollama/custom) is set up with a base URL and needs no key."""
     try:
-        if not os.path.exists(_RUNTIME_CONFIG_PATH):
+        runtime_config_path = runtime_config_path or _RUNTIME_CONFIG_PATH
+        if not os.path.exists(runtime_config_path):
             return None
-        with open(_RUNTIME_CONFIG_PATH) as f:
+        with open(runtime_config_path) as f:
             data = json.load(f)
     except Exception:
         return None
     from . import ha_secrets
     from .const import resolve_provider_base_url
     provider = data.get("llm_provider", "groq")
-    has_secret = bool(ha_secrets.get_stored_provider_key_sync(provider))
+    secrets_file = str(secrets_path) if secrets_path else None
+    try:
+        has_secret = bool(
+            ha_secrets.get_stored_provider_key_sync(
+                provider, Path(secrets_file) if secrets_file else None
+            )
+        )
+    except TypeError:
+        has_secret = bool(ha_secrets.get_stored_provider_key_sync(provider))
     # A legacy install may still have its credential in config.json (not yet
     # migrated to secrets.yaml). Treat that as usable too, so the entry gets
     # created and async_setup_entry()'s migration can relocate it, instead of
@@ -137,7 +159,9 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
         provider-picker menu only if no config file exists.
         """
         # Try auto-import from an existing runtime config (re-install case)
-        cfg = await self.hass.async_add_executor_job(_find_config)
+        runtime_config_path = str(config_path("jarvis", "config.json", hass=self.hass))
+        secrets_path = str(config_path("secrets.yaml", hass=self.hass))
+        cfg = await self.hass.async_add_executor_job(_find_config, runtime_config_path, secrets_path)
         if cfg:
             return await self.async_step_import(cfg)
         return await self.async_step_provider_menu()
@@ -158,15 +182,13 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_step_simple_key(self, provider: str, user_input: dict[str, Any] | None) -> dict:
         """Shared body for the single-API-key-field provider steps."""
-        from .llm_provider import test_connection
-
         errors: dict[str, str] = {}
         if user_input is not None:
             api_key = (user_input.get(CONF_API_KEY) or "").strip()
             if not api_key:
                 errors["base"] = "need_llm"
             else:
-                conn_err = await test_connection(self.hass, provider, api_key, DEFAULT_MODEL, None)
+                conn_err = await _validate_provider_key(self.hass, provider, api_key)
                 if conn_err:
                     errors["base"] = conn_err
                 else:
@@ -313,6 +335,9 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
                 if endpoint_key and fields.get(endpoint_key):
                     endpoint_updates[endpoint_key] = fields[endpoint_key]
             if endpoint_updates:
+                from . import paths
+                paths.set_config_dir_from_hass(self.hass)
+                jarvis_config.set_config_path(paths.config_path("jarvis", "config.json", hass=self.hass))
                 await self.hass.async_add_executor_job(jarvis_config.set_many, endpoint_updates)
             return self.async_create_entry(
                 title="JARVIS",
@@ -343,8 +368,13 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
         provider = import_data.get("llm_provider", "groq")
         base_url = resolve_provider_base_url(import_data, provider)
         local_ok = provider == "ollama" or (provider == "custom" and bool(base_url))
-        has_key = bool(await self.hass.async_add_executor_job(
-            ha_secrets.get_stored_provider_key_sync, provider))
+        secrets_path = config_path("secrets.yaml", hass=self.hass)
+        try:
+            has_key = bool(await self.hass.async_add_executor_job(
+                ha_secrets.get_stored_provider_key_sync, provider, secrets_path))
+        except TypeError:
+            has_key = bool(await self.hass.async_add_executor_job(
+                ha_secrets.get_stored_provider_key_sync, provider))
         # A legacy install may still have its credential in config.json only
         # (not yet relocated to secrets.yaml). Treat that as usable too, so
         # the entry gets created and async_setup_entry()'s migration can

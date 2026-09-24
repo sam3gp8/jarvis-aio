@@ -302,10 +302,11 @@ _STT_CORRECTIONS = {
 }
 
 
-def _load_learned_aliases() -> dict:
+def _load_learned_aliases(hass) -> dict:
     try:
         import json as _json
-        learn_file = "/config/.jarvis_learned.json"
+        from .paths import config_path_str
+        learn_file = config_path_str(".jarvis_learned.json", hass=hass)
         with open(learn_file) as f:
             learned = _json.load(f)
         aliases = learned.get("alias", {})
@@ -906,7 +907,9 @@ async def try_local(hass, text, honorific="sir", force=False):
 
     # Single-entity patterns
     _last_failed_name = None  # Track for end-of-loop error
-    learned_aliases = await hass.async_add_executor_job(_load_learned_aliases)
+    learned_aliases = await hass.async_add_executor_job(
+        _load_learned_aliases, hass
+    )
     for pattern, action, domain_hint in _INTENT_PATTERNS:
         if action == "scene":
             continue
