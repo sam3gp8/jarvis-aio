@@ -38,6 +38,8 @@ def _install_dr(monkeypatch, outcome_ok=True):
 def _reset(intr):
     intr.clear_calloff()
     intr._last_decision_id = None
+    intr._pending_decision_generations.clear()
+    intr._dismissed_decision_generations.clear()
     try:
         intr._false_alarms.clear()
     except Exception:
@@ -100,8 +102,68 @@ def test_set_last_decision_id_ignores_stale_generation(load):
     intr._last_decision_id = 42
     try:
         intr._dismiss_intrusion_state("faa")
-        intr.set_last_decision_id(99, generation=generation)
+        assert intr.set_last_decision_id(99, generation=generation) == 99
         assert intr._last_decision_id is None
+    finally:
+        _reset(intr)
+
+
+def test_pending_generation_dismissal_does_not_use_previous_record(load, monkeypatch):
+    intr = load("intrusion")
+    calls = _install_dr(monkeypatch)
+    intr._last_decision_id = 42
+    generation = intr.begin_decision_generation()
+    try:
+        result, decision_id, decision_pending = intr._dismiss_intrusion_state("faa")
+
+        assert result["ok"] is True
+        assert decision_id is None
+        assert decision_pending is True
+        assert calls["set_outcome"] == []
+        assert calls["set_outcome_recent"] == []
+
+        dismissed_id = intr.set_last_decision_id(99, generation=generation)
+        intr._persist_dismissal(dismissed_id)
+
+        assert calls["set_outcome"] == [(99, "wrong", "dismiss_intrusion")]
+        assert calls["set_outcome_recent"] == []
+    finally:
+        _reset(intr)
+
+
+@pytest.mark.asyncio
+async def test_async_dismissal_shields_executor_future_through_cancellation(
+        load, monkeypatch):
+    intr = load("intrusion")
+    calls = _install_dr(monkeypatch)
+    intr.set_last_decision_id(77)
+    release = asyncio.Event()
+
+    class FakeHass:
+        def async_add_executor_job(self, func, *args):
+            future = asyncio.get_running_loop().create_future()
+
+            async def run_job():
+                await release.wait()
+                func(*args)
+                future.set_result(None)
+
+            asyncio.create_task(run_job())
+            return future
+
+    try:
+        task = asyncio.create_task(
+            intr.async_dismiss_intrusion(FakeHass(), "false alarm")
+        )
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert calls["set_outcome"] == [(77, "wrong", "dismiss_intrusion")]
     finally:
         _reset(intr)
 

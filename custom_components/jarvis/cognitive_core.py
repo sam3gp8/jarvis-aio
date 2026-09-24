@@ -594,6 +594,7 @@ class SafetyManager:
             # a logging failure must never affect the alert. The generation is
             # captured before the executor job so a stale call-off cannot publish an
             # old decision record after a newer intrusion cycle has started.
+            _dec_gen = None
             try:
                 from . import decision_record, intrusion as _intr_rec
                 _dec_gen = _intr_rec.begin_decision_generation()
@@ -608,11 +609,18 @@ class SafetyManager:
                     )
                 )
                 try:  # so a later call-off attaches to this exact record
-                    _intr_rec.set_last_decision_id(_rid, generation=_dec_gen)
+                    _dismissed_rid = _intr_rec.set_last_decision_id(
+                        _rid, generation=_dec_gen
+                    )
+                    if _dismissed_rid is not None:
+                        await self.hass.async_add_executor_job(
+                            _intr_rec._persist_dismissal, _dismissed_rid
+                        )
                 except Exception:
                     pass
             except Exception:
-                pass
+                if _dec_gen is not None:
+                    _intr_rec.set_last_decision_id(None, generation=_dec_gen)
             # Learned damping (v6.76.0): if this location/time pattern has been
             # repeatedly labelled a false alarm, stay QUIET on this initial
             # low-confidence ping. The investigation still runs underneath, so a

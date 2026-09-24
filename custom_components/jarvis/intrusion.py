@@ -43,12 +43,16 @@ _last_snapshot: dict = {}     # {path, url, camera, ts} of the most recent captu
 _false_alarms: list = []      # recent {ts, camera, area} for learning
 _last_decision_id: Optional[int] = None  # decision_record row id of the latest intrusion
 _decision_generation = 0
+_pending_decision_generations: set[int] = set()
+_dismissed_decision_generations: set[int] = set()
 
 
 def begin_decision_generation() -> int:
     """Start a fresh intrusion decision cycle and invalidate stale record IDs."""
-    global _decision_generation
+    global _decision_generation, _last_decision_id
     _decision_generation += 1
+    _last_decision_id = None
+    _pending_decision_generations.add(_decision_generation)
     return _decision_generation
 
 
@@ -141,31 +145,49 @@ def last_snapshot() -> Optional[dict]:
 
 # ── false-alarm call-off ─────────────────────────────────────────────────────
 
-def set_last_decision_id(record_id, *, generation: Optional[int] = None) -> None:
+def set_last_decision_id(record_id, *, generation: Optional[int] = None) -> Optional[int]:
     """Remember the decision_record row id of the most recent intrusion, so a
     later call-off attaches its outcome to *that* record rather than guessing
     the most-recent-of-kind (which mis-attributes when intrusions overlap).
 
-    A stale task can resume after a dismissal. When a generation is supplied, it
-    only updates the active decision if it still matches the current intrusion
-    cycle.
+    A stale task can resume after a dismissal. When that generation was dismissed
+    while its insert was pending, return its record ID so the caller can persist
+    the outcome against the exact row instead of publishing it as active.
     """
     global _last_decision_id
-    if generation is not None and generation != _decision_generation:
-        return
-    if record_id is not None:
-        try:
-            _last_decision_id = int(record_id)
-        except Exception:
-            pass
+    if record_id is None:
+        if generation is not None:
+            _pending_decision_generations.discard(generation)
+            _dismissed_decision_generations.discard(generation)
+        return None
+    try:
+        decision_id = int(record_id)
+    except Exception:
+        if generation is not None:
+            _pending_decision_generations.discard(generation)
+            _dismissed_decision_generations.discard(generation)
+        return None
+    if generation is not None:
+        _pending_decision_generations.discard(generation)
+        if generation in _dismissed_decision_generations:
+            _dismissed_decision_generations.discard(generation)
+            return decision_id
+        if generation != _decision_generation:
+            return None
+    _last_decision_id = decision_id
+    return None
 
 
-def _dismiss_intrusion_state(reason: str = "") -> tuple[dict, int | None]:
+def _dismiss_intrusion_state(reason: str = "") -> tuple[dict, int | None, bool]:
     """Declare the current/last intrusion a false alarm. Sets a suppression
     window so the SafetyManager stops escalating, and records it. The
     SafetyManager consults is_called_off() and clears its investigation. Never
     raises."""
     global _called_off_until, _last_decision_id, _decision_generation
+    dismissed_generation = _decision_generation
+    decision_pending = dismissed_generation in _pending_decision_generations
+    if decision_pending:
+        _dismissed_decision_generations.add(dismissed_generation)
     _decision_generation += 1
     _called_off_until = time.time() + _CALLOFF_COOLDOWN
     rec = {
@@ -180,7 +202,8 @@ def _dismiss_intrusion_state(reason: str = "") -> tuple[dict, int | None]:
                  "for %ds", f" ({reason})" if reason else "", int(_CALLOFF_COOLDOWN))
     decision_id = _last_decision_id
     _last_decision_id = None
-    return {"ok": True, "suppressed_seconds": int(_CALLOFF_COOLDOWN), "recorded": rec}, decision_id
+    return ({"ok": True, "suppressed_seconds": int(_CALLOFF_COOLDOWN),
+             "recorded": rec}, decision_id, decision_pending)
 
 
 def _persist_dismissal(decision_id: int | None) -> None:
@@ -201,13 +224,16 @@ def _persist_dismissal(decision_id: int | None) -> None:
 
 
 def dismiss_intrusion(reason: str = "") -> dict:
-    result, decision_id = _dismiss_intrusion_state(reason)
-    _persist_dismissal(decision_id)
+    result, decision_id, decision_pending = _dismiss_intrusion_state(reason)
+    if not decision_pending:
+        _persist_dismissal(decision_id)
     return result
 
 
 async def async_dismiss_intrusion(hass, reason: str = "") -> dict:
-    result, decision_id = _dismiss_intrusion_state(reason)
+    result, decision_id, decision_pending = _dismiss_intrusion_state(reason)
+    if decision_pending:
+        return result
     persist_task = hass.async_add_executor_job(
         _persist_dismissal, decision_id
     )
