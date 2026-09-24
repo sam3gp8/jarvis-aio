@@ -2482,6 +2482,7 @@ async def ws_energy(
     picture + advice, or set the agency level (advisory/opt_in/autonomous)."""
     try:
         from . import energy, jarvis_config
+        states = {state.entity_id: state for state in hass.states.async_all()}
         if msg["action"] == "set_agency":
             level = str(msg.get("agency", "") or "").lower()
             if level not in (energy.AGENCY_ADVISORY, energy.AGENCY_OPT_IN,
@@ -2493,10 +2494,10 @@ async def ws_energy(
                 jarvis_config.set, "energy_agency", level
             )
             jarvis_log("ENERGY", f"agency → {level}")
-            res = await hass.async_add_executor_job(energy.power_status, hass)
+            res = await hass.async_add_executor_job(energy.power_status, None, states)
             connection.send_result(msg["id"], res)
         else:
-            res = await hass.async_add_executor_job(energy.power_status, hass)
+            res = await hass.async_add_executor_job(energy.power_status, None, states)
             connection.send_result(msg["id"], res)
     except Exception as exc:
         _LOGGER.exception("ws_energy failed: %s", exc)

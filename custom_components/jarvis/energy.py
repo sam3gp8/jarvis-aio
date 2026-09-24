@@ -109,24 +109,27 @@ def _never_shed(entity_id: str, name: str) -> bool:
 
 # ── current power picture (reuses appliance_monitor's meter discovery) ───────
 
-def _read_whole_home_watts(hass) -> tuple[Optional[float], str]:
+def _read_whole_home_watts(hass, states=None) -> tuple[Optional[float], str]:
     """Current whole-home draw in watts, plus the source entity. Reuses the
     appliance monitor's meter-discovery heuristics. (None, '') if not found."""
-    try:
-        from . import appliance_monitor
-        tracker = appliance_monitor._discover_whole_home_meter(hass)
-        # tracker exposes the entity; re-read its live value for freshness
-        eid = getattr(tracker, "entity_id", None) if tracker else None
-    except Exception:
-        eid = None
+    if states is not None:
+        eid = _find_whole_home_meter(states)
+    else:
+        try:
+            from . import appliance_monitor
+            tracker = appliance_monitor._discover_whole_home_meter(hass)
+            # tracker exposes the entity; re-read its live value for freshness
+            eid = getattr(tracker, "entity_id", None) if tracker else None
+        except Exception:
+            eid = None
 
     if not eid:
         # fallback: scan for a plausible whole-home meter directly
-        eid = _fallback_meter(hass)
+        eid = _fallback_meter(hass, states)
     if not eid:
         return None, ""
 
-    st = hass.states.get(eid)
+    st = states.get(eid) if states is not None else hass.states.get(eid)
     if st is None:
         return None, eid
     try:
@@ -139,8 +142,32 @@ def _read_whole_home_watts(hass) -> tuple[Optional[float], str]:
         return None, eid
 
 
-def _fallback_meter(hass) -> Optional[str]:
-    for state in hass.states.async_all("sensor"):
+def _find_whole_home_meter(states) -> Optional[str]:
+    candidates = []
+    for state in states.values():
+        if not state.entity_id.startswith("sensor."):
+            continue
+        dc = state.attributes.get("device_class", "")
+        unit = (state.attributes.get("unit_of_measurement") or "").lower()
+        fname = (state.attributes.get("friendly_name") or "").lower()
+        if dc != "power" and unit not in ("w", "kw"):
+            continue
+        if not any(kw in fname or kw.replace(" ", "_") in state.entity_id.lower()
+                   for kw in ("electric consumption", "home energy",
+                              "total consumption", "main power", "whole house",
+                              "grid consumption", "mains power")):
+            continue
+        try:
+            watts = float(state.state) * (1000 if unit == "kw" else 1)
+        except (ValueError, TypeError):
+            watts = 0.0
+        candidates.append((state.entity_id, watts))
+    return max(candidates, key=lambda item: item[1])[0] if candidates else None
+
+
+def _fallback_meter(hass, states=None) -> Optional[str]:
+    source = states.values() if states is not None else hass.states.async_all("sensor")
+    for state in source:
         dc = state.attributes.get("device_class", "")
         unit = (state.attributes.get("unit_of_measurement") or "").lower()
         fname = (state.attributes.get("friendly_name") or "").lower()
@@ -153,7 +180,7 @@ def _fallback_meter(hass) -> Optional[str]:
     return None
 
 
-def _running_appliances(hass) -> list[dict]:
+def _running_appliances(hass, states=None) -> list[dict]:
     """Declared appliances currently drawing power, from config + live sensors.
     Each: {name, entity, watts, shed_ok}."""
     out = []
@@ -168,7 +195,7 @@ def _running_appliances(hass) -> list[dict]:
         watts = 0.0
         running = False
         if eid:
-            st = hass.states.get(eid)
+            st = states.get(eid) if states is not None else hass.states.get(eid)
             if st is not None:
                 try:
                     watts = float(st.state)
@@ -189,11 +216,11 @@ def _running_appliances(hass) -> list[dict]:
 
 # ── public: status + advice ──────────────────────────────────────────────────
 
-def power_status(hass) -> dict:
+def power_status(hass, states=None) -> dict:
     """The current energy picture for the panel/agent. Never raises."""
-    watts, meter = _read_whole_home_watts(hass)
+    watts, meter = _read_whole_home_watts(hass, states)
     peak = _peak_threshold()
-    running = _running_appliances(hass)
+    running = _running_appliances(hass, states)
     over = watts is not None and watts >= peak
 
     advice = []

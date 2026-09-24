@@ -897,8 +897,14 @@ def predict_routine_start(hass, now: float = None) -> list:
 async def async_predict_routine_start(hass, now: float = None) -> list:
     """Loop-owned predictor with decision-record writes on the executor."""
     from . import person_patterns
+    from . import jarvis_config
     routines = await hass.async_add_executor_job(person_patterns.read)
-    out, pending = _predict_routine_start_loop(hass, now, routines)
+    alerts_enabled = await hass.async_add_executor_job(
+        jarvis_config.get, "routine_alerts_enabled", True
+    )
+    out, pending = _predict_routine_start_loop(
+        hass, now, routines, bool(alerts_enabled)
+    )
     for key, today, args in pending:
         await hass.async_add_executor_job(_log_decision, *args)
         _RECUR_ALERTED[key] = today
@@ -906,7 +912,8 @@ async def async_predict_routine_start(hass, now: float = None) -> list:
 
 
 def _predict_routine_start_loop(
-    hass, now: float = None, routines: list | None = None
+    hass, now: float = None, routines: list | None = None,
+    alerts_enabled: bool | None = None,
 ) -> tuple[list, list]:
     import json as _json
     now = now or time.time()
@@ -914,7 +921,9 @@ def _predict_routine_start_loop(
     pending = []
     try:
         from . import jarvis_config
-        if not bool(jarvis_config.get("routine_alerts_enabled", True)):
+        if alerts_enabled is None:
+            alerts_enabled = bool(jarvis_config.get("routine_alerts_enabled", True))
+        if not alerts_enabled:
             return out, pending
         if routines is None:
             from . import person_patterns

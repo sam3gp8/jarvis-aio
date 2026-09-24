@@ -19,6 +19,7 @@ the mute set.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import deque
@@ -52,10 +53,12 @@ class GateState:
     muted_entities: set[str] = field(default_factory=set)
     muted_categories: set[str] = field(default_factory=set)
     recent_messages: deque = field(default_factory=lambda: deque(maxlen=20))
+    reservations: list[Announcement] = field(default_factory=list)
     mute_all: bool = False   # blanket kill switch set by shush(all=True)
 
 
 _STATE = GateState()
+_ANNOUNCEMENT_LOCK = asyncio.Lock()
 
 
 def _now() -> float:
@@ -129,13 +132,21 @@ def _can_announce_with_multiplier(
 
     # Rate limit — tightened by the adaptive interruption budget when enabled.
     eff_max = max(1, int(round(max_per_hour * budget_multiplier)))
-    recent = _recent_within(_STATE.history, 3600)
+    now = _now()
+    _STATE.reservations[:] = [
+        a for a in _STATE.reservations if a.timestamp >= now - 3600
+    ]
+    recent = _recent_within(_STATE.history, 3600) + _STATE.reservations
     if len(recent) >= eff_max and urgency not in ("high",):
         return False, f"rate limit ({len(recent)}/{eff_max}/hour)"
 
     # Dedup: is this message (or a substring) close to something recent?
     dedup_cutoff = _now() - dedup_minutes * 60
-    for past in _STATE.recent_messages:
+    recent_messages = list(_STATE.recent_messages) + [
+        {"timestamp": a.timestamp, "message": a.message}
+        for a in _STATE.reservations
+    ]
+    for past in recent_messages:
         if past["timestamp"] < dedup_cutoff:
             continue
         if _messages_similar(past["message"], message):
@@ -187,7 +198,15 @@ async def _budget_multiplier_async(hass) -> float:
 async def async_can_announce(hass, **kwargs) -> tuple[bool, str]:
     """Evaluate gate state on the loop; query adaptive budget in an executor."""
     multiplier = await _budget_multiplier_async(hass)
-    return _can_announce_with_multiplier(multiplier, **kwargs)
+    async with _ANNOUNCEMENT_LOCK:
+        allowed, reason = _can_announce_with_multiplier(multiplier, **kwargs)
+        if allowed:
+            _STATE.reservations.append(Announcement(
+                timestamp=_now(), entity_id=kwargs["entity_id"],
+                category=kwargs["category"], urgency=kwargs["urgency"],
+                message=kwargs["message"], was_spoken=True,
+            ))
+        return allowed, reason
 
 
 def _record_announcement_state(
@@ -250,7 +269,16 @@ def record_announcement(
 
 async def async_record_announcement(hass, **kwargs) -> None:
     """Update gate state on the loop and persist activity off the event loop."""
-    _record_announcement_state(**kwargs)
+    async with _ANNOUNCEMENT_LOCK:
+        for index in range(len(_STATE.reservations) - 1, -1, -1):
+            reservation = _STATE.reservations[index]
+            if (reservation.entity_id == kwargs["entity_id"]
+                    and reservation.category == kwargs["category"]
+                    and reservation.urgency == kwargs["urgency"]
+                    and reservation.message == kwargs["message"]):
+                _STATE.reservations.pop(index)
+                break
+        _record_announcement_state(**kwargs)
     await hass.async_add_executor_job(
         partial(_save_announcement_activity, **kwargs)
     )

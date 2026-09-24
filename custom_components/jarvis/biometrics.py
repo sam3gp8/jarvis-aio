@@ -134,13 +134,13 @@ def sleep_signal(hass) -> Optional[bool]:
     return None
 
 
-def wellbeing_context(hass) -> dict:
+def wellbeing_context(hass, states=None) -> dict:
     """A compact, non-clinical snapshot for JARVIS's context — what a wearable
     reports, phrased as ambient context, never as a health assessment. Returns
     {available, summary, readings}. Never raises and never diagnoses."""
     if not is_enabled():
         return {"available": False, "summary": "", "readings": {}}
-    bio = discover(hass)
+    bio = discover(hass, states)
     if not bio:
         return {"available": False,
                 "summary": "no biometric entities found — connect a wearable "

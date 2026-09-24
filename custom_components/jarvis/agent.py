@@ -2022,7 +2022,11 @@ async def _exec_wellbeing_context(hass: HomeAssistant, args: dict) -> str:
     """Read non-medical wellbeing context from a wearable (v6.63.0)."""
     try:
         from . import biometrics
-        res = await hass.async_add_executor_job(biometrics.wellbeing_context, hass)
+        states = (hass.states.async_all("sensor")
+                  + hass.states.async_all("binary_sensor"))
+        res = await hass.async_add_executor_job(
+            biometrics.wellbeing_context, None, states
+        )
         return json.dumps(res)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
@@ -2032,7 +2036,8 @@ async def _exec_energy_status(hass: HomeAssistant, args: dict) -> str:
     """Report whole-home power draw + energy advice (v6.62.0)."""
     try:
         from . import energy
-        res = await hass.async_add_executor_job(energy.power_status, hass)
+        states = {state.entity_id: state for state in hass.states.async_all()}
+        res = await hass.async_add_executor_job(energy.power_status, None, states)
         return json.dumps(res)
     except Exception as exc:
         return json.dumps({"error": str(exc)})

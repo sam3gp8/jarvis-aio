@@ -598,7 +598,7 @@ class SafetyManager:
             try:
                 from . import decision_record, intrusion as _intr_rec
                 _dec_gen = _intr_rec.begin_decision_generation()
-                _rid = await self.hass.async_add_executor_job(
+                _record_job = self.hass.async_add_executor_job(
                     lambda: decision_record.record(
                         "intrusion",
                         observation={"location": where, "breach": breach_name,
@@ -608,6 +608,18 @@ class SafetyManager:
                         reason="motion while away with corroborating breach (open entry or armed alarm)",
                     )
                 )
+                try:
+                    _rid = await asyncio.shield(_record_job)
+                except asyncio.CancelledError:
+                    _rid = await asyncio.shield(_record_job)
+                    _dismissed_rid = _intr_rec.set_last_decision_id(
+                        _rid, generation=_dec_gen
+                    )
+                    if _dismissed_rid is not None:
+                        await self.hass.async_add_executor_job(
+                            _intr_rec._persist_dismissal, _dismissed_rid
+                        )
+                    raise
                 try:  # so a later call-off attaches to this exact record
                     _dismissed_rid = _intr_rec.set_last_decision_id(
                         _rid, generation=_dec_gen
