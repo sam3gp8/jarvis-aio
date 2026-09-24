@@ -301,7 +301,10 @@ class GeminiProvider(LLMProvider):
     def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None):
         system_instruction = self._system_instruction(messages)
         continuation = self._is_continuation(messages)
-        new_messages = messages[len(self._previous_messages):] if continuation else messages
+        new_messages = (
+            messages[len(self._previous_messages):]
+            if continuation else self._latest_user_turn(messages)
+        )
         input_items = self._input_items(new_messages)
         if not input_items:
             input_items = self._input_items(messages)
@@ -348,6 +351,21 @@ class GeminiProvider(LLMProvider):
     def _is_continuation(self, messages: list[dict]) -> bool:
         return bool(self._previous_interaction_id and len(messages) >= len(self._previous_messages)
                     and messages[:len(self._previous_messages)] == self._previous_messages)
+
+    @staticmethod
+    def _latest_user_turn(messages: list[dict]) -> list[dict]:
+        """Return only the active user turn for a new server-side interaction.
+
+        JARVIS provides client-managed OpenAI-style history. Replaying its old
+        user messages as Interaction inputs makes Gemini answer each stale turn
+        in sequence; the prior model outputs cannot be safely reconstructed as
+        native Interaction steps. Same-run tool continuations use the server
+        interaction ID instead.
+        """
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                return [message]
+        return []
 
     @staticmethod
     def _system_instruction(messages: list[dict]) -> str:

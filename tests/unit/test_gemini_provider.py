@@ -77,3 +77,21 @@ def test_gemini_continues_function_results_with_prior_interaction(load, monkeypa
         "type": "function_result", "name": "get_temp", "call_id": "call-1",
         "result": [{"type": "text", "text": "{\"temperature\": 22}"}],
     }]
+
+
+def test_gemini_new_interaction_uses_only_the_latest_user_turn(load, monkeypatch):
+    llm = load("llm_provider")
+    response = types.SimpleNamespace(id="interaction-1", output_text="Tomorrow.", steps=[])
+    provider, interactions = _provider(llm, monkeypatch, response)
+
+    provider.chat([
+        {"role": "system", "content": "Be concise."},
+        {"role": "user", "content": "Who are you?"},
+        {"role": "assistant", "content": "JARVIS."},
+        {"role": "user", "content": "What is the weather now?"},
+        {"role": "user", "content": "And tomorrow?"},
+    ])
+
+    assert interactions.calls[0]["input"] == [{
+        "type": "user_input", "content": [{"type": "text", "text": "And tomorrow?"}],
+    }]

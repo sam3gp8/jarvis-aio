@@ -3472,11 +3472,6 @@ async def run_agent(
                 "content": result_str,
             })
 
-        if provider_name == "gemini":
-            # Flatten before the NEXT loop iteration replays this turn back to
-            # Gemini — see _flatten_tool_calls_for_replay for why.
-            working = _flatten_tool_calls_for_replay(working)
-
     # Max iterations — ask for summary
     working.append({
         "role": "user",
