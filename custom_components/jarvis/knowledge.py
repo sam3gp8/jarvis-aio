@@ -80,6 +80,14 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject)")
+    # migrate: add columns introduced after the initial schema
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(facts)").fetchall()}
+    if "deleted_at" not in cols:
+        try:
+            conn.execute("ALTER TABLE facts ADD COLUMN deleted_at REAL")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise  # only a concurrent-migration race is expected here
     conn.commit()
 
 
@@ -147,41 +155,54 @@ def remember(
     if conn is None:
         return None
     try:
-        with conn:
-            existing = conn.execute(
-                "SELECT id, source FROM facts WHERE subject = ? AND key = ?",
-                (subject, key),
-            ).fetchone()
-            if existing:
-                if respect_stated and existing["source"] == "stated" and source != "stated":
-                    row = conn.execute(
-                        "SELECT * FROM facts WHERE id = ?", (existing["id"],)).fetchone()
-                    return _row_to_fact(row)  # don't clobber a user-stated fact
-                conn.execute(
-                    """
-                    UPDATE facts SET value = ?, kind = ?, source = ?, confidence = ?,
-                        salience = ?, updated_at = ?, expires_at = ?
-                    WHERE id = ?
-                    """,
-                    (value, kind, source, confidence, salience, now, expires_at, existing["id"]),
-                )
-                fid = existing["id"]
-            else:
-                cur = conn.execute(
-                    """
-                    INSERT INTO facts
-                        (kind, subject, key, value, source, confidence, salience,
-                         created_at, updated_at, last_referenced, expires_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+        # BEGIN IMMEDIATE grabs the write lock before the read below, so a
+        # concurrent forget() can't slip a tombstone in between our SELECT and
+        # UPDATE/INSERT and get silently resurrected.
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id, source, deleted_at FROM facts WHERE subject = ? AND key = ?",
+            (subject, key),
+        ).fetchone()
+        if existing:
+            if existing["deleted_at"] is not None and source != "stated":
+                # user deleted this fact; don't let re-observation resurrect it
+                conn.commit()
+                return None
+            if respect_stated and existing["source"] == "stated" and source != "stated":
+                row = conn.execute(
+                    "SELECT * FROM facts WHERE id = ?", (existing["id"],)).fetchone()
+                conn.commit()
+                return _row_to_fact(row)  # don't clobber a user-stated fact
+            conn.execute(
+                """
+                UPDATE facts SET value = ?, kind = ?, source = ?, confidence = ?,
+                    salience = ?, updated_at = ?, expires_at = ?, deleted_at = NULL
+                WHERE id = ?
+                """,
+                (value, kind, source, confidence, salience, now, expires_at, existing["id"]),
+            )
+            fid = existing["id"]
+        else:
+            cur = conn.execute(
+                """
+                INSERT INTO facts
                     (kind, subject, key, value, source, confidence, salience,
-                     now, now, None, expires_at),
-                )
-                fid = cur.lastrowid
-            row = conn.execute("SELECT * FROM facts WHERE id = ?", (fid,)).fetchone()
+                     created_at, updated_at, last_referenced, expires_at, deleted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (kind, subject, key, value, source, confidence, salience,
+                 now, now, None, expires_at),
+            )
+            fid = cur.lastrowid
+        row = conn.execute("SELECT * FROM facts WHERE id = ?", (fid,)).fetchone()
+        conn.commit()
         _LOGGER.info("knowledge: remembered [%s] %s/%s = %r", kind, subject, key, value)
         return _row_to_fact(row)
     except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         _LOGGER.warning("knowledge: remember failed: %s", exc)
         return None
     finally:
@@ -193,21 +214,34 @@ def forget(
     fact_id: Optional[int] = None,
     subject: Optional[str] = None,
     key: Optional[str] = None,
+    now: Optional[float] = None,
 ) -> int:
-    """Delete by id, or by (subject, key). Returns rows removed. SYNC."""
+    """
+    Soft-delete by id, or by (subject, key): rows are tombstoned (deleted_at set),
+    not removed, so a re-observed fact can't resurrect what the user deleted —
+    only an explicit stated re-teach (see remember()) revives it. Returns rows
+    affected. SYNC.
+    """
+    now = now if now is not None else time.time()
     conn = _connect()
     if conn is None:
         return 0
     try:
         with conn:
             if fact_id is not None:
-                cur = conn.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+                cur = conn.execute(
+                    "UPDATE facts SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
+                    (now, fact_id))
             elif key is not None:
                 if subject is not None:
                     cur = conn.execute(
-                        "DELETE FROM facts WHERE subject = ? AND key = ?", (subject, key))
+                        "UPDATE facts SET deleted_at = ? "
+                        "WHERE subject = ? AND key = ? AND deleted_at IS NULL",
+                        (now, subject, key))
                 else:
-                    cur = conn.execute("DELETE FROM facts WHERE key = ?", (key,))
+                    cur = conn.execute(
+                        "UPDATE facts SET deleted_at = ? WHERE key = ? AND deleted_at IS NULL",
+                        (now, key))
             else:
                 return 0
             return cur.rowcount
@@ -218,8 +252,14 @@ def forget(
         conn.close()
 
 
+_TOMBSTONE_TTL = 365 * 86400.0  # keep deletion tombstones a year before hard-purging
+
+
 def purge_expired(now: Optional[float] = None) -> int:
-    """Remove facts past their expiry. Returns rows removed. SYNC."""
+    """
+    Remove facts past their expiry, and hard-delete tombstones (soft-deleted
+    facts) older than _TOMBSTONE_TTL. Returns rows removed. SYNC.
+    """
     now = now if now is not None else time.time()
     conn = _connect()
     if conn is None:
@@ -227,8 +267,14 @@ def purge_expired(now: Optional[float] = None) -> int:
     try:
         with conn:
             cur = conn.execute(
-                "DELETE FROM facts WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
-            return cur.rowcount
+                "DELETE FROM facts WHERE expires_at IS NOT NULL AND expires_at < ? "
+                "AND deleted_at IS NULL", (now,))
+            removed = cur.rowcount
+            cur = conn.execute(
+                "DELETE FROM facts WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+                (now - _TOMBSTONE_TTL,))
+            removed += cur.rowcount
+            return removed
     except Exception as exc:
         _LOGGER.warning("knowledge: purge failed: %s", exc)
         return 0
@@ -240,7 +286,8 @@ def purge_expired(now: Optional[float] = None) -> int:
 
 def _live_rows(conn: sqlite3.Connection, subject: Optional[str], now: float,
                subjects: Optional[list] = None) -> list:
-    sql = "SELECT * FROM facts WHERE (expires_at IS NULL OR expires_at >= ?)"
+    sql = ("SELECT * FROM facts WHERE deleted_at IS NULL "
+           "AND (expires_at IS NULL OR expires_at >= ?)")
     params: list = [now]
     if subjects is not None:
         placeholders = ",".join("?" for _ in subjects) or "''"

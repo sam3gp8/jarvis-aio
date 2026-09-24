@@ -1,4 +1,6 @@
 """Tests for the curated knowledge store (v6.25.0)."""
+import sqlite3
+
 import pytest
 
 
@@ -11,6 +13,41 @@ def knowledge(load):
 def _isolate_db(tmp_path, monkeypatch, knowledge):
     monkeypatch.setattr(knowledge, "DB_PATH", str(tmp_path / "knowledge.db"))
     yield
+
+
+def test_legacy_schema_migrates_in_deleted_at_column(knowledge):
+    # simulate a pre-tombstone DB: the facts table without the deleted_at column
+    conn = sqlite3.connect(knowledge.DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE facts (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind            TEXT NOT NULL DEFAULT 'fact',
+            subject         TEXT NOT NULL DEFAULT 'household',
+            key             TEXT NOT NULL,
+            value           TEXT NOT NULL,
+            source          TEXT NOT NULL DEFAULT 'stated',
+            confidence      REAL NOT NULL DEFAULT 1.0,
+            salience        REAL NOT NULL DEFAULT 1.0,
+            created_at      REAL NOT NULL,
+            updated_at      REAL NOT NULL,
+            last_referenced REAL,
+            expires_at      REAL,
+            UNIQUE(subject, key)
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO facts (subject, key, value, created_at, updated_at) "
+        "VALUES ('household', 'trash day', 'Tuesday', 1000.0, 1000.0)")
+    conn.commit()
+    conn.close()
+
+    facts = knowledge.all_facts(now=1000.0)
+    assert len(facts) == 1 and facts[0]["key"] == "trash day"
+    # the store can now tombstone/revive rows from the pre-migration schema
+    assert knowledge.forget(key="trash day", now=1500.0) == 1
+    assert knowledge.all_facts() == []
 
 
 def test_remember_and_all_facts(knowledge):
@@ -93,6 +130,50 @@ def test_prompt_block_formats_and_hedges(knowledge):
 
 def test_prompt_block_empty_is_blank(knowledge):
     assert knowledge.prompt_block(now=1000.0) == ""
+
+
+def test_forget_tombstones_and_blocks_reobservation(knowledge):
+    knowledge.remember("light turns on", "around 18:00 most days",
+                       source="observed", confidence=0.8, now=1000.0)
+    f = knowledge.all_facts()[0]
+    assert knowledge.forget(fact_id=f["id"], now=1500.0) == 1
+    assert knowledge.all_facts() == []
+    # pattern analyzer re-detects the same routine on the next run — must not resurrect it
+    result = knowledge.remember("light turns on", "around 18:00 most days",
+                                source="observed", confidence=0.9, now=2000.0)
+    assert result is None
+    assert knowledge.all_facts() == []
+
+
+def test_forget_tombstone_revived_by_explicit_stated_reteach(knowledge):
+    knowledge.remember("trash day", "Tuesday", source="observed", now=1000.0)
+    knowledge.forget(key="trash day", now=1500.0)
+    assert knowledge.all_facts() == []
+    # user explicitly re-teaches it — should revive, unlike a passive observation
+    result = knowledge.remember("trash day", "Wednesday", source="stated", now=2000.0)
+    assert result and result["value"] == "Wednesday"
+    assert len(knowledge.all_facts()) == 1
+
+
+def test_forget_by_key_only_tombstones_all_subjects(knowledge):
+    knowledge.remember("bedtime", "10pm", subject="primary", now=1000.0)
+    knowledge.remember("bedtime", "11pm", subject="household", now=1000.0)
+    assert knowledge.forget(key="bedtime", now=1500.0) == 2
+    assert knowledge.all_facts() == []
+    # neither subject's row should be resurrected by passive re-observation
+    assert knowledge.remember("bedtime", "10pm", subject="primary",
+                              source="observed", now=2000.0) is None
+    assert knowledge.remember("bedtime", "11pm", subject="household",
+                              source="observed", now=2000.0) is None
+    assert knowledge.all_facts() == []
+
+
+def test_purge_expired_hard_deletes_old_tombstones(knowledge):
+    knowledge.remember("trash day", "Tuesday", now=1000.0)
+    knowledge.forget(key="trash day", now=1500.0)
+    # tombstone not old enough yet
+    assert knowledge.purge_expired(now=1500.0 + 86400.0) == 0
+    assert knowledge.purge_expired(now=1500.0 + knowledge._TOMBSTONE_TTL + 1.0) == 1
 
 
 def test_stats_counts_live_only(knowledge):

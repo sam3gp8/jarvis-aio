@@ -410,6 +410,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("JARVIS: document auto-ingest active (scan every %s min)",
                      int(DOCS_SCAN_INTERVAL.total_seconds() // 60))
 
+    # Daily knowledge-store maintenance: hard-purge facts past their TTL and
+    # deletion tombstones past their retention window (bounds knowledge.db growth
+    # without needing the user to run the database_purge service by hand).
+    KNOWLEDGE_PURGE_INTERVAL = timedelta(hours=24)
+
+    async def _knowledge_purge_tick(_now) -> None:
+        try:
+            from . import knowledge
+            removed = await hass.async_add_executor_job(knowledge.purge_expired)
+            if removed:
+                _LOGGER.info("JARVIS: daily knowledge purge removed %d row(s)", removed)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS knowledge purge tick error: %s", exc)
+
+    if sched.add("knowledge_purge", KNOWLEDGE_PURGE_INTERVAL, _knowledge_purge_tick):
+        _LOGGER.info("JARVIS: daily knowledge purge active")
+
     # ── Scheduled briefings (v6.78.0) ─────────────────────────────────────────
     # JARVIS delivers its own morning and evening briefing at configured clock
     # times. Off by default; enable per-briefing in Settings. Each run reuses the
@@ -1078,6 +1095,14 @@ def _register_services(
         days = call.data.get("days", 30)
         deleted = await hass.async_add_executor_job(purge_old_records, days)
         _LOGGER.info("JARVIS DB purge: %d records deleted (>%d days)", deleted, days)
+        try:
+            from . import knowledge
+            k_deleted = await hass.async_add_executor_job(knowledge.purge_expired)
+            if k_deleted:
+                _LOGGER.info("JARVIS DB purge: %d expired/tombstoned knowledge fact(s) removed",
+                             k_deleted)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS DB purge: knowledge purge error: %s", exc)
 
     _register_service(
         "database_purge",
