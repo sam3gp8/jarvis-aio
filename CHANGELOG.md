@@ -1,3 +1,9 @@
+## [7.99.7] — deleted memories stay deleted
+
+A fix from **@PhoenixB** (#75, closes #71). When you deleted a curated knowledge fact from the panel — a household or per-person memory — it could quietly come back on its own after the next pattern-analysis run: the analyzer kept re-observing the same routine and re-inserting the identical fact. Deletions now stick.
+
+Deleting a fact records a tombstone instead of a hard delete, so JARVIS won't resurrect something you removed from ongoing observation. If you later **explicitly re-teach** the same thing ("actually, trash day is Wednesday"), it comes back as you'd expect — only passive re-observation is blocked. Tombstones are cleaned up automatically after a year by a daily maintenance pass (and the existing database-purge service), so nothing accumulates. Existing installs migrate automatically the first time a fact is deleted; no action needed.
+
 ## [7.99.6] — no more blocking-call warnings; a smoother event loop
 
 A large reliability contribution from **@PhoenixB** (#66). JARVIS was doing synchronous filesystem and SQLite work directly on Home Assistant's event loop — reasoning-cache reads/writes, document ingestion, snapshots, routines, alias lookups, doorbell logging, and the panel/calibration/decision-record/cognition/goals/follow-ups/output-gate database paths. That produced Home Assistant "blocking call" warnings and could momentarily delay other HA tasks.
