@@ -120,6 +120,27 @@ class DetectedPattern:
     details: dict = field(default_factory=dict)
 
 
+# Domains that expose only observable state and no actuating service — an
+# "action" that targets one of these can never turn into a real automation step.
+_READ_ONLY_ACTION_DOMAINS = frozenset({
+    "binary_sensor", "sensor", "device_tracker", "person", "sun", "weather",
+    "zone", "geo_location", "air_quality", "update", "schedule", "stt",
+})
+
+
+def _is_actuating_action(action) -> bool:
+    """Whether a single automation action actually actuates a device (a real
+    service call on a controllable domain), as opposed to a delay/template or a
+    service pointed at a read-only entity (e.g. ``binary_sensor.turn_on``).
+    Pure, best-effort."""
+    if not isinstance(action, dict):
+        return False  # delays, templated steps, etc. don't actuate on their own
+    svc = action.get("action") or action.get("service")
+    if not isinstance(svc, str) or "." not in svc:
+        return False
+    return svc.split(".", 1)[0] not in _READ_ONLY_ACTION_DOMAINS
+
+
 def normalize_suggestion_automation(stored_yaml: str) -> dict:
     """
     Pure: turn a suggestion's stored automation JSON into structured args for
@@ -177,6 +198,15 @@ def normalize_suggestion_automation(stored_yaml: str) -> dict:
             norm_actions.append(_modernize_action(a))
         else:
             norm_actions.append(a)
+
+    # An automation is only real if at least one action actually actuates a
+    # device. Read-only domains (binary_sensor, sensor, device_tracker, …) never
+    # have a turn_on/off service, so a suggestion whose every "action" targets
+    # one of them is an observed correlation, not an automatable outcome — refuse
+    # it here so the store's gate and the periodic purge both drop it.
+    if not any(_is_actuating_action(a) for a in norm_actions):
+        return {"installable": False,
+                "reason": "no actuating action — target is a read-only entity"}
 
     out = {"installable": True, "alias": alias,
            "trigger": triggers, "action": norm_actions}
@@ -1552,13 +1582,22 @@ class PatternAnalyzer:
         d = p.details
 
         if p.pattern_type == "time_routine" and d.get("state") in ("on", "off"):
+            # Only a controllable target is a real automation. A read-only entity
+            # (binary_sensor, device_tracker, sensor, …) that merely CHANGES to
+            # on/off at a regular time has no device action to take — emitting
+            # `binary_sensor.turn_on` would be nonsense, so mark it advisory and
+            # let the store's actionability gate drop it.
+            svc = service_for(p.entity_ids[0], d["state"])
+            if not svc:
+                return json.dumps({
+                    "type": "manual_review",
+                    "note": (f"Consider automating: {p.entity_ids[0]} → "
+                             f"{d['state']} around {d['hour']:02d}:00"),
+                }, indent=2)
             auto = {
                 "alias": f"JARVIS Learned: {p.entity_ids[0]} {d['state']} at {d['hour']:02d}:00",
                 "trigger": {"platform": "time", "at": f"{d['hour']:02d}:00:00"},
-                "action": {
-                    "service": f"{p.entity_ids[0].split('.')[0]}.turn_{d['state']}",
-                    "entity_id": p.entity_ids[0],
-                },
+                "action": svc,
             }
             cond = d.get("condition")
             conds = [c for c in (cond if isinstance(cond, list) else [cond])

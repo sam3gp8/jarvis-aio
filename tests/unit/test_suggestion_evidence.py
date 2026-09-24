@@ -176,6 +176,66 @@ def test_non_actionable_sequence_is_not_stored(pa, tmp_path):
     assert "door->light" in descs and "corr A->B" not in descs
 
 
+def _time_pattern(pa, entity, state, hour):
+    return pa.DetectedPattern(
+        pattern_type="time_routine", description=f"{entity} {state} at {hour}",
+        entity_ids=[entity], confidence=1.0, occurrences=20,
+        details={"hour": hour, "state": state})
+
+
+def test_time_routine_on_readonly_entity_is_not_actionable(pa):
+    # A binary_sensor that merely turns on at a regular time has no device
+    # action to take — the generator must not emit a bogus `binary_sensor.turn_on`
+    # automation, and it must not be installable.
+    an = pa.PatternAnalyzer()
+    yml = an._generate_automation(_time_pattern(pa, "binary_sensor.bay_2_car_occupancy", "on", 17))
+    assert '"binary_sensor.turn_on"' not in yml
+    assert pa.normalize_suggestion_automation(yml)["installable"] is False
+    # device_tracker likewise (its "home"/"not_home" isn't on/off, but guard on/off too)
+    yml2 = an._generate_automation(_time_pattern(pa, "device_tracker.pixel_9_pro", "on", 8))
+    assert pa.normalize_suggestion_automation(yml2)["installable"] is False
+
+
+def test_time_routine_on_controllable_entity_still_installable(pa):
+    # Regression guard: a real light routine must still produce an installable
+    # automation with the correct service.
+    an = pa.PatternAnalyzer()
+    yml = an._generate_automation(_time_pattern(pa, "light.porch", "on", 18))
+    norm = pa.normalize_suggestion_automation(yml)
+    assert norm["installable"] is True
+    assert any(a.get("action") == "light.turn_on" or a.get("service") == "light.turn_on"
+               for a in norm["action"])
+
+
+def test_normalize_rejects_readonly_action_target(pa):
+    import json
+    # Structurally complete but the action points at a read-only entity.
+    bogus = json.dumps({"alias": "x",
+                        "trigger": {"platform": "time", "at": "17:00:00"},
+                        "action": {"service": "binary_sensor.turn_on",
+                                   "entity_id": "binary_sensor.a"}})
+    assert pa.normalize_suggestion_automation(bogus)["installable"] is False
+    good = json.dumps({"alias": "x",
+                      "trigger": {"platform": "time", "at": "17:00:00"},
+                      "action": {"service": "lock.lock", "entity_id": "lock.front"}})
+    assert pa.normalize_suggestion_automation(good)["installable"] is True
+
+
+def test_store_rejects_time_routine_on_binary_sensor(pa, tmp_path):
+    import sqlite3
+    db = str(tmp_path / "sugt.db")
+    c = sqlite3.connect(db); c.executescript(_SUG_SCHEMA); c.commit(); c.close()
+    an = pa.PatternAnalyzer(); an._db = db
+    assert an._store_suggestion(_time_pattern(pa, "binary_sensor.pixel_9_pro_android_auto", "on", 9)) is False
+    assert an._store_suggestion(_time_pattern(pa, "switch.coffee", "on", 6)) is True
+    c = sqlite3.connect(db)
+    descs = [r[0] for r in c.execute(
+        "SELECT description FROM suggestions WHERE status='pending'").fetchall()]
+    c.close()
+    assert any("switch.coffee" in d for d in descs)
+    assert not any("android_auto" in d for d in descs)
+
+
 def test_purge_removes_legacy_non_actionable_suggestions(pa, tmp_path):
     import json
     import sqlite3

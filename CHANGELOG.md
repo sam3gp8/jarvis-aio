@@ -1,3 +1,9 @@
+## [7.99.10] — Suggestions only propose automations that actually *do* something
+
+The Suggestions tab was proposing read-only entities as automations — a binary sensor, device tracker, or plain sensor that merely *changes* to on/off at a regular time was offered as a "learned automation" with no real action behind it (there's no such thing as `binary_sensor.turn_on`). The daily-routine suggestion path skipped the actionability check that the door→light, presence, and threshold paths already used.
+
+Now every suggestion must resolve to a real device action — turn a light/switch/fan on or off, lock/unlock a door, open/close a cover, activate a scene, and so on. A regular-time *change* on an entity JARVIS can't actuate is no longer offered as an automation, and any such bogus suggestions already sitting in your review list are cleared automatically on the next analysis pass. An automation needs something to **do**, not just something that happens on a schedule.
+
 ## [7.99.9] — current-date awareness, cleaner camera output, and more languages
 
 Follow-ups from the community language discussion (#55), plus two fixes.
