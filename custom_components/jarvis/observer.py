@@ -744,7 +744,8 @@ async def _process_event(event: Event) -> None:
             return
 
         # Output gate
-        allowed, gate_reason = await output_gate.async_can_announce(_STATE.hass,
+        allowed, gate_reason, token = await output_gate.async_reserve_announcement(
+            _STATE.hass,
             entity_id=entity_id, category=category,
             urgency=final_urgency, message=message,
         )
@@ -756,80 +757,93 @@ async def _process_event(event: Event) -> None:
             )
             return
 
-        # Route audio based on urgency + presence + sleep
-        broadcast_group = _STATE.config.get("broadcast_group") or None
-        ann_speakers = _get_announcement_speakers()
-        _LOGGER.warning(
-            "Observer routing: urgency=%s, broadcast_group=%s, "
-            "ann_speakers=%s, sleeping=%s",
-            final_urgency, broadcast_group, ann_speakers, sleeping,
-        )
-        # During quiet hours, force non-critical to stay quiet by routing as if
-        # asleep (critical still broadcasts; high→notify; medium/low→suppressed).
-        if in_quiet_hours and final_urgency != "critical":
-            try:
-                from .websocket import jarvis_log
-                jarvis_log("GATE", f"quiet hours — holding {final_urgency} announcement (not critical)")
-            except Exception:
-                pass
-        targets, mode = audio_routing.observer_speak_target(
-            _STATE.hass,
-            urgency=final_urgency,
-            broadcast_group=broadcast_group,
-            announcement_speakers=ann_speakers,
-            is_sleeping=(sleeping or in_quiet_hours),
-        )
-        _LOGGER.warning(
-            "Observer routing result: targets=%s, mode=%s", targets, mode,
-        )
-
-        if mode == "suppressed":
-            _LOGGER.info("Observer route-suppressed '%s'", message)
-            await output_gate.async_record_announcement(_STATE.hass,
-                entity_id=entity_id, category=category,
-                urgency=final_urgency, message=message, was_spoken=False,
+        recorded = False
+        try:
+            # Route audio based on urgency + presence + sleep
+            broadcast_group = _STATE.config.get("broadcast_group") or None
+            ann_speakers = _get_announcement_speakers()
+            _LOGGER.warning(
+                "Observer routing: urgency=%s, broadcast_group=%s, "
+                "ann_speakers=%s, sleeping=%s",
+                final_urgency, broadcast_group, ann_speakers, sleeping,
             )
-            return
-
-        if mode == "notify_only":
-            _LOGGER.info("Observer notify-only '%s'", message)
-            await _send_notification(message, urgency=final_urgency)
-            await output_gate.async_record_announcement(_STATE.hass,
-                entity_id=entity_id, category=category,
-                urgency=final_urgency, message=message, was_spoken=False,
+            # During quiet hours, force non-critical to stay quiet by routing as if
+            # asleep (critical still broadcasts; high→notify; medium/low→suppressed).
+            if in_quiet_hours and final_urgency != "critical":
+                try:
+                    from .websocket import jarvis_log
+                    jarvis_log("GATE", f"quiet hours — holding {final_urgency} announcement (not critical)")
+                except Exception:
+                    pass
+            targets, mode = audio_routing.observer_speak_target(
+                _STATE.hass,
+                urgency=final_urgency,
+                broadcast_group=broadcast_group,
+                announcement_speakers=ann_speakers,
+                is_sleeping=(sleeping or in_quiet_hours),
             )
-            return
-
-        if not targets:
-            _LOGGER.debug("Observer had mode=%s but no targets — skipping", mode)
-            return
-
-        # v5.5.2: Check announcements_enabled BEFORE speaking but AFTER
-        # classification and logging. This way the activity feed populates
-        # even when announcements are off.
-        _ann_enabled = _is_announcements_enabled()
-        if not _ann_enabled:
-            _LOGGER.debug(
-                "Observer: announcements disabled, logging but not speaking: %s",
-                message[:80],
+            _LOGGER.warning(
+                "Observer routing result: targets=%s, mode=%s", targets, mode,
             )
-            await output_gate.async_record_announcement(_STATE.hass,
-                entity_id=entity_id, category=category,
-                urgency=final_urgency, message=message, was_spoken=False,
-            )
-            # v5.6.2: Still push phone notification for high/critical
-            # even when announcements (voice) are disabled
-            if final_urgency in ("high", "critical"):
+
+            if mode == "suppressed":
+                _LOGGER.info("Observer route-suppressed '%s'", message)
+                await output_gate.async_record_announcement(_STATE.hass,
+                    entity_id=entity_id, category=category,
+                    urgency=final_urgency, message=message, was_spoken=False,
+                    reservation_id=token,
+                )
+                recorded = True
+                return
+
+            if mode == "notify_only":
+                _LOGGER.info("Observer notify-only '%s'", message)
                 await _send_notification(message, urgency=final_urgency)
-            return
+                await output_gate.async_record_announcement(_STATE.hass,
+                    entity_id=entity_id, category=category,
+                    urgency=final_urgency, message=message, was_spoken=False,
+                    reservation_id=token,
+                )
+                recorded = True
+                return
 
-        # Actually speak
-        await _speak(message, targets=targets)
+            if not targets:
+                _LOGGER.debug("Observer had mode=%s but no targets — skipping", mode)
+                return
 
-        await output_gate.async_record_announcement(_STATE.hass,
-            entity_id=entity_id, category=category,
-            urgency=final_urgency, message=message, was_spoken=True,
-        )
+            # v5.5.2: Check announcements_enabled BEFORE speaking but AFTER
+            # classification and logging. This way the activity feed populates
+            # even when announcements are off.
+            _ann_enabled = _is_announcements_enabled()
+            if not _ann_enabled:
+                _LOGGER.debug(
+                    "Observer: announcements disabled, logging but not speaking: %s",
+                    message[:80],
+                )
+                await output_gate.async_record_announcement(_STATE.hass,
+                    entity_id=entity_id, category=category,
+                    urgency=final_urgency, message=message, was_spoken=False,
+                    reservation_id=token,
+                )
+                recorded = True
+                # v5.6.2: Still push phone notification for high/critical
+                # even when announcements (voice) are disabled
+                if final_urgency in ("high", "critical"):
+                    await _send_notification(message, urgency=final_urgency)
+                return
+
+            # Actually speak
+            await _speak(message, targets=targets)
+
+            await output_gate.async_record_announcement(_STATE.hass,
+                entity_id=entity_id, category=category,
+                urgency=final_urgency, message=message, was_spoken=True,
+                reservation_id=token,
+            )
+            recorded = True
+        finally:
+            if not recorded:
+                await output_gate.release_reservation(_STATE.hass, token)
 
         # Additionally push phone for high/critical
         if final_urgency in ("high", "critical"):

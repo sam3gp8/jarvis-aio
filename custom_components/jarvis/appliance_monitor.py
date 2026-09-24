@@ -1022,7 +1022,7 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
 
     # Route through output gate
     from . import output_gate
-    allowed, reason = await output_gate.async_can_announce(hass,
+    allowed, reason, token = await output_gate.async_reserve_announcement(hass,
         entity_id=sensor.entity_id,
         category="appliance",
         urgency="medium",
@@ -1036,111 +1036,124 @@ async def _announce_done(sensor: _SensorState, appliance_label: str) -> None:
         )
         return
 
-    # Check announcements_enabled
-    from .const import DOMAIN
-    announcements_on = True
+    recorded = False
     try:
-        for eid, data in hass.data.get(DOMAIN, {}).items():
-            if isinstance(data, dict):
-                rc = data.get("runtime_config", {})
-                if "announcements_enabled" in rc:
-                    announcements_on = bool(rc["announcements_enabled"])
-                    break
-    except Exception:
-        pass
-
-    if not announcements_on:
-        _LOGGER.debug("Appliance: announcements disabled, logging only")
-        await output_gate.async_record_announcement(hass,
-            entity_id=sensor.entity_id, category="appliance",
-            urgency="medium", message=message, was_spoken=False,
-        )
-        return
-
-    # Resolve TTS and speakers
-    try:
-        from .tts_helper import resolve_tts_for_context, async_announce
-        from .audio_routing import observer_speak_target
-        from . import sleep_detection
-
-        bedroom_areas = config.get("bedroom_areas", []) or []
-        sleeping, _ = sleep_detection.is_sleeping(
-            hass,
-            bedroom_area_ids=bedroom_areas,
-            quiet_start=config.get("observer_quiet_start", "22:00"),
-            quiet_end=config.get("observer_quiet_end", "07:00"),
-        )
-
-        broadcast_group = config.get("broadcast_group") or None
-
-        # Read announcement_speakers from runtime_config
-        ann_speakers = None
+        # Check announcements_enabled
+        from .const import DOMAIN
+        announcements_on = True
         try:
-            import json as _json
             for eid, data in hass.data.get(DOMAIN, {}).items():
                 if isinstance(data, dict):
                     rc = data.get("runtime_config", {})
-                    raw = rc.get("announcement_speakers")
-                    if raw:
-                        parsed = _json.loads(raw) if isinstance(raw, str) else raw
-                        if isinstance(parsed, list) and parsed:
-                            ann_speakers = parsed
-                            break
+                    if "announcements_enabled" in rc:
+                        announcements_on = bool(rc["announcements_enabled"])
+                        break
         except Exception:
             pass
 
-        targets, mode = observer_speak_target(
-            hass,
-            urgency="medium",
-            broadcast_group=broadcast_group,
-            announcement_speakers=ann_speakers,
-            is_sleeping=sleeping,
-        )
-
-        if mode in ("suppressed", "notify_only") or not targets:
+        if not announcements_on:
+            _LOGGER.debug("Appliance: announcements disabled, logging only")
             await output_gate.async_record_announcement(hass,
                 entity_id=sensor.entity_id, category="appliance",
                 urgency="medium", message=message, was_spoken=False,
+                reservation_id=token,
             )
-            if mode == "notify_only":
-                # Try phone notification
-                try:
-                    notify_svc = config.get("notify_service", "")
-                    if notify_svc:
-                        svc_domain, svc_name = notify_svc.split(".", 1)
-                        await hass.services.async_call(
-                            svc_domain, svc_name,
-                            {"message": message, "title": "JARVIS"},
-                            blocking=False,
-                        )
-                except Exception as exc:
-                    _LOGGER.warning("JARVIS: appliance notification via '%s' failed: %s", notify_svc, exc)
+            recorded = True
             return
 
-        # Speak
-        tts_entity = resolve_tts_for_context(
-            hass, "sentinel",
-            config.get("tts_engine", "auto"),
-            config.get("tts_premium_engine") or None,
-            config.get("tts_premium_contexts") or [],
-        )
-        if tts_entity and targets:
-            await async_announce(
-                hass, message, tts_entity, targets,
-                context="appliance",
-            )
-            await output_gate.async_record_announcement(hass,
-                entity_id=sensor.entity_id, category="appliance",
-                urgency="medium", message=message, was_spoken=True,
-            )
-        else:
-            await output_gate.async_record_announcement(hass,
-                entity_id=sensor.entity_id, category="appliance",
-                urgency="medium", message=message, was_spoken=False,
+        # Resolve TTS and speakers
+        try:
+            from .tts_helper import resolve_tts_for_context, async_announce
+            from .audio_routing import observer_speak_target
+            from . import sleep_detection
+
+            bedroom_areas = config.get("bedroom_areas", []) or []
+            sleeping, _ = sleep_detection.is_sleeping(
+                hass,
+                bedroom_area_ids=bedroom_areas,
+                quiet_start=config.get("observer_quiet_start", "22:00"),
+                quiet_end=config.get("observer_quiet_end", "07:00"),
             )
 
-    except Exception as exc:
-        _LOGGER.warning("Appliance announce error: %s", exc)
+            broadcast_group = config.get("broadcast_group") or None
+
+            # Read announcement_speakers from runtime_config
+            ann_speakers = None
+            try:
+                import json as _json
+                for eid, data in hass.data.get(DOMAIN, {}).items():
+                    if isinstance(data, dict):
+                        rc = data.get("runtime_config", {})
+                        raw = rc.get("announcement_speakers")
+                        if raw:
+                            parsed = _json.loads(raw) if isinstance(raw, str) else raw
+                            if isinstance(parsed, list) and parsed:
+                                ann_speakers = parsed
+                                break
+            except Exception:
+                pass
+
+            targets, mode = observer_speak_target(
+                hass,
+                urgency="medium",
+                broadcast_group=broadcast_group,
+                announcement_speakers=ann_speakers,
+                is_sleeping=sleeping,
+            )
+
+            if mode in ("suppressed", "notify_only") or not targets:
+                await output_gate.async_record_announcement(hass,
+                    entity_id=sensor.entity_id, category="appliance",
+                    urgency="medium", message=message, was_spoken=False,
+                    reservation_id=token,
+                )
+                recorded = True
+                if mode == "notify_only":
+                    # Try phone notification
+                    try:
+                        notify_svc = config.get("notify_service", "")
+                        if notify_svc:
+                            svc_domain, svc_name = notify_svc.split(".", 1)
+                            await hass.services.async_call(
+                                svc_domain, svc_name,
+                                {"message": message, "title": "JARVIS"},
+                                blocking=False,
+                            )
+                    except Exception as exc:
+                        _LOGGER.warning("JARVIS: appliance notification via '%s' failed: %s", notify_svc, exc)
+                return
+
+            # Speak
+            tts_entity = resolve_tts_for_context(
+                hass, "sentinel",
+                config.get("tts_engine", "auto"),
+                config.get("tts_premium_engine") or None,
+                config.get("tts_premium_contexts") or [],
+            )
+            if tts_entity and targets:
+                await async_announce(
+                    hass, message, tts_entity, targets,
+                    context="appliance",
+                )
+                await output_gate.async_record_announcement(hass,
+                    entity_id=sensor.entity_id, category="appliance",
+                    urgency="medium", message=message, was_spoken=True,
+                    reservation_id=token,
+                )
+                recorded = True
+            else:
+                await output_gate.async_record_announcement(hass,
+                    entity_id=sensor.entity_id, category="appliance",
+                    urgency="medium", message=message, was_spoken=False,
+                    reservation_id=token,
+                )
+                recorded = True
+
+        except Exception as exc:
+            _LOGGER.warning("Appliance announce error: %s", exc)
+    finally:
+        if not recorded:
+            await output_gate.release_reservation(hass, token)
 
 
 # ── Start / stop ────────────────────────────────────────────────────────────

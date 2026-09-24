@@ -198,26 +198,15 @@ async def _budget_multiplier_async(hass) -> float:
     return mult
 
 
-async def async_can_announce(hass, **kwargs) -> tuple[bool, str]:
-    """Compatibility helper: reserve the slot and return the gate verdict."""
-    multiplier = await _budget_multiplier_async(hass)
-    async with _ANNOUNCEMENT_LOCK:
-        reservation_id = f"{time.monotonic_ns()}-{kwargs['entity_id']}-{len(_STATE.reservations)}"
-        allowed, reason = _can_announce_with_multiplier(
-            multiplier, reservation_id=reservation_id, **kwargs
-        )
-        if allowed:
-            _STATE.reservations.append(Announcement(
-                timestamp=_now(), entity_id=kwargs["entity_id"],
-                category=kwargs["category"], urgency=kwargs["urgency"],
-                message=kwargs["message"], was_spoken=True,
-                reservation_id=reservation_id,
-            ))
-        return allowed, reason
-
-
 async def async_reserve_announcement(hass, **kwargs) -> tuple[bool, str, Optional[str]]:
-    """Reserve a slot for an announcement and return its reservation token."""
+    """Reserve a slot for an announcement and return its reservation token.
+
+    Callers MUST pass the returned token to `async_record_announcement` (on
+    success) or `release_reservation` (on every other exit path, ideally in a
+    `finally` block) so a rejected/aborted caller can never release a
+    different caller's reservation and so slots aren't held for up to an
+    hour when a caller returns or raises before recording.
+    """
     multiplier = await _budget_multiplier_async(hass)
     async with _ANNOUNCEMENT_LOCK:
         reservation_id = f"{time.monotonic_ns()}-{kwargs['entity_id']}-{len(_STATE.reservations)}"
@@ -232,6 +221,22 @@ async def async_reserve_announcement(hass, **kwargs) -> tuple[bool, str, Optiona
                 reservation_id=reservation_id,
             ))
         return allowed, reason, reservation_id if allowed else None
+
+
+async def release_reservation(hass, reservation_id: Optional[str]) -> None:
+    """Release a reserved slot without recording an announcement.
+
+    Use this in the `finally` of every post-admit path that doesn't end in
+    `async_record_announcement` (e.g. an early return or an exception),
+    otherwise the slot stays counted against the rate limit for up to an
+    hour.
+    """
+    if reservation_id is None:
+        return
+    async with _ANNOUNCEMENT_LOCK:
+        _STATE.reservations[:] = [
+            a for a in _STATE.reservations if a.reservation_id != reservation_id
+        ]
 
 
 def _record_announcement_state(
@@ -292,23 +297,18 @@ def record_announcement(
         message=message, was_spoken=was_spoken)
 
 
-async def async_record_announcement(hass, **kwargs) -> None:
-    """Update gate state on the loop and persist activity off the event loop."""
-    reservation_id = kwargs.pop("reservation_id", None)
+async def async_record_announcement(hass, *, reservation_id: Optional[str] = None, **kwargs) -> None:
+    """Update gate state on the loop and persist activity off the event loop.
+
+    `reservation_id` must be the token returned by `async_reserve_announcement`
+    for this announcement, so ownership of the reservation being released is
+    always token-based (never guessed from matching fields).
+    """
     async with _ANNOUNCEMENT_LOCK:
         if reservation_id is not None:
             _STATE.reservations[:] = [
                 a for a in _STATE.reservations if a.reservation_id != reservation_id
             ]
-        else:
-            for index in range(len(_STATE.reservations) - 1, -1, -1):
-                reservation = _STATE.reservations[index]
-                if (reservation.entity_id == kwargs["entity_id"]
-                        and reservation.category == kwargs["category"]
-                        and reservation.urgency == kwargs["urgency"]
-                        and reservation.message == kwargs["message"]):
-                    _STATE.reservations.pop(index)
-                    break
         _record_announcement_state(**kwargs)
     await hass.async_add_executor_job(
         partial(_save_announcement_activity, **kwargs)
