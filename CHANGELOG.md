@@ -1,3 +1,15 @@
+## [8.1.0] — native Gemini support via Google's GenAI Interactions API
+
+Gemini now runs through Google's **native GenAI Interactions API** (the `google-genai` SDK) instead of the OpenAI-compatible shim. This is more reliable for Gemini's own features and fixes the stale-conversation replay that could confuse thinking-capable models.
+
+- **Native conversation & tool continuation.** Tool calls chain server-side through the interaction ID, so multi-step tool use keeps the signatures Gemini expects — no more replaying old structured turns, which is what triggered the "missing thought signature" errors on gemini-3.x / 2.5 models.
+- **Thinking controls.** Models that support extended reasoning (Gemini/Gemma, and Ollama reasoning models) can be told to think or not. A new **Thinking** toggle appears on the Vision model role in the panel, **off by default** with a configurable token budget when on — a thinking model spends part of its budget reasoning before answering, so the tight vision budgets need more room when it's enabled.
+- **Automatic recovery when thinking exhausts the budget.** A response that comes back `incomplete` is retried once with a larger output budget; models that reject the `minimal` thinking level fall back to `low`.
+- **Native Google Search grounding.** Web research uses Gemini's native `google_search` tool, which the OpenAI-compat surface didn't expose.
+- **Model discovery through the SDK**, and every synchronous Google SDK call runs off Home Assistant's event loop.
+
+Adds the `google-genai>=2.3.0,<2.25.0` dependency. No migration needed — existing provider configs stay valid, and vision thinking is off until you turn it on.
+
 ## [8.0.1] — audit: keep Home Assistant's event loop responsive
 
 A full code audit found several places where JARVIS did blocking disk/database work directly on Home Assistant's event loop (which can stall the whole UI and trigger HA's "detected blocking call" warnings), and a few where it did the opposite — read HA state or registries from a worker thread, which HA does not allow. All fixed; no behavior or settings change.
