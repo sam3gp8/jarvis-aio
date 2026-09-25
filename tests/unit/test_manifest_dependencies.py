@@ -75,3 +75,8 @@ def test_logbook_and_recorder_declared():
     declared = _manifest_declared()
     assert "logbook" in declared
     assert "recorder" in declared
+
+
+def test_google_genai_uses_temperature_compatible_schema():
+    manifest = json.loads((COMP / "manifest.json").read_text())
+    assert "google-genai>=2.3.0,<2.25.0" in manifest["requirements"]
