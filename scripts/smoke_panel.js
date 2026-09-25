@@ -928,6 +928,18 @@ setTimeout(async () => {
       !!_exclCard && _exclCard.dataset.section === "learning"],
   );
 
+  // v8.0.0: the safety-sensitive garage/cover confirmation suggestions are
+  // opt-in — the toggle exists, defaults OFF, and asks for confirmation to enable.
+  const _garageBtn = el.shadowRoot.querySelector('[data-cfg-key="suggest_garage_confirmation"]');
+  checks.push(
+    ["garage confirmation opt-in toggle renders", !!_garageBtn],
+    ["garage confirmation toggle defaults OFF",
+      !!_garageBtn && _garageBtn.classList.contains("off")
+      && _garageBtn.getAttribute("data-cfg-val") === "true"],
+    ["garage confirmation toggle asks for confirmation to enable",
+      !!_garageBtn && !!_garageBtn.getAttribute("data-confirm")],
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();

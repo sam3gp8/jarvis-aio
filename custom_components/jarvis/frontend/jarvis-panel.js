@@ -3660,6 +3660,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     const doorsOn = !!(d.config && d.config.pattern_learn_doors);
     const presOn = !!(d.config && d.config.pattern_learn_presence);
     const btnsOn = !!(d.config && d.config.pattern_learn_buttons);
+    const garageOn = !!(d.config && d.config.suggest_garage_confirmation);
     let incl = (d.config && d.config.pattern_include_entities) || [];
     if (!Array.isArray(incl)) { try { incl = JSON.parse(incl) || []; } catch (_) { incl = []; } }
     const chips = incl.length
@@ -3684,6 +3685,11 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             <span class="toggle-label">Learn button &amp; remote presses</span>
             <span class="toggle-desc">Suggest "press &rarr; scene / action" automations</span>
             <button class="toggle-btn ${btnsOn ? 'on' : 'off'}" data-cfg-key="pattern_learn_buttons" data-cfg-val="${btnsOn ? 'false' : 'true'}">${btnsOn ? 'ON' : 'OFF'}</button>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">&#9888; Confirmed garage/cover sequences</span>
+            <span class="toggle-desc">Safety-sensitive: suggest "arrive &rarr; open, confirm, then close a cover" routines. Off by default; you still approve each one.</span>
+            <button class="toggle-btn ${garageOn ? 'on' : 'off'}" data-cfg-key="suggest_garage_confirmation" data-cfg-val="${garageOn ? 'false' : 'true'}" data-confirm="This lets JARVIS SUGGEST automations that close a garage door or cover automatically once a confirmation sensor fires. Nothing installs without your explicit approval, and each suggestion is flagged safety-sensitive. Enable these suggestions?">${garageOn ? 'ON' : 'OFF'}</button>
           </div>
         </div>
         <div class="pl-entities">

@@ -9,7 +9,11 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_time_change,
+    async_track_state_change_event,
+)
 
 from .const import (
     CONF_BEDROOM_AREAS,
@@ -352,6 +356,75 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if sched.add("package", PKG_INTERVAL, _package_tick):
         _LOGGER.info("JARVIS: package/mail detection active (porch sweep every %s min)",
                      int(PKG_INTERVAL.total_seconds() // 60))
+
+    # Timely deliveries (v8.0.0): the 15-min sweep can be minutes late for a
+    # silent drop-off, so also react the instant porch/doorbell/driveway motion
+    # fires (or a mailbox opens) — debounced per sensor so a busy porch can't spam
+    # vision. A mailbox opening announces mail directly (no vision call).
+    _pkg_event_cd: dict[str, float] = {}
+    _pkg_mailbox_ids: set[str] = set()
+    PKG_EVENT_DEBOUNCE = 120.0
+    PKG_FOLLOWUP_DELAY = 60.0   # carriers drop the package a few seconds after the motion
+
+    async def _pkg_on_motion(event) -> None:
+        if not _auto_flag("package_detection", True):
+            return
+        try:
+            new = event.data.get("new_state")
+            old = event.data.get("old_state")
+            if not new or str(new.state) != "on":
+                return
+            if old is not None and str(old.state) == "on":
+                return                      # only the off→on (or unknown→on) edge
+            eid = event.data.get("entity_id")
+            import time as _t
+            now = _t.monotonic()
+            if now - _pkg_event_cd.get(eid, 0.0) < PKG_EVENT_DEBOUNCE:
+                return
+            _pkg_event_cd[eid] = now
+            from . import package_monitor
+            honorific = entry.options.get(CONF_HONORIFIC, entry.data.get(CONF_HONORIFIC, DEFAULT_HONORIFIC))
+            tts = _get_tts(hass, entry, context="package")
+            spk = _get_speakers(hass, entry)
+            if eid in _pkg_mailbox_ids:
+                # A mailbox opening is its own unambiguous signal: announce it
+                # directly. The porch camera has its own motion triggers, and
+                # sweeping it here could announce the same mail a second time.
+                await package_monitor.announce_mail(hass, honorific, tts, spk, eid)
+                return
+            await package_monitor.periodic_check(
+                hass, _current_client(), honorific, tts, spk, configured_camera=None)
+
+            # Motion usually fires as the carrier ARRIVES; the package lands a few
+            # seconds later and the leaving motion is inside the debounce. Look
+            # once more after they've likely gone. The per-camera state machine
+            # de-dupes, so this can never announce the same delivery twice.
+            async def _followup(_now) -> None:
+                try:
+                    if not _auto_flag("package_detection", True):
+                        return
+                    await package_monitor.periodic_check(
+                        hass, _current_client(), honorific, tts, spk,
+                        configured_camera=None)
+                except Exception as exc:
+                    _LOGGER.debug("JARVIS package follow-up check error: %s", exc)
+
+            async_call_later(hass, PKG_FOLLOWUP_DELAY, _followup)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS package motion trigger error: %s", exc)
+
+    try:
+        from . import package_monitor as _pm
+        _pkg_mailbox_ids.update(_pm.mailbox_sensors(hass))
+        _pkg_trigger_ids = list(dict.fromkeys(
+            _pm.delivery_motion_sensors(hass) + sorted(_pkg_mailbox_ids)))
+        if _pkg_trigger_ids:
+            camera_unsubs.append(
+                async_track_state_change_event(hass, _pkg_trigger_ids, _pkg_on_motion))
+            _LOGGER.info("JARVIS: instant package/mail triggers active on %d sensor(s)",
+                         len(_pkg_trigger_ids))
+    except Exception as exc:
+        _LOGGER.debug("JARVIS package motion trigger setup failed: %s", exc)
 
     # Hourly gentle service-health sweep (v6.70.3): re-runs the core-dependency
     # checks on its own so the panel stays current without the user opening it.

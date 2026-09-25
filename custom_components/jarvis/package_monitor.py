@@ -19,6 +19,7 @@ circular dependency; the module itself is otherwise dependency-light.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -31,6 +32,13 @@ _LOGGER = logging.getLogger(__name__)
 # Per-camera state: entity_id -> {"package": bool, "mail": bool, "count": int,
 #                                 "since": datetime, "desc": str}
 _STATE: dict[str, dict] = {}
+
+# Serializes evaluate(): it reads the prior state, awaits the announcement, then
+# writes the new state. Several paths can now reach it at once (doorbell press +
+# doorbell motion fire together; the instant trigger, its follow-up and the
+# 15-min sweep can overlap), and without this two evaluations could both see
+# "no package yet" and announce the same delivery twice.
+_EVAL_LOCK = asyncio.Lock()
 
 _PKG_KEYWORDS = re.compile(
     r"\b(package|parcel|box|delivery|delivered|amazon|ups|fedex|usps|dhl|"
@@ -251,7 +259,15 @@ def _log(hass, entity_id: str, kind: str, det: dict, source: str) -> None:
 
 async def evaluate(hass, groq_client, honorific, tts_entity, speakers,
                    entity_id: str, det: dict, source: str = "periodic") -> bool:
-    """Apply a detection result to per-camera state and announce transitions."""
+    """Apply a detection result to per-camera state and announce transitions.
+    Serialized so concurrent callers can't double-announce one delivery."""
+    async with _EVAL_LOCK:
+        return await _evaluate_locked(hass, groq_client, honorific, tts_entity,
+                                      speakers, entity_id, det, source)
+
+
+async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
+                           entity_id: str, det: dict, source: str) -> bool:
     from .tts_helper import async_announce
 
     prev = _STATE.get(entity_id, {"package": False, "mail": False, "count": 0})
@@ -359,6 +375,97 @@ async def note_from_doorbell(hass, groq_client, honorific, tts_entity, speakers,
             return
     await evaluate(hass, groq_client, honorific, tts_entity, speakers,
                    entity_id, det, source="doorbell")
+
+
+# ── Event-driven timeliness (v8.0.0) ─────────────────────────────────────────
+# A 15-minute sweep can be minutes late for a silent drop-off. These helpers let
+# the integration react the instant porch/doorbell/driveway motion fires (or a
+# mailbox opens) so deliveries and mail are announced promptly.
+
+# Matched on whole words (and adjacent word pairs) from the entity id + friendly
+# name — never substrings — so an indoor "front room" motion sensor, Tesla
+# "sentry mode", or a "voicemail" flag can't trigger porch sweeps / mail alerts.
+_DELIVERY_TOKENS = {"doorbell", "porch", "driveway", "entryway", "stoop",
+                    "frontdoor", "mailbox", "letterbox", "postbox",
+                    "package", "packages", "parcel", "delivery"}
+_DELIVERY_BIGRAMS = {("front", "door"), ("front", "porch"), ("front", "yard"),
+                     ("front", "gate"), ("front", "step"), ("front", "steps"),
+                     ("front", "entry"), ("mail", "box"), ("mail", "slot"),
+                     ("package", "box"), ("parcel", "box")}
+# A camera's own package-detection sensor (UniFi Protect, Reolink, …) is often
+# exposed with no device_class — accept it when it names a package/delivery.
+_PKG_DETECT_TOKENS = {"package", "packages", "parcel", "delivery"}
+_MAILBOX_TOKENS = {"mailbox", "letterbox", "postbox", "mail"}
+_MAILBOX_BIGRAMS = {("mail", "box"), ("mail", "slot"), ("letter", "box"),
+                    ("post", "box")}
+
+
+def _name_tokens(st) -> tuple[set, set]:
+    """Lower-case word tokens and adjacent-word bigrams from an entity's object id
+    and friendly name. Pure."""
+    text = (st.entity_id.split(".", 1)[-1] + " "
+            + str(st.attributes.get("friendly_name", "") or "")).lower()
+    words = [w for w in re.split(r"[^a-z0-9]+", text) if w]
+    return set(words), set(zip(words, words[1:]))
+
+
+def delivery_motion_sensors(hass) -> list[str]:
+    """binary_sensors whose activation should prompt an immediate delivery check:
+    motion/occupancy/opening near the door/porch/driveway/mailbox, or a camera's
+    own package-detection sensor. Bounded, best-effort."""
+    out: list[str] = []
+    try:
+        for st in hass.states.async_all("binary_sensor"):
+            toks, pairs = _name_tokens(st)
+            if not (toks & _DELIVERY_TOKENS or pairs & _DELIVERY_BIGRAMS):
+                continue
+            dc = st.attributes.get("device_class")
+            if dc in ("motion", "occupancy", "presence", "opening", "door") or (
+                    dc is None and toks & _PKG_DETECT_TOKENS):
+                out.append(st.entity_id)
+    except Exception:
+        pass
+    return out[:20]
+
+
+def mailbox_sensors(hass) -> list[str]:
+    """Contact/opening sensors that specifically represent a mailbox — opening one
+    is an unambiguous 'mail is here' signal we can announce without vision."""
+    out: list[str] = []
+    try:
+        for st in hass.states.async_all("binary_sensor"):
+            toks, pairs = _name_tokens(st)
+            if toks & _MAILBOX_TOKENS or pairs & _MAILBOX_BIGRAMS:
+                out.append(st.entity_id)
+    except Exception:
+        pass
+    return out[:10]
+
+
+_MAILBOX_CD: dict = {}     # entity_id -> last announce epoch (dedup a bouncy sensor)
+_MAILBOX_COOLDOWN = 300.0
+
+
+async def announce_mail(hass, honorific, tts_entity, speakers,
+                        entity_id: str = "") -> bool:
+    """Direct 'mail has arrived' announcement for a mailbox opening (no vision).
+    Respects quiet hours + the announcements switch, and de-dupes a bouncy sensor
+    for a few minutes. Returns whether it spoke. Never raises."""
+    try:
+        from .tts_helper import async_announce
+        if _in_quiet_hours(hass) or not _announcements_on(hass):
+            return False
+        now = datetime.now(timezone.utc).timestamp()
+        if now - _MAILBOX_CD.get(entity_id, 0.0) < _MAILBOX_COOLDOWN:
+            return False
+        _MAILBOX_CD[entity_id] = now
+        _log(hass, entity_id or "mailbox", "mail",
+             {"package": False, "mail": True, "count": 0}, "mailbox")
+        await async_announce(hass, f"{honorific}, mail has arrived.",
+                             tts_entity, speakers, context="package")
+        return True
+    except Exception:
+        return False
 
 
 def status() -> dict:

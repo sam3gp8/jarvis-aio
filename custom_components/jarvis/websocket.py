@@ -790,6 +790,7 @@ async def ws_get_panel_data(
                 "adaptive_suggestion_threshold": bool(_runtime_opt(hass, entry, "adaptive_suggestion_threshold", False)),
                 "tts_use_ha_voice": bool(_runtime_opt(hass, entry, "tts_use_ha_voice", False)),
                 "pattern_learn_motion": bool(_runtime_opt(hass, entry, "pattern_learn_motion", False)),
+                "suggest_garage_confirmation": bool(_runtime_opt(hass, entry, "suggest_garage_confirmation", False)),
                 "operational_mode_auto": bool(_runtime_opt(hass, entry, "operational_mode_auto", True)),
                 "lab_areas": _runtime_opt(hass, entry, "lab_areas", []) or [],
                 "movie_area": str(_runtime_opt(hass, entry, "movie_area", "") or ""),
@@ -1480,6 +1481,7 @@ PANEL_WRITABLE_KEYS = {
     "adaptive_suggestion_threshold", # bool: tune the suggestion confidence bar from how welcome recent suggestions were
     "tts_use_ha_voice",              # bool: use Home Assistant's configured TTS voice instead of the JARVIS Piper voice
     "pattern_learn_motion",          # bool: learn motion/occupancy triggers for "when X, do Y" suggestions (rate-limited)
+    "suggest_garage_confirmation",   # bool: opt-in to safety-sensitive confirmation-sequence suggestions (e.g. close the garage once the car is confirmed inside)
     "appliance_profile",            # JSON list of declared appliances (name/type/entity/watts)
     "appliance_announce_unknown",   # bool: announce loads matching no declared appliance
     "camera_auto_analyze",          # bool: auto-inspect doorbell/person camera events

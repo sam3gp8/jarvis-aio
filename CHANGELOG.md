@@ -1,3 +1,13 @@
+## [8.0.0] — timely delivery & mail announcements; garage suggestions are opt-in
+
+**Deliveries and mail are announced as they happen, not up to 15 minutes later.** Package and mail detection used to rely on a porch-camera sweep every 15 minutes (plus the doorbell press, which was already instant). A carrier who drops a package and leaves without ringing — or a mail delivery — could go unannounced for most of that window. Now:
+
+- **Instant porch triggers.** When porch, doorbell, front-door, or driveway motion fires, JARVIS checks the porch camera **right away** instead of waiting for the next sweep — then looks **once more about a minute later**, because the package usually lands a few seconds after the motion that announced the carrier. The per-camera tracker still announces each delivery exactly once, so the extra look can never double-announce. Triggers are debounced per sensor so a busy porch can't spam vision calls.
+- **Mailbox sensors.** If you have a mailbox sensor (a contact/opening sensor named like "mailbox"), opening it now announces *"mail has arrived"* immediately — no camera needed.
+- The 15-minute sweep stays as a safety net, and delivery announcements still respect quiet hours and the announcements switch. They're never held back by the proactive-announcement rate cap.
+
+**Garage/cover confirmation suggestions are now opt-in.** The safety-sensitive "arrive → open the garage → confirm the car is inside → close it" suggestions introduced in 7.100.0 are **off by default**. Turn them on under **Settings → Routine Learning → ⚠ Confirmed garage/cover sequences** — enabling asks you to confirm, and each suggestion is still flagged safety-sensitive and only installs after you approve it. (If you were relying on these in 7.100.0, switch the toggle on to keep seeing them.)
+
 ## [7.100.0] — occupancy-aware, IFTTT-style automation suggestions
 
 The pattern engine now proposes automations that respect **who's actually in the room** and can chain **multiple steps with a confirmation** — not just "when X, do Y." Three new capabilities, all still routed through the Suggestions review list (nothing installs itself):

@@ -769,6 +769,16 @@ def _secs_to_hms(seconds) -> str:
     return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
 
 
+def _garage_confirm_enabled() -> bool:
+    """Whether the user opted into Phase-3 confirmation-sequence suggestions
+    (safety-sensitive; off by default). Config read — call off the event loop."""
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("suggest_garage_confirmation", False))
+    except Exception:
+        return False
+
+
 class PatternAnalyzer:
     """Analyzes accumulated state change data for behavioral patterns."""
 
@@ -859,7 +869,8 @@ class PatternAnalyzer:
 
     def _run_all_finders(self, person_map: dict,
                          lat, lon, sensor_hist: dict,
-                         occ_ctx: dict = None) -> list[DetectedPattern]:
+                         occ_ctx: dict = None,
+                         confirm_enabled: bool = None) -> list[DetectedPattern]:
         """Open the DB, run every finder, and close it on one executor thread.
 
         Everything from first use to close of the connection happens on this
@@ -872,18 +883,28 @@ class PatternAnalyzer:
         conn = self._connect()
         if not conn:
             return []
+        # The safety-sensitive confirmation finder is opt-in; when the caller
+        # doesn't pass an explicit choice, read it here on the executor thread so
+        # analyze() gains no extra await point.
+        if confirm_enabled is None:
+            confirm_enabled = _garage_confirm_enabled()
         patterns: list[DetectedPattern] = []
         try:
             occ = occ_ctx or {}
-            finders = (
+            finders = [
                 ("time routines", lambda: self._find_time_routines(conn, person_map)),
                 ("repeated commands", lambda: self._find_repeated_commands(conn)),
                 ("sequence patterns", lambda: self._find_sequence_patterns(
                     conn, lat, lon, sensor_hist, occ)),
                 ("numeric triggers", lambda: self._find_numeric_triggers(conn, sensor_hist, occ)),
-                ("confirmation sequences", lambda: self._find_confirmation_sequences(conn, occ)),
                 ("presence patterns", lambda: self._find_presence_patterns(conn)),
-            )
+            ]
+            # Phase 3 is safety-sensitive (it can suggest auto-closing a cover), so
+            # it only runs when the user has opted in under Settings.
+            if confirm_enabled:
+                finders.append(
+                    ("confirmation sequences",
+                     lambda: self._find_confirmation_sequences(conn, occ)))
             for name, finder in finders:
                 try:
                     patterns.extend(finder())
