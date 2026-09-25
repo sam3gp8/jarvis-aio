@@ -818,6 +818,9 @@ setTimeout(async () => {
     ["reasoning & vision rows carry a thinking toggle",
       !!el.shadowRoot.querySelector('.model-row[data-role="reasoning"] [data-cfg-key="reasoning_thinking_enabled"]') &&
       !!el.shadowRoot.querySelector('.model-row[data-role="vision"] [data-cfg-key="vision_thinking_enabled"]')],
+    ["thinking token-budget input shows only when thinking is on",
+      !!el.shadowRoot.querySelector('.model-row[data-role="reasoning"] [data-cfg-key="reasoning_thinking_max_tokens"]') &&
+      !el.shadowRoot.querySelector('.model-row[data-role="vision"] [data-cfg-key="vision_thinking_max_tokens"]')],
     ["non-thinking model rows have no hint",
       !el.shadowRoot.querySelector('.model-row[data-role="classifier"] .model-hint')],
     ["anticipation & memory card present", !!el.shadowRoot.querySelector('[data-cfg-key="departure_alerts_enabled"]')],

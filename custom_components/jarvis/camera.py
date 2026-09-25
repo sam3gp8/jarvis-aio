@@ -68,6 +68,23 @@ def _cfg_opt(hass: HomeAssistant, key: str, default=None):
     return jarvis_config.runtime_get(hass, _camera_entry(hass), key, default)
 
 
+VISION_THINKING_MAX_TOKENS_DEFAULT = 1024
+
+
+def _vision_max_tokens(hass: HomeAssistant, base: int, thinking: bool) -> int:
+    """Effective max_tokens for a vision-pipeline call. A thinking model spends
+    part of the budget on internal reasoning before its answer, so with
+    thinking on it needs the larger, configurable budget instead of the tight
+    non-thinking default (`base`)."""
+    if not thinking:
+        return base
+    try:
+        n = int(_cfg_opt(hass, "vision_thinking_max_tokens", VISION_THINKING_MAX_TOKENS_DEFAULT))
+        return n if n > 0 else VISION_THINKING_MAX_TOKENS_DEFAULT
+    except Exception:
+        return VISION_THINKING_MAX_TOKENS_DEFAULT
+
+
 _PROVIDER_CACHE: dict = {}
 
 
@@ -267,7 +284,7 @@ async def _reason_about_scene(
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                max_tokens=220,
+                max_tokens=_vision_max_tokens(hass, 220, vision_thinking),
                 temperature=0.3,
                 model_override=reasoning_model or None,
                 thinking=vision_thinking,
@@ -1240,7 +1257,7 @@ async def async_analyze_camera(
                         ),
                     },
                 ],
-                max_tokens=300,
+                max_tokens=_vision_max_tokens(hass, 300, vision_thinking),
                 model_override=vision_model or None,
                 thinking=vision_thinking,
             )

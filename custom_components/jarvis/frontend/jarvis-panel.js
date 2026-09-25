@@ -2011,11 +2011,11 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   }
 
   // Roles whose provider can support extended "thinking" (Gemini/Gemma,
-  // Ollama reasoning models). default is what the backend assumes when the
-  // key has never been saved — must match websocket.py's snapshot defaults.
+  // Ollama reasoning models). default/tokenDefault must match websocket.py's
+  // snapshot defaults — the key has never been saved otherwise.
   _THINKING_ROLES = {
-    reasoning: { key: 'reasoning_thinking_enabled', default: true },
-    vision:    { key: 'vision_thinking_enabled',    default: false },
+    reasoning: { key: 'reasoning_thinking_enabled', default: true,  tokenKey: 'reasoning_thinking_max_tokens', tokenDefault: 1024 },
+    vision:    { key: 'vision_thinking_enabled',    default: false, tokenKey: 'vision_thinking_max_tokens',    tokenDefault: 1024 },
   };
 
   _thinkingToggleRow(cfg, role) {
@@ -2023,10 +2023,16 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     if (!spec) return '';
     const stored = cfg[spec.key];
     const on = (stored === undefined || stored === null || stored === '') ? spec.default : !!stored;
+    const tokens = cfg[spec.tokenKey] ?? spec.tokenDefault;
     return `
       <div class="model-hint model-thinking-row">
         <span>Thinking</span>
         <button class="toggle-btn ${on ? 'on' : 'off'}" data-cfg-key="${spec.key}" data-cfg-val="${on ? 'false' : 'true'}">${on ? 'ON' : 'OFF'}</button>
+        ${on ? `<span class="model-thinking-tokens">
+          <label for="think-tok-${role}">token budget</label>
+          <input id="think-tok-${role}" class="cfg-field cfg-num" type="number" min="256" max="65536" step="128"
+                 data-cfg-key="${spec.tokenKey}" value="${tokens}" title="Higher budget so a thinking model has room to think AND answer.">
+        </span>` : ''}
       </div>`;
   }
 
@@ -9559,6 +9565,15 @@ ${this._renderExcludedEntities(d)}
     text-transform: uppercase;
   }
   .model-thinking-row .toggle-btn { font-size: 9px; padding: 4px 10px; }
+  .model-thinking-tokens {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: none;
+    opacity: 0.9;
+  }
+  .model-thinking-tokens label { font-size: 9px; color: var(--text-dim); }
+  .model-thinking-tokens .cfg-num { width: 76px; }
 
   /* APPLIANCES / ENERGY PROFILE */
   .pl-entities { padding: 10px 14px 14px; border-top: 1px solid var(--line); }
