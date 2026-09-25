@@ -25,7 +25,7 @@ class _RejectsThinkingLevel:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        if kwargs["generation_config"].get("thinking_config", {}).get("thinking_level") == "minimal":
+        if kwargs["generation_config"].get("thinking_level") == "minimal":
             raise RuntimeError("400 Invalid argument: thinking_level 'minimal' is not supported for this model")
         return self.response
 
@@ -78,7 +78,7 @@ def test_gemini_uses_interactions_api_and_normalizes_function_calls(load, monkey
         "generation_config": {
             "max_output_tokens": 120,
             "temperature": 0.2,
-            "thinking_config": {"thinking_level": "minimal"},
+            "thinking_level": "minimal",
         },
         "system_instruction": "Be concise.",
         "tools": [{"type": "function", "name": "turn_on", "description": "Turn on a light", "parameters": {"type": "object"}}],
@@ -139,8 +139,8 @@ def test_gemini_falls_back_to_low_level_when_minimal_rejected(load, monkeypatch)
 
     assert result["text"] == "A man in a green shirt."
     assert len(interactions.calls) == 2
-    assert interactions.calls[0]["generation_config"]["thinking_config"] == {"thinking_level": "minimal"}
-    assert interactions.calls[1]["generation_config"]["thinking_config"] == {"thinking_level": "low"}
+    assert interactions.calls[0]["generation_config"]["thinking_level"] == "minimal"
+    assert interactions.calls[1]["generation_config"]["thinking_level"] == "low"
 
 
 def test_gemini_thinking_enabled_uses_high_level(load, monkeypatch):
@@ -150,7 +150,7 @@ def test_gemini_thinking_enabled_uses_high_level(load, monkeypatch):
 
     provider.chat([{"role": "user", "content": "Decide."}], max_tokens=200, thinking=True)
 
-    assert interactions.calls[0]["generation_config"]["thinking_config"] == {"thinking_level": "high"}
+    assert interactions.calls[0]["generation_config"]["thinking_level"] == "high"
 
 
 def test_gemini_thinking_enabled_is_unaffected_by_minimal_rejection(load, monkeypatch):
@@ -164,4 +164,4 @@ def test_gemini_thinking_enabled_is_unaffected_by_minimal_rejection(load, monkey
 
     assert result["text"] == "Reasoned answer."
     assert len(interactions.calls) == 1
-    assert interactions.calls[0]["generation_config"]["thinking_config"] == {"thinking_level": "high"}
+    assert interactions.calls[0]["generation_config"]["thinking_level"] == "high"

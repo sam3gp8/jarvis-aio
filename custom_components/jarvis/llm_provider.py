@@ -334,13 +334,14 @@ class GeminiProvider(LLMProvider):
         # Thinking-capable Gemini/Gemma models spend max_output_tokens on
         # internal "thought" steps before any answer text, so JARVIS's small
         # per-call budgets (e.g. vision's 300) can be exhausted by thinking
-        # alone — status "incomplete" with empty output_text. The v1
-        # Interactions API only supports thinking_level (thinking_budget is
-        # not a valid field there — ai.google.dev/api/interactions-api-v1),
-        # so that's the only lever: "high" to think, "minimal" to (mostly)
-        # not. Not every model accepts "minimal" (ai.google.dev/gemini-api/
-        # docs/thinking) — chat() retries with "low" if the model rejects it.
-        generation_config["thinking_config"] = {"thinking_level": "high" if thinking else "minimal"}
+        # alone — status "incomplete" with empty output_text. The Interactions
+        # API takes thinking_level directly on generation_config (NOT nested
+        # under a "thinking_config" object — that's the generateContent/REST
+        # ThinkingConfig shape, and it's silently dropped here since it isn't
+        # a recognised field): "high" to think, "minimal" to (mostly) not. Not
+        # every model accepts "minimal" (ai.google.dev/gemini-api/docs/
+        # thinking) — chat() retries with "low" if the model rejects it.
+        generation_config["thinking_level"] = "high" if thinking else "minimal"
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "input": input_items,
@@ -364,10 +365,10 @@ class GeminiProvider(LLMProvider):
                 # Fresh dict for the retry — kwargs["generation_config"] must
                 # not be mutated in place, or the first (failed) call's
                 # recorded/logged config would silently reflect the retry.
-                # "low" (not dropping thinking_config) — every model in the
+                # "low" (not dropping the field) — every model in the
                 # thinking-levels table supports it, and omitting it entirely
                 # would leave thinking on by default, defeating the toggle.
-                retry_config = dict(generation_config, thinking_config={"thinking_level": "low"})
+                retry_config = dict(generation_config, thinking_level="low")
                 resp = self._client.interactions.create(**{**kwargs, "generation_config": retry_config})
             else:
                 raise
