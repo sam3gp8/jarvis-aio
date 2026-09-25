@@ -447,46 +447,6 @@ def _rich_mode(hass) -> bool:
     return False
 
 
-def _reasoning_thinking_enabled(hass) -> bool:
-    """Live read of the dashboard's Reasoning "Thinking" toggle. Defaults on —
-    unlike the vision pipeline's tight per-call token budgets, this tier can
-    afford to let a thinking-capable model reason before it answers."""
-    try:
-        from .const import DOMAIN
-        for data in (hass.data.get(DOMAIN) or {}).values():
-            if isinstance(data, dict) and isinstance(data.get("runtime_config"), dict):
-                v = data["runtime_config"].get("reasoning_thinking_enabled")
-                if v is not None:
-                    return v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
-                break
-    except Exception:
-        pass
-    return True
-
-
-# Base budget (thinking off) is 200 — plenty for the JSON decision alone.
-_REASONING_THINKING_MAX_TOKENS_DEFAULT = 1024
-
-
-def _reasoning_thinking_max_tokens(hass) -> int:
-    """Live read of the dashboard's Reasoning thinking token budget. Only used
-    when thinking is enabled — a thinking model spends part of the budget on
-    internal reasoning before its answer, so it needs more room than the
-    200-token non-thinking default."""
-    try:
-        from .const import DOMAIN
-        for data in (hass.data.get(DOMAIN) or {}).values():
-            if isinstance(data, dict) and isinstance(data.get("runtime_config"), dict):
-                v = data["runtime_config"].get("reasoning_thinking_max_tokens")
-                if v not in (None, ""):
-                    n = int(v)
-                    return n if n > 0 else _REASONING_THINKING_MAX_TOKENS_DEFAULT
-                break
-    except Exception:
-        pass
-    return _REASONING_THINKING_MAX_TOKENS_DEFAULT
-
-
 async def decide(
     hass,
     provider,
@@ -611,15 +571,10 @@ async def decide(
         # Retry on transient 503 (Gemini "high demand") — 2 retries with backoff.
         response = None
         last_err = None
-        thinking = _reasoning_thinking_enabled(hass)
-        # A thinking model spends part of the budget on internal reasoning
-        # before its answer, so it needs the larger, configurable budget.
-        budget = _reasoning_thinking_max_tokens(hass) if thinking else 200
         for attempt in range(3):
             try:
                 response = await hass.async_add_executor_job(
-                    lambda: provider.chat(messages, temperature=0.4, max_tokens=budget,
-                                           thinking=thinking)
+                    lambda: provider.chat(messages, temperature=0.4, max_tokens=200)
                 )
                 break
             except Exception as exc:

@@ -830,17 +830,14 @@ async def ws_get_panel_data(
                 "reasoning_provider":  str(_runtime_opt(hass, entry, "reasoning_provider", "") or ""),
                 "reasoning_model":     str(_runtime_opt(hass, entry, "reasoning_model", "") or ""),
                 # Extended "thinking" on models that support it (Gemini/Gemma,
-                # Ollama reasoning models). Reasoning defaults ON — it's a
-                # judgment call worth the extra thought. Vision defaults OFF —
-                # its small per-call token budget can be exhausted by thinking
-                # alone, leaving no answer (see llm_provider.GeminiProvider).
-                "reasoning_thinking_enabled": bool(_runtime_opt(hass, entry, "reasoning_thinking_enabled", True)),
+                # Ollama reasoning models). Vision defaults OFF — its small
+                # per-call token budget can be exhausted by thinking alone,
+                # leaving no answer (see llm_provider.GeminiProvider).
                 "vision_thinking_enabled":    bool(_runtime_opt(hass, entry, "vision_thinking_enabled", False)),
                 # Token budget used ONLY when the toggle above is on — a
                 # thinking model spends part of it on internal reasoning
                 # before the answer, so it needs more room than the tight
-                # non-thinking defaults (200/220/300 tokens).
-                "reasoning_thinking_max_tokens": _runtime_opt(hass, entry, "reasoning_thinking_max_tokens", 1024),
+                # non-thinking defaults (220/300 tokens).
                 "vision_thinking_max_tokens":    _runtime_opt(hass, entry, "vision_thinking_max_tokens", 1024),
                 "review_provider":     str(_runtime_opt(hass, entry, "review_provider", "") or ""),
                 "review_model":        str(_runtime_opt(hass, entry, "review_model", "") or ""),
@@ -1486,9 +1483,7 @@ PANEL_WRITABLE_KEYS = {
     "vision_model",
     "camera_reasoning_provider",
     "camera_reasoning_model",
-    "reasoning_thinking_enabled",  # bool: let the reasoning-tier model think (default on)
     "vision_thinking_enabled",     # bool: let the vision pipeline's model think (default off)
-    "reasoning_thinking_max_tokens",  # int: token budget when reasoning thinking is on
     "vision_thinking_max_tokens",     # int: token budget when vision thinking is on
     "classifier_rate_limit",
     "cognition_enabled",

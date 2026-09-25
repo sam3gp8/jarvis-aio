@@ -2014,8 +2014,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   // Ollama reasoning models). default/tokenDefault must match websocket.py's
   // snapshot defaults — the key has never been saved otherwise.
   _THINKING_ROLES = {
-    reasoning: { key: 'reasoning_thinking_enabled', default: true,  tokenKey: 'reasoning_thinking_max_tokens', tokenDefault: 1024 },
-    vision:    { key: 'vision_thinking_enabled',    default: false, tokenKey: 'vision_thinking_max_tokens',    tokenDefault: 1024 },
+    vision: { key: 'vision_thinking_enabled', default: false, tokenKey: 'vision_thinking_max_tokens', tokenDefault: 1024 },
   };
 
   _thinkingToggleRow(cfg, role) {

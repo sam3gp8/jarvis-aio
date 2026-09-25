@@ -815,11 +815,10 @@ setTimeout(async () => {
     ["vision model row carries the image-capable hint",
       (() => { const row = el.shadowRoot.querySelector('.model-row[data-role="vision"]');
         return !!row && /image-capable/.test(row.textContent) && !!row.querySelector('.model-hint'); })()],
-    ["reasoning & vision rows carry a thinking toggle",
-      !!el.shadowRoot.querySelector('.model-row[data-role="reasoning"] [data-cfg-key="reasoning_thinking_enabled"]') &&
-      !!el.shadowRoot.querySelector('.model-row[data-role="vision"] [data-cfg-key="vision_thinking_enabled"]')],
+    ["vision row carries a thinking toggle, reasoning does not",
+      !!el.shadowRoot.querySelector('.model-row[data-role="vision"] [data-cfg-key="vision_thinking_enabled"]') &&
+      !el.shadowRoot.querySelector('.model-row[data-role="reasoning"] [data-cfg-key="reasoning_thinking_enabled"]')],
     ["thinking token-budget input shows only when thinking is on",
-      !!el.shadowRoot.querySelector('.model-row[data-role="reasoning"] [data-cfg-key="reasoning_thinking_max_tokens"]') &&
       !el.shadowRoot.querySelector('.model-row[data-role="vision"] [data-cfg-key="vision_thinking_max_tokens"]')],
     ["non-thinking model rows have no hint",
       !el.shadowRoot.querySelector('.model-row[data-role="classifier"] .model-hint')],
