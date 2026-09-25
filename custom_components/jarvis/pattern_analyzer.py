@@ -215,6 +215,11 @@ def normalize_suggestion_automation(stored_yaml: str) -> dict:
     cond = data.get("condition")
     if cond:
         out["condition"] = [cond] if isinstance(cond, dict) else list(cond)
+    # Preserve the execution mode — a "hold until unoccupied" / confirmation
+    # choreography needs `restart` so a re-trigger re-arms the wait.
+    mode = data.get("mode")
+    if mode in ("single", "restart", "queued", "parallel"):
+        out["mode"] = mode
     return out
 
 
@@ -363,6 +368,38 @@ def explain_suggestion(pattern_type: str, details: dict, count: int) -> dict:
             ev.append(f"Seen {count} times in 30 days")
             if d.get("window_seconds"):
                 ev.append(f"Usually within {int(d['window_seconds'])}s")
+            until = d.get("until_unoccupied")
+            if isinstance(until, dict) and until.get("entity_id"):
+                ev.append(f"…and stays on until {_pretty_entity(until['entity_id'])} "
+                          f"is clear (learned from when it's normally turned off)")
+            for c in (d.get("condition") or []) if isinstance(d.get("condition"), list) else []:
+                if isinstance(c, dict) and c.get("condition") == "state" and c.get("state") == "on":
+                    ev.append(f"Only while {_pretty_entity(c.get('entity_id',''))} is occupied")
+        elif pattern_type == "confirm_sequence":
+            headline = "⚠ A confirmed sequence (safety-sensitive)"
+            trig = d.get("trigger", {})
+            confirm = d.get("confirm", {})
+            opn = d.get("open", {})
+            ev.append(f"When {_pretty_entity(trig.get('entity',''))} arrives home, "
+                      f"{_pretty_entity(opn.get('entity',''))} opens")
+            ev.append(f"It then closes once {_pretty_entity(confirm.get('entity',''))} "
+                      f"confirms")
+            ev.append(f"Observed {count} times in 30 days")
+            ev.append("Closes a cover automatically — review carefully before enabling")
+        elif pattern_type == "numeric_trigger":
+            headline = "A threshold routine"
+            if d.get("trigger_sensor") is not None:
+                ev.append(f"When {_pretty_entity(str(d.get('trigger_sensor','')))} "
+                          f"goes {d.get('op','')} {d.get('threshold','')}")
+            act = d.get("action") if isinstance(d.get("action"), dict) else None
+            if act and act.get("entity"):
+                verb = _action_verb(act["entity"], act.get("state", ""))
+                if verb:
+                    ev.append(f"JARVIS can {verb} {_pretty_entity(act['entity'])}")
+            for c in (d.get("condition") or []) if isinstance(d.get("condition"), list) else []:
+                if isinstance(c, dict) and c.get("condition") == "state" and c.get("state") == "on":
+                    ev.append(f"Only while {_pretty_entity(c.get('entity_id',''))} is occupied")
+            ev.append(f"Seen {count} times in 30 days")
         elif pattern_type == "repeated_command":
             headline = "A command you give often"
             cmd = d.get("command") or d.get("text")
@@ -635,6 +672,103 @@ def _numeric_condition(times: list, sensor_hist: dict) -> Optional[dict]:
     return best
 
 
+# ── Occupancy-aware, IFTTT-style suggestions (v7.100.0) ──────────────────────
+# Turn the engine's raw correlations into automations that respect who is
+# actually in the room: gate an action on presence, hold a light on until the
+# area empties, or confirm a step (car in the garage) before the next. The
+# analyzer pre-fetches occupancy context on the event loop and passes it to the
+# pure finders as ``occ_ctx`` so they stay unit-testable off a live HA:
+#   occ_ctx = {
+#     "hist": {sensor_id: [(epoch, is_on_bool), ...]},   # occupancy sensor history
+#     "entity_area": {entity_id: area_id},               # action entity -> area
+#     "area_sensors": {area_id: [occupancy_sensor_id, ...]},  # presence-first order
+#   }
+
+def _bool_state_at(epochs: list, states: list, t: float):
+    """Boolean state of an on/off history (sorted epochs + parallel bools) at or
+    just before time ``t``; None if ``t`` precedes the first reading. Pure."""
+    import bisect
+    if not epochs:
+        return None
+    i = bisect.bisect_right(epochs, t) - 1
+    if i < 0:
+        return None
+    return states[i]
+
+
+def _occupancy_condition(action_entity: str, times: list, occ_ctx: dict) -> Optional[dict]:
+    """A "while the room is occupied" condition for an action whose occurrences
+    (``times``) consistently coincide with an occupancy sensor in the action's
+    area reading ``on`` — and where that sensor genuinely varies (spends real
+    time ``off`` too), so it's a real gate and not an always-on sensor. Returns
+    an HA state-condition dict or None. Pure."""
+    if not occ_ctx or len(times) < MIN_OCCURRENCES:
+        return None
+    hist = occ_ctx.get("hist") or {}
+    area = (occ_ctx.get("entity_area") or {}).get(action_entity)
+    if not area:
+        return None
+    best = None
+    best_cover = 0
+    for s_ent in (occ_ctx.get("area_sensors") or {}).get(area, []):
+        series = hist.get(s_ent)
+        if not series:
+            continue
+        epochs = [e for e, _ in series]
+        states = [bool(v) for _, v in series]
+        if not any(states) or all(states):        # must actually vary
+            continue
+        on_ct = sum(1 for t in times if _bool_state_at(epochs, states, t))
+        need = max(MIN_OCCURRENCES, int(round(0.8 * len(times))))
+        if on_ct >= need and on_ct > best_cover:
+            best_cover = on_ct
+            best = {"condition": "state", "entity_id": s_ent, "state": "on"}
+    return best
+
+
+def _occupancy_hold(action_entity: str, off_times: list, occ_ctx: dict) -> Optional[dict]:
+    """If an entity's OFF events (``off_times``) consistently happen shortly after
+    an occupancy sensor in its area clears, this is a "keep it on until the room
+    empties" pattern. Returns ``{"entity_id": sensor, "for_seconds": N}`` (a small
+    settle delay so a brief exit doesn't kill it) or None. Pure."""
+    import bisect
+    import statistics
+    if not occ_ctx or len(off_times) < MIN_OCCURRENCES:
+        return None
+    hist = occ_ctx.get("hist") or {}
+    area = (occ_ctx.get("entity_area") or {}).get(action_entity)
+    if not area:
+        return None
+    HOLD_WINDOW = 900.0        # the light goes off within 15 min of the room clearing
+    best = None
+    best_cover = 0
+    for s_ent in (occ_ctx.get("area_sensors") or {}).get(area, []):
+        series = sorted(hist.get(s_ent) or [])
+        clears = [series[i][0] for i in range(1, len(series))
+                  if series[i - 1][1] and not series[i][1]]      # on -> off
+        if len(clears) < MIN_OCCURRENCES:
+            continue
+        cl = sorted(clears)
+        matched, lags = 0, []
+        for t in off_times:
+            j = bisect.bisect_right(cl, t) - 1
+            if j >= 0 and 0 <= t - cl[j] <= HOLD_WINDOW:
+                matched += 1
+                lags.append(t - cl[j])
+        need = max(MIN_OCCURRENCES, int(round(0.6 * len(off_times))))
+        if matched >= need and matched > best_cover:
+            best_cover = matched
+            settle = int(min(600, max(0, round(statistics.median(lags) / 30.0) * 30)))
+            best = {"entity_id": s_ent, "for_seconds": settle}
+    return best
+
+
+def _secs_to_hms(seconds) -> str:
+    """Whole seconds -> 'HH:MM:SS' for an HA delay/for/timeout field. Pure."""
+    s = max(0, int(seconds or 0))
+    return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+
+
 class PatternAnalyzer:
     """Analyzes accumulated state change data for behavioral patterns."""
 
@@ -642,6 +776,7 @@ class PatternAnalyzer:
         self._last_analysis: float = 0.0
         self._last_result: dict = {}
         self._db = DB_PATH
+        self._occ_ctx: dict = {}
 
     def _connect(self) -> Optional[sqlite3.Connection]:
         """Open a connection to patterns.db.
@@ -723,7 +858,8 @@ class PatternAnalyzer:
         return out
 
     def _run_all_finders(self, person_map: dict,
-                         lat, lon, sensor_hist: dict) -> list[DetectedPattern]:
+                         lat, lon, sensor_hist: dict,
+                         occ_ctx: dict = None) -> list[DetectedPattern]:
         """Open the DB, run every finder, and close it on one executor thread.
 
         Everything from first use to close of the connection happens on this
@@ -738,12 +874,14 @@ class PatternAnalyzer:
             return []
         patterns: list[DetectedPattern] = []
         try:
+            occ = occ_ctx or {}
             finders = (
                 ("time routines", lambda: self._find_time_routines(conn, person_map)),
                 ("repeated commands", lambda: self._find_repeated_commands(conn)),
                 ("sequence patterns", lambda: self._find_sequence_patterns(
-                    conn, lat, lon, sensor_hist)),
-                ("numeric triggers", lambda: self._find_numeric_triggers(conn, sensor_hist)),
+                    conn, lat, lon, sensor_hist, occ)),
+                ("numeric triggers", lambda: self._find_numeric_triggers(conn, sensor_hist, occ)),
+                ("confirmation sequences", lambda: self._find_confirmation_sequences(conn, occ)),
                 ("presence patterns", lambda: self._find_presence_patterns(conn)),
             )
             for name, finder in finders:
@@ -767,8 +905,12 @@ class PatternAnalyzer:
                 _sensor_hist = {}
             _lat = getattr(hass.config, "latitude", None)
             _lon = getattr(hass.config, "longitude", None)
+            try:
+                _occ_ctx = await self._fetch_occupancy_context(hass)
+            except Exception:
+                _occ_ctx = {}
             executor_job = hass.async_add_executor_job(
-                self._run_all_finders, person_map, _lat, _lon, _sensor_hist)
+                self._run_all_finders, person_map, _lat, _lon, _sensor_hist, _occ_ctx)
             # Shielded: if this await is cancelled, only our wait on the job
             # stops — the job itself is not cancelled, so it can't be pulled
             # out of the executor queue before _run_all_finders starts (which
@@ -1014,7 +1156,7 @@ class PatternAnalyzer:
 
     def _find_sequence_patterns(self, conn: sqlite3.Connection,
                                 lat=None, lon=None,
-                                sensor_hist=None) -> list[DetectedPattern]:
+                                sensor_hist=None, occ_ctx=None) -> list[DetectedPattern]:
         """Find state changes that consistently follow each other within 10 min.
 
         Single-pass sliding window. This replaced an O(N^2) SQL self-join whose
@@ -1095,10 +1237,28 @@ class PatternAnalyzer:
             nc = _numeric_condition(times, sensor_hist or {})
             if nc:
                 conds.append(nc)
+            # Phase 1: gate the action on room occupancy when the action's area
+            # was consistently occupied at the action times (example: lights only
+            # while the room is occupied).
+            oc = _occupancy_condition(eb, times, occ_ctx or {})
+            if oc:
+                conds.append(oc)
             cond = conds if conds else None
             _verb = _action_verb(eb, sb)
+            # Phase 2: if this action turns something ON and that entity is
+            # consistently turned OFF once its area empties, suggest a "hold on
+            # until unoccupied" choreography instead of a bare on.
+            until = None
+            if _verb and str(sb).lower() == "on":
+                until = _occupancy_hold(eb, self._entity_off_times(conn, eb),
+                                        occ_ctx or {})
             _when = f"({count} times in 30 days, ~{mean_lag}s later)"
-            if _verb:
+            if until:
+                _area_sensor = _pretty_entity(until["entity_id"])
+                desc = (f"{_trigger_phrase(ea, sa)}, JARVIS will {_verb} {eb} and "
+                        f"keep it on until {_area_sensor} is clear "
+                        f"{_when}" + _condition_phrase(cond))
+            elif _verb:
                 # Lead with the outcome the automation would produce.
                 desc = (f"{_trigger_phrase(ea, sa)}, JARVIS will {_verb} {eb} "
                         f"{_when}" + _condition_phrase(cond))
@@ -1117,13 +1277,32 @@ class PatternAnalyzer:
                 details={"trigger": {"entity": ea, "state": sa},
                          "action": {"entity": eb, "state": sb},
                          "delay_seconds": mean_lag,
-                         "condition": cond},
+                         "condition": cond,
+                         "until_unoccupied": until},
             ))
 
         return patterns
 
+    def _entity_off_times(self, conn: sqlite3.Connection, entity_id: str) -> list:
+        """Epochs at which ``entity_id`` turned off in the last 30 days (for the
+        'hold until unoccupied' off-edge). Bounded, failure-tolerant → []."""
+        out: list = []
+        try:
+            rows = conn.execute(
+                "SELECT timestamp FROM state_changes WHERE entity_id = ? "
+                "AND new_state = 'off' AND timestamp > datetime('now','-30 days') "
+                "ORDER BY timestamp LIMIT 400", (entity_id,)).fetchall()
+            for r in rows:
+                try:
+                    out.append(datetime.fromisoformat(r["timestamp"]).timestamp())
+                except (ValueError, TypeError):
+                    continue
+        except Exception:
+            pass
+        return out
+
     def _find_numeric_triggers(self, conn: sqlite3.Connection,
-                               sensor_hist: dict) -> list[DetectedPattern]:
+                               sensor_hist: dict, occ_ctx=None) -> list[DetectedPattern]:
         """Learn "when a sensor crosses a threshold, an action happens" from
         history. ``sensor_hist`` maps sensor_id -> chronological ``[(epoch,
         float)]`` (fetched from the recorder by the caller and passed in, so this
@@ -1182,16 +1361,117 @@ class PatternAnalyzer:
                 if not trig:
                     continue
                 op, T = next(iter(trig.items()))
+                # Phase 1: only while the room is occupied (example: lumens drop
+                # -> lights on, but only if someone is actually in the room).
+                oc = _occupancy_condition(a_ent, times, occ_ctx or {})
+                occ_txt = (f" while {_pretty_entity(oc['entity_id'])} is occupied"
+                           if oc else "")
                 patterns.append(DetectedPattern(
                     pattern_type="numeric_trigger",
                     description=(f"When {s_ent} goes {op} {T:g}, {a_ent} turns "
-                                 f"{a_st} ({len(occ)} times in 30 days)"),
+                                 f"{a_st}{occ_txt} ({len(occ)} times in 30 days)"),
                     entity_ids=[s_ent, a_ent],
                     confidence=min(1.0, len(occ) / (MIN_OCCURRENCES * 3)),
                     occurrences=len(occ),
                     details={"trigger_sensor": s_ent, "op": op, "threshold": T,
-                             "action": {"entity": a_ent, "state": a_st}},
+                             "action": {"entity": a_ent, "state": a_st},
+                             "condition": [oc] if oc else None},
                 ))
+        return patterns
+
+    def _find_confirmation_sequences(self, conn: sqlite3.Connection,
+                                     occ_ctx=None) -> list[DetectedPattern]:
+        """Phase 3 (safety-sensitive): learn a *confirmed* choreography —
+        trigger (someone arrives) → open a cover → a confirmation sensor turns on
+        (e.g. the car is detected inside) → close the cover. Emitted only for
+        cover targets and always routed through the review/approval UI, with a
+        wait-timeout so a missing confirmation leaves the cover open. Conservative
+        (high recurrence, bounded windows). Never raises."""
+        import bisect
+        import statistics
+        from collections import defaultdict, Counter
+        patterns: list = []
+        try:
+            rows = conn.execute(
+                "SELECT timestamp, entity_id, domain, new_state FROM state_changes "
+                "WHERE timestamp > datetime('now','-30 days') AND domain IN "
+                "('cover','person','device_tracker','binary_sensor') ORDER BY timestamp"
+            ).fetchall()
+        except Exception:
+            return patterns
+
+        cover_ev: dict = defaultdict(list)   # cover -> [(epoch, state)]
+        arrivals: list = []                  # [(epoch, entity)]
+        on_events: dict = defaultdict(list)  # binary_sensor -> [epoch]
+        for r in rows:
+            try:
+                ep = datetime.fromisoformat(r["timestamp"]).timestamp()
+            except (ValueError, TypeError):
+                continue
+            dom, ent, st = r["domain"], r["entity_id"], r["new_state"]
+            if dom == "cover":
+                cover_ev[ent].append((ep, st))
+            elif dom in ("person", "device_tracker") and st == "home":
+                arrivals.append((ep, ent))
+            elif dom == "binary_sensor" and st == "on":
+                on_events[ent].append(ep)
+
+        arrivals.sort()
+        arr_ep = [e for e, _ in arrivals]
+        OPEN, CLOSE = ("open", "opening"), ("closed", "closing")
+        OPEN_CLOSE_MAX, ARRIVE_BEFORE = 900.0, 300.0
+        entity_area = (occ_ctx or {}).get("entity_area") or {}
+        area_sensors = (occ_ctx or {}).get("area_sensors") or {}
+        combos: Counter = Counter()
+        combo_lags: dict = defaultdict(list)
+
+        for cover, evs in cover_ev.items():
+            evs.sort()
+            last_open = None
+            for ep, st in evs:
+                if st in OPEN:
+                    last_open = ep
+                elif st in CLOSE and last_open is not None and 30 <= ep - last_open <= OPEN_CLOSE_MAX:
+                    open_ep, close_ep, last_open = last_open, ep, None
+                    j = bisect.bisect_right(arr_ep, open_ep) - 1
+                    if not (j >= 0 and 0 <= open_ep - arr_ep[j] <= ARRIVE_BEFORE):
+                        continue
+                    trig_entity = arrivals[j][1]
+                    # confirmation sensor: on between open & close, area sensor first
+                    confirm = None
+                    for s in area_sensors.get(entity_area.get(cover), []):
+                        if any(open_ep <= t <= close_ep for t in on_events.get(s, [])):
+                            confirm = s
+                            break
+                    if not confirm:
+                        for s, ts in on_events.items():
+                            if any(open_ep <= t <= close_ep for t in ts):
+                                confirm = s
+                                break
+                    if not confirm:
+                        continue
+                    key = (cover, trig_entity, confirm)
+                    combos[key] += 1
+                    combo_lags[key].append(close_ep - open_ep)
+
+        for (cover, trig_entity, confirm), cnt in combos.most_common(5):
+            if cnt < MIN_OCCURRENCES:
+                break
+            typ = int(statistics.median(combo_lags[(cover, trig_entity, confirm)]))
+            patterns.append(DetectedPattern(
+                pattern_type="confirm_sequence",
+                description=(f"⚠ When {trig_entity} arrives home, open {cover}, then "
+                             f"close it once {confirm} confirms ({cnt} times in 30 "
+                             f"days) — SAFETY-SENSITIVE, review carefully"),
+                entity_ids=[trig_entity, cover, confirm],
+                confidence=min(1.0, cnt / (MIN_OCCURRENCES * 3)),
+                occurrences=cnt,
+                details={"trigger": {"entity": trig_entity, "state": "home"},
+                         "open": {"entity": cover, "state": "open"},
+                         "close": {"entity": cover, "state": "closed"},
+                         "confirm": {"entity": confirm, "state": "on"},
+                         "confirm_timeout": max(60, min(600, typ + 60))},
+            ))
         return patterns
 
     async def _fetch_numeric_sensor_history(self, hass) -> dict:
@@ -1245,6 +1525,102 @@ class PatternAnalyzer:
             if len(series) >= 10:
                 out[eid] = series
         return out
+
+    async def _fetch_occupancy_context(self, hass) -> dict:
+        """Build the occupancy context the occupancy-aware finders need:
+          hist:         {occupancy_sensor: [(epoch, is_on_bool)]}  (recorder)
+          entity_area:  {entity_id: area_id}  for occupancy sensors AND
+                        controllable action entities (light/switch/cover/…)
+          area_sensors: {area_id: [occupancy_sensor, …]}  presence/occupancy first
+        Bounded and failure-tolerant (→ empty context)."""
+        ctx: dict = {"hist": {}, "entity_area": {}, "area_sensors": {}}
+        try:
+            from homeassistant.components.recorder import get_instance, history
+            from homeassistant.util import dt as dt_util
+            from homeassistant.helpers import entity_registry as er
+        except Exception:
+            return ctx
+        try:
+            ent_reg = er.async_get(hass)
+        except Exception:
+            return ctx
+
+        def _area_of(entity_id):
+            try:
+                e = ent_reg.async_get(entity_id)
+                if not e:
+                    return None
+                if e.area_id:
+                    return e.area_id
+                if e.device_id:
+                    from homeassistant.helpers import device_registry as dr
+                    dev = dr.async_get(hass).async_get(e.device_id)
+                    return dev.area_id if dev else None
+            except Exception:
+                return None
+            return None
+
+        occ_ids: list = []
+        try:
+            for st in hass.states.async_all("binary_sensor"):
+                dc = st.attributes.get("device_class")
+                if dc not in ("occupancy", "presence", "motion"):
+                    continue
+                area = _area_of(st.entity_id)
+                if not area:
+                    continue
+                occ_ids.append(st.entity_id)
+                ctx["entity_area"][st.entity_id] = area
+                bucket = ctx["area_sensors"].setdefault(area, [])
+                if dc in ("occupancy", "presence"):   # they linger — prefer them
+                    bucket.insert(0, st.entity_id)
+                else:
+                    bucket.append(st.entity_id)
+        except Exception:
+            return ctx
+
+        try:
+            for dom in ("light", "switch", "fan", "cover", "climate", "lock",
+                        "media_player"):
+                for st in hass.states.async_all(dom):
+                    area = _area_of(st.entity_id)
+                    if area:
+                        ctx["entity_area"][st.entity_id] = area
+        except Exception:
+            pass
+
+        occ_ids = occ_ids[:40]
+        if not occ_ids:
+            return ctx
+        end = dt_util.utcnow()
+        start = end - timedelta(days=30)
+
+        def _fetch():
+            return history.get_significant_states(
+                hass, start, end, occ_ids, minimal_response=True, no_attributes=True)
+
+        try:
+            raw = await get_instance(hass).async_add_executor_job(_fetch)
+        except Exception:
+            return ctx
+        for eid, states in (raw or {}).items():
+            series: list = []
+            for s in states:
+                try:
+                    val = getattr(s, "state", None)
+                    when = (getattr(s, "last_changed", None)
+                            or getattr(s, "last_updated", None))
+                    if val is None and isinstance(s, dict):
+                        val = s.get("state")
+                        when = s.get("last_changed") or s.get("last_updated")
+                    ep = when.timestamp() if hasattr(when, "timestamp") else None
+                    if ep is not None and val in ("on", "off"):
+                        series.append((ep, val == "on"))
+                except Exception:
+                    continue
+            if len(series) >= 4:
+                ctx["hist"][eid] = series
+        return ctx
 
     def _find_presence_patterns(self, conn: sqlite3.Connection) -> list[DetectedPattern]:
         """Find state changes correlated with person arrivals/departures."""
@@ -1628,12 +2004,32 @@ class PatternAnalyzer:
             seq_action.append(svc)
             trig = _trigger_for(trigger["entity"], trigger["state"])
             extra = _trigger_extra_conditions(trigger["entity"], trigger["state"])
+            # Phase 2: "…and keep it on until the room empties". Turn the action
+            # on, wait for the area's occupancy sensor to clear (for a small
+            # settle window so a brief exit doesn't kill it), then turn it off.
+            # `mode: restart` re-arms the hold if the trigger fires again.
+            until = d.get("until_unoccupied") if isinstance(d.get("until_unoccupied"), dict) else None
+            mode = "single"
+            if until:
+                off_svc = service_for(action["entity"], "off")
+                if off_svc:
+                    seq_action.append({
+                        "wait_for_trigger": [{
+                            "platform": "state",
+                            "entity_id": until["entity_id"], "to": "off",
+                            "for": _secs_to_hms(until.get("for_seconds", 0)),
+                        }],
+                    })
+                    seq_action.append(off_svc)
+                    mode = "restart"
             if trig.get("platform") == "zone":
                 verb = "leaves" if trig["event"] == "leave" else "arrives"
                 alias = f"JARVIS Learned: {action['entity']} when {trigger['entity']} {verb} home"
             elif (trigger["entity"].split(".")[0] if "." in trigger["entity"]
                     else "") == "event":
                 alias = f"JARVIS Learned: {action['entity']} on {trigger['entity']} press"
+            elif until:
+                alias = f"JARVIS Learned: {action['entity']} on {trigger['entity']} until unoccupied"
             else:
                 alias = f"JARVIS Learned: {action['entity']} after {trigger['entity']}"
             auto = {
@@ -1641,6 +2037,8 @@ class PatternAnalyzer:
                 "trigger": trig,
                 "action": seq_action,
             }
+            if mode != "single":
+                auto["mode"] = mode
             cond = d.get("condition")
             conds = [c for c in (cond if isinstance(cond, list) else [cond])
                      if isinstance(c, dict) and c.get("condition")] + extra
@@ -1660,11 +2058,56 @@ class PatternAnalyzer:
                 }, indent=2)
             trig = {"platform": "numeric_state",
                     "entity_id": d["trigger_sensor"], d["op"]: d["threshold"]}
-            return json.dumps({
+            auto = {
                 "alias": (f"JARVIS Learned: {action['entity']} when "
                           f"{d['trigger_sensor']} {d['op']} {d['threshold']:g}"),
                 "trigger": trig,
                 "action": [svc],
+            }
+            cond = d.get("condition")
+            conds = [c for c in (cond if isinstance(cond, list) else [cond])
+                     if isinstance(c, dict) and c.get("condition")]
+            if conds:
+                auto["condition"] = conds
+            return json.dumps(auto, indent=2)
+
+        if p.pattern_type == "confirm_sequence":
+            # Phase 3 (safety-sensitive): trigger -> open a cover -> WAIT for a
+            # confirmation sensor -> close it. Only emitted for cover targets, and
+            # always through the review/approval UI. The wait has a timeout with
+            # continue_on_timeout=False so a missed confirmation leaves the cover
+            # open rather than closing on an unconfirmed step.
+            trg = d.get("trigger", {})
+            opn = d.get("open", {})
+            close = d.get("close", {})
+            confirm = d.get("confirm", {})
+            open_svc = service_for(opn.get("entity", ""), opn.get("state", ""))
+            close_svc = service_for(close.get("entity", ""), close.get("state", ""))
+            if not (open_svc and close_svc and confirm.get("entity")):
+                return json.dumps({
+                    "type": "manual_review",
+                    "note": (f"Consider: after {trg.get('entity','?')}, open "
+                             f"{opn.get('entity','?')}, and close it once "
+                             f"{confirm.get('entity','?')} confirms"),
+                }, indent=2)
+            trig = _trigger_for(trg["entity"], trg["state"])
+            timeout = _secs_to_hms(min(600, int(d.get("confirm_timeout", 120) or 120)))
+            return json.dumps({
+                "alias": (f"JARVIS Learned (review): close {close['entity']} after "
+                          f"{confirm['entity']} confirms"),
+                "description": ("SAFETY-SENSITIVE: closes a cover automatically. "
+                                "Review carefully before enabling."),
+                "trigger": trig,
+                "action": [
+                    open_svc,
+                    {"wait_for_trigger": [{
+                        "platform": "state",
+                        "entity_id": confirm["entity"],
+                        "to": confirm.get("state", "on")}],
+                     "timeout": timeout, "continue_on_timeout": False},
+                    close_svc,
+                ],
+                "mode": "restart",
             }, indent=2)
 
         if p.pattern_type == "repeated_command":
@@ -1879,6 +2322,7 @@ async def install_approved_suggestion(hass, suggestion_id: int) -> dict:
             trigger=norm["trigger"],
             condition=norm.get("condition"),
             action=norm["action"],
+            mode=norm.get("mode", "single"),
         )
         if result.get("success"):
             await hass.async_add_executor_job(

@@ -1,3 +1,13 @@
+## [7.100.0] — occupancy-aware, IFTTT-style automation suggestions
+
+The pattern engine now proposes automations that respect **who's actually in the room** and can chain **multiple steps with a confirmation** — not just "when X, do Y." Three new capabilities, all still routed through the Suggestions review list (nothing installs itself):
+
+- **Room-occupancy conditions.** A learned action can now be gated on presence: *"when the illuminance drops below 40, turn the den lights on — only while the den is occupied."* The engine attaches a `while <room> is occupied` condition when the action's area was consistently occupied at the times it happened (using your motion/occupancy/presence sensors, mapped by area).
+- **"Hold on until unoccupied."** When a light you turn on is normally turned back off once the room empties, JARVIS suggests the whole behavior as one automation: *"when the kitchen door opens, turn the garage lights on and keep them on until the garage is clear."* It builds a turn-on → wait-for-the-area-to-clear (with a short settle delay) → turn-off choreography.
+- **Confirmed sequences (safety-sensitive).** JARVIS can learn a multi-step, confirmed routine — *"when the Jeep arrives home, open the garage, then close it once the car is confirmed inside."* These are clearly flagged ⚠ SAFETY-SENSITIVE in the review card, use a wait-for-confirmation with a timeout that **leaves the cover open** if the confirmation never arrives, and only ever install after you explicitly approve them.
+
+Everything is learned from your own history, bounded and failure-tolerant, and English/other installs are unaffected until a matching pattern is actually observed.
+
 ## [7.99.10] — Suggestions only propose automations that actually *do* something
 
 The Suggestions tab was proposing read-only entities as automations — a binary sensor, device tracker, or plain sensor that merely *changes* to on/off at a regular time was offered as a "learned automation" with no real action behind it (there's no such thing as `binary_sensor.turn_on`). The daily-routine suggestion path skipped the actionability check that the door→light, presence, and threshold paths already used.
