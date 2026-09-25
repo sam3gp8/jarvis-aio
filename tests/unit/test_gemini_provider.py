@@ -318,3 +318,18 @@ def test_gemini_rejects_response_that_remains_incomplete(load, monkeypatch):
         )
 
     assert len(interactions.calls) == 2
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "budget_exceeded"])
+def test_gemini_terminal_failure_does_not_save_continuation_state(load, monkeypatch, status):
+    llm = load("llm_provider")
+    response = types.SimpleNamespace(
+        id="failed-interaction", status=status, output_text="", steps=[]
+    )
+    provider, _ = _provider(llm, monkeypatch, response)
+    run_state = {}
+
+    with pytest.raises(RuntimeError, match=f"status: {status}"):
+        provider.chat([{"role": "user", "content": "Hello."}], run_state=run_state)
+
+    assert run_state == {}

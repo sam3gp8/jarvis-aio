@@ -400,6 +400,9 @@ class GeminiProvider(LLMProvider):
                 raise RuntimeError(
                     "Gemini interaction remained incomplete after output-budget retry"
                 )
+        if self._is_terminal_failure(resp):
+            status = self._status_value(resp)
+            raise RuntimeError(f"Gemini interaction failed with status: {status}")
         if run_state is not None:
             run_state["previous_interaction_id"] = getattr(resp, "id", None)
             run_state["previous_messages"] = [dict(message) for message in messages]
@@ -425,9 +428,19 @@ class GeminiProvider(LLMProvider):
 
     @staticmethod
     def _is_incomplete(response) -> bool:
+        return GeminiProvider._status_value(response) == "incomplete"
+
+    @staticmethod
+    def _status_value(response) -> str:
         status = getattr(response, "status", None)
         status_value = getattr(status, "value", status)
-        return str(status_value or "").lower().rsplit(".", 1)[-1] == "incomplete"
+        return str(status_value or "").lower().rsplit(".", 1)[-1]
+
+    @staticmethod
+    def _is_terminal_failure(response) -> bool:
+        return GeminiProvider._status_value(response) in {
+            "failed", "cancelled", "budget_exceeded",
+        }
 
     @staticmethod
     def _is_continuation(messages: list[dict], run_state: dict[str, Any]) -> bool:
