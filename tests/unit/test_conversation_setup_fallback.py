@@ -5,8 +5,8 @@ entity constructor.
 fallback LLM client there via `jarvis_config.effective_config()` +
 `ha_secrets.get_provider_key_sync()`, both of which read files — enough to trip
 Home Assistant's blocking-I/O detector. The fallback now lives in
-`async_setup_entry`, where the config read goes through the executor and the key
-comes from the async secrets helper.
+`async_setup_entry`, where the config read and provider construction go through
+the executor and the key comes from the async secrets helper.
 
 The entity needs a live HA conversation stack, so `async_setup_entry` is
 extracted and exec'd in isolation (same technique as test_conversation_dispatch).
@@ -82,6 +82,9 @@ def _build(monkeypatch, *, key="secret-key", effective=None):
     ns["DEFAULT_MODEL"] = "default-model"
 
     def create_provider(provider, api_key, model, base_url):
+        assert calls["executor"][-1] == "create_provider", (
+            "create_provider called outside the executor"
+        )
         client = types.SimpleNamespace(
             name=provider, api_key=api_key, model=model, base_url=base_url)
         calls["created"].append(client)
@@ -117,7 +120,7 @@ def _entry():
 
 def test_fallback_resolves_client_without_blocking_constructor(fake_hass, monkeypatch):
     """No shared client: the provider is built in async_setup_entry, using the
-    executor for the config read and the async helper for the key."""
+    executor for blocking setup and the async helper for the key."""
     setup, calls = _build(
         monkeypatch,
         key="k-123",
@@ -129,7 +132,7 @@ def test_fallback_resolves_client_without_blocking_constructor(fake_hass, monkey
 
     asyncio.run(setup(hass, _entry(), added.append))
 
-    assert calls["executor"] == ["effective_config"]
+    assert calls["executor"] == ["effective_config", "create_provider"]
     assert calls["async_key"] == ["anthropic"]
     (entity,) = added[0]
     assert entity.client is calls["created"][0]

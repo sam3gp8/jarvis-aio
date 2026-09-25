@@ -273,7 +273,9 @@ async def async_setup_entry(
         base_url = resolve_provider_base_url(effective, provider_name)
         api_key = await _hs.async_get_provider_key(hass, provider_name)
         model = effective.get(CONF_MODEL) or DEFAULT_MODEL
-        client = create_provider(provider_name, api_key, model, base_url)
+        client = await hass.async_add_executor_job(
+            create_provider, provider_name, api_key, model, base_url
+        )
 
     async_add_entities([JarvisAgent(hass, config_entry, client)])
 
