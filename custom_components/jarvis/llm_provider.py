@@ -58,17 +58,28 @@ class LLMProvider(ABC):
         max_tokens: int = 512,
         temperature: float = 0.7,
         model_override: Optional[str] = None,
+        thinking: Optional[bool] = None,
     ) -> dict:
         """Run a synchronous chat completion. Returns standardised dict.
 
         model_override lets a caller request a different model for this single
         call (e.g. a vision-capable model for image analysis) without needing
         to create a new provider instance.
+
+        thinking controls extended/internal reasoning on backends that support
+        it (see supports_thinking). None/False disables it — on a small
+        max_tokens budget a thinking model can spend the whole thing on
+        internal thought and return nothing (see GeminiProvider). Ignored by
+        backends that don't support the toggle.
         """
         ...
 
     def supports_vision(self) -> bool:
         """Whether this backend + model can take image inputs."""
+        return False
+
+    def supports_thinking(self) -> bool:
+        """Whether this backend's `thinking` chat() kwarg has any effect."""
         return False
 
     def supports_tools(self) -> bool:
@@ -94,7 +105,8 @@ class GroqProvider(LLMProvider):
             kwargs["base_url"] = base_url
         self._client = Groq(**kwargs)
 
-    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None):
+    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
+              thinking=None):
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "messages": messages,
@@ -146,7 +158,8 @@ class OpenAIProvider(LLMProvider):
             kwargs["base_url"] = base_url
         self._client = OpenAI(**kwargs)
 
-    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None):
+    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
+              thinking=None):
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "messages": messages,
@@ -156,7 +169,7 @@ class OpenAIProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        extra = self._extra_body()
+        extra = self._extra_body(thinking)
         if extra:
             kwargs["extra_body"] = extra
         for _attempt in range(3):
@@ -203,7 +216,7 @@ class OpenAIProvider(LLMProvider):
             "raw": choice.message,
         }
 
-    def _extra_body(self) -> dict:
+    def _extra_body(self, thinking: Optional[bool] = None) -> dict:
         """Provider-specific request extras. Empty for vanilla OpenAI."""
         return {}
 
@@ -249,15 +262,16 @@ class OllamaProvider(OpenAIProvider):
             return base_url.rstrip("/") + "/v1"
         return base_url
 
-    def _extra_body(self) -> dict:
+    def _extra_body(self, thinking: Optional[bool] = None) -> dict:
         # keep_alive + num_ctx are Ollama extensions passed through the
         # OpenAI-compatible endpoint; harmless no-ops on non-Ollama backends,
         # but only OllamaProvider sends them.
-        # think=False: many local models (gemma3/4, qwen3, deepseek-r1) are
+        # think: many local models (gemma3/4, qwen3, deepseek-r1) are
         # reasoning models — their thinking goes to a separate "reasoning"
         # field and "content" stays empty until it finishes. On a small token
-        # budget that means an empty answer, so we ask Ollama to skip thinking
-        # and answer directly. Harmless on non-reasoning models.
+        # budget that means an empty answer, so thinking defaults OFF unless
+        # the caller opts in (dashboard thinking switch). Harmless on
+        # non-reasoning models either way.
         # num_ctx is configurable (ollama_num_ctx) so a larger local model can
         # use a bigger context window; falls back to the default.
         num_ctx = OLLAMA_NUM_CTX
@@ -268,8 +282,11 @@ class OllamaProvider(OpenAIProvider):
                 num_ctx = OLLAMA_NUM_CTX
         except Exception:
             num_ctx = OLLAMA_NUM_CTX
-        return {"keep_alive": OLLAMA_KEEP_ALIVE, "think": False,
+        return {"keep_alive": OLLAMA_KEEP_ALIVE, "think": bool(thinking),
                 "options": {"num_ctx": num_ctx}}
+
+    def supports_thinking(self) -> bool:
+        return True
 
 
 # ─── Gemini (Google GenAI Interactions API) ──────────────────────────────────
@@ -298,7 +315,8 @@ class GeminiProvider(LLMProvider):
         self._previous_interaction_id: Optional[str] = None
         self._previous_messages: list[dict] = []
 
-    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None):
+    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
+              thinking=None):
         system_instruction = self._system_instruction(messages)
         continuation = self._is_continuation(messages)
         new_messages = (
@@ -309,19 +327,22 @@ class GeminiProvider(LLMProvider):
         if not input_items:
             input_items = self._input_items(messages)
 
+        generation_config: dict[str, Any] = {
+            "max_output_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if not thinking:
+            # Thinking-capable Gemini/Gemma models spend max_output_tokens on
+            # internal "thought" steps before any answer text, so JARVIS's
+            # small per-call budgets (e.g. vision's 300) can be exhausted by
+            # thinking alone — status "incomplete" with empty output_text.
+            # Disable thinking so the whole budget goes to the real answer,
+            # unless the caller opted in (dashboard thinking switch).
+            generation_config["thinking_config"] = {"thinking_budget": 0}
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "input": input_items,
-            "generation_config": {
-                "max_output_tokens": max_tokens,
-                "temperature": temperature,
-                # Thinking-capable Gemini/Gemma models spend max_output_tokens on
-                # internal "thought" steps before any answer text, so JARVIS's
-                # small per-call budgets (e.g. vision's 300) can be exhausted by
-                # thinking alone — status "incomplete" with empty output_text.
-                # Disable thinking so the whole budget goes to the real answer.
-                "thinking_config": {"thinking_budget": 0},
-            },
+            "generation_config": generation_config,
         }
         if system_instruction:
             kwargs["system_instruction"] = system_instruction
@@ -352,6 +373,9 @@ class GeminiProvider(LLMProvider):
         }
 
     def supports_vision(self) -> bool:
+        return True
+
+    def supports_thinking(self) -> bool:
         return True
 
     def _is_continuation(self, messages: list[dict]) -> bool:
@@ -453,7 +477,8 @@ class AnthropicProvider(LLMProvider):
             kwargs["base_url"] = base_url
         self._client = Anthropic(**kwargs)
 
-    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None):
+    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
+              thinking=None):
         # Anthropic's API splits system vs user/assistant, and uses a different
         # image block format than the OpenAI-style image_url our callers send.
         # It also has no "tool" role: a tool call is an assistant `tool_use`

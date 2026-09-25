@@ -14,17 +14,18 @@ def _src():
 
 def test_ollama_extra_body_disables_thinking():
     src = _src()
-    # OllamaProvider._extra_body must send think=False through the request
+    # OllamaProvider._extra_body must send think=<caller's choice>, defaulting
+    # to off (None/False) so a small token budget isn't spent on thinking.
     ob = src[src.index("class OllamaProvider"):]
     ob = ob[:ob.index("class ", 5)] if "class " in ob[5:] else ob
-    assert '"think": False' in ob, "OllamaProvider must disable thinking (think=False)"
+    assert '"think": bool(thinking)' in ob, "OllamaProvider must forward the thinking toggle"
     assert "num_ctx" in ob      # existing tuning preserved
 
 
 def test_extra_body_is_applied_in_chat():
     src = _src()
     # chat() still forwards extra_body to the request
-    assert "extra_body" in src and "_extra_body()" in src
+    assert "extra_body" in src and "_extra_body(thinking)" in src
 
 
 def test_briefing_gives_reasoning_room():

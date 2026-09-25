@@ -447,6 +447,23 @@ def _rich_mode(hass) -> bool:
     return False
 
 
+def _reasoning_thinking_enabled(hass) -> bool:
+    """Live read of the dashboard's Reasoning "Thinking" toggle. Defaults on —
+    unlike the vision pipeline's tight per-call token budgets, this tier can
+    afford to let a thinking-capable model reason before it answers."""
+    try:
+        from .const import DOMAIN
+        for data in (hass.data.get(DOMAIN) or {}).values():
+            if isinstance(data, dict) and isinstance(data.get("runtime_config"), dict):
+                v = data["runtime_config"].get("reasoning_thinking_enabled")
+                if v is not None:
+                    return v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+                break
+    except Exception:
+        pass
+    return True
+
+
 async def decide(
     hass,
     provider,
@@ -571,10 +588,12 @@ async def decide(
         # Retry on transient 503 (Gemini "high demand") — 2 retries with backoff.
         response = None
         last_err = None
+        thinking = _reasoning_thinking_enabled(hass)
         for attempt in range(3):
             try:
                 response = await hass.async_add_executor_job(
-                    lambda: provider.chat(messages, temperature=0.4, max_tokens=200)
+                    lambda: provider.chat(messages, temperature=0.4, max_tokens=200,
+                                           thinking=thinking)
                 )
                 break
             except Exception as exc:

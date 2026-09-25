@@ -260,6 +260,7 @@ async def _reason_about_scene(
         + (f"\nRecent home activity:\n{context}" if context and context != "quiet — no notable recent activity" else "")
     )
     try:
+        vision_thinking = bool(_cfg_opt(hass, "vision_thinking_enabled", False))
         result = await hass.async_add_executor_job(
             lambda: reasoning_client.chat(
                 messages=[
@@ -269,6 +270,7 @@ async def _reason_about_scene(
                 max_tokens=220,
                 temperature=0.3,
                 model_override=reasoning_model or None,
+                thinking=vision_thinking,
             )
         )
         data = _parse_json_obj((result.get("text") or "").strip())
@@ -1221,6 +1223,7 @@ async def async_analyze_camera(
     vision_client = await async_make_client(
         hass, vision_provider, vision_model, groq_client)
     try:
+        vision_thinking = bool(_cfg_opt(hass, "vision_thinking_enabled", False))
         result = await hass.async_add_executor_job(
             lambda: vision_client.chat(
                 messages=[
@@ -1239,6 +1242,7 @@ async def async_analyze_camera(
                 ],
                 max_tokens=300,
                 model_override=vision_model or None,
+                thinking=vision_thinking,
             )
         )
         analysis = _strip_think((result.get("text") or "").strip())
