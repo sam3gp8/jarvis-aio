@@ -277,14 +277,13 @@ async def _reason_about_scene(
         + (f"\nRecent home activity:\n{context}" if context and context != "quiet — no notable recent activity" else "")
     )
     try:
-        vision_thinking = bool(_cfg_opt(hass, "vision_thinking_enabled", False))
         result = await hass.async_add_executor_job(
             lambda: reasoning_client.chat(
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                max_tokens=_vision_max_tokens(hass, 220, vision_thinking),
+                max_tokens=220,
                 temperature=0.3,
                 model_override=reasoning_model or None,
                 # thinking left unset (None): the camera-reasoning model isn't
