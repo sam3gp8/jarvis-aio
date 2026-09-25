@@ -142,7 +142,10 @@ async def _gemini_grounded_search(hass, api_key: str, model: str, q: str) -> Opt
     model = model.removeprefix("models/")
 
     def _call():
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": _TIMEOUT * 1000},
+        )
         return client.interactions.create(
             model=model,
             input=f"Search the web and answer concisely: {q}",

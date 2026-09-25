@@ -59,6 +59,7 @@ class LLMProvider(ABC):
         temperature: float = 0.7,
         model_override: Optional[str] = None,
         thinking: Optional[bool] = None,
+        run_state: Optional[dict[str, Any]] = None,
     ) -> dict:
         """Run a synchronous chat completion. Returns standardised dict.
 
@@ -67,10 +68,12 @@ class LLMProvider(ABC):
         to create a new provider instance.
 
         thinking controls extended/internal reasoning on backends that support
-        it (see supports_thinking). None/False disables it — on a small
-        max_tokens budget a thinking model can spend the whole thing on
-        internal thought and return nothing (see GeminiProvider). Ignored by
-        backends that don't support the toggle.
+        it (see supports_thinking). False requests the least-thinking setting
+        available; None leaves the setting unset so the model default applies.
+        Ignored by backends that don't support the toggle.
+
+        run_state lets backends keep provider-specific continuation state for
+        one agentic run without storing it on a shared provider instance.
         """
         ...
 
@@ -106,7 +109,7 @@ class GroqProvider(LLMProvider):
         self._client = Groq(**kwargs)
 
     def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
-              thinking=None):
+              thinking=None, run_state=None):
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "messages": messages,
@@ -159,7 +162,7 @@ class OpenAIProvider(LLMProvider):
         self._client = OpenAI(**kwargs)
 
     def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
-              thinking=None):
+              thinking=None, run_state=None):
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "messages": messages,
@@ -312,15 +315,15 @@ class GeminiProvider(LLMProvider):
         if base_url:
             kwargs["http_options"] = {"base_url": base_url}
         self._client = genai.Client(**kwargs)
-        self._previous_interaction_id: Optional[str] = None
-        self._previous_messages: list[dict] = []
 
     def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
-              thinking=None):
+              thinking=None, run_state=None):
+        state = run_state if run_state is not None else {}
         system_instruction = self._system_instruction(messages)
-        continuation = self._is_continuation(messages)
+        continuation = self._is_continuation(messages, state)
+        previous_messages = state.get("previous_messages", [])
         new_messages = (
-            messages[len(self._previous_messages):]
+            messages[len(previous_messages):]
             if continuation else self._latest_user_turn(messages)
         )
         input_items = self._input_items(new_messages)
@@ -360,8 +363,9 @@ class GeminiProvider(LLMProvider):
                 for tool in tools
                 if tool.get("type") == "function" and tool.get("function")
             ]
-        if continuation and self._previous_interaction_id:
-            kwargs["previous_interaction_id"] = self._previous_interaction_id
+        previous_interaction_id = state.get("previous_interaction_id")
+        if continuation and previous_interaction_id:
+            kwargs["previous_interaction_id"] = previous_interaction_id
 
         active_generation_config = generation_config
         try:
@@ -396,8 +400,9 @@ class GeminiProvider(LLMProvider):
                 raise RuntimeError(
                     "Gemini interaction remained incomplete after output-budget retry"
                 )
-        self._previous_interaction_id = getattr(resp, "id", None)
-        self._previous_messages = [dict(message) for message in messages]
+        if run_state is not None:
+            run_state["previous_interaction_id"] = getattr(resp, "id", None)
+            run_state["previous_messages"] = [dict(message) for message in messages]
         tool_calls = []
         for step in getattr(resp, "steps", []) or []:
             if getattr(step, "type", None) == "function_call":
@@ -424,9 +429,12 @@ class GeminiProvider(LLMProvider):
         status_value = getattr(status, "value", status)
         return str(status_value or "").lower().rsplit(".", 1)[-1] == "incomplete"
 
-    def _is_continuation(self, messages: list[dict]) -> bool:
-        return bool(self._previous_interaction_id and len(messages) >= len(self._previous_messages)
-                    and messages[:len(self._previous_messages)] == self._previous_messages)
+    @staticmethod
+    def _is_continuation(messages: list[dict], run_state: dict[str, Any]) -> bool:
+        previous_interaction_id = run_state.get("previous_interaction_id")
+        previous_messages = run_state.get("previous_messages", [])
+        return bool(previous_interaction_id and len(messages) >= len(previous_messages)
+                    and messages[:len(previous_messages)] == previous_messages)
 
     @staticmethod
     def _latest_user_turn(messages: list[dict]) -> list[dict]:
@@ -524,7 +532,7 @@ class AnthropicProvider(LLMProvider):
         self._client = Anthropic(**kwargs)
 
     def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
-              thinking=None):
+              thinking=None, run_state=None):
         # Anthropic's API splits system vs user/assistant, and uses a different
         # image block format than the OpenAI-style image_url our callers send.
         # It also has no "tool" role: a tool call is an assistant `tool_use`

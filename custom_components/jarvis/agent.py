@@ -3250,6 +3250,7 @@ async def run_agent(
         return f"I'm having trouble connecting to my reasoning systems, sir. {exc}"
 
     working = list(full_messages)
+    llm_run_state: dict[str, Any] = {}
     slim_retried = False   # one-shot 413 recovery (drop HA tools + home-state)
 
     _cap = MAX_TOOL_ITERATIONS
@@ -3258,7 +3259,10 @@ async def run_agent(
     for iteration in range(_cap):
         try:
             result = await hass.async_add_executor_job(
-                client.chat, working, tools or None, 1024, temperature,
+                lambda: client.chat(
+                    working, tools or None, 1024, temperature,
+                    run_state=llm_run_state,
+                ),
             )
             # A real agent call round-tripped → LLM is genuinely up.
             try:
@@ -3281,7 +3285,10 @@ async def run_agent(
                 )
                 try:
                     result = await hass.async_add_executor_job(
-                        client.chat, working, tools or None, 1024, temperature,
+                        lambda: client.chat(
+                            working, tools or None, 1024, temperature,
+                            run_state=llm_run_state,
+                        ),
                     )
                 except Exception as exc2:
                     if _is_tool_format_error(exc2):
@@ -3293,7 +3300,10 @@ async def run_agent(
                         )
                         try:
                             result = await hass.async_add_executor_job(
-                                client.chat, working, None, 1024, temperature,
+                                lambda: client.chat(
+                                    working, None, 1024, temperature,
+                                    run_state=llm_run_state,
+                                ),
                             )
                         except Exception:
                             return "I'm not sure I caught that, sir."
@@ -3373,9 +3383,14 @@ async def run_agent(
                         )
                     else:
                         raise RuntimeError("No configured reasoning tier available")
+                    fallback_run_state: dict[str, Any] = {}
                     result = await hass.async_add_executor_job(
-                        client.chat, working, tools or None, 1024, temperature,
+                        lambda: client.chat(
+                            working, tools or None, 1024, temperature,
+                            run_state=fallback_run_state,
+                        ),
                     )
+                    llm_run_state = fallback_run_state
                     # Fallback tier recovered — the reasoning backend is up.
                     try:
                         from .diagnostics.service_health import record_usage
@@ -3479,7 +3494,10 @@ async def run_agent(
     })
     try:
         result = await hass.async_add_executor_job(
-            client.chat, working, None, 512, temperature,
+            lambda: client.chat(
+                working, None, 512, temperature,
+                run_state=llm_run_state,
+            ),
         )
         return result.get("text", "")
     except Exception:

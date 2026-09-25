@@ -119,19 +119,53 @@ def test_gemini_continues_function_results_with_prior_interaction(load, monkeypa
         steps=[types.SimpleNamespace(type="function_call", id="call-1", name="get_temp", arguments={})],
     )
     provider, interactions = _provider(llm, monkeypatch, first)
-    provider.chat([{"role": "user", "content": "What is the temperature?"}])
+    run_state = {}
+    provider.chat([{"role": "user", "content": "What is the temperature?"}], run_state=run_state)
     interactions.response = types.SimpleNamespace(id="interaction-2", output_text="It is 22 C.", steps=[])
 
     result = provider.chat([
         {"role": "user", "content": "What is the temperature?"},
         {"role": "assistant", "content": "", "tool_calls": [{"id": "call-1", "function": {"name": "get_temp", "arguments": "{}"}}]},
         {"role": "tool", "tool_call_id": "call-1", "content": "{\"temperature\": 22}"},
-    ])
+    ], run_state=run_state)
 
     assert result["text"] == "It is 22 C."
     assert interactions.calls[1]["previous_interaction_id"] == "interaction-1"
     assert interactions.calls[1]["input"] == [{
         "type": "function_result", "name": "get_temp", "call_id": "call-1",
+        "result": [{"type": "text", "text": "{\"temperature\": 22}"}],
+    }]
+
+
+def test_gemini_continuation_state_is_scoped_per_run(load, monkeypatch):
+    llm = load("llm_provider")
+    run_a_call = types.SimpleNamespace(
+        id="interaction-a", output_text="",
+        steps=[types.SimpleNamespace(type="function_call", id="call-a", name="get_temp", arguments={})],
+    )
+    run_b_call = types.SimpleNamespace(
+        id="interaction-b", output_text="",
+        steps=[types.SimpleNamespace(type="function_call", id="call-b", name="turn_on", arguments={})],
+    )
+    run_a_answer = types.SimpleNamespace(id="interaction-a2", output_text="It is 22 C.", steps=[])
+    provider, interactions = _provider_with_responses(
+        llm, monkeypatch, [run_a_call, run_b_call, run_a_answer]
+    )
+    state_a = {}
+    state_b = {}
+
+    provider.chat([{"role": "user", "content": "What is the temperature?"}], run_state=state_a)
+    provider.chat([{"role": "user", "content": "Turn on the kitchen."}], run_state=state_b)
+    result = provider.chat([
+        {"role": "user", "content": "What is the temperature?"},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "call-a", "function": {"name": "get_temp", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call-a", "content": "{\"temperature\": 22}"},
+    ], run_state=state_a)
+
+    assert result["text"] == "It is 22 C."
+    assert interactions.calls[2]["previous_interaction_id"] == "interaction-a"
+    assert interactions.calls[2]["input"] == [{
+        "type": "function_result", "name": "get_temp", "call_id": "call-a",
         "result": [{"type": "text", "text": "{\"temperature\": 22}"}],
     }]
 
@@ -166,6 +200,7 @@ def test_gemini_falls_back_to_low_level_when_minimal_rejected(load, monkeypatch)
 
     assert result["text"] == "A man in a green shirt."
     assert len(interactions.calls) == 2
+
     assert interactions.calls[0]["generation_config"]["thinking_level"] == "minimal"
     assert interactions.calls[1]["generation_config"]["thinking_level"] == "low"
 
@@ -242,7 +277,6 @@ def test_gemini_retries_incomplete_response_with_larger_budget(load, monkeypatch
     assert interactions.calls[0]["generation_config"]["max_output_tokens"] == 200
     assert interactions.calls[1]["generation_config"]["max_output_tokens"] == 2048
     assert "previous_interaction_id" not in interactions.calls[1]
-    assert provider._previous_interaction_id == "interaction-complete"
 
 
 def test_gemini_rejects_response_that_remains_incomplete(load, monkeypatch):
@@ -261,5 +295,3 @@ def test_gemini_rejects_response_that_remains_incomplete(load, monkeypatch):
         )
 
     assert len(interactions.calls) == 2
-    assert provider._previous_interaction_id is None
-    assert provider._previous_messages == []

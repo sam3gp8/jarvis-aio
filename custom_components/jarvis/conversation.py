@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import time
-from typing import Literal
+from typing import Any, Literal
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import ConversationEntityFeature
@@ -597,16 +597,19 @@ class JarvisAgent(conversation.ConversationEntity):
 
     # ── LLM calls (provider-agnostic) ─────────────────────────────────────────
 
-    def _llm_text(self, messages: list[dict], persona: str) -> str:
+    def _llm_text(self, messages: list[dict], persona: str,
+                  run_state: dict[str, Any] | None = None) -> str:
         """Plain text call — no tools. Uses the LLMProvider interface."""
         result = self._client.chat(
             messages=[{"role": "system", "content": persona}] + messages,
             max_tokens=512,
             temperature=0.7,
+            run_state=run_state,
         )
         return result["text"]
 
-    def _llm_with_tools(self, messages: list[dict], persona: str, tools: list[dict]) -> dict:
+    def _llm_with_tools(self, messages: list[dict], persona: str, tools: list[dict],
+                        run_state: dict[str, Any] | None = None) -> dict:
         """Call with function-calling tools. Returns standardised dict.
 
         Returns:
@@ -620,6 +623,7 @@ class JarvisAgent(conversation.ConversationEntity):
             tools=tools or None,
             max_tokens=1024,
             temperature=0.7,
+            run_state=run_state,
         )
         if result["tool_calls"]:
             return {
@@ -657,9 +661,10 @@ class JarvisAgent(conversation.ConversationEntity):
         ]
 
         working = list(messages)
+        llm_run_state: dict[str, Any] = {}
         for _ in range(MAX_ITERS):
             result = await self.hass.async_add_executor_job(
-                self._llm_with_tools, working, persona, tools
+                self._llm_with_tools, working, persona, tools, llm_run_state
             )
             if result["type"] == "text":
                 return result["text"]
@@ -711,7 +716,9 @@ class JarvisAgent(conversation.ConversationEntity):
 
         # Max iterations — ask for a plain summary of what was done
         working.append({"role": "user", "content": "Briefly summarise what you have done."})
-        return await self.hass.async_add_executor_job(self._llm_text, working, persona)
+        return await self.hass.async_add_executor_job(
+            self._llm_text, working, persona, llm_run_state
+        )
 
     # ── Main entry point ──────────────────────────────────────────────────────
 
