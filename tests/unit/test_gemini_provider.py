@@ -18,7 +18,8 @@ class _Interactions:
 class _RejectsThinkingLevel:
     """Simulates a model that 400s on thinking_level: "minimal" (not every
     model accepts it — ai.google.dev/gemini-api/docs/thinking), so chat()
-    must retry with "low" instead."""
+    must retry with "low" instead. Uses the exact wording Gemini returns
+    ("thinking level", with a space, not the field name)."""
     def __init__(self, response):
         self.response = response
         self.calls = []
@@ -26,7 +27,11 @@ class _RejectsThinkingLevel:
     def create(self, **kwargs):
         self.calls.append(kwargs)
         if kwargs["generation_config"].get("thinking_level") == "minimal":
-            raise RuntimeError("400 Invalid argument: thinking_level 'minimal' is not supported for this model")
+            raise RuntimeError(
+                "Error code: 400 - {'error': {'message': \"'minimal' is not a "
+                "supported thinking level for this model. Allowed values are: "
+                "medium, low, high.\", 'code': 'invalid_request'}}"
+            )
         return self.response
 
 
@@ -78,7 +83,6 @@ def test_gemini_uses_interactions_api_and_normalizes_function_calls(load, monkey
         "generation_config": {
             "max_output_tokens": 120,
             "temperature": 0.2,
-            "thinking_level": "minimal",
         },
         "system_instruction": "Be concise.",
         "tools": [{"type": "function", "name": "turn_on", "description": "Turn on a light", "parameters": {"type": "object"}}],
@@ -165,3 +169,29 @@ def test_gemini_thinking_enabled_is_unaffected_by_minimal_rejection(load, monkey
     assert result["text"] == "Reasoned answer."
     assert len(interactions.calls) == 1
     assert interactions.calls[0]["generation_config"]["thinking_level"] == "high"
+
+
+def test_gemini_thinking_unset_leaves_level_unset(load, monkeypatch):
+    llm = load("llm_provider")
+    response = types.SimpleNamespace(id="interaction-1", output_text="Routine.", steps=[])
+    provider, interactions = _provider(llm, monkeypatch, response)
+
+    # Callers with no opinion on thinking (e.g. the camera-reasoning model,
+    # which isn't the vision toggle's model) must not send thinking_level at
+    # all — some models 400 on "minimal", so the model's own default applies.
+    provider.chat([{"role": "user", "content": "Judge this scene."}], max_tokens=220)
+
+    assert "thinking_level" not in interactions.calls[0]["generation_config"]
+
+
+def test_gemini_thinking_unset_never_retries_on_rejecting_model(load, monkeypatch):
+    llm = load("llm_provider")
+    response = types.SimpleNamespace(id="interaction-1", output_text="Routine.", steps=[])
+    provider, interactions = _provider_rejecting_thinking_level(llm, monkeypatch, response)
+
+    # No thinking_level sent → the fake never raises → single call, no retry.
+    result = provider.chat([{"role": "user", "content": "Judge this scene."}], max_tokens=220)
+
+    assert result["text"] == "Routine."
+    assert len(interactions.calls) == 1
+    assert "thinking_level" not in interactions.calls[0]["generation_config"]

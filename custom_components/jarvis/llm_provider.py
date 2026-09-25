@@ -338,10 +338,15 @@ class GeminiProvider(LLMProvider):
         # API takes thinking_level directly on generation_config (NOT nested
         # under a "thinking_config" object — that's the generateContent/REST
         # ThinkingConfig shape, and it's silently dropped here since it isn't
-        # a recognised field): "high" to think, "minimal" to (mostly) not. Not
-        # every model accepts "minimal" (ai.google.dev/gemini-api/docs/
-        # thinking) — chat() retries with "low" if the model rejects it.
-        generation_config["thinking_level"] = "high" if thinking else "minimal"
+        # a recognised field): "high" to think, "minimal" to (mostly) not.
+        # thinking=None (caller has no opinion) leaves it unset entirely so
+        # the model applies its own default — some models (e.g. gemini-3.8-
+        # flash) 400 on "minimal", so callers that can't tolerate that error
+        # (e.g. camera-reasoning) should pass thinking=None rather than False.
+        if thinking is True:
+            generation_config["thinking_level"] = "high"
+        elif thinking is False:
+            generation_config["thinking_level"] = "minimal"
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "input": input_items,
@@ -361,7 +366,12 @@ class GeminiProvider(LLMProvider):
         try:
             resp = self._client.interactions.create(**kwargs)
         except Exception as exc:
-            if not thinking and "thinking_level" in str(exc).lower():
+            # Not every model accepts "minimal" (ai.google.dev/gemini-api/docs/
+            # thinking) — some reject it with "thinking level" (space), others
+            # with "thinking_level" (field name), so match either.
+            exc_msg = str(exc).lower()
+            if (thinking is False
+                    and ("thinking_level" in exc_msg or "thinking level" in exc_msg)):
                 # Fresh dict for the retry — kwargs["generation_config"] must
                 # not be mutated in place, or the first (failed) call's
                 # recorded/logged config would silently reflect the retry.

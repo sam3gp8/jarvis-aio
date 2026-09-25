@@ -287,7 +287,10 @@ async def _reason_about_scene(
                 max_tokens=_vision_max_tokens(hass, 220, vision_thinking),
                 temperature=0.3,
                 model_override=reasoning_model or None,
-                thinking=vision_thinking,
+                # thinking left unset (None): the camera-reasoning model isn't
+                # the vision toggle's model, and some models (e.g. gemini-3.8-
+                # flash) 400 on the "minimal" level we'd otherwise send —
+                # leave it unset so it applies its own default.
             )
         )
         data = _parse_json_obj((result.get("text") or "").strip())
