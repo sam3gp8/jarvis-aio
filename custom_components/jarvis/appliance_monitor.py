@@ -1209,12 +1209,11 @@ async def start(hass: HomeAssistant, config: dict) -> None:
     _MON.config = config
 
     # Discover sensors
-    _MON.sensors = await hass.async_add_executor_job(_discover_sensors, hass)
+    # Discovery only reads HA state/registries, which must happen on the loop.
+    _MON.sensors = _discover_sensors(hass)
 
     # Discover native smart appliance status entities
-    _MON.natives = await hass.async_add_executor_job(
-        _discover_native_appliances, hass,
-    )
+    _MON.natives = _discover_native_appliances(hass)
 
     # If a device exposes a native completion entity, drop any power sensor on the
     # SAME device — otherwise the washer would announce twice per cycle (once from
@@ -1237,9 +1236,7 @@ async def start(hass: HomeAssistant, config: dict) -> None:
     _MON.power_guessing = bool(config.get("appliance_power_guessing", False))
 
     # Discover whole-home energy meter for delta tracking
-    _MON.delta = await hass.async_add_executor_job(
-        _discover_whole_home_meter, hass,
-    )
+    _MON.delta = _discover_whole_home_meter(hass)
 
     # Also add any explicitly configured sensors
     explicit = config.get("appliance_sensors", {})

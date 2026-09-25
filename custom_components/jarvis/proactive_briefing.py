@@ -256,7 +256,7 @@ async def _trigger_briefing(
         open_things = _gather_open_things(hass)
         if open_things:
             context_lines.append(f"Open/unlocked: {', '.join(open_things)}.")
-        events = _gather_overnight_events(hass, 4)
+        events = await hass.async_add_executor_job(_gather_overnight_events, hass, 4)
         if events:
             context_lines.append(f"Recent events: {'; '.join(events[:5])}.")
         if extra_context:

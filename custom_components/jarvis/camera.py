@@ -71,7 +71,18 @@ def _cfg_opt(hass: HomeAssistant, key: str, default=None):
 _PROVIDER_CACHE: dict = {}
 
 
-def _make_client(hass: HomeAssistant, provider: str, model: str, fallback):
+def _base_url_cfg(hass: HomeAssistant) -> dict:
+    """Endpoint config for provider construction. Reads config entries, so call
+    it on the event loop and hand the result to :func:`_make_client`."""
+    return {
+        "custom_base_url": _cfg_opt(hass, "custom_base_url", ""),
+        "ollama_base_url": _cfg_opt(hass, "ollama_base_url", ""),
+        "llm_base_url": _cfg_opt(hass, "llm_base_url", ""),
+    }
+
+
+def _make_client(hass: HomeAssistant, provider: str, model: str, fallback,
+                 base_cfg: dict | None = None):
     """
     Create an LLM provider for the given provider/model from current config.
     Returns `fallback` if creation isn't possible (missing key, error) so the
@@ -88,11 +99,8 @@ def _make_client(hass: HomeAssistant, provider: str, model: str, fallback):
         from . import ha_secrets
         api_key = ha_secrets.get_provider_key_sync(provider)
         from .const import resolve_provider_base_url
-        base_url = resolve_provider_base_url({
-            "custom_base_url": _cfg_opt(hass, "custom_base_url", ""),
-            "ollama_base_url": _cfg_opt(hass, "ollama_base_url", ""),
-            "llm_base_url": _cfg_opt(hass, "llm_base_url", ""),
-        }, provider)
+        base_url = resolve_provider_base_url(
+            base_cfg if base_cfg is not None else _base_url_cfg(hass), provider)
         # Ollama needs no key at all; Custom is explicitly allowed to have
         # none as long as its endpoint is configured.
         if not api_key and provider not in ("ollama", "custom"):
@@ -118,7 +126,12 @@ def _make_client(hass: HomeAssistant, provider: str, model: str, fallback):
 async def async_make_client(hass: HomeAssistant, provider: str, model: str, fallback):
     """Executor wrapper for :func:`_make_client` so async callers avoid blocking
     secrets/config file I/O on Home Assistant's event loop."""
-    return await hass.async_add_executor_job(_make_client, hass, provider, model, fallback)
+    try:                                    # config-entry reads stay on the loop
+        base_cfg = _base_url_cfg(hass)
+    except Exception:
+        base_cfg = {}                       # no custom endpoints → provider defaults
+    return await hass.async_add_executor_job(
+        _make_client, hass, provider, model, fallback, base_cfg)
 
 
 def _vision_model_rejects_images(exc) -> bool:
@@ -1205,8 +1218,8 @@ async def async_analyze_camera(
     vision_provider = _cfg_opt(hass, "vision_provider", "groq") or "groq"
     vision_model = _cfg_opt(hass, "vision_model", VISION_MODEL) or VISION_MODEL
     # Construct off the event loop — creating a provider does blocking SSL setup.
-    vision_client = await hass.async_add_executor_job(
-        _make_client, hass, vision_provider, vision_model, groq_client)
+    vision_client = await async_make_client(
+        hass, vision_provider, vision_model, groq_client)
     try:
         result = await hass.async_add_executor_job(
             lambda: vision_client.chat(
@@ -1277,8 +1290,8 @@ async def async_analyze_camera(
     det_type = _guess_detection_type(prompt, analysis)
     rsn_provider = _cfg_opt(hass, "camera_reasoning_provider", "groq") or "groq"
     rsn_model = _cfg_opt(hass, "camera_reasoning_model", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
-    rsn_client = await hass.async_add_executor_job(
-        _make_client, hass, rsn_provider, rsn_model, groq_client)
+    rsn_client = await async_make_client(
+        hass, rsn_provider, rsn_model, groq_client)
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,
         covered=cov_rooms, frigate_dets=frigate_dets,

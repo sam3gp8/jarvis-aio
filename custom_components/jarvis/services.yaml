@@ -382,6 +382,10 @@ test_tts:
   name: Test TTS
   description: "Play a JARVIS voice test tone on the broadcast group."
 
+test_routing:
+  name: Test Audio Routing
+  description: "Dump audio/TTS routing diagnostics (broadcast target, occupied areas, satellites, TTS engine) to the Home Assistant log."
+
 lockdown:
   name: Lockdown
   description: "Engage or lift the formal lockdown state — locks all locks and closes all open doors. Windows already open at engage are left as-is; new windows opening during lockdown are flagged as a breach."

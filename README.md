@@ -39,7 +39,7 @@ Everything past this point — vision, doorbell analysis, the Iron Man HUD's liv
 
 **The JARVIS voice.** Modelled on Stark's JARVIS: dry, precise, unflappable, quietly witty — and strictly situational about it. The wit is a scalpel, not a hammer, and it goes silent the instant something is wrong. JARVIS does not quip during a smoke alarm. A **banter level** setting (plain / dry / full) tunes how much character surfaces, and urgent and grave events always speak plainly regardless.
 
-**Vision & cameras.** Automatic doorbell-press analysis with a two-pass live-clip / recorded-event approach, package and mail detection on porch cameras, and silent visitor learning that quietly builds a picture of who comes and goes — all powered by vision models reasoning over Nest and Frigate feeds.
+**Vision & cameras.** Automatic doorbell-press analysis with a two-pass live-clip / recorded-event approach, package and mail detection on porch cameras (announced within seconds of courier motion or a mailbox sensor opening), and silent visitor learning that quietly builds a picture of who comes and goes — all powered by vision models reasoning over Nest and Frigate feeds.
 
 **The Cognitive Core.** A reasoning loop that classifies every household event by urgency and decides whether it's worth your attention. It grounds decisions in your home's actual history ("the kitchen light at 7am is routine; the basement window has never opened before"), escalates security-relevant events when you're away, and proposes automations from patterns it observes.
 
@@ -106,7 +106,7 @@ tools the agent invokes on its own; most also have a panel control.
 **Modes, memory, goals & suggestions**
 - Set operational modes, including custom ones (`set_mode`), and tune how much JARVIS acts on its own (`manage_autonomy`).
 - Remember facts you tell it (`remember`); open and track standing goals (`create_goal`, `update_goal`, `manage_goals`) and schedule follow-ups (`schedule_followup`, `manage_followups`).
-- Review, approve, or dismiss the automations it proposes from observed patterns (`review_suggestions`, `approve_suggestion`, `dismiss_suggestion`).
+- Review, approve, or dismiss the automations it proposes from observed patterns (`review_suggestions`, `approve_suggestion`, `dismiss_suggestion`). Suggestions are only offered when they carry a real action (lights, locks, covers, climate, announcements), including occupancy-aware "if this, then that" rules such as lights that stay on until a room is empty or turn on/off as ambient lux crosses a level. Garage-door confirmation suggestions are opt-in under **Settings**.
 - Mute a noisy entity from awareness, or force it back in (`ignore_entity`, `unignore_entity`); read opt-in wearable/wellbeing context (`wellbeing_context`).
 
 **Resilience & privacy**
@@ -118,7 +118,7 @@ tools the agent invokes on its own; most also have a panel control.
 
 **To start, you need exactly two things:**
 
-- **Home Assistant** with [HACS](https://hacs.xyz) installed.
+- **Home Assistant 2024.10 or newer** with [HACS](https://hacs.xyz) installed.
 - **At least one LLM provider** — [Groq](https://console.groq.com) has a generous free tier and is the recommended starting point. You can add multiple providers; each provider keeps its own key so the Main Agent and Observer tiers can use different providers. Ollama needs no key, only a reachable endpoint.
 
 **Optional add-ons** (each unlocks more, none required to begin):
@@ -218,7 +218,7 @@ This lives in `/config/jarvis/config.json` (merge it into the existing object �
 | `observer_enabled` | Let JARVIS watch the event stream and decide what's worth surfacing. |
 | `rich_reasoning` | Cloud-first judgment for medium/high-urgency events (cheap, sharper). |
 | `visitor_learning` | Silently learn from person events at the door — never spoken. |
-| `package_detection` | Watch porch cameras for packages and mail. |
+| `package_detection` | Watch porch cameras for packages and mail; courier motion and mailbox sensors trigger a prompt announcement. |
 | `cognition_threshold` | How salient an event must be before JARVIS escalates it. |
 
 ## Languages
@@ -238,7 +238,7 @@ To add a language or refine an existing one, copy an existing file, translate th
 
 ## Architecture
 
-JARVIS is a **Home Assistant custom integration** (domain `jarvis`, ~86 Python modules) installed via HACS into `custom_components/jarvis/`. It runs in-process: it registers the conversation agent and voice pipeline and serves the custom dashboard panel directly. State and learned behavior persist under `/config/jarvis/` (a SQLite `patterns.db`, the curated `knowledge.db`, the reasoning cache, the doorbell-training dataset, and lockdown state) so JARVIS keeps getting smarter across restarts.
+JARVIS is a **Home Assistant custom integration** (domain `jarvis`, ~90 top-level Python modules plus subpackages) installed via HACS into `custom_components/jarvis/`. It runs in-process: it registers the conversation agent and voice pipeline and serves the custom dashboard panel directly. State and learned behavior persist under `/config/jarvis/` (a SQLite `patterns.db`, the curated `knowledge.db`, the reasoning cache, the doorbell-training dataset, and lockdown state) so JARVIS keeps getting smarter across restarts.
 
 The reasoning pipeline is layered for resilience and cost: local templates → learned cache → (cloud, or soon a local model) → the **Local Mind** offline brain as the floor beneath everything. A connectivity breaker guards cloud calls, and every local decision logs its reasoning chain to the dashboard's log view.
 

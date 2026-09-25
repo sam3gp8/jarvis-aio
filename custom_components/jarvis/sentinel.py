@@ -300,21 +300,28 @@ class JarvisSentinel:
         else:
             text = await self._groq_line(entity_id, friendly_name, rule, minutes)
 
-        save_sentinel_event(entity_id, rule["id"], text)
-        save_message("assistant", f"[Sentinel] {text}", device_id="sentinel")
-        # v5.4.8: persist to activity log for panel
+        def _persist() -> None:
+            # Three SQLite writes — run them off the event loop, together.
+            save_sentinel_event(entity_id, rule["id"], text)
+            save_message("assistant", f"[Sentinel] {text}", device_id="sentinel")
+            # v5.4.8: persist to activity log for panel
+            try:
+                from .database import save_activity
+                save_activity(
+                    entity_id=entity_id,
+                    category=rule.get("id", "sentinel"),
+                    urgency="medium",
+                    message=text,
+                    was_spoken=True,
+                    source="sentinel",
+                )
+            except Exception:
+                pass
+
         try:
-            from .database import save_activity
-            save_activity(
-                entity_id=entity_id,
-                category=rule.get("id", "sentinel"),
-                urgency="medium",
-                message=text,
-                was_spoken=True,
-                source="sentinel",
-            )
-        except Exception:
-            pass
+            await self.hass.async_add_executor_job(_persist)
+        except Exception as exc:
+            _LOGGER.debug("Sentinel: persisting event failed: %s", exc)
         await async_announce(self.hass, text, self._tts_entity(), self._speakers())
 
         # v5.6.5: Also send phone push notification for sentinel alerts

@@ -1644,7 +1644,8 @@ async def _exec_ignore(hass: HomeAssistant, args: dict) -> str:
     """Add an ignore rule via the cognitive core."""
     try:
         from . import cognitive_core
-        result = cognitive_core.ignore(
+        result = await cognitive_core.async_ignore(
+            hass,
             entity_pattern=args.get("entity_pattern", ""),
             duration_minutes=int(args.get("duration_minutes", 0)),
             reason=args.get("reason", "user request"),
@@ -1658,7 +1659,8 @@ async def _exec_unignore(hass: HomeAssistant, args: dict) -> str:
     """Remove an ignore rule."""
     try:
         from . import cognitive_core
-        result = cognitive_core.unignore(args.get("entity_pattern", ""))
+        result = await cognitive_core.async_unignore(
+            hass, args.get("entity_pattern", ""))
         return json.dumps(result)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
@@ -2227,7 +2229,7 @@ async def _exec_who_do_you_see(hass: HomeAssistant, args: dict) -> str:
     """Report who JARVIS currently recognizes by face (v6.66.0)."""
     try:
         from . import recognition
-        res = await hass.async_add_executor_job(recognition.who_do_you_see, hass)
+        res = recognition.who_do_you_see(hass)   # state reads only — stays on the loop
         return json.dumps(res)
     except Exception as exc:
         return json.dumps({"error": str(exc), "seen": [], "any": False})
@@ -2441,7 +2443,7 @@ async def _execute_tool(
 
 # ── Home context builder ────────────────────────────────────────────────────
 
-def _build_home_context(hass: HomeAssistant) -> str:
+def _build_home_context(hass: HomeAssistant, learned: dict | None = None) -> str:
     """
     Build a compact home context string for the system prompt.
     Gives the LLM awareness of what's available to control.
@@ -2487,8 +2489,9 @@ def _build_home_context(hass: HomeAssistant) -> str:
                 suffix = f" (+{len(entities) - max_ent} more)" if len(entities) > max_ent else ""
                 parts.append(f"{label} ({len(entities)}): {', '.join(names)}{suffix}")
 
-    # Learned aliases
-    learned = _load_learned()
+    # Learned aliases (the file is read by the caller, off the event loop)
+    if learned is None:
+        learned = _load_learned()
     aliases = learned.get("alias", {})
     if aliases:
         alias_str = "; ".join(f"'{k}' = {v}" for k, v in list(aliases.items())[:20])
@@ -3067,9 +3070,10 @@ async def run_agent(
     from .llm_provider import create_provider
 
     # Build system prompt with home context
-    home_context = await hass.async_add_executor_job(
-        _build_home_context, hass,
-    )
+    # State/registry reads must stay on the event loop; only the learned-alias
+    # file read goes to the executor.
+    _learned = await hass.async_add_executor_job(_load_learned)
+    home_context = _build_home_context(hass, _learned)
     # v6.87.0: composite the live situational signals (presence, weather,
     # calendar, energy, recent activity) into one picture so judgments are
     # grounded in what is happening now, not just the static device inventory.

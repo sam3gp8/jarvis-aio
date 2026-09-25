@@ -317,14 +317,31 @@ def _load_log() -> list:
     return _log
 
 
-def _save_log() -> None:
-    """Persist the event log. Never raises."""
+def _write_log(data: list) -> None:
+    """Blocking write of an event-log snapshot. Never raises."""
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG_PATH, "w", encoding="utf-8") as f:
-            json.dump(_log[-_MAX_LOG:], f, indent=2, default=str)
+            json.dump(data, f, indent=2, default=str)
     except Exception as exc:
         _LOGGER.debug("intrusion log: save failed: %s", exc)
+
+
+def _save_log() -> None:
+    """Persist the event log (blocking). Never raises."""
+    _write_log(list(_log[-_MAX_LOG:]))
+
+
+async def async_load(hass) -> None:
+    """Do the one-time log read off the event loop, so later sync reads
+    (get_log, learning_summary, should_damp_weak_alert) never touch disk."""
+    if not _log_loaded:
+        await hass.async_add_executor_job(_load_log)
+
+
+async def _async_persist(hass) -> None:
+    # Snapshot on the loop (where the log is mutated); write in the executor.
+    await hass.async_add_executor_job(_write_log, list(_log[-_MAX_LOG:]))
 
 
 def _pattern_key(area: Optional[str], camera: Optional[str],
@@ -340,9 +357,10 @@ def _pattern_key(area: Optional[str], camera: Optional[str],
 def record_event(kind: str, reason: str = "", breach: Optional[str] = None,
                  breach_area: Optional[str] = None, camera: Optional[str] = None,
                  snapshot: Optional[dict] = None, zones: Optional[list] = None,
-                 max_depth: Optional[int] = None) -> dict:
+                 max_depth: Optional[int] = None, save: bool = True) -> dict:
     """Append an intrusion event to the reviewable log. kind is one of
-    'investigating' | 'unresolved' | 'confirmed' | 'false_alarm'. Never raises."""
+    'investigating' | 'unresolved' | 'confirmed' | 'false_alarm'. Never raises.
+    Event-loop callers use :func:`async_record_event`."""
     _load_log()
     ts = time.time()
     ev = {
@@ -363,7 +381,16 @@ def record_event(kind: str, reason: str = "", breach: Optional[str] = None,
     _log.append(ev)
     if len(_log) > _MAX_LOG:
         del _log[:-_MAX_LOG]
-    _save_log()
+    if save:
+        _save_log()
+    return ev
+
+
+async def async_record_event(hass, kind: str, **kwargs) -> dict:
+    """:func:`record_event` for event-loop callers (file I/O in the executor)."""
+    await async_load(hass)
+    ev = record_event(kind, save=False, **kwargs)
+    await _async_persist(hass)
     return ev
 
 
@@ -377,7 +404,7 @@ def get_log(limit: int = 50) -> list:
     return list(reversed(_log[-limit:]))
 
 
-def label_event(event_id: str, label: str) -> dict:
+def label_event(event_id: str, label: str, save: bool = True) -> dict:
     """Mark an event 'real' or 'false' (or None to clear). This is the training
     signal. Never raises."""
     _load_log()
@@ -388,9 +415,19 @@ def label_event(event_id: str, label: str) -> dict:
         if ev.get("id") == event_id:
             ev["label"] = label
             ev["labeled_ts"] = time.time()
-            _save_log()
+            if save:
+                _save_log()
             return {"ok": True, "id": event_id, "label": label}
     return {"ok": False, "error": "event not found"}
+
+
+async def async_label_event(hass, event_id: str, label: str) -> dict:
+    """:func:`label_event` for event-loop callers (file I/O in the executor)."""
+    await async_load(hass)
+    res = label_event(event_id, label, save=False)
+    if res.get("ok"):
+        await _async_persist(hass)
+    return res
 
 
 def pattern_verdict(area: Optional[str], camera: Optional[str],

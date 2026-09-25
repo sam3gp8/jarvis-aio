@@ -1410,7 +1410,7 @@ class PatternAnalyzer:
         (high recurrence, bounded windows). Never raises."""
         import bisect
         import statistics
-        from collections import defaultdict, Counter
+        from collections import Counter
         patterns: list = []
         try:
             rows = conn.execute(

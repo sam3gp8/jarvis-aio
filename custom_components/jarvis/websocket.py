@@ -2607,19 +2607,21 @@ async def ws_intrusion(
             connection.send_result(msg["id"], {**res, **intrusion.status()})
         elif msg["action"] == "log":
             # Reviewable event history with snapshots (v6.76.0)
+            await intrusion.async_load(hass)
             connection.send_result(msg["id"], {
                 "events": intrusion.get_log(msg.get("limit", 50)),
                 "learning": intrusion.learning_summary(),
             })
         elif msg["action"] == "label":
             # The training signal: mark an event real or false
-            res = intrusion.label_event(msg.get("event_id", ""),
-                                        msg.get("label"))
+            res = await intrusion.async_label_event(
+                hass, msg.get("event_id", ""), msg.get("label"))
             jarvis_log("SAFETY", f"Intrusion event labelled: "
                                  f"{msg.get('event_id')} = {msg.get('label')}")
             connection.send_result(msg["id"], {
                 **res, "learning": intrusion.learning_summary()})
         elif msg["action"] == "learning":
+            await intrusion.async_load(hass)
             connection.send_result(msg["id"], intrusion.learning_summary())
         else:
             connection.send_result(msg["id"], intrusion.status())

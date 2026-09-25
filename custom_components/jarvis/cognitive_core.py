@@ -174,24 +174,32 @@ class IgnoreManager:
         except Exception:
             self._rules = []
 
-    def _save(self):
+    def snapshot(self) -> list[dict]:
+        """Serializable copy of the live rules (taken on the caller's thread)."""
+        return [
+            {
+                "entity_pattern": r.entity_pattern,
+                "reason": r.reason,
+                "expires_at": r.expires_at,
+                "created_at": r.created_at,
+            }
+            for r in self._rules if not r.is_expired()
+        ]
+
+    @staticmethod
+    def write_snapshot(data: list[dict]) -> None:
+        """Blocking file write — call from an executor when on the event loop."""
         try:
-            data = [
-                {
-                    "entity_pattern": r.entity_pattern,
-                    "reason": r.reason,
-                    "expires_at": r.expires_at,
-                    "created_at": r.created_at,
-                }
-                for r in self._rules if not r.is_expired()
-            ]
             with open(IGNORE_FILE, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as exc:
             _LOGGER.warning("Failed to save ignore rules: %s", exc)
 
+    def _save(self):
+        self.write_snapshot(self.snapshot())
+
     def add(self, entity_pattern: str, duration_minutes: int = 0,
-            reason: str = "") -> IgnoreRule:
+            reason: str = "", save: bool = True) -> IgnoreRule:
         expires = (time.time() + duration_minutes * 60) if duration_minutes > 0 else 0
         rule = IgnoreRule(
             entity_pattern=entity_pattern,
@@ -200,7 +208,8 @@ class IgnoreManager:
             created_at=time.time(),
         )
         self._rules.append(rule)
-        self._save()
+        if save:
+            self._save()
         _LOGGER.info(
             "Cognitive: ignore '%s' for %s (%s)",
             entity_pattern,
@@ -209,11 +218,12 @@ class IgnoreManager:
         )
         return rule
 
-    def remove(self, entity_pattern: str) -> bool:
+    def remove(self, entity_pattern: str, save: bool = True) -> bool:
         before = len(self._rules)
         self._rules = [r for r in self._rules if r.entity_pattern != entity_pattern]
         if len(self._rules) < before:
-            self._save()
+            if save:
+                self._save()
             return True
         return False
 
@@ -644,9 +654,10 @@ class SafetyManager:
             damped = False
             try:
                 from . import intrusion as _intr
+                await _intr.async_load(self.hass)
                 damped = _intr.should_damp_weak_alert(breach_area, None)
-                _intr.record_event(
-                    "investigating", reason=("damped (learned benign)" if damped
+                await _intr.async_record_event(
+                    self.hass, "investigating", reason=("damped (learned benign)" if damped
                                              else "motion while away"),
                     breach=breach_name, breach_area=breach_area,
                     zones=[start_zone], max_depth=start_depth)
@@ -924,8 +935,8 @@ class SafetyManager:
             # by learning — it always alerts (v6.76.0).
             try:
                 from . import intrusion as _intr
-                _intr.record_event(
-                    "confirmed", reason=reason,
+                await _intr.async_record_event(
+                    self.hass, "confirmed", reason=reason,
                     breach=inv.get("breach_name"), breach_area=inv.get("breach_area"),
                     camera=cam_entity, snapshot=snap,
                     zones=sorted(inv.get("zones") or []),
@@ -945,6 +956,7 @@ class SafetyManager:
             damped_soft = False
             try:
                 from . import intrusion as _intr
+                await _intr.async_load(self.hass)
                 damped_soft = _intr.should_damp_weak_alert(
                     inv.get("breach_area"), cam_entity)
             except Exception:
@@ -958,8 +970,8 @@ class SafetyManager:
                     snap = None
             try:
                 from . import intrusion as _intr
-                _intr.record_event(
-                    "unresolved",
+                await _intr.async_record_event(
+                    self.hass, "unresolved",
                     reason=("damped (learned benign)" if damped_soft
                             else "no response; unconfirmed activity"),
                     breach=inv.get("breach_name"), breach_area=inv.get("breach_area"),
@@ -3167,6 +3179,30 @@ def unignore(entity_pattern: str) -> dict:
         removed = _CORE.ignore_mgr.remove(entity_pattern)
         return {"success": removed, "pattern": entity_pattern}
     return {"success": False, "error": "Cognitive core not running"}
+
+
+async def async_ignore(hass, entity_pattern: str, duration_minutes: int = 0,
+                       reason: str = "") -> dict:
+    """:func:`ignore` for event-loop callers: mutate the rules on the loop (where
+    the cognition tick reads them) and write the file in the executor."""
+    mgr = _CORE.ignore_mgr
+    if not mgr:
+        return {"success": False, "error": "Cognitive core not running"}
+    rule = mgr.add(entity_pattern, duration_minutes, reason, save=False)
+    await hass.async_add_executor_job(mgr.write_snapshot, mgr.snapshot())
+    return {"success": True, "pattern": rule.entity_pattern,
+            "duration": duration_minutes, "reason": reason}
+
+
+async def async_unignore(hass, entity_pattern: str) -> dict:
+    """:func:`unignore` for event-loop callers (file write in the executor)."""
+    mgr = _CORE.ignore_mgr
+    if not mgr:
+        return {"success": False, "error": "Cognitive core not running"}
+    removed = mgr.remove(entity_pattern, save=False)
+    if removed:
+        await hass.async_add_executor_job(mgr.write_snapshot, mgr.snapshot())
+    return {"success": removed, "pattern": entity_pattern}
 
 
 def list_ignores() -> list[dict]:

@@ -1,3 +1,11 @@
+## [8.0.1] — audit: keep Home Assistant's event loop responsive
+
+A full code audit found several places where JARVIS did blocking disk/database work directly on Home Assistant's event loop (which can stall the whole UI and trigger HA's "detected blocking call" warnings), and a few where it did the opposite — read HA state or registries from a worker thread, which HA does not allow. All fixed; no behavior or settings change.
+
+- **Off the event loop now:** Sentinel alert logging (three SQLite writes per alert), the intrusion event log (load, record, and labels from the panel), the proactive briefing's overnight-event query, ignore/unignore list saves, the learned-preferences file read on every conversation turn, and the startup routine count.
+- **Back on the event loop (thread-safety):** the home-context builder, "who do you see", appliance/energy-meter discovery, and the camera client's provider base-URL lookup no longer touch HA state or config entries from a worker thread.
+- **Documentation accuracy:** the `jarvis.test_routing` diagnostic service (used by the panel's routing test) is now described in `services.yaml`, the README states the minimum Home Assistant version (2024.10) and covers the 8.0.0 delivery announcements and occupancy-aware suggestions.
+
 ## [8.0.0] — timely delivery & mail announcements; garage suggestions are opt-in
 
 **Deliveries and mail are announced as they happen, not up to 15 minutes later.** Package and mail detection used to rely on a porch-camera sweep every 15 minutes (plus the doorbell press, which was already instant). A carrier who drops a package and leaves without ringing — or a mail delivery — could go unannounced for most of that window. Now:

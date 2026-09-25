@@ -758,8 +758,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.warning("JARVIS voice recognition registration failed (non-fatal): %s", exc)
 
+    try:   # reads routines.yaml — keep file I/O off the event loop
+        _routines = await hass.async_add_executor_job(list_routines)
+    except Exception:
+        _routines = []
     _LOGGER.info("JARVIS online. Good day, %s. Routines available: %s",
-                 honorific, ", ".join(list_routines()))
+                 honorific, ", ".join(_routines))
     return True
 
 
