@@ -131,3 +131,25 @@ async def test_async_make_client_resolves_base_cfg_on_loop(load, rhass, monkeypa
     monkeypatch.setattr(cam, "_base_url_cfg", lambda h: {"llm_base_url": "http://x"})
     assert await cam.async_make_client(rhass, "groq", "m", "FB") == "CLIENT"
     assert seen["base_cfg"] == {"llm_base_url": "http://x"}   # passed in, not re-read
+
+
+# ── web_research: genai.Client()/interactions.create() kept off the loop ────
+
+async def test_gemini_grounded_search_runs_off_loop(load, rhass, monkeypatch):
+    import sys
+    import types
+
+    class _Interactions:
+        def create(self, **kwargs):
+            return types.SimpleNamespace(output_text="answer")
+
+    genai = types.SimpleNamespace(Client=lambda **k: types.SimpleNamespace(interactions=_Interactions()))
+    google = types.ModuleType("google")
+    google.genai = genai
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.genai", genai)
+
+    wr = load("web_research")
+    text = await wr._gemini_grounded_search(rhass, "fake-key", "gemini-2.5-flash", "q")
+    assert text == "answer"
+    assert rhass.executor_calls == ["_call"]   # genai.Client() + interactions.create() off-loop

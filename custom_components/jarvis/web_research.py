@@ -140,13 +140,20 @@ async def _gemini_grounded_search(hass, api_key: str, model: str, q: str) -> Opt
     # The model picker may store the API resource prefix; the SDK expects the
     # bare model ID.
     model = model.removeprefix("models/")
-    try:
+
+    def _call():
         client = genai.Client(api_key=api_key)
-        interaction = client.interactions.create(
+        return client.interactions.create(
             model=model,
             input=f"Search the web and answer concisely: {q}",
             tools=[{"type": "google_search"}],
         )
+
+    try:
+        # genai.Client() loads TLS certs and the interactions.create() call
+        # does blocking network I/O — both are sync SDK calls, so they must
+        # run off the event loop (see llm_provider.GeminiProvider.chat).
+        interaction = await hass.async_add_executor_job(_call)
     except Exception as exc:
         _LOGGER.debug("gemini grounded search request failed: %s", exc)
         return None
