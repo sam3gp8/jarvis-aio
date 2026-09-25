@@ -324,11 +324,11 @@ class GeminiProvider(LLMProvider):
         previous_messages = state.get("previous_messages", [])
         new_messages = (
             messages[len(previous_messages):]
-            if continuation else self._latest_user_turn(messages)
+            if continuation else self._plain_conversation_turns(messages)
         )
         input_items = self._input_items(new_messages)
         if not input_items:
-            input_items = self._input_items(messages)
+            input_items = self._input_items(self._plain_conversation_turns(messages))
 
         generation_config: dict[str, Any] = {
             "max_output_tokens": max_tokens,
@@ -437,19 +437,26 @@ class GeminiProvider(LLMProvider):
                     and messages[:len(previous_messages)] == previous_messages)
 
     @staticmethod
-    def _latest_user_turn(messages: list[dict]) -> list[dict]:
-        """Return only the active user turn for a new server-side interaction.
+    def _plain_conversation_turns(messages: list[dict]) -> list[dict]:
+        """Return text/image user turns and plain assistant text for a new interaction.
 
         JARVIS provides client-managed OpenAI-style history. Replaying its old
-        user messages as Interaction inputs makes Gemini answer each stale turn
-        in sequence; the prior model outputs cannot be safely reconstructed as
-        native Interaction steps. Same-run tool continuations use the server
-        interaction ID instead.
+        structured tool-call messages as Interaction inputs can make Gemini
+        process stale function calls without the server-side signatures it
+        expects. Plain transcript turns are safe to preserve as native
+        user_input/model_output items; same-run tool continuations use the
+        server interaction ID instead.
         """
-        for message in reversed(messages):
-            if message.get("role") == "user":
-                return [message]
-        return []
+        turns = []
+        for message in messages:
+            role = message.get("role")
+            plain_assistant = (
+                role == "assistant" and not message.get("tool_calls")
+                and GeminiProvider._text_content(message.get("content"))
+            )
+            if role == "user" or plain_assistant:
+                turns.append(message)
+        return turns
 
     @staticmethod
     def _system_instruction(messages: list[dict]) -> str:
@@ -480,6 +487,10 @@ class GeminiProvider(LLMProvider):
             role = message.get("role")
             if role == "user":
                 items.append({"type": "user_input", "content": self._content_parts(message.get("content"))})
+            elif role == "assistant" and not message.get("tool_calls"):
+                text = self._text_content(message.get("content"))
+                if text:
+                    items.append({"type": "model_output", "content": [{"type": "text", "text": text}]})
             elif role == "tool":
                 call_id = message.get("tool_call_id", "")
                 items.append({

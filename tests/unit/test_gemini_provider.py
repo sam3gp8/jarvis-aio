@@ -170,7 +170,7 @@ def test_gemini_continuation_state_is_scoped_per_run(load, monkeypatch):
     }]
 
 
-def test_gemini_new_interaction_uses_only_the_latest_user_turn(load, monkeypatch):
+def test_gemini_new_interaction_preserves_plain_transcript(load, monkeypatch):
     llm = load("llm_provider")
     response = types.SimpleNamespace(id="interaction-1", output_text="Tomorrow.", steps=[])
     provider, interactions = _provider(llm, monkeypatch, response)
@@ -183,9 +183,32 @@ def test_gemini_new_interaction_uses_only_the_latest_user_turn(load, monkeypatch
         {"role": "user", "content": "And tomorrow?"},
     ])
 
-    assert interactions.calls[0]["input"] == [{
-        "type": "user_input", "content": [{"type": "text", "text": "And tomorrow?"}],
-    }]
+    assert interactions.calls[0]["input"] == [
+        {"type": "user_input", "content": [{"type": "text", "text": "Who are you?"}]},
+        {"type": "model_output", "content": [{"type": "text", "text": "JARVIS."}]},
+        {"type": "user_input", "content": [{"type": "text", "text": "What is the weather now?"}]},
+        {"type": "user_input", "content": [{"type": "text", "text": "And tomorrow?"}]},
+    ]
+
+
+def test_gemini_new_interaction_does_not_replay_stale_tool_calls(load, monkeypatch):
+    llm = load("llm_provider")
+    response = types.SimpleNamespace(id="interaction-1", output_text="Tomorrow.", steps=[])
+    provider, interactions = _provider(llm, monkeypatch, response)
+
+    provider.chat([
+        {"role": "user", "content": "What is the weather now?"},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "call-1", "function": {"name": "weather_forecast", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call-1", "content": "Rain today."},
+        {"role": "assistant", "content": "It will rain today."},
+        {"role": "user", "content": "And tomorrow?"},
+    ])
+
+    assert interactions.calls[0]["input"] == [
+        {"type": "user_input", "content": [{"type": "text", "text": "What is the weather now?"}]},
+        {"type": "model_output", "content": [{"type": "text", "text": "It will rain today."}]},
+        {"type": "user_input", "content": [{"type": "text", "text": "And tomorrow?"}]},
+    ]
 
 
 def test_gemini_falls_back_to_low_level_when_minimal_rejected(load, monkeypatch):
