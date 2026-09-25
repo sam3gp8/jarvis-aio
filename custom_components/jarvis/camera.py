@@ -1243,6 +1243,7 @@ async def async_analyze_camera(
         hass, vision_provider, vision_model, groq_client)
     try:
         vision_thinking = bool(_cfg_opt(hass, "vision_thinking_enabled", False))
+        vision_max_tokens = _vision_max_tokens(hass, 300, vision_thinking)
         result = await hass.async_add_executor_job(
             lambda: vision_client.chat(
                 messages=[
@@ -1259,7 +1260,7 @@ async def async_analyze_camera(
                         ),
                     },
                 ],
-                max_tokens=_vision_max_tokens(hass, 300, vision_thinking),
+                max_tokens=vision_max_tokens,
                 model_override=vision_model or None,
                 thinking=vision_thinking,
             )

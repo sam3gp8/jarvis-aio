@@ -181,7 +181,10 @@ async def test_gemini_grounded_search_strips_models_prefix(wr, monkeypatch, fake
         fake_hass, "fake-key", "models/gemini-2.5-flash", "test query")
 
     assert text == "answer"
-    assert captured["client"] == {"api_key": "fake-key"}
+    assert captured["client"] == {
+        "api_key": "fake-key",
+        "http_options": {"timeout": 10000},
+    }
     assert captured["request"] == {
         "model": "gemini-2.5-flash",
         "input": "Search the web and answer concisely: test query",
