@@ -331,14 +331,20 @@ class GeminiProvider(LLMProvider):
             "max_output_tokens": max_tokens,
             "temperature": temperature,
         }
-        if not thinking:
-            # Thinking-capable Gemini/Gemma models spend max_output_tokens on
-            # internal "thought" steps before any answer text, so JARVIS's
-            # small per-call budgets (e.g. vision's 300) can be exhausted by
-            # thinking alone — status "incomplete" with empty output_text.
-            # Disable thinking so the whole budget goes to the real answer,
-            # unless the caller opted in (dashboard thinking switch).
-            generation_config["thinking_config"] = {"thinking_budget": 0}
+        # Thinking-capable Gemini/Gemma models spend max_output_tokens on
+        # internal "thought" steps before any answer text, so JARVIS's small
+        # per-call budgets (e.g. vision's 300) can be exhausted by thinking
+        # alone — status "incomplete" with empty output_text. thinking_budget
+        # alone is not reliably honored on every model (observed: Gemma 4
+        # kept spending ~300 thought tokens with thinking_budget: 0) — Gemma
+        # only supports a hard on/off via thinking_level ("high"/"minimal";
+        # see ai.google.dev/gemma/docs/core/gemma_on_gemini_api), so set that
+        # explicitly and fall back to budget-only if the model rejects
+        # thinking_level (older non-Gemma/non-Gemini-3 models 400 on it).
+        generation_config["thinking_config"] = (
+            {"thinking_level": "high"} if thinking
+            else {"thinking_level": "minimal", "thinking_budget": 0}
+        )
         kwargs: dict[str, Any] = {
             "model": model_override or self.model,
             "input": input_items,
@@ -355,7 +361,18 @@ class GeminiProvider(LLMProvider):
         if continuation and self._previous_interaction_id:
             kwargs["previous_interaction_id"] = self._previous_interaction_id
 
-        resp = self._client.interactions.create(**kwargs)
+        try:
+            resp = self._client.interactions.create(**kwargs)
+        except Exception as exc:
+            if "thinking_level" in str(exc).lower():
+                # Fresh dict for the retry — kwargs["generation_config"] must
+                # not be mutated in place, or the first (failed) call's
+                # recorded/logged config would silently reflect the retry.
+                retry_config = dict(generation_config)
+                retry_config["thinking_config"] = {} if thinking else {"thinking_budget": 0}
+                resp = self._client.interactions.create(**{**kwargs, "generation_config": retry_config})
+            else:
+                raise
         self._previous_interaction_id = getattr(resp, "id", None)
         self._previous_messages = [dict(message) for message in messages]
         tool_calls = []
