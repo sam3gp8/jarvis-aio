@@ -363,6 +363,7 @@ class GeminiProvider(LLMProvider):
         if continuation and self._previous_interaction_id:
             kwargs["previous_interaction_id"] = self._previous_interaction_id
 
+        active_generation_config = generation_config
         try:
             resp = self._client.interactions.create(**kwargs)
         except Exception as exc:
@@ -380,8 +381,21 @@ class GeminiProvider(LLMProvider):
                 # would leave thinking on by default, defeating the toggle.
                 retry_config = dict(generation_config, thinking_level="low")
                 resp = self._client.interactions.create(**{**kwargs, "generation_config": retry_config})
+                active_generation_config = retry_config
             else:
                 raise
+        if self._is_incomplete(resp):
+            retry_config = dict(
+                active_generation_config,
+                max_output_tokens=max(max_tokens * 4, 2048),
+            )
+            resp = self._client.interactions.create(
+                **{**kwargs, "generation_config": retry_config}
+            )
+            if self._is_incomplete(resp):
+                raise RuntimeError(
+                    "Gemini interaction remained incomplete after output-budget retry"
+                )
         self._previous_interaction_id = getattr(resp, "id", None)
         self._previous_messages = [dict(message) for message in messages]
         tool_calls = []
@@ -403,6 +417,12 @@ class GeminiProvider(LLMProvider):
 
     def supports_thinking(self) -> bool:
         return True
+
+    @staticmethod
+    def _is_incomplete(response) -> bool:
+        status = getattr(response, "status", None)
+        status_value = getattr(status, "value", status)
+        return str(status_value or "").lower().rsplit(".", 1)[-1] == "incomplete"
 
     def _is_continuation(self, messages: list[dict]) -> bool:
         return bool(self._previous_interaction_id and len(messages) >= len(self._previous_messages)

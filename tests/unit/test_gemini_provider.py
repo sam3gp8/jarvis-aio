@@ -4,6 +4,8 @@ from __future__ import annotations
 import sys
 import types
 
+import pytest
+
 
 class _Interactions:
     def __init__(self, response):
@@ -13,6 +15,16 @@ class _Interactions:
     def create(self, **kwargs):
         self.calls.append(kwargs)
         return self.response
+
+
+class _SequentialInteractions:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return next(self.responses)
 
 
 class _RejectsThinkingLevel:
@@ -55,6 +67,17 @@ def _provider_rejecting_thinking_level(llm, monkeypatch, response):
     monkeypatch.setitem(sys.modules, "google", google)
     monkeypatch.setitem(sys.modules, "google.genai", genai)
     return llm.GeminiProvider("AIza-key", "gemini-2.5-flash-lite"), interactions
+
+
+def _provider_with_responses(llm, monkeypatch, responses):
+    interactions = _SequentialInteractions(responses)
+    client = types.SimpleNamespace(interactions=interactions)
+    genai = types.SimpleNamespace(Client=lambda **kwargs: client)
+    google = types.ModuleType("google")
+    google.genai = genai
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.genai", genai)
+    return llm.GeminiProvider("AIza-key", "gemini-flash-latest"), interactions
 
 
 def test_gemini_uses_interactions_api_and_normalizes_function_calls(load, monkeypatch):
@@ -195,3 +218,48 @@ def test_gemini_thinking_unset_never_retries_on_rejecting_model(load, monkeypatc
     assert result["text"] == "Routine."
     assert len(interactions.calls) == 1
     assert "thinking_level" not in interactions.calls[0]["generation_config"]
+
+
+def test_gemini_retries_incomplete_response_with_larger_budget(load, monkeypatch):
+    llm = load("llm_provider")
+    incomplete = types.SimpleNamespace(
+        id="interaction-incomplete", status="incomplete",
+        output_text='{"speak": false, "reason":', steps=[],
+    )
+    complete = types.SimpleNamespace(
+        id="interaction-complete", status="completed",
+        output_text='{"speak": false, "reason": "routine"}', steps=[],
+    )
+    provider, interactions = _provider_with_responses(
+        llm, monkeypatch, [incomplete, complete]
+    )
+
+    result = provider.chat(
+        [{"role": "user", "content": "Decide."}], max_tokens=200
+    )
+
+    assert result["text"] == '{"speak": false, "reason": "routine"}'
+    assert interactions.calls[0]["generation_config"]["max_output_tokens"] == 200
+    assert interactions.calls[1]["generation_config"]["max_output_tokens"] == 2048
+    assert "previous_interaction_id" not in interactions.calls[1]
+    assert provider._previous_interaction_id == "interaction-complete"
+
+
+def test_gemini_rejects_response_that_remains_incomplete(load, monkeypatch):
+    llm = load("llm_provider")
+    incomplete = types.SimpleNamespace(
+        id="interaction-incomplete", status="incomplete",
+        output_text='{"speak": false, "reason":', steps=[],
+    )
+    provider, interactions = _provider_with_responses(
+        llm, monkeypatch, [incomplete, incomplete]
+    )
+
+    with pytest.raises(RuntimeError, match="remained incomplete"):
+        provider.chat(
+            [{"role": "user", "content": "Decide."}], max_tokens=200
+        )
+
+    assert len(interactions.calls) == 2
+    assert provider._previous_interaction_id is None
+    assert provider._previous_messages == []
