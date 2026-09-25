@@ -315,6 +315,12 @@ class GeminiProvider(LLMProvider):
             "generation_config": {
                 "max_output_tokens": max_tokens,
                 "temperature": temperature,
+                # Thinking-capable Gemini/Gemma models spend max_output_tokens on
+                # internal "thought" steps before any answer text, so JARVIS's
+                # small per-call budgets (e.g. vision's 300) can be exhausted by
+                # thinking alone — status "incomplete" with empty output_text.
+                # Disable thinking so the whole budget goes to the real answer.
+                "thinking_config": {"thinking_budget": 0},
             },
         }
         if system_instruction:

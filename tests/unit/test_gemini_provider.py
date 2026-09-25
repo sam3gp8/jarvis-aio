@@ -49,7 +49,11 @@ def test_gemini_uses_interactions_api_and_normalizes_function_calls(load, monkey
     assert interactions.calls == [{
         "model": "gemini-2.5-flash",
         "input": [{"type": "user_input", "content": [{"type": "text", "text": "Turn on the kitchen."}]}],
-        "generation_config": {"max_output_tokens": 120, "temperature": 0.2},
+        "generation_config": {
+            "max_output_tokens": 120,
+            "temperature": 0.2,
+            "thinking_config": {"thinking_budget": 0},
+        },
         "system_instruction": "Be concise.",
         "tools": [{"type": "function", "name": "turn_on", "description": "Turn on a light", "parameters": {"type": "object"}}],
     }]
