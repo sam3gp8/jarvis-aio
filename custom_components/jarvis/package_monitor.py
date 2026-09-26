@@ -40,6 +40,29 @@ _STATE: dict[str, dict] = {}
 # "no package yet" and announce the same delivery twice.
 _EVAL_LOCK = asyncio.Lock()
 
+# Per-camera, per-kind announcement cooldown. The vision flag can flicker — a
+# weak local model, a car passing through frame, one frame that misreads a
+# neighbour's mailbox — and a real package or mail persists once it is there. The
+# per-camera state machine only suppresses a repeat while the flag stays True; a
+# flip back to False and up to True again (or a delivery seen by a second camera)
+# would otherwise re-announce the same event. This gate collapses those repeats
+# without blocking a genuinely separate delivery hours later.
+_ANNOUNCE_CD: dict[str, float] = {}
+_ANNOUNCE_COOLDOWN = 1800.0   # 30 minutes
+
+
+def _announce_gate(entity_id: str, kind: str) -> bool:
+    """True — and records the time — if ``kind`` (package/mail/removed) may be
+    announced for this camera now; False if it was announced within the cooldown.
+    Call it only once an announcement is otherwise going ahead, so a suppressed
+    (quiet-hours / switched-off) cycle doesn't burn the window."""
+    key = f"{entity_id}:{kind}"
+    now = datetime.now(timezone.utc).timestamp()
+    if now - _ANNOUNCE_CD.get(key, 0.0) < _ANNOUNCE_COOLDOWN:
+        return False
+    _ANNOUNCE_CD[key] = now
+    return True
+
 _PKG_KEYWORDS = re.compile(
     r"\b(package|parcel|box|delivery|delivered|amazon|ups|fedex|usps|dhl|"
     r"carton|crate|cardboard)\b", re.I,
@@ -231,8 +254,31 @@ def _anyone_home(hass) -> bool:
     return True
 
 
+# Cameras that actually frame a delivery spot — a door, porch, or step — matched
+# on whole words and adjacent word pairs (see _name_tokens), never substrings.
+_PORCH_TOKENS = {"doorbell", "porch", "stoop", "entryway", "entry", "frontdoor",
+                 "vestibule", "portico"}
+_PORCH_BIGRAMS = {("front", "door"), ("front", "porch"), ("front", "step"),
+                  ("front", "steps"), ("front", "stoop"), ("front", "entry"),
+                  ("front", "entrance"), ("side", "door"), ("back", "door"),
+                  ("side", "porch"), ("porch", "camera")}
+# Wide outdoor panoramas — a package is never "delivered" to the middle of a
+# yard, driveway, or street, yet a parked car or a neighbour's mailbox in one of
+# these reads as a delivery. They must never drive the porch package sweep, even
+# when named "front …" (e.g. ``camera.front_yard``). Kept off the sweep entirely.
+_WIDE_VIEW_TOKENS = {"yard", "backyard", "frontyard", "street", "road", "lawn",
+                     "garden", "driveway", "curb", "field", "garage", "pool",
+                     "patio", "deck", "well", "gate", "parking", "lot"}
+
+
 def watched_cameras(hass, configured=None) -> list[str]:
-    """Resolve which cameras to inspect for deliveries."""
+    """Resolve which cameras to inspect for packages at a door or porch.
+
+    An explicit configuration wins. Otherwise pick cameras whose name denotes a
+    doorway/porch — never a wide yard, driveway, or street panorama, where
+    ordinary parked cars and a neighbour's mailbox read as deliveries (a common
+    false-announcement source, e.g. a ``camera.front_yard`` matched merely because
+    its name contains "front")."""
     if configured:
         if isinstance(configured, str):
             return [configured] if hass.states.get(configured) else []
@@ -240,9 +286,11 @@ def watched_cameras(hass, configured=None) -> list[str]:
     out = []
     from .camera import active_camera_states
     for st in active_camera_states(hass):
-        e = st.entity_id
-        if any(k in e for k in ("doorbell", "front_door", "porch", "front")):
-            out.append(e)
+        toks, pairs = _name_tokens(st)
+        if toks & _WIDE_VIEW_TOKENS:
+            continue                       # a wide panorama, not a porch view
+        if (toks & _PORCH_TOKENS) or (pairs & _PORCH_BIGRAMS) or ("front" in toks):
+            out.append(st.entity_id)
     return out
 
 
@@ -295,14 +343,14 @@ async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
                if n and n > 1 else
                f"{honorific}, a package has been delivered to {loc}.")
         _log(hass, entity_id, "delivered", det, source)
-        if can_speak:
+        if can_speak and _announce_gate(entity_id, "package"):
             await async_announce(hass, msg, tts_entity, speakers, context="package")
             spoke = True
     # Package removed
     elif prev.get("package") and not det.get("package"):
         away = not _anyone_home(hass)
         _log(hass, entity_id, "removed", det, source)
-        if away and can_speak:
+        if away and can_speak and _announce_gate(entity_id, "removed"):
             await async_announce(
                 hass,
                 f"{honorific}, a package was just removed from {loc} while no one is home.",
@@ -313,7 +361,7 @@ async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
     # Mail arrival
     if det.get("mail") and not prev.get("mail"):
         _log(hass, entity_id, "mail", det, source)
-        if can_speak:
+        if can_speak and _announce_gate(entity_id, "mail"):
             await async_announce(
                 hass, f"{honorific}, mail has arrived at {loc}.",
                 tts_entity, speakers, context="package",
