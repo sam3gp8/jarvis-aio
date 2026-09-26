@@ -1,4 +1,4 @@
-## [8.2.3] — stop false and repeated delivery announcements
+## [8.2.4] — stop false and repeated delivery announcements
 
 **Fixes JARVIS announcing mail/packages that aren't there, and repeating the same one.** Two causes, both addressed:
 
@@ -6,6 +6,14 @@
 - **An oscillating detection is announced once, not every time.** A vision flag can flicker — a weak local model, a car passing through frame, one bad frame — and several paths (the 15-minute sweep, the instant motion trigger, its follow-up, the doorbell press) all feed the announcer. Each flip back to "package present" used to re-announce the same delivery. A per-camera, per-kind cooldown now collapses those repeats for 30 minutes, without blocking a genuinely separate delivery later or a different camera.
 
 If deliveries still misfire after this, it's usually the **vision model**: a small local model (e.g. a 4B Ollama model) is unreliable at spotting a carrier or parcel. Pointing the vision role at a stronger model, or configuring a specific porch/doorbell camera under Package Watch, makes detection far more accurate.
+
+## [8.2.3] — small correctness fixes from a coverage pass
+
+A large unit-test expansion surfaced three genuine bugs, now fixed (no settings or behavior change beyond these):
+
+- **Appliance type is matched most-specific-first.** Classifying an appliance from its entity/friendly name (and from a native run-state sensor) now checks the longest keyword first, so a "dishwasher" is no longer misclassified as a "washer" just because *washer* is a substring, and the generic LG `job_state` sensor no longer wins over the specific `washer_job_state` / `dryer_job_state` ones.
+- **The Local Mind's offline database connection always closes.** It now opens through the same auto-closing connection wrapper the rest of JARVIS uses, so a failed read can't leak a SQLite handle.
+- **The noise filter stops flagging innocent entities.** The `_w` power-sensor suffix is now matched only as a suffix, so an entity like `front_walk` is no longer treated as a noisy power reading and hidden from awareness.
 
 ## [8.2.2] — learned automations are suggested once, and named for humans
 

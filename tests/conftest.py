@@ -12,9 +12,11 @@ whose __init__.py would drag in the whole integration (config flow, setup, …).
 from __future__ import annotations
 
 import datetime as _dt
+import gc
 import importlib.util
 import os
 import pathlib
+import sqlite3
 import sys
 import types
 
@@ -187,6 +189,21 @@ def _load(modname: str):
 # ── 3. Fixtures ───────────────────────────────────────────────────────────────
 import pytest  # noqa: E402
 from fakes import FakeHass, FakeProvider  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _close_sqlite_connections():
+    """Ensure SQLite connections are closed before garbage collection runs."""
+    yield
+    connections = [
+        obj for obj in gc.get_objects() if isinstance(obj, sqlite3.Connection)
+    ]
+    for conn in connections:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    gc.collect()
 
 
 @pytest.fixture

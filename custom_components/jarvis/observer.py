@@ -129,6 +129,8 @@ def _entity_id_looks_noisy(entity_id: str) -> bool:
     if eid_lower.endswith("_w"):
         return True
     for needle in ENTITY_ID_NOISE_SUBSTRINGS:
+        if needle == "_w":
+            continue
         if needle.startswith("_") and needle.endswith("_"):
             if needle in eid_lower:
                 return True

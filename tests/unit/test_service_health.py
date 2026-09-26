@@ -441,3 +441,95 @@ def test_scheduler_check_warns_on_repeated_failures(sh):
     out = sh._check_scheduler(_hass_with({"scheduler": sched}))
     assert out["status"] == "warn"
     assert "hazard" in out["detail"]
+
+
+async def test_llm_cloud_breaker_and_healthy_provider(sh, monkeypatch):
+    monkeypatch.setattr(sh, "_cfg", lambda key, default=None: {
+        "llm_provider": "groq"}.get(key, default))
+    connectivity = types.ModuleType("jc.connectivity")
+    connectivity.status = lambda: {"state": "OPEN"}
+    monkeypatch.setitem(sys.modules, "jc.connectivity", connectivity)
+    monkeypatch.setattr(sys.modules["jc"], "connectivity", connectivity, raising=False)
+    out = await sh._check_llm(_Hass({}))
+    assert out["status"] == "warn" and out["breaker"] == "OPEN"
+    connectivity.status = lambda: {"state": "CLOSED"}
+    out = await sh._check_llm(_Hass({}))
+    assert out["status"] == "ok"
+
+
+async def test_llm_ping_miss_becomes_idle_or_recent_ok(sh, monkeypatch):
+    monkeypatch.setattr(sh, "_cfg", lambda key, default=None: {
+        "llm_base_url": "http://ollama.local/v1", "llm_provider": "ollama"}.get(key, default))
+    monkeypatch.setattr(sh, "_ping_ollama", lambda *args: _async_value((False, "unreachable")))
+    sh._USAGE.clear()
+    out = await sh._check_llm(_Hass({}))
+    assert out["status"] == "idle" and out["base"] == "http://ollama.local/v1"
+    sh.record_usage("llm", True)
+    out = await sh._check_llm(_Hass({}))
+    assert out["status"] == "ok" and "recent agent" in out["detail"]
+
+
+async def test_embeddings_disabled_and_check_exception(sh, monkeypatch):
+    emb = _install_emb_stub(monkeypatch, {"ok": True, "model": "x", "dim": 3})
+    emb.is_enabled = lambda: False
+    out = await sh._check_embeddings(_Hass({}))
+    assert out["status"] == "off"
+    emb.is_enabled = lambda: (_ for _ in ()).throw(RuntimeError("probe setup"))
+    out = await sh._check_embeddings(_Hass({}))
+    assert out["status"] == "idle" and "could not verify" in out["detail"]
+
+
+def test_speech_state_read_failure_is_idle(sh):
+    class _BrokenStates:
+        def async_all(self, domain):
+            raise RuntimeError("states unavailable")
+    out = sh._check_speech_entity(types.SimpleNamespace(states=_BrokenStates()),
+                                   "tts", "TTS", "auto")
+    assert out["status"] == "idle"
+
+
+def test_scheduler_empty_and_status_error(sh):
+    class _Sched:
+        def __init__(self, fail=False):
+            self.fail = fail
+        def status(self):
+            if self.fail:
+                raise RuntimeError("scheduler unavailable")
+            return []
+    out = sh._check_scheduler(_hass_with({"scheduler": _Sched()}))
+    assert out["status"] == "off" and "no periodic" in out["detail"]
+    out = sh._check_scheduler(_hass_with({"scheduler": _Sched(True)}))
+    assert out["status"] == "warn" and "status error" in out["detail"]
+
+
+def test_routines_check_handles_bad_config(sh, monkeypatch):
+    monkeypatch.setattr(sh, "_cfg", lambda key, default=None: "not-a-number")
+    out = sh._check_routines(None)
+    assert out["status"] == "idle" and "could not convert" in out["detail"]
+
+
+async def test_host_check_disabled_unavailable_and_critical(sh, monkeypatch):
+    class _HostHass(_Hass):
+        async def async_add_executor_job(self, fn, *args):
+            return fn(*args)
+
+    hass = _HostHass({})
+    host = types.ModuleType("jc.host_telemetry")
+    host.is_enabled = lambda: False
+    monkeypatch.setitem(sys.modules, "jc.host_telemetry", host)
+    monkeypatch.setattr(sys.modules["jc"], "host_telemetry", host, raising=False)
+    assert (await sh._check_host(hass))["status"] == "off"
+    host.is_enabled = lambda: True
+    host.snapshot = lambda: {"available": False}
+    assert (await sh._check_host(hass))["status"] == "off"
+    host.snapshot = lambda: {"available": True, "critical": True,
+                             "metrics": {"cpu_temp_c": 95},
+                             "findings": [{"phrase": "CPU critical"}]}
+    out = await sh._check_host(hass)
+    assert out["status"] == "down" and out["detail"] == "CPU critical"
+
+
+def _async_value(value):
+    async def _value():
+        return value
+    return _value()

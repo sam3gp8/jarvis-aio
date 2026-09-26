@@ -170,3 +170,78 @@ def test_yes_no_sentence_sets_are_disjoint(vc):
     assert not (set(vc._YES) & set(vc._NO))       # no overlap
     assert "yes" in vc._YES and "no" in vc._NO
     assert "unlock it" in vc._YES and "cancel" in vc._NO
+
+
+def test_satellite_audio_hint_supports_dict_and_bool(vc, monkeypatch):
+    hass = _Hass()
+    monkeypatch.setattr(vc, "_cfg", _cfg_map({"satellite_audio_out": {"sat.one": True}}))
+    assert vc._satellite_has_audio_out(hass, "sat.one") is True
+    assert vc._satellite_has_audio_out(hass, "sat.two") is False
+    monkeypatch.setattr(vc, "_cfg", _cfg_map({"satellite_audio_out": True}))
+    assert vc._satellite_has_audio_out(hass, "sat.two") is True
+
+
+async def test_confirm_native_nested_response(vc, monkeypatch):
+    hass = _Hass()
+    monkeypatch.setattr(vc, "_satellite_for_entity", lambda h, e: "sat.one")
+    monkeypatch.setattr(vc, "_mode", lambda h: "native")
+    hass._call_result = {"sat.one": {"id": "confirm"}}
+    assert await vc.confirm(hass, "sure?", entity_id="lock.front") is True
+    hass._call_result = {"unexpected": "value"}
+    assert await vc.confirm(hass, "sure?", entity_id="lock.front") is False
+
+
+async def test_confirm_native_failure_falls_back_to_gated(vc, monkeypatch):
+    hass = _Hass()
+    monkeypatch.setattr(vc, "_satellite_for_entity", lambda h, e: "sat.one")
+    monkeypatch.setattr(vc, "_mode", lambda h: "native")
+    monkeypatch.setattr(vc, "_confirm_native", lambda *args: _async_value(None))
+    monkeypatch.setattr(vc, "_confirm_gated", lambda *args: _async_value(True))
+    assert await vc.confirm(hass, "sure?", entity_id="lock.front") is True
+
+
+async def test_start_listening_uses_esphome_fallback(vc, monkeypatch):
+    hass = _Hass()
+    calls = []
+    async def _fail_native_then_succeed(domain, service, data, **kwargs):
+        calls.append((domain, service, data, kwargs))
+        if len(calls) == 1:
+            raise RuntimeError("native unavailable")
+    monkeypatch.setattr(vc, "_cfg", _cfg_map({
+        "satellite_start_action": {"sat.one": "esphome.basement_start_va"}}))
+    hass.services.async_call = _fail_native_then_succeed
+    assert await vc._start_listening(hass, "sat.one") is True
+    assert calls == [
+        ("assist_satellite", "start_conversation",
+         {"entity_id": "sat.one", "preannounce": False}, {"blocking": False}),
+        ("esphome", "basement_start_va", {}, {"blocking": False}),
+    ]
+
+
+async def test_ask_followup_no_satellite_and_native_success(vc, monkeypatch):
+    hass = _Hass()
+    monkeypatch.setattr(vc, "_satellite_for_entity", lambda h, e: None)
+    assert await vc.ask_followup(hass, "question") == {
+        "ok": False, "error": "no assist_satellite available"}
+    monkeypatch.setattr(vc, "_satellite_for_entity", lambda h, e: "sat.one")
+    monkeypatch.setattr(vc, "_mode", lambda h: "native")
+    assert (await vc.ask_followup(hass, "question"))["mode"] == "native"
+
+
+async def test_announce_test_success_and_failure(vc, monkeypatch):
+    hass = _Hass()
+    monkeypatch.setattr(vc, "_satellite_for_entity", lambda h, e: "sat.one")
+    out = await vc.announce_test(hass)
+    assert out["ok"] is True and out["satellite"] == "sat.one"
+
+    async def _fail(*args, **kwargs):
+        raise RuntimeError("announce failed")
+    hass.services.async_call = _fail
+    out = await vc.announce_test(hass, "sat.one")
+    assert out["ok"] is False and "announce failed" in out["error"]
+
+
+def _async_value(value):
+    async def _value():
+        return value
+    return _value()

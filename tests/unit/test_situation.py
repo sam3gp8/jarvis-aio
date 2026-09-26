@@ -132,3 +132,37 @@ def test_snapshot_never_raises_on_bad_source(sit, fake_hass, load, monkeypatch):
     monkeypatch.setattr(fake_hass.states, "async_all", lambda d=None: [])
     out = sit.snapshot(fake_hass)                    # must not raise
     assert "Presence:" not in out                   # bad source omitted
+
+
+def test_time_falls_back_when_ha_clock_unavailable(sit, fake_hass, monkeypatch):
+    import homeassistant.util.dt as dt_util
+    monkeypatch.setattr(dt_util, "now",
+                        lambda: (_ for _ in ()).throw(RuntimeError("no clock")))
+    out = sit._time(fake_hass)
+    assert out.startswith("Time:")
+
+
+def test_weather_condition_without_temperature(sit, fake_hass, monkeypatch):
+    class _St:
+        state = "partly_cloudy"
+        attributes = {}
+    monkeypatch.setattr(fake_hass.states, "async_all", lambda d=None: [_St()])
+    assert sit._weather(fake_hass) == "Weather: partly cloudy"
+
+
+def test_weather_failure_is_omitted(sit, fake_hass, monkeypatch):
+    monkeypatch.setattr(fake_hass.states, "async_all",
+                        lambda d=None: (_ for _ in ()).throw(RuntimeError("state failure")))
+    assert sit._weather(fake_hass) == ""
+
+
+def test_calendar_includes_first_conflict(sit, fake_hass, load, monkeypatch):
+    comms = load("comms")
+    monkeypatch.setattr(comms, "agenda", lambda hass, h=12: {
+        "events": ["Meeting"], "conflicts": ["overlap"]})
+    assert sit._calendar(fake_hass) == "Next up: Meeting (overlap)"
+
+
+def test_activity_keeps_only_last_three_lines(sit, fake_hass, set_observer):
+    set_observer("one\ntwo\nthree\nfour")
+    assert sit._activity(fake_hass) == "Recent activity: two; three; four"
