@@ -1,3 +1,9 @@
+## [8.1.1] — reply in the language the request came in on
+
+**Fixes wrong-language voice replies in multi-language households** (from discussion #55). A home with both a German and a Russian voice satellite could ask JARVIS in German and get an answer in Russian — which the German TTS voice then spoke as garbled Cyrillic.
+
+The reply-language directive was built from Home Assistant's single **global** `config.language`, ignoring the **per-request** conversation language that HA already carries per pipeline. Now the request's own language (`user_input.language`) wins over the global setting, so a German request is answered in German and a Russian request in Russian in the same household, and the pipeline-driven TTS voice matches. Non-conversation prompts (briefings, camera analysis) still use the global language, and English installs are unaffected. The directive was also reworded to switch away from the request language only when the user clearly writes in another one, reducing mis-switching on imperfect voice transcripts.
+
 ## [8.1.0] — native Gemini support via Google's GenAI Interactions API
 
 Gemini now runs through Google's **native GenAI Interactions API** (the `google-genai` SDK) instead of the OpenAI-compatible shim. This is more reliable for Gemini's own features and fixes the stale-conversation replay that could confuse thinking-capable models.
