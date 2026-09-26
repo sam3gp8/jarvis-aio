@@ -107,6 +107,7 @@ async def test_periodic_announces_once_on_confirmed_arrival(pm, load, fake_hass,
     monkeypatch.setattr(tts, "async_announce", _announce)
 
     pm._STATE.clear()
+    pm._ANNOUNCE_CD.clear()
     fake_hass.states.set("camera.front_door_test", "idle")
 
     seq = [
@@ -154,3 +155,101 @@ async def test_periodic_hallucination_single_frame_stays_quiet(pm, load, fake_ha
                             configured_camera="camera.front_door_test")
     assert spoken == []                                     # nothing announced
     assert pm._STATE["camera.front_door_test"]["package"] is False  # no phantom state
+
+
+# ── watched_cameras: only door/porch views, never wide panoramas ─────────────
+
+def test_watched_cameras_excludes_wide_panoramas(pm, fake_hass, monkeypatch):
+    # A wide yard/street/driveway view (or an indoor garage) is not a porch
+    # package camera, even when its name contains "front" — a parked car or a
+    # neighbour's mailbox there reads as a delivery and false-announces.
+    import sys
+    import types
+
+    class _S:
+        def __init__(self, e, fn=""):
+            self.entity_id = e
+            self.attributes = {"friendly_name": fn}
+
+    cams = [
+        _S("camera.front_door", "Front Door"),
+        _S("camera.porch"),
+        _S("camera.doorbell"),
+        _S("camera.side_door"),
+        _S("camera.front_yard", "Front Yard"),
+        _S("camera.driveway"),
+        _S("camera.backyard"),
+        _S("camera.garage"),
+        _S("camera.kitchen"),
+    ]
+    monkeypatch.setitem(sys.modules, "jc.camera",
+                        types.SimpleNamespace(active_camera_states=lambda h: cams))
+    out = pm.watched_cameras(fake_hass)
+    assert "camera.front_door" in out and "camera.porch" in out
+    assert "camera.doorbell" in out and "camera.side_door" in out
+    for wide in ("camera.front_yard", "camera.driveway", "camera.backyard",
+                 "camera.garage", "camera.kitchen"):
+        assert wide not in out, wide
+
+
+def test_watched_cameras_configured_list_wins(pm, fake_hass):
+    # An explicit configuration bypasses the name heuristic entirely.
+    fake_hass.states.set("camera.front_yard", "idle")
+    assert pm.watched_cameras(fake_hass, "camera.front_yard") == ["camera.front_yard"]
+
+
+# ── announcement cooldown: an oscillating flag announces once ────────────────
+
+async def test_flickering_detection_announces_once(pm, load, fake_hass, monkeypatch):
+    tts = load("tts_helper")
+    spoken = []
+
+    async def _announce(hass, msg, *a, **k):
+        spoken.append(msg)
+
+    monkeypatch.setattr(tts, "async_announce", _announce)
+    monkeypatch.setattr(pm, "_in_quiet_hours", lambda h: False)
+    monkeypatch.setattr(pm, "_announcements_on", lambda h: True)
+    monkeypatch.setattr(pm, "_log", lambda *a, **k: None)
+    pm._STATE.clear()
+    pm._ANNOUNCE_CD.clear()
+
+    eid = "camera.porch"
+    pkg = {"package": True, "mail": False, "count": 1}
+    empty = {"package": False, "mail": False, "count": 0}
+    # Arrival announces; then the flag drops and rises again within the window —
+    # the same package must not be announced a second time.
+    await pm.evaluate(fake_hass, None, "Sir", "tts.x", [], eid, pkg, "periodic")
+    await pm.evaluate(fake_hass, None, "Sir", "tts.x", [], eid, empty, "periodic")
+    await pm.evaluate(fake_hass, None, "Sir", "tts.x", [], eid, pkg, "periodic")
+    assert len([m for m in spoken if "package has been delivered" in m]) == 1
+
+    # A genuinely different camera is independent — it still announces.
+    await pm.evaluate(fake_hass, None, "Sir", "tts.x", [], "camera.front_door",
+                      pkg, "periodic")
+    assert len([m for m in spoken if "package has been delivered" in m]) == 2
+
+
+async def test_cooldown_is_per_kind(pm, load, fake_hass, monkeypatch):
+    # Package and mail are separate kinds: a package announcement must not
+    # suppress a mail announcement on the same camera.
+    tts = load("tts_helper")
+    spoken = []
+
+    async def _announce(hass, msg, *a, **k):
+        spoken.append(msg)
+
+    monkeypatch.setattr(tts, "async_announce", _announce)
+    monkeypatch.setattr(pm, "_in_quiet_hours", lambda h: False)
+    monkeypatch.setattr(pm, "_announcements_on", lambda h: True)
+    monkeypatch.setattr(pm, "_log", lambda *a, **k: None)
+    pm._STATE.clear()
+    pm._ANNOUNCE_CD.clear()
+
+    eid = "camera.porch"
+    await pm.evaluate(fake_hass, None, "Sir", "tts.x", [], eid,
+                      {"package": True, "mail": False, "count": 1}, "periodic")
+    await pm.evaluate(fake_hass, None, "Sir", "tts.x", [], eid,
+                      {"package": True, "mail": True, "count": 1}, "periodic")
+    assert any("package has been delivered" in m for m in spoken)
+    assert any("mail has arrived" in m for m in spoken)

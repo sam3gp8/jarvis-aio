@@ -1,3 +1,12 @@
+## [8.2.3] — stop false and repeated delivery announcements
+
+**Fixes JARVIS announcing mail/packages that aren't there, and repeating the same one.** Two causes, both addressed:
+
+- **Wide camera views are no longer treated as porch cameras.** The porch package sweep picked any camera whose name merely *contained* "front" — so a `camera.front_yard` (a wide yard/street view with parked cars and a neighbour's mailbox across the road) was swept for deliveries, and ordinary traffic read as a package or mail. Camera selection is now word-aware: it looks at true doorway/porch views (doorbell, porch, stoop, front door, side/back door) and **excludes wide panoramas** — yard, driveway, street, lawn, garden, garage, pool, and the like — even when they're named "front …". An explicitly configured camera still wins.
+- **An oscillating detection is announced once, not every time.** A vision flag can flicker — a weak local model, a car passing through frame, one bad frame — and several paths (the 15-minute sweep, the instant motion trigger, its follow-up, the doorbell press) all feed the announcer. Each flip back to "package present" used to re-announce the same delivery. A per-camera, per-kind cooldown now collapses those repeats for 30 minutes, without blocking a genuinely separate delivery later or a different camera.
+
+If deliveries still misfire after this, it's usually the **vision model**: a small local model (e.g. a 4B Ollama model) is unreliable at spotting a carrier or parcel. Pointing the vision role at a stronger model, or configuring a specific porch/doorbell camera under Package Watch, makes detection far more accurate.
+
 ## [8.2.2] — learned automations are suggested once, and named for humans
 
 **Fixes duplicate suggestions and cryptic suggestion names.** The review list could fill with many nearly-identical "JARVIS Learned" suggestions for the same behavior, and each one's name showed raw entity ids (`close cover.smart_garage_door_2007…_garage_2 after binary_sensor.bay_2_car_occupancy confirms`) instead of the friendly names you see everywhere else.

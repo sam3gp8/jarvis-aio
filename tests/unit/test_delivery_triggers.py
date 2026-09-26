@@ -56,6 +56,7 @@ async def test_concurrent_evaluations_announce_once(pm, load, fake_hass, monkeyp
     # the lock must make the second one see the first's state, not re-announce.
     import asyncio
     pm._STATE.clear()
+    pm._ANNOUNCE_CD.clear()
     spoke = []
     tts_helper = load("tts_helper")
 
