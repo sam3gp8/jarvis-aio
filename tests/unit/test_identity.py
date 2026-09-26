@@ -247,3 +247,77 @@ def test_quick_person_still_returns_a_string(identity, monkeypatch):
     # back-compat: external callers of quick_person keep working
     monkeypatch.setattr(identity, "_home_people", lambda h: ["Sam"])
     assert identity.quick_person(None) == "Sam"
+
+
+def test_voice_provider_failure_is_ignored(identity, cfg, sigs, fake_hass):
+    cfg["identity_voice_fingerprint"] = True
+
+    def _boom(hass, device_id):
+        raise RuntimeError("voice backend offline")
+
+    identity.register_voice_provider(_boom)
+    try:
+        sigs["home"] = ["Sam"]
+        assert identity.resolve(fake_hass).person == "Sam"
+    finally:
+        identity.register_voice_provider(None)
+
+
+def test_config_failure_uses_default(identity, load, monkeypatch):
+    config = load("jarvis_config")
+    monkeypatch.setattr(config, "get",
+                        lambda key, default=None: (_ for _ in ()).throw(RuntimeError("bad config")))
+    assert identity._cfg("anything", "fallback") == "fallback"
+
+
+def test_presence_and_face_failures_are_safe(identity, load, monkeypatch, fake_hass):
+    presence = load("presence")
+    recognition = load("recognition")
+    monkeypatch.setattr(presence, "get_presence_summary",
+                        lambda hass: (_ for _ in ()).throw(RuntimeError("bad presence")))
+    monkeypatch.setattr(recognition, "who_is_where",
+                        lambda hass: (_ for _ in ()).throw(RuntimeError("bad face")))
+    assert identity._home_people(fake_hass) == []
+    assert identity._face_votes(fake_hass, 0) == {}
+
+
+def test_room_and_proximity_votes_handle_missing_signals(identity, monkeypatch, fake_hass):
+    class _States:
+        def async_all(self, domain):
+            raise RuntimeError("state read failed")
+
+    fake_hass.states = _States()
+    assert identity._room_votes(fake_hass, "office", 0) == {}
+    assert identity._proximity_votes(fake_hass, "office") == {}
+
+
+def test_proximity_uses_tracker_owner_and_area(identity, monkeypatch, fake_hass):
+    import sys
+    import types
+    audio = types.ModuleType("jc.audio_routing")
+    audio.entity_area = lambda hass, entity: "office"
+    monkeypatch.setitem(sys.modules, "jc.audio_routing", audio)
+    monkeypatch.setattr(sys.modules["jc"], "audio_routing", audio, raising=False)
+    fake_hass.states.set("device_tracker.phone", "office", person="",
+                         friendly_name="Phone")
+    fake_hass.states.set("person.sam", "home", friendly_name="Sam",
+                         device_trackers=["device_tracker.phone"])
+    assert identity._proximity_votes(fake_hass, "office") == {"sam": identity._W_PROXIMITY}
+
+
+def test_resolve_subject_and_quick_identify_fallbacks(identity, cfg, sigs, fake_hass, monkeypatch):
+    sigs["home"] = ["Sam", "Alex"]
+    assert identity.resolve_subject(fake_hass) == "primary"
+    monkeypatch.setattr(identity, "resolve", lambda *args, **kwargs: identity.Identification(
+        identity.UNKNOWN, 0.2, "low_confidence", {"Sam": 0.2}))
+    out = identity.quick_identify(fake_hass, "office")
+    assert out.person == identity.UNKNOWN and out.candidates == {"Sam": 0.2}
+
+
+def test_quick_identify_disabled_and_exception(identity, cfg, fake_hass, monkeypatch):
+    cfg["identity_enabled"] = False
+    assert identity.quick_identify(fake_hass).method == "disabled"
+    cfg["identity_enabled"] = True
+    monkeypatch.setattr(identity, "_home_people",
+                        lambda hass: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert identity.quick_identify(fake_hass).method == "no_signal"

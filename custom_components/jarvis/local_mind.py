@@ -38,6 +38,7 @@ from collections import deque
 from typing import Optional
 
 from .paths import config_path_str
+from .sqlite_utils import ClosingConnection
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ _stats = {"decisions": 0, "spoke": 0, "silent": 0}
 
 def _connect() -> Optional[sqlite3.Connection]:
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=2.0)
+        conn = sqlite3.connect(DB_PATH, timeout=2.0, factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         return conn
     except Exception:

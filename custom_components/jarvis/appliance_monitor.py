@@ -93,9 +93,9 @@ _POWER_FINGERPRINTS = [
 def _classify_appliance(entity_id: str, friendly_name: str) -> Optional[ApplianceType]:
     """Identify appliance type from entity_id or friendly_name."""
     search = (entity_id + " " + friendly_name).lower()
-    for keyword, atype in _KEYWORDS.items():
+    for keyword in sorted(_KEYWORDS, key=len, reverse=True):
         if keyword in search:
-            return atype
+            return _KEYWORDS[keyword]
     return None
 
 
@@ -120,10 +120,10 @@ def _fingerprint_from_power(peak_watts: float) -> Optional[tuple[ApplianceType, 
 # instead of guessing every mid-range draw is "the washer".
 
 def _type_to_appliance(type_str: str) -> ApplianceType:
-    t = (type_str or "").strip().lower()
-    for kw, atype in _KEYWORDS.items():
+    t = (type_str or "").strip().lower().replace(" ", "_")
+    for kw in sorted(_KEYWORDS, key=len, reverse=True):
         if kw == t or kw in t:
-            return atype
+            return _KEYWORDS[kw]
     for atype in ApplianceType:
         if atype.label == t:
             return atype
@@ -253,9 +253,9 @@ _NATIVE_PATTERNS = [
     ("run_complete",     {"on"},                                       None),
     ("cycle_complete",   {"on"},                                       None),
     ("run_state",        {"end", "finished", "complete", "completed"}, None),  # LG ThinQ run state
-    ("job_state",        {"finished", "end", "complete", "completed"}, None),  # LG ThinQ
     ("washer_job_state", {"finished", "end"},                          ApplianceType.WASHER),
     ("dryer_job_state",  {"finished", "end"},                          ApplianceType.DRYER),
+    ("job_state",        {"finished", "end", "complete", "completed"}, None),  # LG ThinQ
     ("dishwasher_job",   {"finished", "end"},                          ApplianceType.DISHWASHER),
 ]
 

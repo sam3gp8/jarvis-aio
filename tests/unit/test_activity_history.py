@@ -152,6 +152,39 @@ async def test_entity_history_recorder_unavailable(ah, monkeypatch):
     assert "error" in res
 
 
+def test_resolve_entities_by_area(ah, monkeypatch):
+    import homeassistant.helpers as helpers
+    ar = types.ModuleType("homeassistant.helpers.area_registry")
+    er = types.ModuleType("homeassistant.helpers.entity_registry")
+    area = types.SimpleNamespace(id="kitchen", name="Kitchen")
+    ar.async_get = lambda hass: types.SimpleNamespace(async_list_areas=lambda: [area])
+    registry = object()
+    er.async_get = lambda hass: registry
+    er.async_entries_for_area = lambda reg, area_id: [
+        types.SimpleNamespace(entity_id="light.kitchen")]
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.area_registry", ar)
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", er)
+    monkeypatch.setattr(helpers, "area_registry", ar, raising=False)
+    monkeypatch.setattr(helpers, "entity_registry", er, raising=False)
+    assert ah._resolve_entities(_Hass(), None, "kitchen") == ["light.kitchen"]
+
+
+async def test_entity_history_handles_dict_rows_and_fetch_failure(ah, monkeypatch):
+    row = {"state": "on", "last_updated": "2026-08-03T11:00:00"}
+    hass = _Hass([_State("light.k", "on", fn="Kitchen")],
+                 history={"light.k": [row, {"last_updated": "ignored"}]})
+    out = await ah.entity_history(hass, entity="kitchen", hours="bad")
+    assert out["hours"] == 24.0 and out["counts"]["light.k"] == 1
+
+    import homeassistant.components.recorder as recorder
+    class _FailInstance:
+        async def async_add_executor_job(self, fn, *args):
+            raise RuntimeError("recorder down")
+    monkeypatch.setattr(recorder, "get_instance", lambda hass: _FailInstance())
+    out = await ah.entity_history(hass, entity="kitchen")
+    assert out["error"] == "could not read history for that period"
+
+
 # ── logbook ──────────────────────────────────────────────────────────────────
 
 async def test_logbook_returns_entries(ah):
@@ -178,3 +211,22 @@ async def test_logbook_clamps_hours(ah):
     hass = _Hass(logbook=[])
     res = await ah.logbook(hass, hours=999999)
     assert res["hours"] <= 24 * 14
+
+
+async def test_logbook_uses_legacy_fallback_and_shapes_rows(ah, monkeypatch):
+    import homeassistant.components.logbook as lb
+    import homeassistant.components.recorder as recorder
+    monkeypatch.delattr(lb, "async_get_events", raising=False)
+    lb.get_events = lambda hass, start, end: [
+        {"timestamp": "when", "name": "Door", "state": "open"}, "malformed"]
+    res = await ah.logbook(_Hass(), hours="bad")
+    assert res["hours"] == 24.0
+    assert res["entries"] == [{"when": "when", "name": "Door",
+                               "message": "open", "entity_id": None}]
+
+    class _FailInstance:
+        async def async_add_executor_job(self, fn, *args):
+            raise RuntimeError("logbook down")
+    monkeypatch.setattr(recorder, "get_instance", lambda hass: _FailInstance())
+    res = await ah.logbook(_Hass())
+    assert "no logbook entries" in res["note"]

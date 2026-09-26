@@ -55,6 +55,15 @@ def test_ddg_empty_is_honest_error(wr):
     assert "error" in out and "no results" in out["error"]
 
 
+def test_ddg_definition_fallback_and_malformed_topics(wr):
+    out = wr._shape_ddg("q", {
+        "Definition": "A concise definition", "DefinitionURL": "https://example.test",
+        "DefinitionSource": "Example", "RelatedTopics": [None, {"Text": "related"}]})
+    assert out["answer"] == "A concise definition"
+    assert out["source"] == "https://example.test"
+    assert out["related"] == ["related"]
+
+
 def test_ddg_abstract_clipped_to_max(wr):
     out = wr._shape_ddg("q", {"AbstractText": "word " * 1000})
     assert len(out["answer"]) <= wr._MAX_ABSTRACT + 1
@@ -154,6 +163,64 @@ async def test_research_keeps_original_error_for_non_gemini_provider(wr, monkeyp
 
     out = await wr.research(fake_hass, "who is the current us president")
     assert out["error"] == "no results"
+
+
+async def test_research_selects_searxng_backend(wr, monkeypatch, fake_hass):
+    import importlib
+    config = importlib.import_module("jc.jarvis_config")
+    monkeypatch.setattr(config, "get", lambda key, default=None:
+                        "searxng" if key == "search_backend" else default)
+
+    async def _searx(hass, query):
+        return {"query": query, "answer": "found", "backend": "searxng"}
+
+    monkeypatch.setattr(wr, "_searxng", _searx)
+    out = await wr.research(fake_hass, "  latest news ")
+    assert out["backend"] == "searxng" and out["query"] == "latest news"
+
+
+async def test_research_converts_backend_exception_to_error(wr, monkeypatch, fake_hass):
+    async def _boom(hass, query):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(wr, "_duckduckgo", _boom)
+    out = await wr.research(fake_hass, "query")
+    assert out["error"] == "lookup failed: network down"
+
+
+async def test_grounded_fallback_uses_reasoning_gemini(wr, monkeypatch, fake_hass):
+    import importlib
+    config = importlib.import_module("jc.jarvis_config")
+    secrets = importlib.import_module("jc.ha_secrets")
+    values = {"web_research_llm_fallback": True, "llm_provider": "groq",
+              "reasoning_provider": "gemini", "reasoning_model": "reasoning-model"}
+    monkeypatch.setattr(config, "get", lambda key, default=None: values.get(key, default))
+    monkeypatch.setattr(secrets, "async_get_provider_key", lambda hass, provider: _async_value("key"))
+    monkeypatch.setattr(wr, "_gemini_grounded_search",
+                        lambda *args: _async_value("grounded answer"))
+    out = await wr._llm_grounded_fallback(fake_hass, "q")
+    assert out["backend"] == "gemini_grounding" and out["answer"] == "grounded answer"
+
+
+async def test_grounded_fallback_skips_without_key(wr, monkeypatch, fake_hass):
+    import importlib
+    config = importlib.import_module("jc.jarvis_config")
+    secrets = importlib.import_module("jc.ha_secrets")
+    monkeypatch.setattr(config, "get", lambda key, default=None:
+                        {"web_research_llm_fallback": True, "llm_provider": "gemini"}.get(key, default))
+    monkeypatch.setattr(secrets, "async_get_provider_key", lambda *args: _async_value(None))
+    assert await wr._llm_grounded_fallback(fake_hass, "q") is None
+
+
+async def test_gemini_grounded_search_rejects_missing_inputs(wr, fake_hass):
+    assert await wr._gemini_grounded_search(fake_hass, "", "model", "q") is None
+    assert await wr._gemini_grounded_search(fake_hass, "key", "", "q") is None
+
+
+def _async_value(value):
+    async def _value():
+        return value
+    return _value()
 
 
 async def test_gemini_grounded_search_strips_models_prefix(wr, monkeypatch, fake_hass):
