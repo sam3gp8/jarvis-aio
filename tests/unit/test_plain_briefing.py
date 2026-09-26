@@ -138,6 +138,9 @@ async def test_async_briefing_falls_back_to_plain_facts_when_model_is_empty(b, f
     monkeypatch.setattr(b, "save_message", fake_save_message)
     monkeypatch.setattr(b, "async_announce", fake_announce)
     monkeypatch.setattr(b, "build_system_prompt", lambda hass, honorific, task: "system prompt")
+    # Pin the greeting so the assertion doesn't depend on the wall-clock hour
+    # ("Still awake" after ~22:00 would otherwise fail this at night).
+    monkeypatch.setattr(b, "_time_greeting", lambda: "Good afternoon")
 
     result = await b.async_briefing(
         hass,
@@ -260,6 +263,8 @@ async def test_async_briefing_handles_provider_and_announce_failures(b, fake_has
 
     monkeypatch.setattr(b, "build_system_prompt", lambda hass, honorific, task: "system prompt")
     monkeypatch.setattr(b, "save_message", lambda *args, **kwargs: None)
+    # Pin the greeting so the assertion holds regardless of the wall-clock hour.
+    monkeypatch.setattr(b, "_time_greeting", lambda: "Good afternoon")
 
     result = await b.async_briefing(hass, call, BoomClient(), "sir", None, [])
     assert "Good " in result["briefing"]

@@ -1999,6 +1999,23 @@ async def _configured_providers(hass: HomeAssistant, entry) -> list[str]:
     return out
 
 
+def _ollama_tags_url(base_url: str) -> str:
+    """URL for Ollama's model list.
+
+    Ollama serves its model list at the NATIVE ``/api/tags`` endpoint, which
+    lives at the server root — not under the OpenAI-compatible ``/v1`` prefix
+    that JARVIS uses for chat. A base URL of ``http://host:11434/v1`` (the chat
+    default, and what the Settings "Ollama URL" field holds) must therefore drop
+    the ``/v1`` before ``/api/tags``; otherwise Ollama answers the resulting
+    ``/v1/api/tags`` with a plain ``404 page not found`` and no models load."""
+    base = (base_url or "").rstrip("/")
+    if not base:
+        base = "http://homeassistant.local:11434"
+    if base.endswith("/v1"):
+        base = base[: -len("/v1")].rstrip("/")
+    return f"{base}/api/tags"
+
+
 async def _fetch_models(hass, provider: str, api_key: str, base_url: str) -> list[str]:
     """
     Query a provider's models endpoint and return a sorted list of model IDs.
@@ -2027,10 +2044,7 @@ async def _fetch_models(hass, provider: str, api_key: str, base_url: str) -> lis
         url = "https://api.anthropic.com/v1/models"
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
     elif provider == "ollama":
-        base = (base_url or "").rstrip("/")
-        if not base:
-            base = "http://homeassistant.local:11434/v1"   # same default as create_provider
-        url = f"{base}/api/tags"
+        url = _ollama_tags_url(base_url)
     elif provider == "custom":
         base = (base_url or "").rstrip("/")
         if not base:

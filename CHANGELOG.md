@@ -1,3 +1,10 @@
+## [8.2.5] — model lists load again, and every provider is selectable
+
+**Fixes the "no models found — HTTP 404" model pickers, and surfaces all supported providers.**
+
+- **Ollama model lists load again.** The Settings model dropdowns fetch each provider's live model list, but the Ollama fetch appended `/api/tags` to the `/v1` chat base — producing `…:11434/v1/api/tags`, which Ollama answers with a bare *404 page not found*, so no models appeared and every Ollama role fell back to "Custom…". Ollama's model list lives at the **native** `/api/tags` endpoint at the server root, not under the OpenAI-compatible `/v1` prefix; the fetch now drops a trailing `/v1` first, so the list loads whether your Ollama URL ends in `/v1` or not.
+- **Every supported provider is now selectable in the panel.** The AI-Models role dropdowns previously listed only providers that already had a key, which hid that JARVIS speaks more than three. All of them — **Groq, OpenAI, Google Gemini, Anthropic, a local Ollama server, and any OpenAI-compatible endpoint (Custom)** — now appear; one without a key yet is marked *needs setup*, with a note pointing to Settings → Devices & Services → JARVIS → Configure to add its key, after which it's ready to use.
+
 ## [8.2.4] — stop false and repeated delivery announcements
 
 **Fixes JARVIS announcing mail/packages that aren't there, and repeating the same one.** Two causes, both addressed:

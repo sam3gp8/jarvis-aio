@@ -256,6 +256,64 @@ async def test_fetch_models_custom_uses_models_endpoint_without_v1_suffix(fake_h
     assert seen["headers"]["Authorization"] == "Bearer " + "sk-custom"
 
 
+def test_ollama_tags_url_drops_v1_prefix():
+    # /api/tags is Ollama's NATIVE endpoint at the server root; the /v1 prefix is
+    # only for the OpenAI-compatible chat API. Appending /api/tags to a /v1 base
+    # yields /v1/api/tags -> Ollama '404 page not found' and no models load.
+    websocket = _load_websocket_module()
+    f = websocket._ollama_tags_url
+    assert f("http://localhost:11434/v1") == "http://localhost:11434/api/tags"
+    assert f("http://localhost:11434/v1/") == "http://localhost:11434/api/tags"
+    assert f("http://localhost:11434") == "http://localhost:11434/api/tags"
+    assert f("") == "http://homeassistant.local:11434/api/tags"
+
+
+async def test_fetch_models_ollama_uses_native_tags_endpoint(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    seen = {}
+
+    class _Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def text(self):
+            return ""
+
+        async def json(self):
+            return {"models": [{"name": "gemma3:4b"}, {"name": "llama3.1:8b"}]}
+
+    class _Session:
+        def get(self, url, headers=None):
+            seen["url"] = url
+            return _Response()
+
+    class _Timeout:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        sys.modules["homeassistant.helpers.aiohttp_client"],
+        "async_get_clientsession",
+        lambda hass: _Session(),
+    )
+    sys.modules["async_timeout"] = types.SimpleNamespace(timeout=lambda seconds: _Timeout())
+
+    # The Settings "Ollama URL" field holds the /v1 chat base; model listing must
+    # still hit the native /api/tags at the root, not /v1/api/tags.
+    models = await websocket._fetch_models(fake_hass, "ollama", "", "http://localhost:11434/v1")
+
+    assert seen["url"] == "http://localhost:11434/api/tags"
+    assert models == ["gemma3:4b", "llama3.1:8b"]
+
+
 async def test_ws_update_config_refreshes_live_clients(fake_hass, monkeypatch):
     websocket = _load_websocket_module()
     jarvis_config = importlib.import_module("jc.jarvis_config")

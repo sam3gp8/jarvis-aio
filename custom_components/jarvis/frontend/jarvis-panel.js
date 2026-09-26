@@ -2038,8 +2038,11 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _renderModelRoles(d) {
     const ALL_PROVIDERS = ['groq', 'openai', 'gemini', 'ollama', 'anthropic', 'custom'];
     const cfg = d.config || {};
-    // Only offer providers with a stored key/endpoint — picking an
-    // unconfigured one just fails to fetch models (v7.9x.0).
+    // Every provider JARVIS speaks is selectable. Ones without a stored key or
+    // endpoint are marked "needs setup" — add a key in Settings → Devices &
+    // Services → JARVIS → Configure and it starts fetching models. (Previously
+    // the list was filtered to configured providers, which hid the fact that
+    // OpenAI, Anthropic, and any OpenAI-compatible endpoint are supported too.)
     const configured = (Array.isArray(cfg.configured_providers) && cfg.configured_providers.length)
       ? cfg.configured_providers
       : ALL_PROVIDERS;
@@ -2049,15 +2052,12 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       const storedProv = cfg[r.provKey];
       const curProv = storedProv || defaultProvider;
       const curModel = cfg[r.modelKey] || '';
-      // Always include the role's current provider, even if unconfigured,
-      // so an existing selection doesn't silently vanish from the list.
-      // curProv comes from runtime/config data, so it must be validated
-      // against the known provider names before being used unescaped below.
-      const provList = cfgSet.has(curProv)
-        ? configured
-        : (storedProv && ALL_PROVIDERS.includes(curProv) ? [curProv, ...configured] : configured);
-      const provOpts = provList.map(p =>
-        `<option value="${p}"${p === curProv ? ' selected' : ''}>${p}</option>`).join('');
+      // Show all known providers (all entries are safe literals); the current
+      // one stays selected. Unconfigured providers carry a "needs setup" hint.
+      const provOpts = ALL_PROVIDERS.map(p => {
+        const label = cfgSet.has(p) ? p : `${p} — needs setup`;
+        return `<option value="${p}"${p === curProv ? ' selected' : ''}>${label}</option>`;
+      }).join('');
       // Model select starts with the current value + a loading hint; it's
       // repopulated live from the provider via _loadModelsFor().
       const modelOpts =
@@ -4590,6 +4590,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           ${this._renderModelRoles(d)}
         </div>
         <div class="model-hint">Model lists are fetched live from each provider. Pick "Custom…" to enter one manually.</div>
+        <div class="model-hint">Groq, OpenAI, Google Gemini, Anthropic, a local Ollama server, and any OpenAI-compatible endpoint (Custom) are all supported. A provider marked <em>needs setup</em> has no key yet — add one in Settings → Devices &amp; Services → JARVIS → Configure, then it appears here ready to use.</div>
         <div class="ctx-size-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:0.04em;">PROMPT SIZE \u00b7 entity names per type</span>
           <input class="cfg-field cfg-num" type="number" min="0" max="15" step="1" data-cfg-key="home_context_max_entities" value="${d.config?.home_context_max_entities ?? 15}" style="width:56px;" title="Fewer names = smaller prompt">
