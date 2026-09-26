@@ -1,3 +1,11 @@
+## [8.2.3] — small correctness fixes from a coverage pass
+
+A large unit-test expansion surfaced three genuine bugs, now fixed (no settings or behavior change beyond these):
+
+- **Appliance type is matched most-specific-first.** Classifying an appliance from its entity/friendly name (and from a native run-state sensor) now checks the longest keyword first, so a "dishwasher" is no longer misclassified as a "washer" just because *washer* is a substring, and the generic LG `job_state` sensor no longer wins over the specific `washer_job_state` / `dryer_job_state` ones.
+- **The Local Mind's offline database connection always closes.** It now opens through the same auto-closing connection wrapper the rest of JARVIS uses, so a failed read can't leak a SQLite handle.
+- **The noise filter stops flagging innocent entities.** The `_w` power-sensor suffix is now matched only as a suffix, so an entity like `front_walk` is no longer treated as a noisy power reading and hidden from awareness.
+
 ## [8.2.2] — learned automations are suggested once, and named for humans
 
 **Fixes duplicate suggestions and cryptic suggestion names.** The review list could fill with many nearly-identical "JARVIS Learned" suggestions for the same behavior, and each one's name showed raw entity ids (`close cover.smart_garage_door_2007…_garage_2 after binary_sensor.bay_2_car_occupancy confirms`) instead of the friendly names you see everywhere else.
