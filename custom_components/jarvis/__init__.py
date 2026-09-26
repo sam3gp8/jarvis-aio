@@ -387,10 +387,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             tts = _get_tts(hass, entry, context="package")
             spk = _get_speakers(hass, entry)
             if eid in _pkg_mailbox_ids:
-                # A mailbox opening is its own unambiguous signal: announce it
-                # directly. The porch camera has its own motion triggers, and
-                # sweeping it here could announce the same mail a second time.
-                await package_monitor.announce_mail(hass, honorific, tts, spk, eid)
+                # A mailbox opening is only a HINT — wind, an animal, or someone
+                # checking the mail trips it too. Confirm an actual delivery on a
+                # mailbox/porch/driveway camera (a mail carrier or delivery
+                # vehicle, or mail being delivered) before announcing. Only when
+                # no camera can see the spot do we fall back to trusting the
+                # sensor (carrier_present -> None). A direct announce, not a
+                # periodic_check: the porch camera has its own motion triggers,
+                # so sweeping it here could announce the same mail twice.
+                confirmed = await package_monitor.carrier_present(hass, _current_client())
+                if confirmed or confirmed is None:
+                    await package_monitor.announce_mail(hass, honorific, tts, spk, eid)
                 return
             await package_monitor.periodic_check(
                 hass, _current_client(), honorific, tts, spk, configured_camera=None)

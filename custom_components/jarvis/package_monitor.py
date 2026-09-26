@@ -48,6 +48,14 @@ _MAIL_KEYWORDS = re.compile(
     r"\b(mail|letter|letters|envelope|envelopes|mailman|mail\s*carrier|"
     r"postal|postman|post)\b", re.I,
 )
+# A delivery/postal WORKER or their VEHICLE actively delivering — the evidence
+# that a delivery is happening (vs. a package that merely happens to be there).
+_CARRIER_KEYWORDS = re.compile(
+    r"\b(mailman|mail\s*carrier|postman|postal\s*worker|letter\s*carrier|"
+    r"courier|delivery\s*(?:driver|person|man|woman|worker|guy)|"
+    r"ups|fedex|usps|dhl|amazon|"
+    r"(?:mail|delivery|postal)\s*(?:truck|van|vehicle|car))\b", re.I,
+)
 # Negated mentions — "no package visible", "not carrying a delivery",
 # "without any boxes", "no sign of packages or mail" — must not count as
 # sightings. The doorbell analysis text frequently *rules out* deliveries in
@@ -68,18 +76,20 @@ _NEGATION = re.compile(
 )
 
 _PKG_PROMPT = (
-    "You are inspecting a still frame from a doorway / front-porch security "
-    "camera. Report ONLY whether a delivered PACKAGE or MAIL is visible right "
-    "now.\n"
+    "You are inspecting a still frame from a doorway / front-porch / mailbox "
+    "security camera. Report the delivery evidence visible RIGHT NOW.\n"
     "• package = a parcel, box, or delivery item sitting on the ground, step, "
     "porch, or by the door.\n"
-    "• mail = letters or envelopes left at the door, or a mail carrier actively "
-    "delivering.\n"
-    "Ignore the street, passing vehicles, and people who are NOT leaving or "
-    "carrying a delivery. If unsure, say false.\n"
+    "• mail = letters or envelopes left at the door or in an open mailbox.\n"
+    "• carrier = a delivery or postal WORKER, or their VEHICLE, actively "
+    "delivering right now: a uniformed mail/parcel carrier, or a mail truck, "
+    "postal van, or a USPS / UPS / FedEx / Amazon / DHL delivery vehicle at the "
+    "curb, driveway, or mailbox; or a person carrying or setting down a parcel.\n"
+    "Ignore the street, ordinary passing traffic, and people who are NOT "
+    "delivering. If unsure, say false.\n"
     "Respond with ONLY a compact JSON object and no other text:\n"
-    '{"package": true|false, "mail": true|false, "count": <number of packages>, '
-    '"description": "<=12 words"}'
+    '{"package": true|false, "mail": true|false, "carrier": true|false, '
+    '"count": <number of packages>, "description": "<=12 words"}'
 )
 
 
@@ -104,6 +114,7 @@ def _parse_detection(text: str) -> Optional[dict]:
     return {
         "package": pkg,
         "mail": bool(d.get("mail")),
+        "carrier": bool(d.get("carrier")),
         "count": max(count, 1) if pkg else 0,
         "description": str(d.get("description") or "")[:120],
     }
@@ -119,6 +130,7 @@ def detection_from_text(text: str) -> dict:
     return {
         "package": has_pkg,
         "mail": bool(_MAIL_KEYWORDS.search(cleaned)),
+        "carrier": bool(_CARRIER_KEYWORDS.search(cleaned)),
         "count": 1 if has_pkg else 0,
         "description": "",
     }
@@ -440,6 +452,56 @@ def mailbox_sensors(hass) -> list[str]:
     except Exception:
         pass
     return out[:10]
+
+
+_MAIL_VIEW_HINTS = ("mailbox", "letterbox", "postbox", "driveway", "curb", "gate")
+
+
+def _mail_view_cameras(hass, configured=None) -> list[str]:
+    """Cameras that might catch a mail carrier or delivery vehicle: the
+    porch/doorbell set (watched_cameras) plus any camera named for the mailbox,
+    driveway, curb, or gate. Kept separate from watched_cameras() so the porch
+    package sweep isn't widened to street/driveway views."""
+    cams = list(watched_cameras(hass, configured))
+    if configured:
+        return cams
+    try:
+        from .camera import active_camera_states
+        for st in active_camera_states(hass):
+            e = st.entity_id
+            if e not in cams and any(k in e for k in _MAIL_VIEW_HINTS):
+                cams.append(e)
+    except Exception:
+        pass
+    return cams
+
+
+async def carrier_present(hass, groq_client, configured_camera=None):
+    """Confirm an ACTIVE delivery visually before a sensor-triggered mail
+    announcement. Looks at the mailbox/porch/driveway cameras for a mail or
+    parcel carrier, a delivery vehicle, or mail actually being delivered.
+
+    Returns True when a camera shows a carrier or fresh mail, False when a
+    camera was inspected and none did, and None when there is no camera to
+    look at — so the caller can fall back to trusting the raw sensor. Never
+    raises (returns None on error so the caller falls back)."""
+    try:
+        if _in_quiet_hours(hass) or not _announcements_on(hass):
+            return False   # nothing would be announced now anyway
+        cams = _mail_view_cameras(hass, configured_camera)
+        if not cams:
+            return None    # can't look — let the caller fall back
+        looked = False
+        for entity_id in cams:
+            det = await detect_on_camera(hass, groq_client, entity_id)
+            if det is None:
+                continue
+            looked = True
+            if det.get("carrier") or det.get("mail"):
+                return True
+        return False if looked else None
+    except Exception:
+        return None
 
 
 _MAILBOX_CD: dict = {}     # entity_id -> last announce epoch (dedup a bouncy sensor)

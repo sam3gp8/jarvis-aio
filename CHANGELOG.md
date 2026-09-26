@@ -1,3 +1,13 @@
+## [8.2.0] — delivery announcements confirm a real delivery, not just a trigger
+
+Faster mail/package announcements (8.0.0) reacted to porch motion and mailbox sensors. A mailbox contact sensor opening announced *"mail has arrived"* with **no camera check at all** — so wind, an animal, or you checking the mail could trip it. Now JARVIS confirms an actual delivery before it speaks:
+
+- **The vision check looks for the delivery itself.** The porch/mailbox classifier now also reports a **carrier** — a uniformed mail or parcel carrier, a USPS / UPS / FedEx / Amazon / DHL truck or van at the curb, driveway, or mailbox, or a person carrying or setting down a parcel — not just an object sitting there.
+- **A mailbox opening is confirmed, not trusted blindly.** When a mailbox sensor fires, JARVIS checks a mailbox/porch/driveway camera for a carrier or mail delivery and only announces if it sees one. If **no camera** covers that spot, it falls back to the sensor as before, so camera-less setups still get their instant mail alert.
+- Porch **package** announcements are unchanged: a package visible on the porch is itself the proof it was delivered (still double-frame confirmed against single-frame hallucinations), so those never wait on catching the carrier in the act.
+
+Quiet hours and the announcements switch are respected throughout, and no camera calls are made overnight.
+
 ## [8.1.1] — reply in the language the request came in on
 
 **Fixes wrong-language voice replies in multi-language households** (from discussion #55). A home with both a German and a Russian voice satellite could ask JARVIS in German and get an answer in Russian — which the German TTS voice then spoke as garbled Cyrillic.

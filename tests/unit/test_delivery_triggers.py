@@ -136,3 +136,91 @@ async def test_announce_mail_dedups_within_cooldown(pm, load, fake_hass, monkeyp
     a = await pm.announce_mail(fake_hass, "Sir", "tts.x", [], "binary_sensor.mb")
     b = await pm.announce_mail(fake_hass, "Sir", "tts.x", [], "binary_sensor.mb")
     assert a is True and b is False and len(spoke) == 1
+
+
+# ── Visual confirmation of a real delivery (v8.2.0) ──────────────────────────
+# A mailbox opening / motion trigger is only a hint; JARVIS should confirm an
+# actual mail carrier or delivery vehicle on a camera before announcing, and
+# only fall back to the raw sensor when no camera can see the spot.
+
+def test_parse_detection_reads_carrier_flag(pm):
+    det = pm._parse_detection('{"package": false, "mail": false, "carrier": true}')
+    assert det["carrier"] is True
+    assert det["package"] is False and det["mail"] is False
+
+
+def test_detection_from_text_flags_a_carrier(pm):
+    assert pm.detection_from_text("a USPS mail truck is at the curb")["carrier"] is True
+    assert pm.detection_from_text("a FedEx delivery driver dropped a box")["carrier"] is True
+    assert pm.detection_from_text("an empty quiet porch")["carrier"] is False
+
+
+async def test_carrier_present_confirms_from_camera(pm, fake_hass, monkeypatch):
+    monkeypatch.setattr(pm, "_in_quiet_hours", lambda h: False)
+    monkeypatch.setattr(pm, "_announcements_on", lambda h: True)
+    monkeypatch.setattr(pm, "_mail_view_cameras", lambda h, c=None: ["camera.mailbox"])
+
+    async def _detect(hass, client, eid):
+        return {"package": False, "mail": False, "carrier": True, "count": 0}
+    monkeypatch.setattr(pm, "detect_on_camera", _detect)
+    assert await pm.carrier_present(fake_hass, None) is True
+
+
+async def test_carrier_present_suppresses_when_camera_sees_nothing(pm, fake_hass, monkeypatch):
+    monkeypatch.setattr(pm, "_in_quiet_hours", lambda h: False)
+    monkeypatch.setattr(pm, "_announcements_on", lambda h: True)
+    monkeypatch.setattr(pm, "_mail_view_cameras", lambda h, c=None: ["camera.mailbox"])
+
+    async def _detect(hass, client, eid):
+        return {"package": False, "mail": False, "carrier": False, "count": 0}
+    monkeypatch.setattr(pm, "detect_on_camera", _detect)
+    # A camera looked and saw no delivery → False (do NOT announce), not None.
+    assert await pm.carrier_present(fake_hass, None) is False
+
+
+async def test_carrier_present_falls_back_when_no_camera(pm, fake_hass, monkeypatch):
+    monkeypatch.setattr(pm, "_in_quiet_hours", lambda h: False)
+    monkeypatch.setattr(pm, "_announcements_on", lambda h: True)
+    monkeypatch.setattr(pm, "_mail_view_cameras", lambda h, c=None: [])
+    # No camera to look at → None, so the caller trusts the raw sensor.
+    assert await pm.carrier_present(fake_hass, None) is None
+
+
+async def test_carrier_present_falls_back_when_frames_unreadable(pm, fake_hass, monkeypatch):
+    monkeypatch.setattr(pm, "_in_quiet_hours", lambda h: False)
+    monkeypatch.setattr(pm, "_announcements_on", lambda h: True)
+    monkeypatch.setattr(pm, "_mail_view_cameras", lambda h, c=None: ["camera.mailbox"])
+
+    async def _detect(hass, client, eid):
+        return None      # blank/unreadable frame — never actually looked
+    monkeypatch.setattr(pm, "detect_on_camera", _detect)
+    assert await pm.carrier_present(fake_hass, None) is None
+
+
+async def test_carrier_present_silent_in_quiet_hours(pm, fake_hass, monkeypatch):
+    monkeypatch.setattr(pm, "_in_quiet_hours", lambda h: True)
+
+    async def _boom(*a, **k):
+        raise AssertionError("must not run vision during quiet hours")
+    monkeypatch.setattr(pm, "detect_on_camera", _boom)
+    assert await pm.carrier_present(fake_hass, None) is False
+
+
+def test_mail_view_cameras_includes_mailbox_and_driveway(pm, fake_hass, monkeypatch):
+    monkeypatch.setattr(pm, "watched_cameras", lambda h, c=None: ["camera.front_door"])
+
+    class _S:
+        def __init__(self, e): self.entity_id = e
+    import sys
+    import types
+    # pm is loaded as jc.package_monitor (__package__ == "jc"), so its
+    # `from .camera import ...` resolves to jc.camera.
+    fake_cam = types.SimpleNamespace(
+        active_camera_states=lambda h: [
+            _S("camera.front_door"), _S("camera.mailbox"),
+            _S("camera.driveway"), _S("camera.backyard")])
+    monkeypatch.setitem(sys.modules, "jc.camera", fake_cam)
+    cams = pm._mail_view_cameras(fake_hass)
+    assert "camera.mailbox" in cams and "camera.driveway" in cams
+    assert "camera.backyard" not in cams          # not a delivery-view camera
+    assert "camera.front_door" in cams            # porch set preserved
