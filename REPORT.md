@@ -1,4 +1,4 @@
-# JARVIS traction report — 2026-09-27
+# JARVIS traction report — 2026-09-28
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch.
@@ -16,7 +16,7 @@ numbers lives in `docs/GROWTH.md` on the default branch.
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 18 | +1 | +1 |
+| Stars | 20 | +3 | +3 |
 | Forks | 3 | +0 | +0 |
 | Watchers | 2 | +0 | +0 |
 | HA analytics installs | — | — | — |
