@@ -1,16 +1,17 @@
 # JARVIS traction report — 2026-09-28
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
-numbers lives in `docs/GROWTH.md` on the default branch.
+numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
+include CI checkouts, so treat views and referrers as the audience signal.
 
-## Last 7 complete days vs the 7 before
+## 7 days to 2026-09-23 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 330 | 550 | -40% |
-| Unique visitors (sum of daily) | 57 | 124 | -54% |
-| Clones | 734 | 935 | -21% |
-| Unique cloners (sum of daily) | 134 | 247 | -46% |
+| Views | 732 | 347 | +111% |
+| Unique visitors (sum of daily) | 123 | 116 | +6% |
+| Clones | 1492 | 305 | +389% |
+| Unique cloners (sum of daily) | 323 | 112 | +188% |
 
 ## Totals
 
