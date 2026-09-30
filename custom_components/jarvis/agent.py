@@ -1029,6 +1029,30 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "where_last_seen",
+            "description": (
+                "Search JARVIS's scene memory — the history of what the cameras "
+                "have described over time — for when and where an object or thing "
+                "was last observed. Use for 'where did I last see my <thing>', "
+                "'when was the <thing> last on the porch', or 'what did you last "
+                "see in the <area>'. Returns the camera, the time, and the scene "
+                "description, or empty if it was never described."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "term": {
+                        "type": "string",
+                        "description": "The object/thing to look for, e.g. 'keys', 'bicycle', 'package'.",
+                    },
+                },
+                "required": ["term"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "look_at_camera",
             "description": (
                 "Look at a camera right now and answer a specific visual "
@@ -2235,6 +2259,24 @@ async def _exec_who_do_you_see(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc), "seen": [], "any": False})
 
 
+async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
+    """Search scene memory for when/where a thing was last observed (v8.3.0)."""
+    term = str(args.get("term", "") or "").strip()
+    if not term:
+        return json.dumps({"error": "no term given", "found": False})
+    try:
+        from .vision import scene_memory
+        hit = await hass.async_add_executor_job(scene_memory.where_last_seen, term)
+        if not hit:
+            return json.dumps({"found": False, "term": term})
+        return json.dumps({
+            "found": True, "term": term, "camera": hit.get("camera"),
+            "ts": hit.get("ts"), "description": hit.get("description"),
+        })
+    except Exception as exc:
+        return json.dumps({"error": str(exc), "found": False, "term": term})
+
+
 async def _analyze_camera(hass, entity_id: str, prompt: str, announce: bool,
                           honorific: str) -> dict:
     """The camera vision call, isolated as a module-level function so tests can
@@ -2374,6 +2416,7 @@ _TOOL_MAP = {
     "read_email":          _exec_read_email,
     "look_at_camera":      _exec_look_at_camera,
     "who_do_you_see":      _exec_who_do_you_see,
+    "where_last_seen":     _exec_where_last_seen,
     "dismiss_intrusion":   _exec_dismiss_intrusion,
     "acknowledge_alert":   _exec_acknowledge_alert,
     "system_diagnostics":  _exec_system_diagnostics,

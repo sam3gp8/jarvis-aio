@@ -82,12 +82,35 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject)")
     # migrate: add columns introduced after the initial schema
     cols = {r[1] for r in conn.execute("PRAGMA table_info(facts)").fetchall()}
-    if "deleted_at" not in cols:
-        try:
-            conn.execute("ALTER TABLE facts ADD COLUMN deleted_at REAL")
-        except sqlite3.OperationalError as exc:
-            if "duplicate column" not in str(exc).lower():
-                raise  # only a concurrent-migration race is expected here
+    for col, decl in (("deleted_at", "REAL"), ("embedding", "BLOB")):
+        if col not in cols:
+            try:
+                conn.execute(f"ALTER TABLE facts ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise  # only a concurrent-migration race is expected here
+    # Relations graph (v8.3.0): typed edges between subjects/entities so JARVIS
+    # can traverse how things relate ("Sam -> owns -> car.jeep", "kitchen ->
+    # adjacent_to -> garage") rather than only storing flat facts. Soft-deleted
+    # like facts, so a re-observed edge can't resurrect one the user removed.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS relations (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject     TEXT NOT NULL,
+            predicate   TEXT NOT NULL,
+            object      TEXT NOT NULL,
+            source      TEXT NOT NULL DEFAULT 'stated',
+            confidence  REAL NOT NULL DEFAULT 1.0,
+            created_at  REAL NOT NULL,
+            updated_at  REAL NOT NULL,
+            deleted_at  REAL,
+            UNIQUE(subject, predicate, object)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rel_subject ON relations(subject)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rel_object ON relations(object)")
     conn.commit()
 
 
@@ -386,6 +409,12 @@ def prompt_block(query: str = "", *, subject: Optional[str] = None,
     """
     facts = (recall(query, subject=subject, k=limit, now=now, touch=False, subjects=subjects)
              if query else all_facts(subject=subject, now=now, subjects=subjects)[:limit])
+    return _format_block(facts)
+
+
+def _format_block(facts: list[dict]) -> str:
+    """Render a facts list as the "What you know" prompt block. Shared by the
+    sync (keyword) and async (semantic) prompt builders."""
     if not facts:
         return ""
     by_subject: dict = {}
@@ -398,6 +427,289 @@ def prompt_block(query: str = "", *, subject: Optional[str] = None,
             hedge = "" if f["source"] == "stated" and f["confidence"] >= 0.9 else " (~)"
             lines.append(f"- {f['key']}: {f['value']}{hedge}")
     return "\n".join(lines)
+
+
+async def prompt_block_async(hass, query: str = "", *, subject: Optional[str] = None,
+                             limit: int = 12, now: Optional[float] = None,
+                             subjects: Optional[list] = None) -> str:
+    """Semantic-aware "what you know" block: when embeddings are on and a query is
+    given, facts are ranked by meaning (recall_semantic, which falls back to
+    keyword recall on its own); otherwise this matches the sync prompt_block.
+    Returns "" when empty so callers can concatenate unconditionally. ASYNC."""
+    if query:
+        facts = await recall_semantic(hass, query, subject=subject, k=limit,
+                                      now=now, subjects=subjects)
+    else:
+        facts = await hass.async_add_executor_job(
+            lambda: all_facts(subject=subject, now=now, subjects=subjects)[:limit])
+    return _format_block(facts)
+
+
+# ── relations graph (v8.3.0) ─────────────────────────────────────────────────
+
+def _row_to_relation(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "subject": row["subject"],
+        "predicate": row["predicate"],
+        "object": row["object"],
+        "source": row["source"],
+        "confidence": round(row["confidence"], 3),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def relate(
+    subject: str,
+    predicate: str,
+    obj: str,
+    *,
+    source: str = "stated",
+    confidence: float = 1.0,
+    now: Optional[float] = None,
+) -> Optional[dict]:
+    """Upsert a typed edge subject —predicate→ object (e.g. "sam", "owns",
+    "car.jeep"). One row per (subject, predicate, object). A non-"stated" write
+    will not resurrect an edge the user explicitly removed. SYNC — via executor."""
+    subject = (subject or "").strip()
+    predicate = (predicate or "").strip()
+    obj = (obj or "").strip()
+    if not subject or not predicate or not obj:
+        return None
+    if source not in SOURCES:
+        source = "stated"
+    now = now if now is not None else time.time()
+    conn = _connect()
+    if conn is None:
+        return None
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id, deleted_at FROM relations "
+            "WHERE subject = ? AND predicate = ? AND object = ?",
+            (subject, predicate, obj),
+        ).fetchone()
+        if existing:
+            if existing["deleted_at"] is not None and source != "stated":
+                conn.commit()
+                return None  # don't let re-observation resurrect a removed edge
+            conn.execute(
+                "UPDATE relations SET source = ?, confidence = ?, updated_at = ?, "
+                "deleted_at = NULL WHERE id = ?",
+                (source, confidence, now, existing["id"]),
+            )
+            rid = existing["id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO relations "
+                "(subject, predicate, object, source, confidence, created_at, "
+                " updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+                (subject, predicate, obj, source, confidence, now, now),
+            )
+            rid = cur.lastrowid
+        row = conn.execute("SELECT * FROM relations WHERE id = ?", (rid,)).fetchone()
+        conn.commit()
+        return _row_to_relation(row)
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        _LOGGER.warning("knowledge: relate failed: %s", exc)
+        return None
+    finally:
+        conn.close()
+
+
+def unrelate(subject: str, predicate: Optional[str] = None,
+             obj: Optional[str] = None, *, now: Optional[float] = None) -> int:
+    """Soft-delete edges from ``subject`` (optionally narrowed by predicate and/or
+    object). Returns rows affected. SYNC."""
+    subject = (subject or "").strip()
+    if not subject:
+        return 0
+    now = now if now is not None else time.time()
+    conn = _connect()
+    if conn is None:
+        return 0
+    try:
+        sql = "UPDATE relations SET deleted_at = ? WHERE subject = ? AND deleted_at IS NULL"
+        params: list = [now, subject]
+        if predicate:
+            sql += " AND predicate = ?"
+            params.append(predicate)
+        if obj:
+            sql += " AND object = ?"
+            params.append(obj)
+        with conn:
+            return conn.execute(sql, params).rowcount
+    except Exception as exc:
+        _LOGGER.warning("knowledge: unrelate failed: %s", exc)
+        return 0
+    finally:
+        conn.close()
+
+
+def related(subject: Optional[str] = None, *, obj: Optional[str] = None,
+            predicate: Optional[str] = None) -> list[dict]:
+    """Live edges matching any given end. With ``subject`` → its outgoing edges;
+    with ``obj`` → its incoming edges; ``predicate`` narrows either. Newest
+    first. SYNC — call via executor."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        sql = "SELECT * FROM relations WHERE deleted_at IS NULL"
+        params: list = []
+        if subject:
+            sql += " AND subject = ?"
+            params.append(subject.strip())
+        if obj:
+            sql += " AND object = ?"
+            params.append(obj.strip())
+        if predicate:
+            sql += " AND predicate = ?"
+            params.append(predicate.strip())
+        sql += " ORDER BY updated_at DESC"
+        return [_row_to_relation(r) for r in conn.execute(sql, params).fetchall()]
+    except Exception as exc:
+        _LOGGER.warning("knowledge: related failed: %s", exc)
+        return []
+    finally:
+        conn.close()
+
+
+# ── semantic recall (v8.3.0) ──────────────────────────────────────────────────
+# Keyword recall (above) misses paraphrase — "who runs cold at night" won't match
+# a fact keyed "sleep temperature preference". These helpers add embedding-based
+# recall on top, reusing the same nomic-embed store the document RAG uses. They
+# degrade gracefully: with embeddings disabled/unavailable, callers fall back to
+# keyword recall(), so semantic recall is always safe to prefer.
+
+def set_embedding(fact_id: int, vector: list) -> bool:
+    """Store a packed embedding for one fact. SYNC — call via executor."""
+    conn = _connect()
+    if conn is None:
+        return False
+    try:
+        from . import embeddings
+        blob = embeddings._pack(vector)
+        with conn:
+            conn.execute("UPDATE facts SET embedding = ? WHERE id = ?", (blob, fact_id))
+        return True
+    except Exception as exc:
+        _LOGGER.debug("knowledge: set_embedding failed: %s", exc)
+        return False
+    finally:
+        conn.close()
+
+
+def _live_rows_needing_embedding(subject: Optional[str], now: float,
+                                 subjects: Optional[list], limit: int) -> list:
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        rows = _live_rows(conn, subject, now, subjects)
+        return [r for r in rows if r["embedding"] is None][:max(0, limit)]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+async def remember_and_embed(hass, key: str, value: str, **kwargs) -> Optional[dict]:
+    """remember() a fact, then compute + store its embedding so it is reachable by
+    semantic recall. The embedding is best-effort: the fact is saved regardless.
+    ASYNC — the DB writes run off-loop, the embed call is already async."""
+    fact = await hass.async_add_executor_job(
+        lambda: remember(key, value, **kwargs))
+    if not fact:
+        return fact
+    try:
+        from . import embeddings
+        if embeddings.is_enabled():
+            vec = await embeddings.embed_one(hass, f"{key}: {value}")
+            if vec:
+                await hass.async_add_executor_job(set_embedding, fact["id"], vec)
+    except Exception as exc:
+        _LOGGER.debug("knowledge: embed-on-write failed: %s", exc)
+    return fact
+
+
+async def recall_semantic(
+    hass,
+    query: str,
+    *,
+    subject: Optional[str] = None,
+    k: int = 5,
+    now: Optional[float] = None,
+    subjects: Optional[list] = None,
+    lazy_embed_limit: int = 25,
+) -> list[dict]:
+    """Retrieve the k facts most semantically similar to ``query`` by embedding
+    cosine. Facts without an embedding yet are embedded lazily (bounded per call)
+    so the store fills in over use. Falls back to keyword recall() when
+    embeddings are disabled, the query can't be embedded, or nothing has an
+    embedding. ASYNC."""
+    now = now if now is not None else time.time()
+    try:
+        from . import embeddings
+        if not embeddings.is_enabled():
+            return await hass.async_add_executor_job(
+                lambda: recall(query, subject=subject, k=k, now=now, subjects=subjects))
+        # Backfill a bounded batch of un-embedded live facts first.
+        pending = await hass.async_add_executor_job(
+            _live_rows_needing_embedding, subject, now, subjects, lazy_embed_limit)
+        for r in pending:
+            try:
+                vec = await embeddings.embed_one(hass, f"{r['key']}: {r['value']}")
+                if vec:
+                    await hass.async_add_executor_job(set_embedding, r["id"], vec)
+            except Exception:
+                break  # embedding backend went away — stop, use what we have
+        q_vec = await embeddings.embed_one(hass, query) if query else None
+        if not q_vec:
+            return await hass.async_add_executor_job(
+                lambda: recall(query, subject=subject, k=k, now=now, subjects=subjects))
+
+        def _rank():
+            conn = _connect()
+            if conn is None:
+                return []
+            try:
+                rows = _live_rows(conn, subject, now, subjects)
+                scored = []
+                for r in rows:
+                    if r["embedding"] is None:
+                        continue
+                    try:
+                        vec = embeddings._unpack(r["embedding"])
+                        sim = embeddings._cosine(q_vec, vec)
+                    except Exception:
+                        continue
+                    f = _row_to_fact(r)
+                    f["similarity"] = round(sim, 4)
+                    scored.append((sim, f))
+                scored.sort(key=lambda s: s[0], reverse=True)
+                return [f for _, f in scored[:max(1, k)]]
+            finally:
+                conn.close()
+
+        top = await hass.async_add_executor_job(_rank)
+        if top:
+            return top
+        # Nothing embedded / matched — keyword fallback keeps recall useful.
+        return await hass.async_add_executor_job(
+            lambda: recall(query, subject=subject, k=k, now=now, subjects=subjects))
+    except Exception as exc:
+        _LOGGER.debug("knowledge: recall_semantic failed: %s", exc)
+        try:
+            return await hass.async_add_executor_job(
+                lambda: recall(query, subject=subject, k=k, now=now, subjects=subjects))
+        except Exception:
+            return []
 
 
 # ── stats (panel) ────────────────────────────────────────────────────────────

@@ -895,8 +895,10 @@ class JarvisAgent(conversation.ConversationEntity):
             ident = identity.resolve(
                 self.hass, device_id=getattr(user_input, "device_id", None))
             subjects = [identity.subject_for(ident), "household"]
-            kn_block = await self.hass.async_add_executor_job(
-                lambda: knowledge.prompt_block(user_input.text, subjects=subjects))
+            # Semantic-aware when embeddings are on (meaning, not just keywords);
+            # falls back to keyword recall internally otherwise.
+            kn_block = await knowledge.prompt_block_async(
+                self.hass, user_input.text, subjects=subjects)
             if kn_block:
                 persona = persona + "\n\n" + kn_block
         except Exception as exc:

@@ -788,6 +788,7 @@ async def ws_get_panel_data(
                 "observer_group_debounce": _runtime_opt(hass, entry, "observer_group_debounce", 90),
                 "adaptive_interruption_budget": bool(_runtime_opt(hass, entry, "adaptive_interruption_budget", False)),
                 "adaptive_suggestion_threshold": bool(_runtime_opt(hass, entry, "adaptive_suggestion_threshold", False)),
+                "adaptive_cognition_threshold": bool(_runtime_opt(hass, entry, "adaptive_cognition_threshold", False)),
                 "tts_use_ha_voice": bool(_runtime_opt(hass, entry, "tts_use_ha_voice", False)),
                 "pattern_learn_motion": bool(_runtime_opt(hass, entry, "pattern_learn_motion", False)),
                 "suggest_garage_confirmation": bool(_runtime_opt(hass, entry, "suggest_garage_confirmation", False)),
@@ -1491,6 +1492,7 @@ PANEL_WRITABLE_KEYS = {
     "observer_group_debounce",      # seconds: coalesce a burst of numbered sibling entities (0 = off)
     "adaptive_interruption_budget",  # bool: scale the announcement cap down when recent proactive decisions were unwelcome
     "adaptive_suggestion_threshold", # bool: tune the suggestion confidence bar from how welcome recent suggestions were
+    "adaptive_cognition_threshold",  # bool: tune the cognition/anticipation salience bar from how welcome recent alerts were
     "tts_use_ha_voice",              # bool: use Home Assistant's configured TTS voice instead of the JARVIS Piper voice
     "pattern_learn_motion",          # bool: learn motion/occupancy triggers for "when X, do Y" suggestions (rate-limited)
     "suggest_garage_confirmation",   # bool: opt-in to safety-sensitive confirmation-sequence suggestions (e.g. close the garage once the car is confirmed inside)

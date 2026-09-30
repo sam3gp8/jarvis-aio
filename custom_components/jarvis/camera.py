@@ -1344,6 +1344,18 @@ async def async_analyze_camera(
         )
     except Exception:
         pass
+    # Scene memory (v8.3.0): persist the description over time so JARVIS can later
+    # answer "where did I last see X?" / "what changed on the porch?". Best-effort,
+    # off-loop; the fuller vision `analysis` text is richer for object recall than
+    # the one-line reasoning summary.
+    try:
+        from .vision import scene_memory
+        _scene_desc = analysis or summary
+        if _scene_desc:
+            await hass.async_add_executor_job(
+                lambda: scene_memory.record_scene(entity_id, _scene_desc))
+    except Exception:
+        pass
     # Pattern learning — the vision model's semantic verdict (delivery / person /
     # vehicle / animal …) is the richest camera signal there is; record it as a
     # normalised, de-duped learnable event so routines like "a package arrives

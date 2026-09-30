@@ -4374,6 +4374,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             </button>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Adaptive awareness</span>
+            <span class="toggle-desc">Tune the anticipation/anomaly bar from how welcome recent alerts were</span>
+            <button class="toggle-btn ${(d.config?.adaptive_cognition_threshold) ? 'on' : 'off'}"
+              data-cfg-key="adaptive_cognition_threshold"
+              data-cfg-val="${(d.config?.adaptive_cognition_threshold) ? 'false' : 'true'}">
+              ${(d.config?.adaptive_cognition_threshold) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Camera Watch</span>
             <span class="toggle-desc">Inspect doorbell presses (vision + event-media)</span>
             <button class="toggle-btn ${(d.config?.camera_auto_analyze) ? 'on' : 'off'}"

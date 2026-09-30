@@ -1,3 +1,15 @@
+## [8.3.0] — closing the executive-brain loop: self-tuning, a knowledge graph, and scene memory
+
+Three additions that connect capabilities JARVIS already had into a fuller loop.
+
+**Awareness that learns from how it's received.** The Decision Record already scored every proactive decision (welcome / unnecessary / wrong), but only the automation-suggestion bar self-tuned from it. A new `feedback.py` generalizes that so the **anticipation / anomaly** surface adapts too: when recent alerts were mostly dismissed, the salience bar rises (fewer, better alerts); when they were almost all welcome, it eases a little. Off by default — turn on **Adaptive awareness** under Settings. Bounded, hysteretic, and a no-op until there's enough judged history.
+
+**A knowledge graph + meaning-based recall.** Curated knowledge was flat facts with keyword lookup. Now:
+- **Relations** — typed edges between things (`Sam —owns→ the Jeep`, `kitchen —adjacent_to→ garage`), so JARVIS can traverse how things relate, not just list facts. User-removed edges aren't resurrected by later observation.
+- **Semantic recall** — facts are embedded (reusing the same local embedding model as document search) and recalled by meaning, so "who runs cold at night" finds a fact keyed "sleep temperature." Falls back to keyword recall whenever embeddings are off or unavailable, so it's always safe.
+
+**Scene memory — persistent object recall across time.** The cameras produce a rich scene description on every analysis; those are now kept (`vision/scene_memory.py`) instead of discarded. JARVIS can answer questions that need history: *"where did I last see my keys?"*, *"what's changed in the garage since yesterday?"* A new **where_last_seen** conversation ability searches that memory. No extra vision calls — it consumes descriptions the pipeline already generates — and history is bounded per camera.
+
 ## [8.2.5] — model lists load again, and every provider is selectable
 
 **Fixes the "no models found — HTTP 404" model pickers, and surfaces all supported providers.**

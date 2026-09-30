@@ -396,22 +396,40 @@ def _cognition_enabled() -> bool:
 
 
 def _cognition_threshold() -> float:
-    """Salience threshold for cognition anomaly escalation (default 0.6)."""
+    """Salience threshold for cognition anomaly escalation (default 0.6).
+
+    When the ``adaptive_cognition_threshold`` opt-in is on, the configured base
+    is nudged by how recent anticipation alerts were received (via feedback.py /
+    the Decision Record): mostly-dismissed → a higher bar, almost-all-welcome →
+    a slightly lower one. Off by default, so this returns the configured base
+    unchanged unless the user enables it and there is enough judged evidence."""
     from .const import DOMAIN
+    base = 0.6
     hass = _STATE.hass
+    resolved = False
     if hass:
         for _eid, data in hass.data.get(DOMAIN, {}).items():
             if isinstance(data, dict):
                 rc = data.get("runtime_config", {})
                 if "cognition_threshold" in rc:
                     try:
-                        return float(rc["cognition_threshold"])
+                        base = float(rc["cognition_threshold"])
+                        resolved = True
                     except (TypeError, ValueError):
-                        break
+                        pass
+                    break
+    if not resolved:
+        try:
+            base = float((_STATE.config or {}).get("cognition_threshold", 0.6))
+        except (TypeError, ValueError):
+            base = 0.6
     try:
-        return float((_STATE.config or {}).get("cognition_threshold", 0.6))
-    except (TypeError, ValueError):
-        return 0.6
+        from . import feedback
+        return feedback.effective_threshold(
+            base, "anticipation", lo=0.3, hi=0.95,
+            opt_in_key="adaptive_cognition_threshold")
+    except Exception:
+        return base
 
 
 # ── Sibling-burst coalescing ────────────────────────────────────────────────
