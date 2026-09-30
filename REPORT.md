@@ -1,17 +1,17 @@
-# JARVIS traction report — 2026-09-29
+# JARVIS traction report — 2026-09-30
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-09-23 vs the 7 before
+## 7 days to 2026-09-29 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 732 | 347 | +111% |
-| Unique visitors (sum of daily) | 123 | 116 | +6% |
-| Clones | 1492 | 305 | +389% |
-| Unique cloners (sum of daily) | 323 | 112 | +188% |
+| Views | 799 | 612 | +31% |
+| Unique visitors (sum of daily) | 185 | 118 | +57% |
+| Clones | 1698 | 1197 | +42% |
+| Unique cloners (sum of daily) | 436 | 276 | +58% |
 
 ## Totals
 
@@ -27,31 +27,40 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| github.com | 109 | 20 |
-| chatgpt.com | 23 | 15 |
-| Google | 2 | 2 |
+| github.com | 127 | 27 |
+| lm.facebook.com | 23 | 22 |
+| facebook.com | 20 | 19 |
+| chatgpt.com | 14 | 9 |
+| Google | 5 | 4 |
+| DuckDuckGo | 1 | 1 |
+| l.facebook.com | 1 | 1 |
 | search.brave.com | 1 | 1 |
-| thesoulrester.github.io | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 337 | 134 |
-| `/sam3gp8/jarvis-aio/pulls` | 103 | 4 |
-| `/sam3gp8/jarvis-aio/issues` | 74 | 29 |
+| `/sam3gp8/jarvis-aio` | 445 | 192 |
+| `/sam3gp8/jarvis-aio/pulls` | 159 | 6 |
+| `/sam3gp8/jarvis-aio/issues` | 89 | 30 |
+| `/sam3gp8/jarvis-aio/pull/66` | 47 | 2 |
 | `/sam3gp8/jarvis-aio/pull/56` | 27 | 2 |
+| `/sam3gp8/jarvis-aio/releases` | 26 | 12 |
 | `/sam3gp8/jarvis-aio/pull/32` | 26 | 2 |
-| `/sam3gp8/jarvis-aio/releases` | 24 | 8 |
-| `/sam3gp8/jarvis-aio/pull/66` | 24 | 1 |
+| `/sam3gp8/jarvis-aio/actions` | 21 | 3 |
 | `/sam3gp8/jarvis-aio/pull/54` | 19 | 1 |
-| `/sam3gp8/jarvis-aio/actions` | 17 | 3 |
-| `/sam3gp8/jarvis-aio/pull/64` | 14 | 2 |
+| `/sam3gp8/jarvis-aio/pull/64` | 16 | 2 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-09-29 | 20 | 8 | 14 | 12 |
+| 2026-09-28 | 55 | 28 | 173 | 44 |
+| 2026-09-27 | 162 | 70 | 95 | 39 |
+| 2026-09-26 | 185 | 19 | 447 | 117 |
+| 2026-09-25 | 67 | 16 | 234 | 85 |
+| 2026-09-24 | 162 | 22 | 376 | 76 |
 | 2026-09-23 | 148 | 22 | 359 | 63 |
 | 2026-09-22 | 101 | 17 | 171 | 29 |
 | 2026-09-21 | 81 | 18 | 204 | 42 |
