@@ -1,3 +1,10 @@
+## [8.4.1] — reliability fixes from the architecture audit
+
+Two correctness/consistency fixes surfaced by an event-loop and persistence review (no settings or behaviour change):
+
+- **Adaptive awareness no longer reads the database on the event loop.** The 8.3.0 adaptive cognition threshold recomputed its delta by reading the Decision Record synchronously inside an on-loop state-change callback (every few minutes when its cache expired) — a blocking SQLite read in exactly the place Home Assistant warns about. The learned delta is now refreshed **off the loop** (via the executor, from the async observer pipeline) and the on-loop path only reads the cached value. Behaviour is unchanged; it simply no longer risks stalling the loop.
+- **Scene memory and the knowledge store use the shared connection factory.** Both now open SQLite through `sqlite_utils.ClosingConnection` (as the conversation store and Local Mind already do), so a connection always closes even on an error path.
+
 ## [8.4.0] — make confinement the master switch for intrusion monitoring (opt-in)
 
 **New setting: `intrusion_requires_confinement`** (Settings → Safety & Energy → *Require confinement for intrusion monitoring*), off by default so nothing changes unless you turn it on. Requested in #111.

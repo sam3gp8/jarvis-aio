@@ -56,7 +56,16 @@ def _connect(db_path: str) -> Optional[sqlite3.Connection]:
     try:
         import os
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        conn = sqlite3.connect(db_path, timeout=10)
+        # Shared connection factory (sqlite_utils.ClosingConnection) — guarantees
+        # the handle closes even if a caller forgets, matching the rest of the
+        # codebase's SQLite stores. Tolerant of an import context where the
+        # package parent isn't available (falls back to a plain connection; this
+        # module already closes handles explicitly in every finally).
+        try:
+            from ..sqlite_utils import ClosingConnection
+            conn = sqlite3.connect(db_path, timeout=10, factory=ClosingConnection)
+        except Exception:
+            conn = sqlite3.connect(db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         _ensure_schema(conn)
         return conn

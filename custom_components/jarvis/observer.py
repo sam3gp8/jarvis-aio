@@ -591,6 +591,17 @@ async def _process_event(event: Event) -> None:
         if new_state is None or old_state is None:
             return
 
+        # Keep the adaptive cognition-threshold delta warm from OFF the loop:
+        # _cognition_threshold() (a @callback, on the loop) reads this cache and
+        # must never touch disk. async_refresh self-throttles to the cache TTL.
+        try:
+            from . import feedback
+            await feedback.async_refresh(
+                _STATE.hass, "anticipation",
+                opt_in_key="adaptive_cognition_threshold")
+        except Exception:
+            pass
+
         friendly_name = new_state.attributes.get("friendly_name", entity_id)
         device_class = new_state.attributes.get("device_class")
         now_hhmm = dt_util.now().strftime("%H:%M")

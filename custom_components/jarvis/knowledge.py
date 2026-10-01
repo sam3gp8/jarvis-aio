@@ -50,7 +50,10 @@ _STOPWORDS = {
 def _connect() -> Optional[sqlite3.Connection]:
     try:
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        conn = sqlite3.connect(DB_PATH, timeout=10)
+        # Shared connection factory — guarantees the handle closes even on an
+        # error path, consistent with database.py / local_mind / scene_memory.
+        from .sqlite_utils import ClosingConnection
+        conn = sqlite3.connect(DB_PATH, timeout=10, factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         _ensure_schema(conn)
         return conn

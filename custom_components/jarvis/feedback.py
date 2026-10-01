@@ -73,37 +73,17 @@ def _delta_from_rate(unwelcome_rate: float) -> float:
     return 0.0
 
 
-def threshold_delta(
-    kind: str,
-    *,
-    opt_in_key: Optional[str] = None,
-    window_s: float = DEFAULT_WINDOW_S,
-    min_judged: int = DEFAULT_MIN_JUDGED,
-    db_path: Optional[str] = None,
-) -> float:
+def threshold_delta(kind: str, *, opt_in_key: Optional[str] = None) -> float:
     """Learned adjustment to a proactive surface's confidence/salience threshold
-    for one decision ``kind``, from how its recent decisions were received.
-
-    Positive → be more selective; negative → be more generous. Returns 0.0 when
-    the opt-in is off, on any error, or with too little judged evidence. Cached
-    per kind for a few minutes."""
+    for one decision ``kind``. CACHE-ONLY and non-blocking — safe to call on the
+    event loop. Returns the last value computed by ``async_refresh`` (0.0 when
+    the opt-in is off, nothing has been refreshed yet, or there was too little
+    evidence). The DB read that populates the cache happens off-loop in
+    ``async_refresh``; this never touches disk."""
     if not _opt_in(opt_in_key):
         return 0.0
-    now = time.time()
     cached = _CACHE.get(kind)
-    if cached and now - cached["ts"] < _CACHE_TTL:
-        return cached["delta"]
-    delta = 0.0
-    try:
-        from . import decision_record
-        r = decision_record.outcome_rate(kind, window_s=window_s, db_path=db_path)
-        if int(r.get("judged", 0)) >= int(min_judged):
-            delta = _delta_from_rate(float(r.get("unwelcome_rate") or 0.0))
-    except Exception as exc:
-        _LOGGER.debug("feedback.threshold_delta(%s) error: %s", kind, exc)
-        delta = 0.0
-    _CACHE[kind] = {"ts": now, "delta": delta}
-    return delta
+    return cached["delta"] if cached else 0.0
 
 
 def effective_threshold(
@@ -113,20 +93,52 @@ def effective_threshold(
     lo: float = 0.3,
     hi: float = 0.95,
     opt_in_key: Optional[str] = None,
-    window_s: float = DEFAULT_WINDOW_S,
-    min_judged: int = DEFAULT_MIN_JUDGED,
-    db_path: Optional[str] = None,
 ) -> float:
-    """``base`` threshold adjusted by the learned delta for ``kind`` and clamped
-    to [lo, hi]. When feedback is off or has no evidence this returns ``base``
-    unchanged (clamped), so it is always safe to route a threshold through."""
+    """``base`` threshold adjusted by the cached learned delta for ``kind`` and
+    clamped to [lo, hi]. CACHE-ONLY / non-blocking (see threshold_delta), so it
+    is safe on the event loop. Returns ``base`` (clamped) when feedback is off
+    or nothing has been refreshed yet."""
     try:
         b = float(base)
     except (TypeError, ValueError):
         return base
-    d = threshold_delta(kind, opt_in_key=opt_in_key, window_s=window_s,
-                        min_judged=min_judged, db_path=db_path)
+    d = threshold_delta(kind, opt_in_key=opt_in_key)
     return min(hi, max(lo, b + d))
+
+
+async def async_refresh(
+    hass,
+    kind: str,
+    *,
+    opt_in_key: Optional[str] = None,
+    window_s: float = DEFAULT_WINDOW_S,
+    min_judged: int = DEFAULT_MIN_JUDGED,
+    db_path: Optional[str] = None,
+) -> float:
+    """Recompute and cache the learned delta for ``kind`` from the Decision
+    Record. The SQLite read runs OFF the event loop via the executor. Self-
+    throttles to the cache TTL, so it is cheap to call opportunistically. When
+    the opt-in is off it caches 0.0. Returns the (possibly cached) delta. Never
+    raises."""
+    if not _opt_in(opt_in_key):
+        _CACHE[kind] = {"ts": time.time(), "delta": 0.0}
+        return 0.0
+    now = time.time()
+    cached = _CACHE.get(kind)
+    if cached and now - cached["ts"] < _CACHE_TTL:
+        return cached["delta"]
+    delta = 0.0
+    try:
+        from . import decision_record
+        r = await hass.async_add_executor_job(
+            decision_record.outcome_rate, kind, window_s, db_path)
+        if int(r.get("judged", 0)) >= int(min_judged):
+            delta = _delta_from_rate(float(r.get("unwelcome_rate") or 0.0))
+    except Exception as exc:
+        _LOGGER.debug("feedback.async_refresh(%s) error: %s", kind, exc)
+        delta = 0.0
+    _CACHE[kind] = {"ts": now, "delta": delta}
+    return delta
 
 
 def reset_cache() -> None:
