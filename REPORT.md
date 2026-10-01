@@ -1,4 +1,4 @@
-# JARVIS traction report — 2026-09-30
+# JARVIS traction report — 2026-10-01
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
