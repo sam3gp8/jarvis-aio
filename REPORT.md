@@ -1,23 +1,23 @@
-# JARVIS traction report — 2026-10-01
+# JARVIS traction report — 2026-10-02
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-09-29 vs the 7 before
+## 7 days to 2026-10-01 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 799 | 612 | +31% |
-| Unique visitors (sum of daily) | 185 | 118 | +57% |
-| Clones | 1698 | 1197 | +42% |
-| Unique cloners (sum of daily) | 436 | 276 | +58% |
+| Views | 594 | 838 | -29% |
+| Unique visitors (sum of daily) | 185 | 133 | +39% |
+| Clones | 1287 | 1827 | -30% |
+| Unique cloners (sum of daily) | 392 | 383 | +2% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 20 | +3 | +3 |
+| Stars | 21 | +4 | +4 |
 | Forks | 3 | +0 | +0 |
 | Watchers | 2 | +0 | +0 |
 | HA analytics installs | — | — | — |
@@ -27,27 +27,27 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| github.com | 127 | 27 |
+| github.com | 119 | 25 |
 | lm.facebook.com | 23 | 22 |
 | facebook.com | 20 | 19 |
-| chatgpt.com | 14 | 9 |
-| Google | 5 | 4 |
+| chatgpt.com | 13 | 8 |
+| Google | 6 | 4 |
+| l.facebook.com | 2 | 2 |
 | DuckDuckGo | 1 | 1 |
-| l.facebook.com | 1 | 1 |
 | search.brave.com | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 445 | 192 |
-| `/sam3gp8/jarvis-aio/pulls` | 159 | 6 |
-| `/sam3gp8/jarvis-aio/issues` | 89 | 30 |
+| `/sam3gp8/jarvis-aio` | 454 | 196 |
+| `/sam3gp8/jarvis-aio/pulls` | 161 | 6 |
+| `/sam3gp8/jarvis-aio/issues` | 95 | 29 |
 | `/sam3gp8/jarvis-aio/pull/66` | 47 | 2 |
+| `/sam3gp8/jarvis-aio/releases` | 27 | 14 |
 | `/sam3gp8/jarvis-aio/pull/56` | 27 | 2 |
-| `/sam3gp8/jarvis-aio/releases` | 26 | 12 |
 | `/sam3gp8/jarvis-aio/pull/32` | 26 | 2 |
-| `/sam3gp8/jarvis-aio/actions` | 21 | 3 |
+| `/sam3gp8/jarvis-aio/actions` | 22 | 3 |
 | `/sam3gp8/jarvis-aio/pull/54` | 19 | 1 |
 | `/sam3gp8/jarvis-aio/pull/64` | 16 | 2 |
 
@@ -55,6 +55,8 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-01 | 47 | 22 | 195 | 56 |
+| 2026-09-30 | 58 | 22 | 129 | 39 |
 | 2026-09-29 | 20 | 8 | 14 | 12 |
 | 2026-09-28 | 55 | 28 | 173 | 44 |
 | 2026-09-27 | 162 | 70 | 95 | 39 |
