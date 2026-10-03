@@ -252,6 +252,13 @@ setTimeout(async () => {
     // ── Command Center tab (default) ──
     ["stylesheet injected", html.includes("<style>") && html.includes("--cyan:") && html.includes("#00f2fe")],
     ["dashboard grid present", !!sr.querySelector(".grid")],
+    // #157: Quick Actions buttons carry explanatory tooltips; the Nap button in
+    // particular must make clear it only mutes and does NOT touch blinds/covers.
+    ["nap button tooltip clarifies it doesn't move blinds", (() => {
+      const nap = [...sr.querySelectorAll('[data-svc="jarvis.nap"]')][0];
+      const t = (nap && nap.getAttribute("title")) || "";
+      return /mute/i.test(t) && /blind|cover/i.test(t);
+    })()],
     ["onboarding welcome card shows for new users", !!sr.querySelector(".onboarding-card")],
     ["onboarding shows step progress + checklist",
       /1\/5 done/.test(sr.querySelector(".ob-progress")?.textContent || "") && sr.querySelectorAll(".ob-step").length === 5],
