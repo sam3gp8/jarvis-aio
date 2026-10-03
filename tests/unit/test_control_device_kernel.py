@@ -79,15 +79,18 @@ def no_sleep(agent, monkeypatch):
 
 
 @pytest.fixture
-def outcomes(agent, monkeypatch):
-    """Capture (request, status, detail) for every recorded ActuatorOutcome."""
+def outcomes(load, monkeypatch):
+    """Capture (request, status, detail) for every recorded ActuatorOutcome.
+
+    Outcome recording now lives in the shared actuation envelope (B0)."""
+    actuation = load("actuation")
     sink = []
-    real = agent._record_actuator_outcome
+    real = actuation.outcome
 
     def _spy(request, status, hass, entity_id, detail=""):
         sink.append({"request": request, "status": status, "detail": detail})
         return real(request, status, hass, entity_id, detail)
-    monkeypatch.setattr(agent, "_record_actuator_outcome", _spy)
+    monkeypatch.setattr(actuation, "outcome", _spy)
     return sink
 
 
@@ -181,9 +184,10 @@ def test_from_actuation_builder(load):
 
 # ── 8.33.0: the actuation is expressed as a canonical one-step kernel Plan ───
 
-def test_shadow_control_plan_shape(agent):
-    plan = agent._shadow_control_plan("light.turn_on", "light.den", "turn_on",
-                                      ("on",), correlation_id="cid1")
+def test_shadow_control_plan_shape(load):
+    actuation = load("actuation")
+    plan = actuation.plan_shadow("light.turn_on", "light.den", "turn_on",
+                                 ("on",), correlation="cid1")
     assert plan is not None
     assert plan.goal == "turn_on light.den"
     assert plan.correlation_id == "cid1"
@@ -196,17 +200,19 @@ def test_shadow_control_plan_shape(agent):
     assert step.idempotency_key == "light.den:turn_on"
 
 
-def test_shadow_control_plan_no_expected(agent):
+def test_shadow_control_plan_no_expected(load):
     """A non-deterministic action yields a plan with no postconditions."""
-    plan = agent._shadow_control_plan("light.turn_on", "light.den",
-                                      "set_brightness", None)
+    actuation = load("actuation")
+    plan = actuation.plan_shadow("light.turn_on", "light.den",
+                                 "set_brightness", None)
     assert plan is not None and plan.steps[0].postconditions == ()
 
 
-async def test_control_device_builds_shadow_plan(agent, fake_hass, no_sleep, monkeypatch):
+async def test_control_device_builds_shadow_plan(agent, fake_hass, no_sleep, load, monkeypatch):
+    actuation = load("actuation")
     calls = []
-    real = agent._shadow_control_plan
-    monkeypatch.setattr(agent, "_shadow_control_plan",
+    real = actuation.plan_shadow
+    monkeypatch.setattr(actuation, "plan_shadow",
                         lambda *a, **k: calls.append((a, k)) or real(*a, **k))
     fake_hass.states.set("lock.front", "unlocked")
     await agent._exec_control_device(
@@ -218,14 +224,14 @@ async def test_control_device_builds_shadow_plan(agent, fake_hass, no_sleep, mon
     assert expected == ("locked",)
 
 
-def test_record_outcome_builds_actuator_outcome(agent, fake_hass, load, caplog):
-    """The helper logs a real kernel ActuatorOutcome with observed state."""
+def test_record_outcome_builds_actuator_outcome(fake_hass, load, caplog):
+    """The envelope logs a real kernel ActuatorOutcome with observed state."""
+    actuation = load("actuation")
     act = load("kernel.actuator")
     req = act.build_actuator_request("light.turn_on", target="light.den")
     fake_hass.states.set("light.den", "on")
     with caplog.at_level(logging.DEBUG):
-        agent._record_actuator_outcome(req, agent._OUT_VERIFIED, fake_hass,
-                                       "light.den", "ok")
+        actuation.outcome(req, "verified", fake_hass, "light.den", "ok")
     msgs = [r.getMessage() for r in caplog.records]
     assert any("actuator(outcome):" in m and "verified" in m and "'observed': 'on'" in m
                for m in msgs)

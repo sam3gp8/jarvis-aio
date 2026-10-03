@@ -47,26 +47,23 @@ _PATHS: dict[str, dict] = {
     "control_device": {
         "module": "agent.py",
         "contracts": {
-            # 8.30.0 (MCU Phase A): the pre-action context snapshot is read
-            # through the WorldModel facade. Parity, not full — the post-action
-            # verify/read-back still reads raw HA state.
-            "world_model": {"stage": "parity", "evidence": "WorldModel"},
+            # Pre-action context snapshot via the WorldModel facade (8.30.0),
+            # routed through the shared actuation envelope (B0). Parity, not full
+            # — the post-action verify/read-back still reads raw HA state.
+            "world_model": {"stage": "parity", "evidence": "actuation.context"},
             # H1: logs the Phase-4 engine decision vs the live confirm-gate.
             "authority": {"stage": "parity", "evidence": "authority_bridge"},
             # v6.38 verify-after-act for deterministic targets.
             "verify": {"stage": "full", "evidence": "_verify_control"},
-            # 8.31.0 (MCU Phase A): the verify step produces the canonical
-            # ActuatorOutcome (requested→executed→observed→verified) as the
-            # path's real outcome record — the audit's point 18.
-            "outcome": {"stage": "full", "evidence": "ActuatorOutcome"},
-            # 8.32.0 (MCU Phase A): the actuation is published as a canonical
-            # JarvisEvent on the bus (ledger records it). Parity, not full — it
-            # enters the event stream but no cognitive consumer reacts yet.
-            "event": {"stage": "parity", "evidence": "from_actuation"},
-            # 8.33.0 (MCU Phase A): the actuation is expressed as a canonical
-            # one-step kernel Plan and logged. Shadow — execute_plan is sync
-            # while HA actuation is async, so execution stays legacy for now.
-            "plan": {"stage": "shadow", "evidence": "_shadow_control_plan"},
+            # The verify step produces the canonical ActuatorOutcome (8.31.0) via
+            # the envelope — requested→executed→observed→verified (audit #18).
+            "outcome": {"stage": "full", "evidence": "actuation.outcome"},
+            # The actuation is published as a canonical JarvisEvent on the bus
+            # (8.32.0). Parity — it enters the stream, no consumer reacts yet.
+            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            # The actuation is expressed as a one-step kernel Plan (8.33.0).
+            # Shadow — execute_plan is sync while HA actuation is async.
+            "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
         },
     },
     # Uses only the legacy policy confirmation gate — no kernel contract yet.

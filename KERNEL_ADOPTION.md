@@ -34,24 +34,24 @@ holds on the live home system.
 <!-- BEGIN kernel-adoption (python3 scripts/kernel_adoption.py --markdown) -->
 | Primitive | Stage | Live callers |
 | --- | --- | --- |
-| `actuator` | ◑ parity | `agent` |
+| `actuator` | ◑ parity | `actuation`, `agent` |
 | `attention` | · pure | — |
 | `authority` | ◑ parity | `authority_bridge` |
 | `beliefs` | · pure | — |
 | `budget` | · pure | — |
 | `causal` | · pure | — |
-| `correlation` | ◐ shadow | `agent`, `decision_record`, `observer`, `proactive_audio` |
-| `event` | ◑ parity | `agent`, `camera`, `observer`, `proactive_audio` |
+| `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
+| `event` | ◑ parity | `actuation`, `camera`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `journal` | · pure | — |
 | `ledger` | ◐ shadow | `__init__` |
 | `loop_detect` | · pure | — |
 | `persistence` | · pure | — |
-| `plan` | ◐ shadow | `agent` |
+| `plan` | ◐ shadow | `actuation` |
 | `priority` | · pure | — |
 | `router` | · pure | — |
 | `situation` | ◑ parity | `intrusion` |
-| `world_model` | ◑ parity | `agent` |
+| `world_model` | ◑ parity | `actuation` |
 <!-- END kernel-adoption -->
 
 ## Notes on specific primitives
@@ -59,19 +59,19 @@ holds on the live home system.
 - **persistence** is an internal seam (connection + migrations) consumed by other
   kernel modules such as `ledger`, not by live callers directly — "pure" here
   means "no legacy bypass to retire", not "unused".
-- **world_model** is at parity through `agent` (8.30.0, MCU Phase A): the
+- **world_model** is at parity through `actuation` (8.30.0, MCU Phase A/B): the
   `control_device` path reads its pre-action context snapshot through the facade
   — the canonical context authority — and uses the result (area, previous_state),
   falling back to raw HA state. Parity, not enforce: the facade informs the path
   but the raw sources stay authoritative underneath.
-- **actuator** is at parity through `agent` (8.26.0 → 8.31.0, MCU Phase A): the
+- **actuator** is at parity through the shared `actuation` envelope (8.26.0 → 8.31.0, B0): the
   `control_device` path builds a canonical `ActuatorRequest` (now carrying the
   expected end-state) and the verify step produces the matching `ActuatorOutcome`
   (requested → executed → observed → verified / mismatch / failed). Parity, not
   enforce: the contract records the actuation faithfully, but legacy code still
   performs the HA service call — routing *execution* through the actuator is a
   later step.
-- **plan** is at shadow through `agent` (8.33.0, MCU Phase A): `control_device`
+- **plan** is at shadow through `actuation` (8.33.0, MCU Phase A/B): `control_device`
   expresses each actuation as a canonical one-step `Plan` (preconditions → act →
   postconditions, with an idempotency key) and logs it. Shadow, not parity:
   `kernel.plan.execute_plan` is synchronous while HA actuation is `await`-ed, so

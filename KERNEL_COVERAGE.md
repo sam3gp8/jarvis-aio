@@ -61,6 +61,13 @@ move is to *template* this onto the other consequential paths (`bulk_control`,
 `execute_plan`, `run_scene_or_script`, `set_mode`, …) and, eventually, route
 execution itself through the plan/actuator contract (needs an async plan driver).
 
+**Phase B is underway.** B0 (8.35.0) extracted the golden-path wiring into a
+shared **`actuation`** envelope (`actuation.py`: `context` / `request` /
+`plan_shadow` / `emit_event` / `outcome`) so each remaining actuator routes
+through the *same* kernel contract instead of re-implementing it. `control_device`
+adopts it with no behaviour change (coverage unchanged); the other paths adopt it
+one release at a time.
+
 ## What the cells mean today
 
 - **`control_device`** — the Phase A golden path in progress. **WorldModel** at

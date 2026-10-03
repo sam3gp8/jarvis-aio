@@ -1140,23 +1140,20 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
     action = args.get("action", "")
     value = args.get("value")
 
-    # World-model context (MCU Phase A — kernel golden path): control_device's
-    # pre-action snapshot is read through the kernel WorldModel facade — the
-    # canonical context authority (entity_id / domain / name / state / area) —
-    # rather than a bare states.get. Read-only and best-effort (never raises);
-    # the raw state stays available underneath for the post-action verify /
-    # read-back, which is why the coverage matrix rates this path's world_model
-    # at parity (not full). This is control_device's first kernel-contract read.
-    from .kernel.world_model import WorldModel
-    wm = WorldModel(hass)
-    snapshot = wm.device(entity_id)
-    state = hass.states.get(entity_id)
-    if not state and snapshot is None:
+    # World-model context via the shared kernel actuation envelope (MCU Phase A,
+    # extracted in Phase B / B0): the pre-action snapshot is read through the
+    # WorldModel facade — the canonical context authority — rather than a bare
+    # states.get. Read-only and best-effort; the raw state stays available for
+    # the post-action verify/read-back (why world_model is parity, not full).
+    from . import actuation
+    ctx = actuation.context(hass, entity_id)
+    if not ctx["exists"]:
         return json.dumps({"error": f"Entity '{entity_id}' not found"})
 
+    state = ctx["raw"]
     domain = entity_id.split(".")[0]
-    prev_state = snapshot["state"] if snapshot else (state.state if state else "unknown")
-    wm_area = snapshot.get("area") if snapshot else None
+    prev_state = ctx["prev_state"]
+    wm_area = ctx["area"]
     svc_data = {"entity_id": entity_id}
     areq = None         # the canonical ActuatorRequest for this actuation, if built
     capability = None   # domain.service actually executed, for the actuation event
@@ -1218,49 +1215,28 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
                     "message": note or f"Confirmation required before {action} on {entity_id}.",
                 })
             # Universal actuator contract (MCU A5 / Phase A): describe this
-            # actuation as one canonical ActuatorRequest, now carrying the
-            # expected end-state for deterministic targets so the outcome can be
-            # verified against it (who/intent/target/correlation/idempotency/
-            # expected_outcome). No behaviour change to what executes.
-            try:
-                from .kernel import build_actuator_request, correlation as _corr
-                _expected = _EXPECTED_STATES.get(action)
-                areq = build_actuator_request(
-                    f"{svc_domain}.{svc_name}", target=entity_id,
-                    params=dict(svc_data), intent=action.replace("_", " "),
-                    correlation_id=_corr.current(),
-                    idempotency_key=f"{entity_id}:{action}",
-                    expected_outcome="/".join(_expected) if _expected else None)
-                _LOGGER.debug("actuator(request): %s", areq.to_dict())
-            except Exception:
-                areq = None
+            # actuation as one canonical ActuatorRequest, carrying the expected
+            # end-state for deterministic targets so the outcome can be verified
+            # against it. No behaviour change to what executes.
             capability = f"{svc_domain}.{svc_name}"
+            areq = actuation.request(
+                capability, entity_id, params=svc_data, action=action,
+                intent=action.replace("_", " "),
+                expected=_EXPECTED_STATES.get(action))
             await hass.services.async_call(svc_domain, svc_name, svc_data, blocking=True)
         else:
             return json.dumps({"error": f"Unknown action: {action}"})
 
         if capability:
-            # Plan contract (MCU Phase A, SHADOW): express this actuation as a
-            # canonical one-step kernel Plan and log it. Execution stays legacy.
-            _shadow_control_plan(
-                capability, entity_id, action, _EXPECTED_STATES.get(action),
-                correlation_id=_safe_correlation_id())
-            # Event emission (MCU Phase A — the event bus as nervous system,
-            # audit item #8): publish a canonical JarvisEvent that *JARVIS acted*
-            # onto the kernel event bus (the ledger records it). Parity, not full
-            # — it enters the stream but no cognitive consumer reacts to it yet.
-            # Best-effort: publishing never affects the actuation.
-            try:
-                from . import events as _events
-                from .kernel import from_actuation
-                _ev = from_actuation(
-                    capability, target=entity_id,
-                    intent=action.replace("_", " "), location=wm_area,
-                    request_id=(areq.id if areq is not None else None),
-                    correlation_id=_safe_correlation_id())
-                _events.publish(hass, _ev)
-            except Exception:
-                pass
+            # Plan + event through the shared envelope (MCU Phase A/B): express
+            # the actuation as a one-step kernel Plan (shadow) and publish a
+            # canonical actuation JarvisEvent on the bus (the ledger records it).
+            # Best-effort — neither affects what executes.
+            actuation.plan_shadow(
+                capability, entity_id, action, _EXPECTED_STATES.get(action))
+            actuation.emit_event(
+                hass, capability, entity_id, action=action, area=wm_area,
+                request=areq)
 
         # Get updated state
         new_state = hass.states.get(entity_id)
@@ -1938,59 +1914,10 @@ except Exception:   # pragma: no cover - defensive
     _OUT_VERIFIED, _OUT_MISMATCH, _OUT_FAILED = "verified", "mismatch", "failed"
 
 
-def _safe_correlation_id():
-    """Current kernel correlation id, or None — never raises."""
-    try:
-        from .kernel import correlation
-        return correlation.current()
-    except Exception:   # pragma: no cover - defensive
-        return None
-
-
-def _shadow_control_plan(capability: str, entity_id: str, action: str,
-                         expected, *, correlation_id=None):
-    """Express a control actuation as a canonical one-step kernel Plan (MCU
-    Phase A, 8.33.0 — SHADOW). Built and logged on real traffic so the plan
-    contract (preconditions → act → postconditions, with an idempotency key) is
-    exercised before execution routes through it; the legacy path still performs
-    the action. ``kernel.plan.execute_plan`` is synchronous while HA actuation is
-    ``await``-ed, so having the plan *own* execution is a later (full) step.
-    Best-effort; never raises."""
-    try:
-        from .kernel.plan import Plan, Step
-        step = Step(
-            action=capability,
-            params={"entity_id": entity_id},
-            preconditions=(f"exists:{entity_id}",),
-            postconditions=tuple(f"state:{e}" for e in (expected or ())),
-            idempotency_key=f"{entity_id}:{action}")
-        plan = Plan(goal=f"{action} {entity_id}", steps=(step,),
-                    correlation_id=correlation_id)
-        _LOGGER.debug("plan(shadow): goal=%s steps=%s",
-                      plan.goal, [s.action for s in plan.steps])
-        return plan
-    except Exception:   # pragma: no cover - defensive
-        return None
-
-
-def _record_actuator_outcome(request, status: str, hass: HomeAssistant,
-                             entity_id: str, detail: str = "") -> None:
-    """Record the canonical ActuatorOutcome for a verified actuation (MCU Phase
-    A, 8.31.0). The outcome model is the audit's point 18 — "the service
-    returned success" is not "the world reached the expected state". This is the
-    path's real record of which actually happened (requested → executed →
-    observed → verified). Best-effort; never raises."""
-    try:
-        from .kernel.actuator import ActuatorOutcome
-        st = hass.states.get(entity_id)
-        outcome = ActuatorOutcome(
-            request_id=(request.id if request is not None else f"{entity_id}:actuation"),
-            status=status,
-            observed=(str(st.state) if st is not None else None),
-            detail=detail)
-        _LOGGER.debug("actuator(outcome): %s", outcome.to_dict())
-    except Exception:   # pragma: no cover - defensive
-        pass
+# The actuation envelope (context / request / plan_shadow / emit_event /
+# outcome) lives in ``actuation.py`` (MCU Phase B, B0) so every actuator path
+# shares one kernel contract. ``_verify_control`` records the terminal
+# ActuatorOutcome through ``actuation.outcome``.
 
 
 def _state_ok(hass: HomeAssistant, entity_id: str, expected: tuple) -> Optional[bool]:
@@ -2015,6 +1942,7 @@ async def _verify_control(hass: HomeAssistant, entity_id: str, action: str,
     expected = _EXPECTED_STATES.get(action)
     if not expected:
         return
+    from . import actuation
     try:
         await _VERIFY_SLEEP(VERIFY_DELAY_SECS)
         ok = _state_ok(hass, entity_id, expected)
@@ -2022,7 +1950,7 @@ async def _verify_control(hass: HomeAssistant, entity_id: str, action: str,
             await _VERIFY_SLEEP(VERIFY_DELAY_SECS)
             ok = _state_ok(hass, entity_id, expected)
         if ok:
-            _record_actuator_outcome(request, _OUT_VERIFIED, hass, entity_id,
+            actuation.outcome(request, _OUT_VERIFIED, hass, entity_id,
                                      "reached expected state on first attempt")
             return                           # first-try success stays silent
         _LOGGER.info("verify: %s not %s after %s — retrying once",
@@ -2033,7 +1961,7 @@ async def _verify_control(hass: HomeAssistant, entity_id: str, action: str,
         ok = _state_ok(hass, entity_id, expected)
         from . import database
         if ok:
-            _record_actuator_outcome(request, _OUT_VERIFIED, hass, entity_id,
+            actuation.outcome(request, _OUT_VERIFIED, hass, entity_id,
                                      "reached expected state after one retry")
             await hass.async_add_executor_job(
                 lambda: database.save_activity(
@@ -2043,7 +1971,7 @@ async def _verify_control(hass: HomeAssistant, entity_id: str, action: str,
             )
         else:
             st = hass.states.get(entity_id)
-            _record_actuator_outcome(
+            actuation.outcome(
                 request, _OUT_MISMATCH, hass, entity_id,
                 f"did not reach {'/'.join(expected)} even after a retry")
             await hass.async_add_executor_job(
@@ -2055,7 +1983,7 @@ async def _verify_control(hass: HomeAssistant, entity_id: str, action: str,
                     source="agent")
             )
     except Exception as exc:
-        _record_actuator_outcome(request, _OUT_FAILED, hass, entity_id, str(exc))
+        actuation.outcome(request, _OUT_FAILED, hass, entity_id, str(exc))
         _LOGGER.debug("verify_control failed for %s: %s", entity_id, exc)
 
 
