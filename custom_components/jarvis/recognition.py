@@ -31,6 +31,8 @@ from typing import Optional
 
 from homeassistant.core import HomeAssistant, callback
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
 
 MATCHES_TOPIC = "double-take/matches"
@@ -61,6 +63,19 @@ _FACE_SNAPSHOTS: dict[str, dict] = {}
 FACE_SNAPSHOT_URL_BASE = "/local/jarvis/faces"
 _FACE_SNAP_THROTTLE = 300.0   # re-pin a given person at most this often (secs)
 _MAX_FACE_SNAPSHOTS = 60      # prune beyond this many files
+
+# ── Best-effort LLM resident recognition (#140 Phase 3) ─────────────────────────
+# For households with NO dedicated face backend (Frigate/DoubleTake/CompreFace) —
+# only JARVIS's local vision model — an opt-in path asks that model whether the
+# person on camera matches an enrolled resident reference photo. It is a GUESS:
+# LLM face-matching is unreliable for identity, so it is kept in a SEPARATE cache
+# that `resident_present()` (the intrusion stand-down) NEVER reads — a mis-guess
+# must not be able to disable an intrusion alert. It only feeds the Faces panel,
+# clearly flagged low-confidence. Reference photos live privately under
+# <config>/jarvis/faces_ref/<norm>.jpg (not served).
+#   _LLM_GUESS_CACHE: {camera_entity: {"name": str, "confidence": float, "ts": datetime}}
+_LLM_GUESS_CACHE: dict[str, dict] = {}
+FACE_REF_DIR = config_path_str("jarvis", "faces_ref")
 
 
 def _normalize_score(raw) -> float:
@@ -304,6 +319,82 @@ def _schedule_face_capture(hass, camera: str, name: str, confidence: float) -> N
         pass
 
 
+# ── Resident reference photos for best-effort LLM recognition (#140 Phase 3) ────
+def set_face_reference(name: str, jpeg: bytes) -> bool:
+    """Store an enrollment reference photo for ``name`` at
+    ``<config>/jarvis/faces_ref/<norm>.jpg``. Returns True on success. Does file
+    I/O (call on the executor). Never raises to the caller."""
+    try:
+        key = _face_norm(name)
+        if not key or not jpeg:
+            return False
+        os.makedirs(FACE_REF_DIR, exist_ok=True)
+        tmp = os.path.join(FACE_REF_DIR, f"{key}.jpg.tmp")
+        path = os.path.join(FACE_REF_DIR, f"{key}.jpg")
+        with open(tmp, "wb") as f:
+            f.write(jpeg)
+        os.replace(tmp, path)
+        return True
+    except Exception as exc:
+        _LOGGER.debug("set_face_reference failed for %s: %s", name, exc)
+        return False
+
+
+def face_reference_path(name: str) -> Optional[str]:
+    """Path to ``name``'s reference photo if enrolled, else None."""
+    try:
+        key = _face_norm(name)
+        if not key:
+            return None
+        path = os.path.join(FACE_REF_DIR, f"{key}.jpg")
+        return path if os.path.exists(path) else None
+    except Exception:
+        return None
+
+
+def has_face_reference(name: str) -> bool:
+    return face_reference_path(name) is not None
+
+
+def remove_face_reference(name: str) -> bool:
+    """Delete ``name``'s reference photo. Returns True if one was removed."""
+    try:
+        path = face_reference_path(name)
+        if not path:
+            return False
+        os.remove(path)
+        return True
+    except Exception:
+        return False
+
+
+def list_face_references() -> list[str]:
+    """Normalized names that currently have a reference photo enrolled."""
+    try:
+        if not os.path.isdir(FACE_REF_DIR):
+            return []
+        return sorted(f[:-4] for f in os.listdir(FACE_REF_DIR) if f.endswith(".jpg"))
+    except Exception:
+        return []
+
+
+def remember_llm_guess(camera_name: str, name: str, confidence: float) -> None:
+    """Record a BEST-EFFORT LLM resident guess (#140 Phase 3) in a cache kept
+    strictly separate from the trusted recognition cache. This is deliberately
+    NOT stored via remember_recognition and NEVER consulted by resident_present,
+    so an unreliable guess can never stand intrusion monitoring down. Feeds only
+    the Faces panel, flagged low-confidence."""
+    try:
+        entity_id = _camera_entity_from_name(camera_name)
+        _LLM_GUESS_CACHE[entity_id] = {
+            "name": name,
+            "confidence": float(confidence or 0.0),
+            "ts": datetime.now(timezone.utc).replace(tzinfo=None),
+        }
+    except Exception:
+        pass
+
+
 def last_seen_at(hass: HomeAssistant, camera_entity: str) -> Optional[dict]:
     """Return most recent recognition on that camera, or None if stale."""
     rec = _RECOGNITION_CACHE.get(camera_entity)
@@ -346,14 +437,21 @@ def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     rows: dict[tuple, dict] = {}
 
-    def _add(name, cam_entity, conf, age_seconds, source):
+    def _add(name, cam_entity, conf, age_seconds, source, low_conf=False):
         name = (name or "").strip()
         if not name:
             return
         key = (name.lower(), cam_entity)
         prior = rows.get(key)
-        if prior is not None and prior["age_seconds"] <= age_seconds:
-            return  # keep the fresher sighting
+        if prior is not None:
+            prior_low = prior.get("is_low_confidence", False)
+            # A trusted recognition always outranks a best-effort LLM guess for
+            # the same person/camera, regardless of which is newer.
+            if low_conf and not prior_low:
+                return
+            # Same tier → keep the fresher sighting.
+            if bool(low_conf) == bool(prior_low) and prior["age_seconds"] <= age_seconds:
+                return
         unknown = _is_unknown(name)
         snap = None if unknown else _FACE_SNAPSHOTS.get(_face_norm(name))
         rows[key] = {
@@ -368,6 +466,9 @@ def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
             # Pinned recognition-time snapshot (Phase 2) — the frame from when
             # JARVIS last saw this person; None falls back to the live camera view.
             "snapshot_url": snap.get("url") if snap else None,
+            # Phase 3: a best-effort LLM guess, not a backend recognition. The
+            # panel badges these distinctly and they never drive intrusion.
+            "is_low_confidence": bool(low_conf),
             "source": source,
         }
 
@@ -388,6 +489,19 @@ def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
                  10 ** 9, "frigate_sensor")
     except Exception:
         pass
+    try:
+        # Best-effort LLM guesses (Phase 3), flagged low-confidence so the panel
+        # can mark them clearly. A trusted recognition for the same person/camera
+        # already in `rows` wins (it was added first and _add keeps the fresher).
+        for cam, rec in _LLM_GUESS_CACHE.items():
+            ts = rec.get("ts")
+            age = int((now - ts).total_seconds()) if ts else 10 ** 9
+            if ts and (now - ts) > CACHE_MAX_AGE:
+                continue
+            _add(rec.get("name"), cam, rec.get("confidence", 0.0), age,
+                 "llm_guess", low_conf=True)
+    except Exception:
+        pass
 
     out = sorted(rows.values(), key=lambda r: r["age_seconds"])
     return out[: max(1, int(limit or 20))]
@@ -397,7 +511,11 @@ def resident_present(hass: HomeAssistant, within_secs: int = 180) -> Optional[st
     """Name of a flagged household resident recognized on any camera within the
     last ``within_secs`` (confidently), else None. Used to stand intrusion
     monitoring down when a known resident is the one JARVIS is seeing (#140).
-    Never raises."""
+    Never raises.
+
+    SAFETY (#140 Phase 3): this reads ONLY the trusted ``_RECOGNITION_CACHE``
+    (backend recognitions). It deliberately never consults ``_LLM_GUESS_CACHE`` —
+    a best-effort LLM guess must not be able to disable an intrusion alert."""
     try:
         from . import face_roster
     except Exception:

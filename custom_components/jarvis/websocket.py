@@ -856,6 +856,7 @@ async def ws_get_panel_data(
                 "web_research_llm_fallback": bool(_runtime_opt(hass, entry, "web_research_llm_fallback", False)),
                 "calendar_tight_gap_min": _runtime_opt(hass, entry, "calendar_tight_gap_min", 15),
                 "recognition_source":   str(_runtime_opt(hass, entry, "recognition_source", "both") or "both"),
+                "llm_face_recognition": bool(_runtime_opt(hass, entry, "llm_face_recognition", False)),
                 "output_language":      str(_runtime_opt(hass, entry, "output_language", "") or ""),
                 "voice_confirm_enabled": bool(_runtime_opt(hass, entry, "voice_confirm_enabled", False)),
                 "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
@@ -1436,6 +1437,7 @@ PANEL_WRITABLE_KEYS = {
     "biometrics_enabled",        # bool: read wearable context (opt-in) (v6.63.0)
     "biometric_entities",        # dict: explicit kind→entity_id overrides
     "recognition_source",        # str: both | doubletake | frigate (v6.64.1)
+    "llm_face_recognition",      # bool: best-effort resident recognition via the local vision LLM, opt-in (#140 Phase 3)
     "output_language",           # str: ISO code (e.g. "de") or ""/"auto" to follow HA; steers JARVIS's spoken/written output (#148)
     "voice_confirm_enabled",      # bool: voice-confirm sensitive actions (v6.67.0)
     "voice_confirm_mode",         # str: native | gated | auto
@@ -2715,8 +2717,10 @@ async def ws_intrusion(
 
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/faces",
-    vol.Optional("action"): vol.In(["list", "add_resident", "remove_resident"]),
+    vol.Optional("action"): vol.In(
+        ["list", "add_resident", "remove_resident", "set_reference", "remove_reference"]),
     vol.Optional("name"): str,
+    vol.Optional("image"): str,   # base64 JPEG for set_reference (#140 Phase 3)
     vol.Optional("limit"): int,
 })
 @websocket_api.async_response
@@ -2738,14 +2742,37 @@ async def ws_faces(
             jarvis_log("CAMERA", f"Household resident added: {msg['name']}")
         elif action == "remove_resident" and msg.get("name"):
             await hass.async_add_executor_job(face_roster.remove_resident, msg["name"])
+            # Drop the enrollment reference photo too, so it can't linger.
+            await hass.async_add_executor_job(recognition.remove_face_reference, msg["name"])
             jarvis_log("CAMERA", f"Household resident removed: {msg['name']}")
+        elif action == "set_reference" and msg.get("name") and msg.get("image"):
+            import base64
+            try:
+                raw = base64.b64decode(str(msg["image"]).split(",", 1)[-1])
+            except Exception:
+                raw = b""
+            ok = await hass.async_add_executor_job(
+                recognition.set_face_reference, msg["name"], raw)
+            if not ok:
+                connection.send_error(msg["id"], "reference_failed",
+                                      "could not store the reference photo")
+                return
+            jarvis_log("CAMERA", f"Resident reference photo set: {msg['name']}")
+        elif action == "remove_reference" and msg.get("name"):
+            await hass.async_add_executor_job(recognition.remove_face_reference, msg["name"])
+            jarvis_log("CAMERA", f"Resident reference photo removed: {msg['name']}")
         else:
             await hass.async_add_executor_job(face_roster._load)
         recent = recognition.recent_faces(hass, int(msg.get("limit", 20)))
+        refs = await hass.async_add_executor_job(recognition.list_face_references)
         entry = _get_entry(hass)
         connection.send_result(msg["id"], {
             "recent": recent,
             "residents": face_roster.residents(),
+            # Normalized names that have an enrolled reference photo (Phase 3).
+            "references": refs,
+            "llm_face_recognition": bool(
+                _runtime_opt(hass, entry, "llm_face_recognition", False)),
             "recognition_source": str(
                 _runtime_opt(hass, entry, "recognition_source", "both") or "both"),
         })

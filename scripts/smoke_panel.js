@@ -45,7 +45,7 @@ const PANEL = {
     { id: "banter", label: "Pick a personality level", hint: "wit", done: false },
     { id: "briefings", label: "Turn on daily briefings", hint: "briefings", done: false, jump: "Briefings" },
   ] },
-  config: { floor_plan_address: "123 Example St, Springfield IL", banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
+  config: { floor_plan_address: "123 Example St, Springfield IL", banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", llm_face_recognition: true, voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
   suggestions: [
     { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{}",
       pattern_type: "time_routine", entities: ["light.porch"],
@@ -72,6 +72,7 @@ let _bioEnabled = false;
 let _intrCalledOff = false;
 let _intrAck = false;
 const _residents = ["Sam"];
+const _faceRefs = [];
 const _intrSnap = { url: "/local/jarvis/intrusion/intrusion_dining_room_1730000000.jpg", camera: "camera.dining_room", ts: 1730000000, path: "/config/www/jarvis/intrusion/x.jpg" };
 const hass = {
   config: { location_name: "Springfield IL", latitude: 39.78, longitude: -89.65 },
@@ -221,12 +222,16 @@ const hass = {
     if (m.type === "jarvis/faces") {
       if (m.action === "add_resident" && m.name && !_residents.includes(m.name)) _residents.push(m.name);
       if (m.action === "remove_resident" && m.name) { const i = _residents.indexOf(m.name); if (i >= 0) _residents.splice(i, 1); }
+      if (m.action === "set_reference" && m.name && !_faceRefs.includes(m.name.toLowerCase())) _faceRefs.push(m.name.toLowerCase());
       return {
         residents: _residents.slice(),
+        references: _faceRefs.slice(),
+        llm_face_recognition: true,
         recent: [
-          { name: "Sam", camera_entity: "camera.front", camera: "front_door", confidence: 94.0, age_seconds: 20, is_unknown: false, is_resident: _residents.includes("Sam"), snapshot_url: "/local/jarvis/faces/sam.jpg", source: "recent_cache" },
-          { name: "Quentin", camera_entity: "camera.front", camera: "front_door", confidence: 88.0, age_seconds: 90, is_unknown: false, is_resident: _residents.includes("Quentin"), snapshot_url: null, source: "recent_cache" },
-          { name: "Unknown", camera_entity: "camera.back", camera: "backyard", confidence: 0.0, age_seconds: 300, is_unknown: true, is_resident: false, source: "frigate_sensor" },
+          { name: "Sam", camera_entity: "camera.front", camera: "front_door", confidence: 94.0, age_seconds: 20, is_unknown: false, is_resident: _residents.includes("Sam"), snapshot_url: "/local/jarvis/faces/sam.jpg", is_low_confidence: false, source: "recent_cache" },
+          { name: "Quentin", camera_entity: "camera.front", camera: "front_door", confidence: 88.0, age_seconds: 90, is_unknown: false, is_resident: _residents.includes("Quentin"), snapshot_url: null, is_low_confidence: false, source: "recent_cache" },
+          { name: "Lee", camera_entity: "camera.back", camera: "backyard", confidence: 55.0, age_seconds: 120, is_unknown: false, is_resident: false, snapshot_url: null, is_low_confidence: true, source: "llm_guess" },
+          { name: "Unknown", camera_entity: "camera.back", camera: "backyard", confidence: 0.0, age_seconds: 300, is_unknown: true, is_resident: false, is_low_confidence: false, source: "frigate_sensor" },
         ],
         recognition_source: "frigate",
       };
@@ -1008,6 +1013,13 @@ setTimeout(async () => {
     ["recently-seen offers to flag a known non-resident (Quentin)",
       /data-faces-add="Quentin"/.test(_facesBody)],
     ["faces tab shows the recognition source hint", /Reading identities from/.test(_facesBody)],
+    // #140 Phase 3: best-effort LLM recognition controls + guess labelling.
+    ["faces tab has the experimental LLM-recognition toggle",
+      !!el.shadowRoot.querySelector('[data-cfg-key="llm_face_recognition"]')],
+    ["a best-effort guess is badged LLM GUESS (not shown as a trusted hit)",
+      /faces-badge guess/.test(_facesBody) && /LLM GUESS/.test(_facesBody)],
+    ["resident cards expose a reference-photo upload for the matcher",
+      !!_samCard && !!_samCard.querySelector('input[type=file][data-faces-ref="Sam"]')],
   );
   el._currentTab = "settings";
   el._render();

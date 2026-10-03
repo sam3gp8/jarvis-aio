@@ -23,11 +23,14 @@ def recog(load, tmp_path, monkeypatch):
     fr._roster = {}
 
     mod = load("recognition")
+    monkeypatch.setattr(mod, "FACE_REF_DIR", str(tmp_path / "faces_ref"))
     mod._RECOGNITION_CACHE.clear()
     mod._FACE_SNAPSHOTS.clear()
+    mod._LLM_GUESS_CACHE.clear()
     yield mod, fr
     mod._RECOGNITION_CACHE.clear()
     mod._FACE_SNAPSHOTS.clear()
+    mod._LLM_GUESS_CACHE.clear()
 
 
 def _cache(mod, camera_entity, name, confidence, age_seconds):
@@ -225,3 +228,77 @@ async def test_capture_face_snapshot_contains_traversal(load, recog, fake_hass, 
     if rec is not None:
         assert os.path.realpath(rec["path"]).startswith(os.path.realpath(str(tmp_path)))
     assert not os.path.exists(os.path.join(str(tmp_path), "..", "etc"))
+
+
+# ── Phase 3: best-effort LLM guesses stay out of the trusted path (#140) ────────
+
+def test_resident_present_ignores_llm_guess(recog, fake_hass):
+    # SAFETY: a best-effort LLM guess must NEVER stand intrusion monitoring down.
+    mod, fr = recog
+    fr.add_resident("Sam")
+    # A recent, "confident" LLM guess for a flagged resident — but it lives in the
+    # separate guess cache, which resident_present must not read.
+    mod._LLM_GUESS_CACHE["camera.front_door"] = {
+        "name": "Sam", "confidence": 99.0, "ts": _now()}
+    assert mod.resident_present(fake_hass) is None
+    # The trusted cache, in contrast, does stand down.
+    _cache(mod, "camera.front_door", "Sam", 92.0, age_seconds=10)
+    assert mod.resident_present(fake_hass) == "Sam"
+
+
+def test_recent_faces_surfaces_llm_guess_flagged(recog, fake_hass):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    mod._LLM_GUESS_CACHE["camera.front_door"] = {
+        "name": "Sam", "confidence": 70.0, "ts": _now()}
+    row = {r["name"]: r for r in mod.recent_faces(fake_hass)}["Sam"]
+    assert row["source"] == "llm_guess"
+    assert row["is_low_confidence"] is True
+
+
+def test_recent_faces_trusted_recognition_outranks_llm_guess(recog, fake_hass):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.front_door", "Sam", 93.0, age_seconds=5)
+    mod._LLM_GUESS_CACHE["camera.front_door"] = {
+        "name": "Sam", "confidence": 99.0, "ts": _now()}
+    rows = [r for r in mod.recent_faces(fake_hass)
+            if r["name"] == "Sam" and r["camera_entity"] == "camera.front_door"]
+    assert len(rows) == 1
+    assert rows[0]["is_low_confidence"] is False   # the trusted sighting wins
+
+
+def test_remember_llm_guess_keys_by_camera_entity(recog):
+    mod, _ = recog
+    mod.remember_llm_guess("front_door", "Sam", 80.0)
+    assert "camera.front_door" in mod._LLM_GUESS_CACHE
+    assert mod._LLM_GUESS_CACHE["camera.front_door"]["name"] == "Sam"
+
+
+# ── Phase 3: resident reference-photo store ─────────────────────────────────────
+
+def test_face_reference_store_roundtrip(recog):
+    mod, _ = recog
+    assert mod.has_face_reference("Sam") is False
+    assert mod.set_face_reference("Sam", b"\xff\xd8\xff\xe0JPEG") is True
+    assert mod.has_face_reference("Sam") is True
+    assert "sam" in mod.list_face_references()
+    assert mod.face_reference_path("SAM") is not None       # case-insensitive key
+    assert mod.remove_face_reference("sam") is True
+    assert mod.has_face_reference("Sam") is False
+
+
+def test_face_reference_rejects_blank_and_empty(recog):
+    mod, _ = recog
+    assert mod.set_face_reference("", b"data") is False
+    assert mod.set_face_reference("Sam", b"") is False
+
+
+def test_face_reference_name_is_traversal_safe(recog):
+    mod, _ = recog
+    import os
+    assert mod.set_face_reference("../../etc/passwd", b"\xff\xd8data") is True
+    # The stored file must live inside FACE_REF_DIR, not above it.
+    for n in mod.list_face_references():
+        assert "/" not in n and ".." not in n
+    assert not os.path.exists(os.path.join(mod.FACE_REF_DIR, "..", "etc"))
