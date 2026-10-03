@@ -4205,12 +4205,12 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       <span class="side">CMD</span>
     </div>
     <div class="controls">
-      <button class="ctrl primary" data-svc="jarvis.briefing">Briefing</button>
-      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":30}'>Nap 30m</button>
-      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":60}'>Nap 60m</button>
-      <button class="ctrl"         data-svc="jarvis.unshush">Unshush All</button>
-      <button class="ctrl"         data-svc="jarvis.observer_status">Status Dump</button>
-      <button class="ctrl"         id="qa-run-analysis">Analyze Now</button>
+      <button class="ctrl primary" data-svc="jarvis.briefing" title="Speak a status briefing now — weather, calendar, overnight events, energy and any hazards.">Briefing</button>
+      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":30}' title="Mute JARVIS's non-critical announcements for 30 minutes. Does NOT change lights, blinds/covers, or locks — only quiets proactive speech. Safety alerts still come through.">Nap 30m</button>
+      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":60}' title="Mute JARVIS's non-critical announcements for 60 minutes. Does NOT change lights, blinds/covers, or locks — only quiets proactive speech. Safety alerts still come through.">Nap 60m</button>
+      <button class="ctrl"         data-svc="jarvis.unshush" title="Cancel any active Nap/Shush and resume normal announcements immediately.">Unshush All</button>
+      <button class="ctrl"         data-svc="jarvis.observer_status" title="Log a diagnostic dump of the observer's current state to the JARVIS log.">Status Dump</button>
+      <button class="ctrl"         id="qa-run-analysis" title="Run a cognition/observer analysis pass now instead of waiting for the next scheduled one.">Analyze Now</button>
     </div>
     <div class="qa-result" id="qa-analysis-result"></div>
   </div>
@@ -4300,6 +4300,11 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         <button class="btn primary" id="faces-add-btn">+ Add resident</button>
         <button class="btn" id="faces-refresh">⟳ Refresh</button>
       </div>
+      <div class="faces-llm-row">
+        <label>Best-effort face recognition <span class="faces-exp">EXPERIMENTAL</span></label>
+        <button class="toggle-btn ${d.config?.llm_face_recognition ? 'on' : 'off'}" data-cfg-key="llm_face_recognition" data-cfg-val="${d.config?.llm_face_recognition ? 'false' : 'true'}">${d.config?.llm_face_recognition ? 'ON' : 'OFF'}</button>
+      </div>
+      <div class="mem-sub faces-llm-note">No dedicated face backend? With this on, JARVIS asks its own local vision model whether a camera frame matches a resident's <b>reference photo</b> (set one on each resident card below). It's a rough guess — results are clearly marked <b>LLM GUESS</b>, and this never disables intrusion alerts. For reliable recognition, use Frigate's native face recognition instead.</div>
       <div class="faces-body" id="faces-body"><div class="mmwave-empty">Loading recognized faces…</div></div>
     </div>
   </div>
@@ -7403,6 +7408,8 @@ ${this._renderExcludedEntities(d)}
     }
     const residents = Array.isArray(f.residents) ? f.residents : [];
     const recent = Array.isArray(f.recent) ? f.recent : [];
+    const refSet = new Set((Array.isArray(f.references) ? f.references : []).map(x => String(x).toLowerCase()));
+    const llmOn = !!f.llm_face_recognition;
     const countEl = this.shadowRoot?.getElementById("faces-count");
     if (countEl) countEl.textContent = `◉ ${residents.length} RESIDENT${residents.length === 1 ? "" : "S"}`;
 
@@ -7430,6 +7437,9 @@ ${this._renderExcludedEntities(d)}
           snapshot_url: seen?.snapshot_url,
           relation: "resident",
           actions: [{ label: "Remove", kind: "remove", name: n }],
+          ref_name: n,
+          has_ref: refSet.has(this._faceNorm(n)),
+          ref_hint: llmOn,
         });
       }).join("") + `</div>`;
     } else {
@@ -7450,6 +7460,7 @@ ${this._renderExcludedEntities(d)}
         age_seconds: r.age_seconds,
         snapshot_url: r.snapshot_url,
         relation: r.is_unknown ? "unknown" : "known",
+        low_conf: !!r.is_low_confidence,
         actions: r.is_unknown ? [] : [{ label: "+ Resident", kind: "add", name: r.name }],
       })).join("") + `</div>`;
     } else {
@@ -7469,14 +7480,46 @@ ${this._renderExcludedEntities(d)}
     // Fill each card's snapshot from the camera that saw the subject.
     body.querySelectorAll("img[data-faces-cam]").forEach(img =>
       this._loadFaceSnap(img.getAttribute("data-faces-cam"), img));
+    // Reference-photo upload (Phase 3): a resident card's file input enrolls a
+    // reference image the best-effort LLM matcher compares camera frames against.
+    body.querySelectorAll("input[type=file][data-faces-ref]").forEach(inp =>
+      inp.addEventListener("change", (e) => this._uploadFaceReference(
+        inp.getAttribute("data-faces-ref"), e.target.files && e.target.files[0])));
+  }
+
+  // Normalized name key, mirroring recognition._face_norm, so the panel can tell
+  // whether a resident already has an enrolled reference photo.
+  _faceNorm(name) {
+    return String(name || "").trim().toLowerCase().split(/\s+/).join("_")
+      .replace(/[^a-z0-9_-]/g, "").slice(0, 80);
+  }
+
+  async _uploadFaceReference(name, file) {
+    if (!name || !file || !this._hass) return;
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result || ""));
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+      await this._hass.callWS({ type: "jarvis/faces", action: "set_reference", name, image: b64 });
+      this._toast(`✓ reference photo set for ${name}`, "ok");
+      await this._fetchFaces();
+    } catch (err) {
+      this._toast(`✗ ${err?.message || err}`, "err");
+    }
   }
 
   // One face card: snapshot (or an initial placeholder) with the name under it.
-  _faceCard({ name, camera_entity, camera, confidence, age_seconds, relation, actions, snapshot_url }) {
+  _faceCard({ name, camera_entity, camera, confidence, age_seconds, relation, actions,
+              snapshot_url, low_conf, ref_name, has_ref, ref_hint }) {
     const safe = this._esc(name || "Unknown");
     const initial = this._esc((name || "?").trim().charAt(0).toUpperCase() || "?");
-    const badge = relation === "resident" ? `<span class="faces-badge resident">RESIDENT</span>`
+    let badge = relation === "resident" ? `<span class="faces-badge resident">RESIDENT</span>`
       : relation === "unknown" ? `<span class="faces-badge unknown">UNKNOWN</span>` : "";
+    // A best-effort LLM guess is flagged distinctly and never looks authoritative.
+    if (low_conf) badge = `<span class="faces-badge guess">LLM GUESS</span>`;
     // Prefer the pinned recognition-time snapshot; else lazily pull a live frame
     // from the camera that saw them; else an initial-letter avatar.
     const thumb = snapshot_url
@@ -7486,18 +7529,26 @@ ${this._renderExcludedEntities(d)}
         : `<div class="faces-thumb-ph">${initial}</div>`;
     const meta = [];
     if (camera) meta.push(this._esc(String(camera).replace(/_/g, " ")));
-    if (relation !== "unknown" && confidence) meta.push(`${Math.round(confidence)}%`);
+    if (relation !== "unknown" && !low_conf && confidence) meta.push(`${Math.round(confidence)}%`);
     const age = this._facesAge(age_seconds);
     if (age) meta.push(age);
     else if (relation === "resident" && !camera_entity) meta.push("not seen recently");
     const acts = (actions || []).map(a =>
       `<button class="btn faces-mark" data-faces-${a.kind === "remove" ? "remove" : "add"}="${this._esc(a.name)}">${this._esc(a.label)}</button>`
     ).join("");
+    // Reference-photo control for resident cards (enrollment for the LLM matcher).
+    let refCtl = "";
+    if (ref_name) {
+      const lbl = has_ref ? "📷 Change photo" : "📷 Set photo";
+      refCtl = `<label class="faces-ref ${has_ref ? "set" : ""}"${ref_hint && !has_ref ? ' title="Add a reference photo to let best-effort recognition match this resident"' : ""}>${lbl}`
+        + `<input type="file" accept="image/*" data-faces-ref="${this._esc(ref_name)}" style="display:none"/></label>`;
+    }
     return `<div class="faces-card">
       <div class="faces-thumb">${thumb}${badge}</div>
       <div class="faces-card-name">${safe}</div>
       <div class="faces-card-meta">${meta.join(" · ")}</div>
       ${acts ? `<div class="faces-card-act">${acts}</div>` : ""}
+      ${refCtl ? `<div class="faces-card-ref">${refCtl}</div>` : ""}
     </div>`;
   }
 
@@ -10129,7 +10180,17 @@ ${this._renderExcludedEntities(d)}
   .faces-badge { position: absolute; top: 6px; left: 6px; font-size: 8px; letter-spacing: .06em; padding: 1px 5px; border-radius: 7px; font-family: var(--font-mono); }
   .faces-badge.resident { background: rgba(80,200,120,.85); color: #04210f; }
   .faces-badge.unknown { background: rgba(230,180,60,.85); color: #241a02; }
+  .faces-badge.guess { background: rgba(170,120,230,.9); color: #160a26; }
   .faces-src { font-size: 10px; color: var(--text-dim); margin-top: 16px; font-family: var(--font-mono); }
+  /* Phase 3: best-effort LLM recognition controls */
+  .faces-llm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
+  .faces-llm-row label { font-size: 12px; color: var(--text, #cfe); display: flex; align-items: center; gap: 6px; }
+  .faces-exp { font-size: 8px; letter-spacing: .08em; padding: 1px 5px; border-radius: 6px; background: rgba(170,120,230,.22); color: var(--purple, #b488e6); font-family: var(--font-mono); }
+  .faces-llm-note { margin-bottom: 4px; }
+  .faces-card-ref { margin-top: 4px; }
+  .faces-ref { display: inline-block; font-size: 10px; padding: 3px 8px; border-radius: 6px; border: 1px dashed var(--border, rgba(255,255,255,.2)); color: var(--text-dim); cursor: pointer; }
+  .faces-ref.set { border-style: solid; color: var(--text, #cfe); }
+  .faces-ref:hover { border-color: var(--cyan, #00f2fe); }
   .intr-timeout-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
   .intr-timeout-row label { font-size: 11px; color: var(--text-dim); }
   .intr-timeout { background: rgba(0,0,0,0.25); border: 1px solid var(--line); border-radius: 5px; color: var(--text); font-size: 11px; padding: 5px 9px; }

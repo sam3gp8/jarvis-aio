@@ -1,4 +1,4 @@
-## [8.35.0] — MCU Phase B (B0): the shared actuation envelope
+## [8.36.0] — MCU Phase B (B0): the shared actuation envelope
 
 Phase B is *"migrate every actuator onto the golden path."* Phase A's kernel wiring lived inline in `control_device`; copying it into every other actuator would be a maintenance trap. So Phase B starts by **extracting it into one reusable envelope** — the template every other path will adopt.
 
@@ -6,7 +6,32 @@ Phase B is *"migrate every actuator onto the golden path."* Phase A's kernel wir
 - **`control_device` refactored onto the envelope** with **no behaviour change**. Its context read, request build, plan-shadow, event emission and outcome recording now call `actuation.*`; the verify-after-act loop is unchanged.
 - **Coverage unchanged at 7.1%** (this is a refactor, not new wiring). The `control_device` cells keep their stages; their evidence now points at the `actuation.*` call sites. `kernel_adoption` shows `actuation` as the live caller for `world_model`/`plan`/`event`/`actuator`/`correlation` (was `agent`).
 
-7 new tests for the envelope directly + the existing control_device suite re-pointed at it; all green. This unblocks B1–B4 (each remaining actuator becomes a small adoption). Refactor/feature → middle-digit bump **8.34.0 → 8.35.0**. Full suite green; audit + adoption + coverage gates clean.
+7 new tests for the envelope directly + the existing control_device suite re-pointed at it; all green. This unblocks B1–B4 (each remaining actuator becomes a small adoption). Refactor/feature → middle-digit bump **8.35.0 → 8.36.0**. Full suite green; audit + adoption + coverage gates clean.
+
+## [8.35.0] — Faces: best-effort LLM resident recognition (#140 Phase 3, opt-in)
+
+For households with **no dedicated face backend** (Frigate/DoubleTake/CompreFace) — only JARVIS's own local vision model — Phase 1's resident whitelist had nothing feeding it names, so the Faces tab stayed empty. This adds an **opt-in, best-effort** path: JARVIS asks its vision model whether a camera frame matches an enrolled resident reference photo.
+
+It is deliberately a **guess, not a recognition**, and is built so it can never cause harm:
+
+- **Hard safety boundary.** Guesses are written to a **separate cache** that the intrusion stand-down (`recognition.resident_present`) **never reads** — a mis-identified stranger can *never* disable an intrusion alert. (Pinned by a regression test.) Guesses only feed the Faces panel.
+- **Clearly labelled.** Guessed faces show a distinct **LLM GUESS** badge, never the authoritative RESIDENT badge, and a trusted backend recognition always outranks a guess for the same person/camera.
+- **Opt-in & off by default.** A new **Best-effort face recognition (experimental)** toggle in the Faces tab (`llm_face_recognition`, default off). When off, nothing changes.
+
+How it works:
+- **`llm_recognition.py`** (new) — on a camera analysis (reusing the frame already captured, fire-and-forget), it sends the enrolled resident reference photos + the current frame to the configured vision model and parses a conservative `{name, confidence}`; it names a resident only on a clear match, else `unknown`. Never raises, never delays the normal analysis.
+- **Reference photos** — each resident card in the Faces tab gets a *Set photo* upload. References are stored privately at `<config>/jarvis/faces_ref/<name>.jpg` (filename hardened against path traversal, since the name can originate from an external source).
+- **`jarvis/faces`** gains `set_reference` / `remove_reference`; removing a resident also drops their reference.
+
+For dependable recognition, Frigate's native face recognition is still the recommended route — this is for users who can't run one yet. 26 new tests (incl. the resident_present-ignores-guesses safety test, reference store + traversal safety, and the matcher's parse/gate/reference logic) + panel smoke coverage. New feature → **8.34.1 → 8.35.0**. Full suite green; audit clean.
+
+## [8.34.1] — Quick Actions tooltips; clarify what Nap does (#157)
+
+A user saw blinds close and (via a guess from another tool) assumed JARVIS's **Nap** button did it. It didn't — Nap only mutes JARVIS's non-critical announcements for N minutes and never commands lights, covers/blinds, or locks. The confusion came from the dashboard's Quick Actions buttons carrying no explanation.
+
+- Every **Quick Actions** button now has an explanatory `title` tooltip. The **Nap** buttons spell out that they only quiet proactive speech and do **not** touch blinds, lights, or locks (safety alerts still come through); Briefing, Unshush All, Status Dump and Analyze Now each describe what they do.
+
+No behavior change — purely explanatory UI. The only JARVIS feature that closes window coverings remains the opt-in `goodnight` routine, which is fully overridable via `/config/jarvis_routines.yaml`. Panel `node --check` + smoke test (new Nap-tooltip regression) clean; audit clean.
 
 ## [8.34.0] — MCU Phase A (5/5): the governance rule, enforced in CI
 
@@ -59,7 +84,6 @@ This is step 1 of 5: the **WorldModel** read contract on `control_device`.
 - **Honest coverage: 4.2% → 5.4%.** The `control_device` × `world_model` cell rises `·` → **◑ parity** — parity, *not* full, because the post-action verify/read-back still reads raw HA state. `scripts/kernel_coverage.py --check` verifies the claim against evidence in source (CI gate), so the number can't drift into fiction.
 
 4 new tests pin the wiring (previous_state and area come from the snapshot; a patched facade's distinct snapshot shows up in the result, proving the path routes through `WorldModel`; missing-entity still errors). No behaviour change to what executes or whether it executes. Kernel wiring → middle-digit bump **8.29.0 → 8.30.0**. Full suite green; audit + adoption + coverage gates clean.
-
 ## [8.29.0] — Faces: pinned recognition-time snapshots (#140 Phase 2)
 
 Phase 2 of the Faces tab. Previously each face card showed the *live* view from the camera that recognized the person — which is often empty by the time you look, since the person has moved on. Now JARVIS **pins the camera frame from the moment it recognized the face** and shows that, so a resident's card is the snapshot of them as they were last seen, not a stale empty hallway.
