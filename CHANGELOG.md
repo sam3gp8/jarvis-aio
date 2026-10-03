@@ -1,3 +1,20 @@
+## [8.35.0] — Faces: best-effort LLM resident recognition (#140 Phase 3, opt-in)
+
+For households with **no dedicated face backend** (Frigate/DoubleTake/CompreFace) — only JARVIS's own local vision model — Phase 1's resident whitelist had nothing feeding it names, so the Faces tab stayed empty. This adds an **opt-in, best-effort** path: JARVIS asks its vision model whether a camera frame matches an enrolled resident reference photo.
+
+It is deliberately a **guess, not a recognition**, and is built so it can never cause harm:
+
+- **Hard safety boundary.** Guesses are written to a **separate cache** that the intrusion stand-down (`recognition.resident_present`) **never reads** — a mis-identified stranger can *never* disable an intrusion alert. (Pinned by a regression test.) Guesses only feed the Faces panel.
+- **Clearly labelled.** Guessed faces show a distinct **LLM GUESS** badge, never the authoritative RESIDENT badge, and a trusted backend recognition always outranks a guess for the same person/camera.
+- **Opt-in & off by default.** A new **Best-effort face recognition (experimental)** toggle in the Faces tab (`llm_face_recognition`, default off). When off, nothing changes.
+
+How it works:
+- **`llm_recognition.py`** (new) — on a camera analysis (reusing the frame already captured, fire-and-forget), it sends the enrolled resident reference photos + the current frame to the configured vision model and parses a conservative `{name, confidence}`; it names a resident only on a clear match, else `unknown`. Never raises, never delays the normal analysis.
+- **Reference photos** — each resident card in the Faces tab gets a *Set photo* upload. References are stored privately at `<config>/jarvis/faces_ref/<name>.jpg` (filename hardened against path traversal, since the name can originate from an external source).
+- **`jarvis/faces`** gains `set_reference` / `remove_reference`; removing a resident also drops their reference.
+
+For dependable recognition, Frigate's native face recognition is still the recommended route — this is for users who can't run one yet. 26 new tests (incl. the resident_present-ignores-guesses safety test, reference store + traversal safety, and the matcher's parse/gate/reference logic) + panel smoke coverage. New feature → **8.34.1 → 8.35.0**. Full suite green; audit clean.
+
 ## [8.34.1] — Quick Actions tooltips; clarify what Nap does (#157)
 
 A user saw blinds close and (via a guess from another tool) assumed JARVIS's **Nap** button did it. It didn't — Nap only mutes JARVIS's non-critical announcements for N minutes and never commands lights, covers/blinds, or locks. The confusion came from the dashboard's Quick Actions buttons carrying no explanation.

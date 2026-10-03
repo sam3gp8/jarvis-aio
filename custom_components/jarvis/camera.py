@@ -1280,6 +1280,18 @@ async def async_analyze_camera(
             )
         )
         analysis = _strip_think((result.get("text") or "").strip())
+        # Best-effort LLM resident recognition (#140 Phase 3) — opt-in. Reuse the
+        # frame we already captured; fire-and-forget so it never delays or alters
+        # this analysis. The matcher self-gates on the config flag and on enrolled
+        # reference photos, and its result only reaches the Faces panel (never the
+        # intrusion stand-down).
+        try:
+            from . import llm_recognition
+            if images_b64:
+                hass.async_create_task(
+                    llm_recognition.identify_and_store(hass, images_b64[0], entity_id))
+        except Exception:
+            pass
     except Exception as exc:
         # A text-only model rejects the image content array with a 400 like
         # "messages[1].content must be a string". Surface the real cause and the
