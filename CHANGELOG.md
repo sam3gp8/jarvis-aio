@@ -1,3 +1,11 @@
+## [8.34.1] — Quick Actions tooltips; clarify what Nap does (#157)
+
+A user saw blinds close and (via a guess from another tool) assumed JARVIS's **Nap** button did it. It didn't — Nap only mutes JARVIS's non-critical announcements for N minutes and never commands lights, covers/blinds, or locks. The confusion came from the dashboard's Quick Actions buttons carrying no explanation.
+
+- Every **Quick Actions** button now has an explanatory `title` tooltip. The **Nap** buttons spell out that they only quiet proactive speech and do **not** touch blinds, lights, or locks (safety alerts still come through); Briefing, Unshush All, Status Dump and Analyze Now each describe what they do.
+
+No behavior change — purely explanatory UI. The only JARVIS feature that closes window coverings remains the opt-in `goodnight` routine, which is fully overridable via `/config/jarvis_routines.yaml`. Panel `node --check` + smoke test (new Nap-tooltip regression) clean; audit clean.
+
 ## [8.34.0] — MCU Phase A (5/5): the governance rule, enforced in CI
 
 The final Phase A step — the audit's **"rule I would add now"**: *any new behaviour that can cause a consequential action on the home must enter through the kernel contract from the start.* This release writes it down **and enforces it**, so the migration debt the audit warned about (features outpacing the kernel — proven by 8.27→8.29 moving coverage 0.0 points) cannot grow silently.
@@ -49,7 +57,6 @@ This is step 1 of 5: the **WorldModel** read contract on `control_device`.
 - **Honest coverage: 4.2% → 5.4%.** The `control_device` × `world_model` cell rises `·` → **◑ parity** — parity, *not* full, because the post-action verify/read-back still reads raw HA state. `scripts/kernel_coverage.py --check` verifies the claim against evidence in source (CI gate), so the number can't drift into fiction.
 
 4 new tests pin the wiring (previous_state and area come from the snapshot; a patched facade's distinct snapshot shows up in the result, proving the path routes through `WorldModel`; missing-entity still errors). No behaviour change to what executes or whether it executes. Kernel wiring → middle-digit bump **8.29.0 → 8.30.0**. Full suite green; audit + adoption + coverage gates clean.
-
 ## [8.29.0] — Faces: pinned recognition-time snapshots (#140 Phase 2)
 
 Phase 2 of the Faces tab. Previously each face card showed the *live* view from the camera that recognized the person — which is often empty by the time you look, since the person has moved on. Now JARVIS **pins the camera frame from the moment it recognized the face** and shows that, so a resident's card is the snapshot of them as they were last seen, not a stale empty hallway.

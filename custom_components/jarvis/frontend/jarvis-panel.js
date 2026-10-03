@@ -4205,12 +4205,12 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       <span class="side">CMD</span>
     </div>
     <div class="controls">
-      <button class="ctrl primary" data-svc="jarvis.briefing">Briefing</button>
-      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":30}'>Nap 30m</button>
-      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":60}'>Nap 60m</button>
-      <button class="ctrl"         data-svc="jarvis.unshush">Unshush All</button>
-      <button class="ctrl"         data-svc="jarvis.observer_status">Status Dump</button>
-      <button class="ctrl"         id="qa-run-analysis">Analyze Now</button>
+      <button class="ctrl primary" data-svc="jarvis.briefing" title="Speak a status briefing now — weather, calendar, overnight events, energy and any hazards.">Briefing</button>
+      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":30}' title="Mute JARVIS's non-critical announcements for 30 minutes. Does NOT change lights, blinds/covers, or locks — only quiets proactive speech. Safety alerts still come through.">Nap 30m</button>
+      <button class="ctrl"         data-svc="jarvis.nap" data-svc-data='{"duration_minutes":60}' title="Mute JARVIS's non-critical announcements for 60 minutes. Does NOT change lights, blinds/covers, or locks — only quiets proactive speech. Safety alerts still come through.">Nap 60m</button>
+      <button class="ctrl"         data-svc="jarvis.unshush" title="Cancel any active Nap/Shush and resume normal announcements immediately.">Unshush All</button>
+      <button class="ctrl"         data-svc="jarvis.observer_status" title="Log a diagnostic dump of the observer's current state to the JARVIS log.">Status Dump</button>
+      <button class="ctrl"         id="qa-run-analysis" title="Run a cognition/observer analysis pass now instead of waiting for the next scheduled one.">Analyze Now</button>
     </div>
     <div class="qa-result" id="qa-analysis-result"></div>
   </div>
