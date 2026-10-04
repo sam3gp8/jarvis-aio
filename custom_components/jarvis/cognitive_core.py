@@ -58,6 +58,22 @@ FREEZE_WARN_TEMP_F = 35  # outdoor temp (°F) that triggers pipe concern
 FREEZE_CRITICAL_TEMP_F = 20  # act immediately
 IGNORE_FILE = config_path_str(".jarvis_ignore_rules.json")
 
+# MCU Phase R (R2b) — freeze ENFORCE kill-switch. When True (default, owner
+# approved), the kernel freeze verdict is authoritative in _check_freeze (via a
+# fail-toward-alerting max-severity rule). Flip to False to revert to the pure
+# legacy inline thresholds on the next load — a one-line revert.
+HAZARD_SITUATION_ENFORCE = True
+
+# Freeze verdict severity order, so _check_freeze can take the MORE-SEVERE of the
+# kernel and legacy verdicts (fail toward alerting — never miss a freeze alert).
+_FREEZE_SEVERITY = {"critical": 3, "warning": 2, "clear": 1, "none": 0}
+
+
+def _more_severe_freeze(a: str, b: str) -> str:
+    """Return whichever freeze verdict is the more severe (alert-biased). Ties
+    and unknown labels fall back to ``a``."""
+    return a if _FREEZE_SEVERITY.get(a, 0) >= _FREEZE_SEVERITY.get(b, 0) else b
+
 
 def _temp_to_f(value: float, unit: str) -> float:
     """A temperature already in ``unit`` (``°C`` or ``°F``) → Fahrenheit, so
@@ -374,28 +390,43 @@ class SafetyManager:
         honorific = self.config.get("honorific", "sir")
         lang = _hass_lang(self.hass)
 
-        # MCU Phase R (R2a) — freeze decision-parity: compare the kernel's pure
-        # threshold verdict against this inline threshold category and log any
-        # divergence. LOG-ONLY — the branches below still drive the alert. Earns
-        # the kernel the right to own the freeze verdict (the flip, R2b). Best-
-        # effort; never affects freeze alerting.
+        # The legacy inline threshold category (what the raw thresholds imply).
+        if temp_f <= FREEZE_CRITICAL_TEMP_F:
+            _legacy_fv = "critical"
+        elif temp_f <= FREEZE_WARN_TEMP_F:
+            _legacy_fv = "warning"
+        elif temp_f > FREEZE_WARN_TEMP_F + 5:
+            _legacy_fv = "clear"
+        else:
+            _legacy_fv = "none"
+
+        # MCU Phase R (R2b) — freeze ENFORCE, fail-TOWARD-alerting. The kernel
+        # verdict (kernel.situation.freeze_verdict) is authoritative, but we take
+        # the MORE-SEVERE of (kernel, legacy): a kernel fault can never yield a
+        # *less* severe outcome than the raw thresholds, so a freeze alert is
+        # never missed. On any kernel error we fall back to the legacy category,
+        # and the kill-switch (HAZARD_SITUATION_ENFORCE=False) reverts to pure
+        # legacy. Since R2a proved kernel == legacy on all temps, this is
+        # behaviour-identical; the max-severity rule is the safety belt.
+        verdict = _legacy_fv
+        if HAZARD_SITUATION_ENFORCE:
+            try:
+                from .kernel.situation import freeze_verdict as _kfv
+                kernel_fv = _kfv(temp_f, warn_f=FREEZE_WARN_TEMP_F,
+                                 critical_f=FREEZE_CRITICAL_TEMP_F)
+                verdict = _more_severe_freeze(kernel_fv, _legacy_fv)
+            except Exception:   # pragma: no cover - defensive, fail toward alert
+                verdict = _legacy_fv
+        # Parity log (best-effort), unchanged from R2a.
         try:
             from . import hazard_situation
-            if temp_f <= FREEZE_CRITICAL_TEMP_F:
-                _legacy_fv = "critical"
-            elif temp_f <= FREEZE_WARN_TEMP_F:
-                _legacy_fv = "warning"
-            elif temp_f > FREEZE_WARN_TEMP_F + 5:
-                _legacy_fv = "clear"
-            else:
-                _legacy_fv = "none"
             hazard_situation.record_freeze_verdict_parity(
                 temp_f, _legacy_fv, warn_f=FREEZE_WARN_TEMP_F,
                 critical_f=FREEZE_CRITICAL_TEMP_F)
         except Exception:   # pragma: no cover - defensive
             pass
 
-        if temp_f <= FREEZE_CRITICAL_TEMP_F:
+        if verdict == "critical":
             self._last_freeze_alert = now
             await self._mirror_freeze_hazard("critical", reading)
             set_to = _fmt_temp(_f_to_unit(55, unit), unit, decimals=0)
@@ -407,7 +438,7 @@ class SafetyManager:
                     reading=reading, set_to=set_to),
                 "auto_act": True,  # Safety override — act without approval
             }
-        elif temp_f <= FREEZE_WARN_TEMP_F and not self._freeze_warned:
+        elif verdict == "warning" and not self._freeze_warned:
             self._freeze_warned = True
             self._last_freeze_alert = now
             await self._mirror_freeze_hazard("warning", reading)
@@ -419,7 +450,7 @@ class SafetyManager:
                     reading=reading),
                 "auto_act": False,
             }
-        elif temp_f > FREEZE_WARN_TEMP_F + 5:
+        elif verdict == "clear":
             self._freeze_warned = False
             await self._mirror_freeze_hazard("cleared", reading)
 
