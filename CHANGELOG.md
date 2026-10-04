@@ -1,3 +1,38 @@
+## [8.60.0] — MCU Phase R (R1a): delivery decision-parity — the kernel situation store earns the per-camera verdict
+
+Groundwork for a genuine situation enforce. The G-phase review found the
+`hazard`/`delivery`/`intrusion` situations were *recorders* of a verdict computed
+elsewhere, not deciders — so "flip the situation to authoritative" had no sound
+implementation. The honest path is to move the *verdict computation* into the
+kernel via a strangler: **(a) decision-parity** (compute both, log divergence, no
+behaviour change), then **(b) flip** the live path to consume the kernel verdict
+once the logs show zero divergence. This is step (a) for the safest domain,
+delivery (non-safety).
+
+- **The kernel situation store now computes a per-camera "package present" view**
+  — "is there an open (non-terminal) `delivery` episode for this camera?" — and
+  `package_monitor._evaluate_locked` compares it against the legacy in-memory
+  verdict (`prev["package"]`) on every evaluation, logging any divergence
+  (`delivery_situation.record_presence_parity`).
+- **Log-only, zero behaviour change.** The in-memory `_STATE` still owns the
+  decision and drives every announcement exactly as before; the parity check is
+  best-effort, runs off-loop (SQLite read via the executor), and never affects
+  the state machine. A store-read failure is treated as "no kernel opinion", not
+  a divergence.
+- **No stage change in the matrix.** `situation` stays at **parity** — this earns
+  the kernel the *right* to own the verdict (the enforce flip, R1b) only once real
+  traffic shows agreement; it does not claim it yet. **Coverage unchanged (17.9%).**
+- **Freeze (R2) and intrusion (R3) are deliberately not touched here.** Freeze is
+  a safety alert (its flip will fail *toward* alerting); intrusion is
+  safety-critical and behind an explicit owner go/no-go.
+
+8 new tests: the kernel present-view is false with no episode, true after a
+delivery, false after removal, and per-camera independent; parity agrees when
+present and when absent; divergence is logged; a None kernel view is not counted
+as a divergence; and the live `evaluate` path drives the parity check while
+announcing unchanged. Full suite green; audit + adoption + coverage gates clean.
+Re-architecture groundwork → **8.59.0 → 8.60.0**.
+
 ## [8.59.0] — MCU Phase G (G2): loop-detect ENFORCE — suppress a thrashing autonomous action
 
 The second staged enforce flip, on the same tightly-scoped path as G1.

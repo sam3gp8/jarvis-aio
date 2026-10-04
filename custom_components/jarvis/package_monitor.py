@@ -331,6 +331,20 @@ async def _mirror_delivery(hass, entity_id: str, action: str,
         pass
 
 
+async def _check_presence_parity(hass, entity_id: str, legacy_present: bool) -> None:
+    """MCU Phase R (R1a): best-effort, log-only decision-parity — does the kernel
+    situation store's per-camera package-present view match the legacy verdict?
+    Runs the SQLite read off-loop and swallows any failure; never affects the
+    state machine or announcements."""
+    try:
+        from . import delivery_situation
+        await hass.async_add_executor_job(
+            delivery_situation.record_presence_parity, hass, entity_id,
+            legacy_present)
+    except Exception:
+        pass
+
+
 async def evaluate(hass, groq_client, honorific, tts_entity, speakers,
                    entity_id: str, det: dict, source: str = "periodic") -> bool:
     """Apply a detection result to per-camera state and announce transitions.
@@ -345,6 +359,12 @@ async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
     from .tts_helper import async_announce
 
     prev = _STATE.get(entity_id, {"package": False, "mail": False, "count": 0})
+    # MCU Phase R (R1a) — delivery decision-parity: compare the kernel situation
+    # store's per-camera package-present view against this legacy prev verdict and
+    # log any divergence. Log-only; earns the kernel the right to own the verdict
+    # (R1b) once the two agree on real traffic. Best-effort, off-loop, never
+    # affects the state machine or announcements.
+    await _check_presence_parity(hass, entity_id, bool(prev.get("package")))
     quiet = _in_quiet_hours(hass)
     can_speak = _announcements_on(hass) and not quiet
     loc = "the front door"

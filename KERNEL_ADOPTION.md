@@ -123,6 +123,25 @@ explicit per-flip owner go/no-go.
   action records what the capability engine *would* have decided against what the
   legacy confirm-gate actually did. Flipping it to `enforce` on the live system is
   owner-gated and must not happen without explicit approval.
+- **situation** is at parity through `intrusion`, `hazard_situation` and
+  `delivery_situation` (D1–D3): each mirrors a live lifecycle (intrusion verdict,
+  freeze warning→critical→cleared, package delivered→removed) into a kernel
+  `Situation` and logs agreement. A G-phase review established *why* it cannot
+  simply be "flipped" to enforce: the situation store is a **recorder** of a
+  verdict computed in a live module (a temperature threshold, a vision state
+  machine, the SafetyManager intrusion score), not an independent decider — so
+  making it "authoritative" would be either circular/hollow or, for the safety
+  verdicts, an unsafe suppression of a safety alert. The honest path (MCU Phase R)
+  moves the *verdict computation itself* into the kernel via a strangler, one
+  domain at a time: **(a) decision-parity** — the kernel computes the verdict and
+  the live path logs any divergence (no behaviour change) — then **(b) flip** the
+  live path to consume the kernel verdict once real traffic shows zero divergence.
+  **R1a (8.60.0)** is step (a) for delivery: the kernel situation store computes a
+  per-camera "package present" view (an open `delivery` episode) and
+  `package_monitor` logs it against the legacy in-memory verdict. Freeze (R2) and
+  intrusion (R3) follow in that order; the freeze flip will fail *toward* alerting,
+  and the intrusion re-architecture is safety-critical and behind an explicit owner
+  go/no-go.
 - **priority** (emergency hierarchy) and **causal** (causal inference) remain
   **pure**: no live path consults them yet, and wiring one without a genuine
   consumer would be a hollow adoption — left honest at pure until a real caller
