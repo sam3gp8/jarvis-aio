@@ -59,7 +59,8 @@ _DECLARED: dict[str, dict] = {
     "world_model":  {"stage": "enforce", "owners": ["actuation", "cognitive_core",
                                                      "home_state", "agent",
                                                      "proactive_briefing"]},
-    "situation":    {"stage": "parity",  "owners": ["intrusion", "hazard_situation"]},
+    "situation":    {"stage": "parity",  "owners": ["intrusion", "hazard_situation",
+                                                     "delivery_situation"]},
     "authority":    {"stage": "parity",  "owners": ["authority_bridge"]},
     # control_device expresses each actuation as a one-step Plan in shadow
     # (actuation.plan_shadow); execute_plan routes each step's execution THROUGH

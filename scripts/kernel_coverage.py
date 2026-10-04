@@ -132,6 +132,15 @@ _PATHS: dict[str, dict] = {
             "situation": {"stage": "parity", "evidence": "_record_parity"},
         },
     },
+    # The per-camera package delivery lifecycle (package_monitor: delivered →
+    # removed) is mirrored into a kernel Situation (kind="delivery") and its
+    # agreement verified (D3), log-only parity. Another tracked behaviour path.
+    "delivery": {
+        "module": "delivery_situation.py",
+        "contracts": {
+            "situation": {"stage": "parity", "evidence": "_record_parity"},
+        },
+    },
     "goals": {"module": "goals.py", "contracts": {}},
     "proactive": {"module": "proactive_audio.py", "contracts": {}},
     "friday": {"module": "agent.py", "contracts": {}},

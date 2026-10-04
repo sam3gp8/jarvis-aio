@@ -317,6 +317,20 @@ def _log(hass, entity_id: str, kind: str, det: dict, source: str) -> None:
         pass
 
 
+async def _mirror_delivery(hass, entity_id: str, action: str,
+                           count: int = 0) -> None:
+    """MCU Phase D (D3): best-effort, log-only mirror of the package delivery
+    lifecycle into the kernel Situation store (via the ``delivery_situation``
+    seam). Runs the SQLite write off-loop and swallows any failure — it never
+    affects the delivery announcements or state machine."""
+    try:
+        from . import delivery_situation
+        await hass.async_add_executor_job(
+            delivery_situation.mirror_delivery_sync, hass, entity_id, action, count)
+    except Exception:
+        pass
+
+
 async def evaluate(hass, groq_client, honorific, tts_entity, speakers,
                    entity_id: str, det: dict, source: str = "periodic") -> bool:
     """Apply a detection result to per-camera state and announce transitions.
@@ -343,6 +357,7 @@ async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
                if n and n > 1 else
                f"{honorific}, a package has been delivered to {loc}.")
         _log(hass, entity_id, "delivered", det, source)
+        await _mirror_delivery(hass, entity_id, "delivered", n)
         if can_speak and _announce_gate(entity_id, "package"):
             await async_announce(hass, msg, tts_entity, speakers, context="package")
             spoke = True
@@ -350,6 +365,7 @@ async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
     elif prev.get("package") and not det.get("package"):
         away = not _anyone_home(hass)
         _log(hass, entity_id, "removed", det, source)
+        await _mirror_delivery(hass, entity_id, "removed", 0)
         if away and can_speak and _announce_gate(entity_id, "removed"):
             await async_announce(
                 hass,

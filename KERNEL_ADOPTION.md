@@ -56,7 +56,7 @@ reach enforce on its own; a decision primitive may not.
 | `plan` | ◑ parity | `actuation`, `agent` |
 | `priority` | · pure | — |
 | `router` | · pure | — |
-| `situation` | ◑ parity | `hazard_situation`, `intrusion` |
+| `situation` | ◑ parity | `delivery_situation`, `hazard_situation`, `intrusion` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 
