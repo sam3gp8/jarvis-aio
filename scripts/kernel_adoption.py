@@ -50,8 +50,9 @@ _DECLARED: dict[str, dict] = {
     "situation":    {"stage": "parity",  "owners": ["intrusion"]},
     "authority":    {"stage": "parity",  "owners": ["authority_bridge"]},
     # control_device expresses each actuation as a one-step Plan in shadow
-    # (logs it) — 8.33.0, MCU Phase A.
-    "plan":         {"stage": "shadow",  "owners": ["actuation"]},
+    # (actuation.plan_shadow); execute_plan routes each step's execution THROUGH
+    # the planner (agent, aexecute_plan) — B4, so parity, not shadow.
+    "plan":         {"stage": "parity",  "owners": ["actuation", "agent"]},
     "beliefs":      {"stage": "pure",    "owners": []},
     "attention":    {"stage": "pure",    "owners": []},
     "router":       {"stage": "pure",    "owners": []},
