@@ -157,9 +157,15 @@ explicit per-flip owner go/no-go.
   more severe of (kernel, legacy inline threshold), falls back to legacy on any
   kernel error, and has a kill-switch (`HAZARD_SITUATION_ENFORCE`) — so a freeze
   alert is **never suppressed** on kernel error or uncertainty (fail *toward*
-  alerting). **Intrusion is the last remaining parity mirror**: its
-  re-architecture (R3) is safety-critical, is the path a prior false-intrusion bug
-  lived on, and is behind an explicit owner go/no-go.
+  alerting). **Intrusion** is the last caller still driven by the legacy path.
+  **R3a (8.64.0)** is its decision-parity step: `kernel.situation.intrusion_gate`
+  computes the false-alarm-critical *entry gate* (away + qualifying motion +
+  corroboration) and `SafetyManager._check_intrusion` logs it against the inline
+  decision (log-only). Intrusion is the hardest flip because it has **no safe
+  fail-toward direction** — a false positive re-creates the prior false-alarm bug,
+  a false negative misses a break-in — so its enforce flip (R3b) uses
+  *legacy-wins-on-divergence* and waits until these parity logs show zero
+  divergence on real traffic (a burn-in gate on the live system, not a code step).
 - **priority** (emergency hierarchy) and **causal** (causal inference) remain
   **pure**: no live path consults them yet, and wiring one without a genuine
   consumer would be a hollow adoption — left honest at pure until a real caller

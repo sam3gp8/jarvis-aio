@@ -104,6 +104,31 @@ def freeze_verdict(temp_f: Optional[float], *, warn_f: float, critical_f: float,
     return FREEZE_NONE
 
 
+def intrusion_gate(*, away: bool, qualifying_motion: bool,
+                   require_corroboration: bool, alarm_armed: bool,
+                   open_entry: bool) -> bool:
+    """Should a *possible-intrusion investigation* open for this motion? Pure.
+
+    Mirrors the entry precondition in the live SafetyManager intrusion path — the
+    false-alarm-critical decision that raises the initial "possible intrusion —
+    investigating" alert. It opens only when:
+      * presence is **away** (or confinement is engaged), AND
+      * there is **qualifying motion**, AND
+      * when corroboration is required, there is an **armed alarm or an open
+        entry point** (so a lone curtain-flutter never concludes an intrusion).
+
+    Deterministic and side-effect-free. The stateful parts of the investigation
+    (cooldown, call-off, resident-on-camera, zone-spread escalation) stay in the
+    caller — this is only the gate that decides whether to begin. The prior
+    false-intrusion bug lived on exactly this precondition, which is why the
+    kernel earns it first (decision-parity) before any enforce flip."""
+    if not away or not qualifying_motion:
+        return False
+    if require_corroboration and not (alarm_armed or open_entry):
+        return False
+    return True
+
+
 class InvalidTransition(ValueError):
     """Raised when a situation is asked to make a disallowed transition."""
 

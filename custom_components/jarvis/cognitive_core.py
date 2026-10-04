@@ -617,6 +617,21 @@ class SafetyManager:
         except Exception:
             return False
 
+    def _record_intrusion_gate_parity(self, legacy_open: bool, *, away: bool,
+                                      require_corroboration: bool,
+                                      alarm_armed: bool, open_entry: bool) -> None:
+        """MCU Phase R (R3a): best-effort, log-only intrusion entry-gate parity.
+        We only reach the corroboration decision with qualifying motion present,
+        so ``qualifying_motion=True`` here. Never raises into the intrusion path."""
+        try:
+            from . import intrusion as _intr
+            _intr.record_gate_parity(
+                legacy_open, away=away, qualifying_motion=True,
+                require_corroboration=require_corroboration,
+                alarm_armed=alarm_armed, open_entry=open_entry)
+        except Exception:   # pragma: no cover - defensive
+            pass
+
     async def _check_intrusion(self, anyone_home: bool,
                                 sleeping: bool, confined: bool = False) -> Optional[dict]:
         """Detect unauthorized entry when away or asleep. Fires ONE alert, then
@@ -660,11 +675,23 @@ class SafetyManager:
         if away:
             armed = False
             entry = None
-            if self.config.get("intrusion_require_corroboration", True):
+            _require_corr = self.config.get("intrusion_require_corroboration", True)
+            if _require_corr:
                 armed = self._alarm_armed()
                 entry = self._open_entry()
                 if not (armed or entry):
+                    # MCU Phase R (R3a) — intrusion entry-gate decision-parity:
+                    # the kernel agrees we should NOT open an investigation here.
+                    # Log-only; never affects the decision.
+                    self._record_intrusion_gate_parity(
+                        False, away=away, require_corroboration=_require_corr,
+                        alarm_armed=armed, open_entry=bool(entry))
                     return None
+            # Reached here → the inline path opens an investigation. Record the
+            # kernel entry-gate verdict against that decision (R3a, log-only).
+            self._record_intrusion_gate_parity(
+                True, away=away, require_corroboration=_require_corr,
+                alarm_armed=armed, open_entry=bool(entry))
             breach_name = self._friendly(entry) if entry else None
             breach_area = self._breach_area(entry)
             # Anchor the search at the breach: the intruder enters there, so the

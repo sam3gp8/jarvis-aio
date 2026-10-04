@@ -1,3 +1,42 @@
+## [8.64.0] — MCU Phase R (R3a): intrusion entry-gate decision-parity
+
+Step (a) of the intrusion re-architecture — the highest-risk, most carefully
+staged of them all. The kernel now computes the *entry gate* for intrusion (the
+precondition that decides whether a possible-intrusion investigation opens), and
+the live SafetyManager logs it against its inline decision. **Log-only; no
+behaviour change.**
+
+- **New pure kernel gate** `kernel.situation.intrusion_gate(away, qualifying_motion,
+  require_corroboration, alarm_armed, open_entry)` → bool. It mirrors the
+  false-alarm-critical precondition exactly: an investigation opens only when
+  presence is **away**, there is **qualifying motion**, and — when corroboration
+  is required — there is an **armed alarm or an open entry point**. (A lone
+  curtain-flutter with no corroboration never opens — the exact class of the prior
+  false-intrusion bug.) The stateful parts of the investigation (cooldown,
+  call-off, resident-on-camera, zone-spread escalation) stay in the caller.
+- **`SafetyManager._check_intrusion` logs the kernel gate against its inline
+  decision** at the corroboration point (`intrusion.record_gate_parity`), both
+  when it opens an investigation and when it declines. Log-only, best-effort,
+  never affects the intrusion decision.
+- **Why only step (a) ships now.** Intrusion has **no safe fail-toward
+  direction** — a false positive re-creates the prior false-alarm bug, a false
+  negative misses a real break-in. So unlike freeze, there is no max-severity
+  belt that makes an immediate flip safe. The enforce flip (R3b) will make the
+  kernel gate authoritative only with *legacy-wins-on-divergence* + a kill-switch,
+  and must wait until these parity logs show **zero divergence on real traffic**.
+  That burn-in is a calendar/data gate on the live system, not a code step.
+- **No stage change.** `situation` stays `●` enforce (delivery + freeze); the
+  intrusion caller remains a parity *mirror* (now with a decision-parity gate on
+  top of the lifecycle mirror). **Coverage unchanged (17.9%).**
+
+9 new tests: the kernel gate opens/closes correctly across away / motion /
+corroboration combinations (incl. the no-corroboration false-alarm case and the
+corroboration-not-required case); the parity recorder agrees on open and closed
+and logs a constructed divergence; and the live `_check_intrusion` path records
+`legacy_open=False` agreeing with the kernel gate while staying silent. Full
+suite green; audit + adoption + coverage gates clean. Intrusion decision-parity →
+**8.63.0 → 8.64.0**.
+
 ## [8.63.0] — MCU Phase R (R2b): freeze ENFORCE — the kernel owns the verdict, failing toward alerting
 
 The freeze flip. The kernel's pipe-freeze verdict is now authoritative in
