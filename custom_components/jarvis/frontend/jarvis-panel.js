@@ -4079,7 +4079,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           ${iconsRow}
           ${readingsRow}
           <div class="area-foot">
-            <div class="area-name">${a.name}</div>
+            <div class="area-name" title="${this._esc(a.name)}">${a.name}</div>
             ${lightCtl}
           </div>
         </div>`;
@@ -4480,6 +4480,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
               data-cfg-key="camera_auto_analyze_motion"
               data-cfg-val="${(d.config?.camera_auto_analyze_motion) ? 'false' : 'true'}">
               ${(d.config?.camera_auto_analyze_motion) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Analyze HA motion (no NVR)</span>
+            <span class="toggle-desc">No Frigate/Nest? A Home Assistant motion/occupancy sensor firing silently analyzes the camera covering that room — so best-effort face recognition &amp; scene learning work on plain cameras. Throttled per camera; no spoken alerts.</span>
+            <button class="toggle-btn ${(d.config?.camera_motion_vision) ? 'on' : 'off'}"
+              data-cfg-key="camera_motion_vision"
+              data-cfg-val="${(d.config?.camera_motion_vision) ? 'false' : 'true'}">
+              ${(d.config?.camera_motion_vision) ? 'ON' : 'OFF'}
             </button>
           </div>
           <div class="toggle-row">
@@ -9349,6 +9358,14 @@ ${this._renderExcludedEntities(d)}
     border-top: none;
     padding-top: 0;
     margin-top: 0;
+    /* Shrink/ellipsize a long room name instead of shoving the light pill
+       past the card edge into the next card (#188). Short names are
+       unaffected; the full name stays available via the title tooltip. */
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .area.active .area-foot { border-top-color: var(--cyan-faint); }
   .area-light {

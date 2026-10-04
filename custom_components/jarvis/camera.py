@@ -1797,11 +1797,17 @@ async def async_auto_analyze_on_event(
     entity_id: str,
     reason: str = "Motion detected",
     doorbell: bool = False,
+    announce: bool = True,
 ) -> None:
     """
     Auto-analyze a camera event. For doorbell presses (doorbell=True) this uses
     the press-specific path with event-media fallback. Otherwise (manual service
     / non-doorbell) it analyses a short live clip with notability-gated announce.
+
+    ``announce=False`` runs the same analysis SILENTLY — no spoken result — so a
+    high-frequency trigger (e.g. a generic HA motion sensor, #140) can feed scene
+    learning and best-effort face recognition without adding spoken alerts. The
+    recognition hook inside :func:`async_analyze_camera` fires either way.
     """
     await asyncio.sleep(3)  # let event propagate & media become fetchable
 
@@ -1819,10 +1825,12 @@ async def async_auto_analyze_on_event(
             f"If there is a vehicle or package, note it. "
             f"Focus on what {honorific} would want to know."
         ),
-        "announce": True,
+        "announce": bool(announce),
         "frames": 3,
         "interval": 1.2,
     })
     await async_analyze_camera(
-        hass, call, groq_client, honorific, tts_entity, speakers, gate_announce=True,
+        hass, call, groq_client, honorific,
+        tts_entity if announce else None, speakers if announce else [],
+        gate_announce=True,
     )

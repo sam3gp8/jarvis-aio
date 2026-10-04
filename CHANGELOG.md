@@ -1,4 +1,4 @@
-## [8.66.0] — MCU Phase H (H0): close the governance drift — generated docs + a CI sync gate
+## [8.67.0] — MCU Phase H (H0): close the governance drift — generated docs + a CI sync gate
 
 An external gap-audit of v8.65 flagged a **critical governance defect**: the
 `docs/JARVIS_CONSTITUTION.md` still declared *"authority is log-only … no primitive
@@ -32,8 +32,62 @@ makes the drift impossible to reintroduce silently.
 stage and reads `authority`/`world_model` as enforce; extract/replace round-trips;
 and the gate detects both a stale block and missing markers. Full suite green; all
 four gates (audit + adoption + coverage + docs-sync) clean. Governance fix →
-**8.65.0 → 8.66.0**.
+**8.66.0 → 8.67.0**.
 
+## [8.66.0] — Best-effort face recognition for plain cameras (no NVR) (#140)
+
+Phase-3 best-effort face recognition only ever ran when a `nest_event` or
+`frigate_event` fired (plus doorbell presses and the periodic package sweep).
+A user on **plain Home Assistant cameras + a local vision model, with no
+Frigate/Nest**, therefore never had a camera frame analysed on ordinary motion
+— so the vision pipeline never ran, nothing reached the local model, and the
+recognition hook (which rides on top of that analysis) never got a frame. This
+is exactly the gap @QuentinVape40 hit on #140 (zero requests reaching Ollama).
+
+- **New opt-in trigger: "Analyze HA motion (no NVR)"** (Settings → Cameras,
+  config key `camera_motion_vision`, **default off**). When on, a Home Assistant
+  motion/occupancy/presence `binary_sensor` firing is mapped to the camera that
+  covers its area (direct HA area assignment first, then the saved floor-plan
+  camera coverage) and a vision analysis is run on that camera — which carries
+  the best-effort recognition hook, so the Faces tab finally populates on a
+  no-NVR setup.
+- **Silent by design.** The motion-triggered analysis runs with announcements
+  suppressed — its job is to feed scene learning and face recognition, not to
+  add spoken alerts on every motion. The recognition hook inside
+  `async_analyze_camera` fires either way. (Frigate/Nest/doorbell paths keep
+  their existing notability-gated announcements.)
+- **Bounded.** Throttled per-camera (one analysis per 120s) and gated entirely
+  behind the new default-off flag, so nothing changes — and the local model is
+  never touched on motion — unless the user turns it on. Sensors are discovered
+  at setup; a reload picks up new ones.
+- `async_auto_analyze_on_event` gained an `announce` parameter (default True,
+  so every existing caller is unchanged) that threads through to suppress the
+  tts target, speaker list, and the call's own announce flag.
+
+2 new unit tests (silent run suppresses the announcement targets while still
+analysing the right camera; the default announcing path is unchanged) + a panel
+smoke check for the toggle. New feature → 8.65.1 → 8.66.0.
+
+## [8.65.1] — Fix: long room name no longer pushes the light pill into the next card
+
+A room card whose name is long (e.g. "Conservatory") shoved its light ON/OFF
+pill past the card's right edge and into the neighbouring card on the Command
+Center dashboard (#188). The reporter saw it next to a lightless room and
+suspected the missing pill was the cause; the real culprit was the long name.
+
+- **Root cause.** In the card footer the room name and the light pill share a
+  flex row (`justify-content: space-between`). The name had the default
+  `min-width: auto`, so it refused to shrink below its content width, overflowed
+  the fixed-width card, and pushed the pill out the right side. Short names fit,
+  so only long-named rooms were affected — the lightless neighbour was a
+  coincidence of position, not the cause.
+- **Fix.** The footer name now shrinks and ellipsizes within its flex cell
+  (`min-width: 0; text-overflow: ellipsis`), keeping the light pill pinned inside
+  the card's right edge at any card width. On wide cards the full name still
+  shows; when a card is too narrow the name truncates and the full name is
+  available via a `title` hover tooltip.
+- Frontend-only; no behaviour change. Regression pinned by two panel smoke
+  checks.
 ## [8.65.0] — MCU Phase G (G4): authority ENFORCE — the kernel capability engine gates actuation
 
 The authority flip. The kernel capability engine is now authoritative over the

@@ -333,6 +333,17 @@ setTimeout(async () => {
   PANEL.areas[0].lights_on = 1;
   el._patchLiveDom(PANEL);
   checks.push(["live patch flips light pill back ON", garageLightBtn()?.classList.contains("on") === true]);
+
+  // ── #188: a long room name must not shove the light pill into the next card ──
+  checks.push(
+    ["area-foot name shrinks/ellipsizes so the light pill stays in its card (#188)", (() => {
+      const s = el._styles();
+      const m = s.match(/\.area-foot\s+\.area-name\s*\{[^}]*\}/);
+      return !!m && /min-width:\s*0/.test(m[0]) && /text-overflow:\s*ellipsis/.test(m[0]);
+    })()],
+    ["area card name carries a title tooltip for the full name (#188)",
+      /class="area-name" title="/.test(el._html())],
+  );
   el._activitySearch = "zzz-no-match";
   el._updateActivityFeed();
   checks.push(
@@ -527,6 +538,8 @@ setTimeout(async () => {
     ["camera auto-analyze motion toggle present + wired",
       !!el.shadowRoot.querySelector('button[data-cfg-key="camera_auto_analyze"][data-cfg-val]') &&
       !!el.shadowRoot.querySelector('button[data-cfg-key="camera_auto_analyze_motion"][data-cfg-val]')],
+    ["generic HA-motion vision toggle present + wired (#140)",
+      !!el.shadowRoot.querySelector('button[data-cfg-key="camera_motion_vision"][data-cfg-val]')],
     ["camera alert-level select present + wired",
       !!el.shadowRoot.querySelector('select[data-cfg-key="camera_alert_level"]')],
     ["name input placeholder is the HA name",
