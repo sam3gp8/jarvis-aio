@@ -44,8 +44,51 @@ _last_snapshot: dict = {}     # {path, url, camera, ts} of the most recent captu
 _false_alarms: list = []      # recent {ts, camera, area} for learning
 _last_decision_id: Optional[int] = None  # decision_record row id of the latest intrusion
 _decision_generation = 0
+_last_gate_parity: Optional[dict] = None  # R3a intrusion entry-gate parity (tests)
 _pending_decision_generations: set[int] = set()
 _dismissed_decision_generations: set[int] = set()
+
+
+def record_gate_parity(legacy_open: bool, *, away: bool, qualifying_motion: bool,
+                       require_corroboration: bool, alarm_armed: bool,
+                       open_entry: bool):
+    """MCU Phase R (R3a) — intrusion entry-gate decision-parity. Compute the
+    kernel's pure gate verdict (``kernel.situation.intrusion_gate``) and compare
+    it against the live SafetyManager's inline decision to open a possible-
+    intrusion investigation (``legacy_open``), logging any divergence.
+
+    LOG-ONLY — the legacy path still owns the intrusion decision entirely. This
+    is the groundwork (and the burn-in) for the eventual enforce flip (R3b),
+    which — because intrusion has no safe fail-toward direction (a false positive
+    re-creates the prior false-alarm bug, a false negative misses a break-in) —
+    must wait until real traffic shows the two agree. Best-effort; returns the
+    kernel verdict (or ``None`` on failure)."""
+    global _last_gate_parity
+    try:
+        from .kernel.situation import intrusion_gate
+        kernel_open = intrusion_gate(
+            away=away, qualifying_motion=qualifying_motion,
+            require_corroboration=require_corroboration,
+            alarm_armed=alarm_armed, open_entry=open_entry)
+    except Exception as exc:   # pragma: no cover - defensive
+        _LOGGER.debug("intrusion gate parity compute failed: %s", exc)
+        return None
+    agree = (kernel_open == bool(legacy_open))
+    _last_gate_parity = {
+        "legacy_open": bool(legacy_open), "kernel_open": kernel_open,
+        "agree": agree, "away": away, "qualifying_motion": qualifying_motion,
+        "require_corroboration": require_corroboration,
+        "alarm_armed": alarm_armed, "open_entry": open_entry,
+    }
+    if agree:
+        _LOGGER.debug("intrusion gate parity OK: open=%s", legacy_open)
+    else:
+        _LOGGER.warning(
+            "intrusion gate parity DIVERGENCE: legacy_open=%s kernel_open=%s "
+            "(away=%s motion=%s corrob=%s armed=%s entry=%s)",
+            legacy_open, kernel_open, away, qualifying_motion,
+            require_corroboration, alarm_armed, open_entry)
+    return kernel_open
 
 # ── Kernel situation mirror (Phase 3 → MCU Phase D/D1, PARITY, log-only) ─────────
 # The intrusion lifecycle is mirrored into kernel.situation ALONGSIDE the existing
