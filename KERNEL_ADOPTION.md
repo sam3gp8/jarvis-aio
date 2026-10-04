@@ -32,8 +32,20 @@ authoritative *read* path on migrated surfaces (proven by
 That is categorically different from enforcing an **authority / situation /
 safety decision** — flipping one of those from log-only to authoritative on the
 live home is an **owner-gated** step (see `docs/JARVIS_CONSTITUTION.md`, invariant
-on authority) and remains deliberately un-taken. In short: a read facade may
-reach enforce on its own; a decision primitive may not.
+on authority).
+
+As of **G1**, the owner approved a **staged** roll-out of the decision-primitive
+flips, safest first. The first — **`budget` → enforce** — has been taken: it
+gates only a *discretionary, self-imposed, non-safety* ceiling on JARVIS's own
+autonomous actions, fails open, and has a one-line kill-switch, so its worst case
+is a skipped convenience action, not an unsafe or missed-safety outcome. The
+remaining flips are still un-taken and each needs its own owner go/no-go:
+`loop_detect` (G2), the `hazard`/`delivery` situations (G3), and — behind an
+explicit pause — **`authority`** (G4) and the **`intrusion`** situation (G5),
+the two highest-risk ones. In short: a read facade may reach enforce on its own;
+a *non-safety, self-imposed* decision primitive may reach it with owner approval
+and a kill-switch; an authority/situation/safety decision may not, except by an
+explicit per-flip owner go/no-go.
 
 ## Current matrix
 
@@ -44,7 +56,7 @@ reach enforce on its own; a decision primitive may not.
 | `attention` | ◐ shadow | `output_gate` |
 | `authority` | ◑ parity | `authority_bridge` |
 | `beliefs` | ◐ shadow | `agent` |
-| `budget` | ◐ shadow | `actuation` |
+| `budget` | ● enforce | `actuation` |
 | `causal` | · pure | — |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
@@ -53,10 +65,10 @@ reach enforce on its own; a decision primitive may not.
 | `ledger` | ◐ shadow | `__init__` |
 | `loop_detect` | ◐ shadow | `actuation` |
 | `persistence` | · pure | — |
-| `plan` | ◑ parity | `actuation`, `agent` |
+| `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
 | `router` | ◐ shadow | `reasoning_loop` |
-| `situation` | ◑ parity | `delivery_situation`, `hazard_situation`, `intrusion` |
+| `situation` | ◑ parity | `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 
@@ -121,13 +133,29 @@ reach enforce on its own; a decision primitive may not.
   (`record_plan`), so the goal → plan → step chain is durably reconstructable —
   the foundation for agency recovery after a restart. Shadow: the journal is
   written but never replayed in the live flow; the goal store stays authoritative.
-- **loop_detect** and **budget** are at **shadow** through `actuation` (MCU
-  Phase E/E4): the actuation envelope feeds every actuation into the kernel loop
-  detector (thrash: A → event → A, or flapping) and the agency budget (a
-  self-imposed autonomous-action ceiling), logging a loop or exhausted-budget
-  verdict but **never acting on it** — no action is suppressed or deferred.
-  Promoting either to **enforce** (actually blocking an actuation) gates live
-  actuation and is **owner-gated**, deliberately not taken.
+- **budget** is at **enforce** through `actuation` (MCU Phase G/G1) — the first
+  *decision* primitive promoted to enforce on the live home, taken as the safest
+  first trial. `actuation.agency_budget_check` is authoritative for exactly one
+  tightly-scoped path: a **discretionary autonomous** actuation — JARVIS acting
+  on a learned/trusted pattern of its own accord
+  (`cognitive_core._execute_action_data`). When the rolling-hour ceiling (kernel
+  default 60 autonomous actions/hr) is reached, the actuation is actually
+  **blocked**. The scope is deliberately narrow: **user-requested** actuations
+  (the agent tool path / `control_device`) and **safety-critical** responses
+  (nighttime lockdown, intrusion securing — which call `hass.services` directly)
+  never route through the gate, so neither a user command nor a safety action
+  can ever be budget-blocked. The gate **fails open** (a budget fault allows the
+  action), and a one-line **kill-switch** (`actuation.AGENCY_BUDGET_ENFORCE =
+  False`) reverts it to shadow on the next load. This is still a read-vs-decision
+  distinction honoured: unlike the authority/situation/safety flips, blocking a
+  *self-imposed, discretionary, non-safety* ceiling degrades gracefully (worst
+  case: one learned-convenience action is skipped and re-surfaces next cycle),
+  which is why it was chosen first.
+- **loop_detect** is at **shadow** through `actuation` (MCU Phase E/E4): the
+  actuation envelope feeds every actuation into the kernel loop detector (thrash:
+  A → event → A, or flapping), logging a loop verdict but **never acting on it** —
+  no action is suppressed. Promoting it to **enforce** (actually suppressing a
+  thrashing actuation) is the next staged flip (G2) and is **owner-gated**.
 - **router** is at **shadow** through `reasoning_loop` (MCU Phase E/E3): the
   reasoning path computes the kernel local-first provider route
   (`router.route`: cloud when the connectivity breaker is closed, local Mind when

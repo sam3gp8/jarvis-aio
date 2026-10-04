@@ -1,3 +1,37 @@
+## [8.58.0] — MCU Phase G (G1): agency budget ENFORCE — the first live enforce flip
+
+The kernel migration's first **enforce** flip of a *decision* primitive on the
+live home, taken deliberately as the safest possible first trial and staged
+behind an owner go/no-go for the higher-risk flips that follow.
+
+- **The self-imposed autonomous-action ceiling is now authoritative** on exactly
+  one tightly-scoped path: a **discretionary autonomous** actuation — JARVIS
+  acting on a learned/trusted pattern of its own accord
+  (`cognitive_core._execute_action_data`). When the rolling-hour ceiling (kernel
+  default 60 autonomous actions/hr) is reached, the actuation is actually
+  **blocked**, not merely logged, so a feedback loop or an over-eager pattern
+  can't flood the house. `kernel_adoption` moves `budget` `◐` shadow → `●` enforce.
+- **Scope is deliberately narrow, and safety/user paths are untouched.**
+  User-requested actuations (the agent tool path / `control_device`) and
+  safety-critical responses (nighttime lockdown, intrusion securing — which call
+  `hass.services` directly) **never route through the gate**, so neither a user
+  command nor a safety action can ever be budget-blocked. The gate counts a
+  dedicated autonomous-only population, not the whole actuation stream.
+- **Fails open + one-line kill-switch.** Any internal budget error allows the
+  action (a budget bug can never stop JARVIS acting). Flip
+  `actuation.AGENCY_BUDGET_ENFORCE` to `False` to revert instantly to shadow
+  (log-only, zero behaviour change) on the next load — no other edit needed.
+- **Coverage unchanged (17.9%).** `budget` is not one of the seven behaviour-spine
+  contracts, so the coverage number is honestly unaffected by this flip.
+
+10 new tests: the gate allows under the ceiling and records; blocks at the ceiling
+under enforce; never blocks with the kill-switch off (shadow); a blocked action
+consumes no slot (the window recovers); fails open on error; the live autonomous
+path executes under ceiling, is suppressed over ceiling (service call asserted
+*not* made), and flows again with the kill-switch off; and a direct safety-style
+service call is never budget-blocked. Full suite green; audit + adoption +
+coverage gates clean. First enforce flip → **8.57.0 → 8.58.0**.
+
 ## [8.57.0] — Notifications-only speaker mute + persistent, visible announcement mutes (#181)
 
 Two controls for people who don't want unsolicited speaker interruptions.

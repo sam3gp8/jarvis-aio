@@ -3233,6 +3233,22 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
     extra = action_data.get("service_data", {}) or {}
     if not domain or not service or not entity_ids:
         return False
+    # MCU Phase G/G1 — agency budget ENFORCE. This is a *discretionary
+    # autonomous* actuation: JARVIS acting on a learned/trusted pattern of its
+    # own accord (never a user request, never a safety response — those paths
+    # do not reach here). Gate it against the self-imposed hourly ceiling so a
+    # feedback loop or over-eager pattern can't flood the house. Best-effort and
+    # fails open; honors the kill-switch (actuation.AGENCY_BUDGET_ENFORCE).
+    try:
+        from . import actuation
+        allowed, _rem = actuation.agency_budget_check()
+        if not allowed:
+            _LOGGER.warning(
+                "Proactive action suppressed by agency budget (%s.%s on %s) — "
+                "autonomous-action ceiling reached", domain, service, entity_ids)
+            return False
+    except Exception:   # pragma: no cover - defensive, fail open
+        pass
     try:
         await hass.services.async_call(
             domain, service,
