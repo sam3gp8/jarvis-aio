@@ -1,3 +1,14 @@
+## [8.44.0] — MCU Phase C (C2): intrusion-safety presence reads through WorldModel
+
+The careful C2 release the previous one deferred. The signals that decide whether motion is a possible **intruder** — "are the residents away?", "is anyone home?", "is the alarm armed?" — now read the world through the kernel `WorldModel` facade instead of scattered raw-state sweeps. This is the safety-sensitive counterpart to C1, so it ships behaviour-identical and fail-safe.
+
+- **`SafetyManager._residents_away`, `LockdownManager._anyone_home`, and `_alarm_armed` (both managers) now read presence/alarm/occupancy through `WorldModel.devices(domain=…)`.** The facade reads the **same** `hass.states.async_all(domain)` source and preserves every entity's `state` and `attributes` verbatim, so each away/home/armed decision is **provably behaviour-identical** — iteration is one-to-one with the legacy loop.
+- **Fail-safe, not best-effort-empty.** Unlike C1, an *empty* person/tracker list is a **meaningful** "untracked" signal for the away-check (it is what prevents the false "motion … while no one is home" alerts), so it is never treated as a facade miss. Instead, any facade **exception** falls back to the exact legacy raw-state sweep — the safety decision can never regress, and these reads can never newly raise.
+- **No intrusion decision logic changed** — only where the presence context is *read*. Authority / situation stay **log-only / parity**; nothing was flipped to enforce.
+- **Coverage unchanged (16.7%)** — this is adoption *depth* on the already-parity `cognitive_core` world_model caller, not a new actuator-spine cell (the intrusion spine path tracks the Situation lifecycle in `intrusion.py`, which does no presence reads).
+
+21 new parity tests: a 14-world presence/alarm/occupancy matrix asserts each migrated method equals a verbatim legacy-logic oracle, plus three fallback tests proving a broken facade yields the identical legacy decision without raising. The v6.7.1 false-intrusion regression suite stays green. Read-side only. Phase C → middle-digit bump **8.43.0 → 8.44.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.43.0] — MCU Phase C (C1): cognition reads presence through WorldModel
 
 Phase C makes the kernel `WorldModel` the **context authority** — cognitive paths read the world through the facade rather than scattered raw-state sweeps (the audit's item #6). It starts read-side and low-risk; nothing about what JARVIS *does* changes, only where it *reads* its context.

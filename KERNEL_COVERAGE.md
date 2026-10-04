@@ -90,7 +90,13 @@ one release at a time.
   service call — so the planner owns execution. The farthest-along path: only
   `situation` (by design) and the owner-gated `authority` enforce flip remain.
 - **`intrusion`** — mirrors its lifecycle into the kernel **Situation** state
-  machine at parity.
+  machine at parity. Its presence *context* (the away/home/armed signals that
+  decide whether motion is a possible intruder) reads through the `WorldModel`
+  facade as of C2 (8.44.0), behaviour-identical with a fail-safe raw-sweep
+  fallback — but that read lives in `cognitive_core.py` (`SafetyManager` /
+  `LockdownManager`), credited on the already-parity `cognitive_core`
+  `world_model` adoption, not as a new cell on this spine path (whose module,
+  `intrusion.py`, does no presence reads).
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
   shared `actuation` envelope for its WorldModel context (`world_model` ◑),
   actuation event (`event` ◑) and shadow plan (`plan` ◐). No deterministic
