@@ -150,6 +150,11 @@ explicit per-flip owner go/no-go.
   flip will fail *toward* alerting, and the intrusion re-architecture is
   safety-critical and behind an explicit owner go/no-go. So "situation = enforce"
   here means "delivery presence is kernel-owned", not "every situation is".
+  **R2a (8.62.0)** is the freeze step (a): `kernel.situation.freeze_verdict` now
+  computes the pure pipe-freeze threshold verdict and `cognitive_core._check_freeze`
+  logs it against its inline category (decision-parity, log-only). The freeze
+  *flip* (R2b) is still pending and will fail *toward* alerting — a freeze alert
+  is never suppressed on kernel error or uncertainty.
 - **priority** (emergency hierarchy) and **causal** (causal inference) remain
   **pure**: no live path consults them yet, and wiring one without a genuine
   consumer would be a hollow adoption — left honest at pure until a real caller

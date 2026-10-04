@@ -1,3 +1,32 @@
+## [8.62.0] — MCU Phase R (R2a): freeze decision-parity — the kernel earns the hazard verdict
+
+Step (a) of the freeze re-architecture — the kernel computes the pipe-freeze
+verdict so the hazard situation can eventually *own* it (today it only records a
+lifecycle it is told). Log-only; no behaviour change.
+
+- **New pure kernel verdict** `kernel.situation.freeze_verdict(temp_f, warn_f,
+  critical_f)` → `critical` / `warning` / `clear` / `none`, mirroring the live
+  `SafetyManager` thresholds exactly (critical ≤ 20°F, warning ≤ 35°F, clear
+  above 35+5°F with hysteresis). Pure and unit-agnostic — the caller converts to
+  °F first; the alert cooldown and the `_freeze_warned` hysteresis flag stay in
+  the caller (orchestration, not the classification).
+- **`cognitive_core._check_freeze` now logs the kernel verdict against its inline
+  threshold category** on every evaluation (`hazard_situation.record_freeze_verdict_parity`).
+  **Log-only** — the existing branches still drive the freeze alert, best-effort,
+  never affecting alerting.
+- **Safety note.** This step changes nothing about when a freeze alert fires. The
+  *flip* (R2b) — making the kernel verdict authoritative — will **fail toward
+  alerting**: on any kernel error or uncertainty the legacy threshold alert still
+  fires. A freeze alert is never suppressed on doubt.
+- **No stage change.** `situation` stays `●` enforce (delivery, from R1b); freeze
+  remains a parity *mirror* until R2b. **Coverage unchanged (17.9%).**
+
+8 new tests: the kernel verdict across boundary temps (critical/warning/dead-band/
+clear/none incl. a `None` reading); a full sweep proving the kernel verdict equals
+the live inline category exactly; and the parity recorder agreeing, logging a
+divergence, and returning the kernel's true verdict. Full suite green; audit +
+adoption + coverage gates clean. Freeze decision-parity → **8.61.0 → 8.62.0**.
+
 ## [8.61.0] — MCU Phase R (R1b): delivery ENFORCE — the kernel situation store owns the per-camera verdict
 
 The flip that R1a's decision-parity earned. `situation` moves `◑` parity → `●`
