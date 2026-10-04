@@ -51,7 +51,7 @@ holds on the live home system.
 | `priority` | · pure | — |
 | `router` | · pure | — |
 | `situation` | ◑ parity | `intrusion` |
-| `world_model` | ◑ parity | `actuation`, `cognitive_core` |
+| `world_model` | ◑ parity | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 
 ## Notes on specific primitives
@@ -59,14 +59,19 @@ holds on the live home system.
 - **persistence** is an internal seam (connection + migrations) consumed by other
   kernel modules such as `ledger`, not by live callers directly — "pure" here
   means "no legacy bypass to retire", not "unused".
-- **world_model** is at parity through `actuation` and `cognitive_core` (MCU
-  Phase A/B/C): the
+- **world_model** is at parity through `actuation`, `agent`, `cognitive_core`,
+  `home_state` and `proactive_briefing` (MCU Phase A/B/C): the
   `control_device` path reads its pre-action context snapshot through the facade
   — the canonical context authority — and uses the result (area, previous_state),
   falling back to raw HA state. Parity, not enforce: the facade informs the path
-  but the raw sources stay authoritative underneath. C1 (Phase C) routes
-  cognition's presence context (`anyone_home`) through the facade too,
-  reading the same person entities — behaviour-identical, context via the
+  but the raw sources stay authoritative underneath. Phase C widens the read
+  side: **C1** routes cognition's presence context (`anyone_home`) through the
+  facade; **C2** routes the intrusion-safety presence/alarm reads
+  (`SafetyManager._residents_away`, `LockdownManager._anyone_home`,
+  `_alarm_armed`) through it with a fail-safe raw-sweep fallback; **C3** routes
+  the home-summary / briefing context builders (`home_state._build_summary`, the
+  `get_home_summary` agent tool, `proactive_briefing`'s arrival detection)
+  through it — all reading the same sources, behaviour-identical, context via the
   authority.
 - **actuator** is at parity through the shared `actuation` envelope (8.26.0 → 8.31.0, B0): the
   `control_device` path builds a canonical `ActuatorRequest` (now carrying the

@@ -1499,61 +1499,69 @@ async def _exec_run_scene_script(hass: HomeAssistant, args: dict) -> str:
 
 
 async def _exec_home_summary(hass: HomeAssistant, args: dict) -> str:
-    """Build a comprehensive home summary."""
+    """Build a comprehensive home summary.
+
+    MCU Phase C (C3): the summary reads the world through the kernel WorldModel
+    facade (the context authority, audit item #6) rather than bare state sweeps.
+    The facade reads the same async_all(domain) source and preserves each
+    entity's state and attributes verbatim, so the JSON is behaviour-identical.
+    """
+    from .kernel.world_model import WorldModel
+    wm = WorldModel(hass)
     summary = {}
 
     # People
     people = []
-    for s in hass.states.async_all("person"):
+    for s in wm.devices(domain="person"):
         people.append({
-            "name": s.attributes.get("friendly_name", s.entity_id),
-            "state": s.state,
+            "name": s["attributes"].get("friendly_name", s["entity_id"]),
+            "state": s["state"],
         })
     summary["people"] = people
 
     # Lights
     on_lights = [
-        s.attributes.get("friendly_name", s.entity_id)
-        for s in hass.states.async_all("light") if s.state == "on"
+        s["attributes"].get("friendly_name", s["entity_id"])
+        for s in wm.devices(domain="light") if s["state"] == "on"
     ]
     summary["lights_on"] = on_lights
     summary["lights_on_count"] = len(on_lights)
 
     # Locks
     unlocked = [
-        s.attributes.get("friendly_name", s.entity_id)
-        for s in hass.states.async_all("lock") if s.state == "unlocked"
+        s["attributes"].get("friendly_name", s["entity_id"])
+        for s in wm.devices(domain="lock") if s["state"] == "unlocked"
     ]
     summary["locks_unlocked"] = unlocked
 
     # Doors/Windows
     open_items = []
-    for s in hass.states.async_all("binary_sensor"):
-        dc = s.attributes.get("device_class", "")
-        if dc in ("door", "window", "garage_door") and s.state == "on":
-            open_items.append(s.attributes.get("friendly_name", s.entity_id))
-    for s in hass.states.async_all("cover"):
-        if s.state == "open":
-            open_items.append(s.attributes.get("friendly_name", s.entity_id))
+    for s in wm.devices(domain="binary_sensor"):
+        dc = s["attributes"].get("device_class", "")
+        if dc in ("door", "window", "garage_door") and s["state"] == "on":
+            open_items.append(s["attributes"].get("friendly_name", s["entity_id"]))
+    for s in wm.devices(domain="cover"):
+        if s["state"] == "open":
+            open_items.append(s["attributes"].get("friendly_name", s["entity_id"]))
     summary["open_doors_windows"] = open_items
 
     # Climate
     climate = []
-    for s in hass.states.async_all("climate"):
+    for s in wm.devices(domain="climate"):
         climate.append({
-            "name": s.attributes.get("friendly_name", s.entity_id),
-            "state": s.state,
-            "current_temp": s.attributes.get("current_temperature"),
-            "target_temp": s.attributes.get("temperature"),
+            "name": s["attributes"].get("friendly_name", s["entity_id"]),
+            "state": s["state"],
+            "current_temp": s["attributes"].get("current_temperature"),
+            "target_temp": s["attributes"].get("temperature"),
         })
     summary["climate"] = climate
 
     # Weather
-    for s in hass.states.async_all("weather"):
+    for s in wm.devices(domain="weather"):
         summary["weather"] = {
-            "condition": s.state,
-            "temperature": s.attributes.get("temperature"),
-            "humidity": s.attributes.get("humidity"),
+            "condition": s["state"],
+            "temperature": s["attributes"].get("temperature"),
+            "humidity": s["attributes"].get("humidity"),
         }
         break
 
