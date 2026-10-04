@@ -59,7 +59,8 @@ own release, with authority staying **log-only / owner-gated** — the spine is
 built structurally; the enforce flip is a separate, explicit decision. The next
 move is to *template* this onto the other consequential paths (`bulk_control`,
 `execute_plan`, `run_scene_or_script`, `set_mode`, …) and, eventually, route
-execution itself through the plan/actuator contract (needs an async plan driver).
+execution itself through the plan/actuator contract. The async plan driver this
+needs now exists — `kernel.plan.aexecute_plan` (B-async, 8.39.0).
 
 **Phase B is underway.** B0 (8.36.0) extracted the golden-path wiring into a
 shared **`actuation`** envelope (`actuation.py`: `context` / `request` /
@@ -114,7 +115,8 @@ one release at a time.
 > one-step `kernel.plan.Plan` (8.33.0, `plan` ◐). Still ahead: routing
 > *execution itself* through the plan/actuator contract (so the kernel, not the
 > legacy branch, performs the `await`ed service call) — the step that raises
-> `plan` from shadow to full and that an async plan driver unblocks.
+> `plan` from shadow to full, now unblocked by the async plan driver
+> (`kernel.plan.aexecute_plan`, B-async).
 
 ## How to raise the number
 

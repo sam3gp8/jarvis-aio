@@ -1,3 +1,12 @@
+## [8.39.0] — MCU Phase B (B-async): the async plan driver
+
+A prerequisite, not a path migration. Real HA actuators `await` their service calls, but `kernel.plan.execute_plan` is **synchronous** — so no path could route an *awaited* action *through* the plan contract (which is why `control_device.plan` has been stuck at shadow). This adds the async sibling.
+
+- **New `kernel.plan.aexecute_plan`** — mirrors `execute_plan` exactly (same stages, statuses and semantics: idempotency skip → preconditions → act → verify-with-retry, stopping at the first BLOCKED/FAILED/VERIFY_FAILED, updating `completed` in place), with **awaitable** `run_step` / `check` callables. **Still pure** — no Home Assistant import, no I/O of its own; the side effects are the injected awaitables, so it stays deterministic and unit-testable.
+- No live path adopts it yet, so **the coverage matrix is unchanged (11.0%)**. This unblocks **B4** (migrate `execute_plan` onto the kernel planner) and lets `control_device.plan` go shadow → full once its actuation routes through an awaited plan.
+
+7 new async tests (happy path, precondition block, idempotency skip, verify-retry-then-ok, verify-failed, action-raises-is-failed, default check). Kernel addition → middle-digit bump **8.38.0 → 8.39.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.38.0] — MCU Phase B (B2): set_mode on the kernel contract
 
 Second Phase B adoption — `set_mode` (switch JARVIS's operational mode) records its change through the shared `actuation` envelope.
