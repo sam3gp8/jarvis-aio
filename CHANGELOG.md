@@ -1,3 +1,15 @@
+## [8.48.0] — MCU Phase D (D2): freeze hazard modelled as a kernel Situation
+
+Phase D widens Situations past intrusion to the first **hazard**. The in-home freeze lifecycle (`SafetyManager._check_freeze`: warning → critical → cleared) is now mirrored into a kernel `Situation` (`kind="hazard"`, `subject="freeze"`) — parity, log-only — so the generalised state machine tracks hazards the same way it tracks intrusion.
+
+- **New `hazard_situation` module** mirrors the freeze lifecycle into `kernel.situation` and (like D1) **verifies** agreement: after each verdict, the kernel situation's resulting state is compared against what the verdict implies (`warning ≥ INVESTIGATING`, `critical ≥ CONFIRMED`, `cleared` → terminal), logging a **WARNING** on any divergence.
+- **`SafetyManager._check_freeze` drives it best-effort, off-loop.** The mirror runs via `async_add_executor_job` inside a swallow-all wrapper (`_mirror_freeze_hazard`) placed *after* the freeze decision is computed — the freeze **alerts are byte-for-byte unchanged** (same `freeze_critical` / `freeze_warning` actions, same thresholds, same cooldown). A mirror failure never touches freeze handling.
+- **No invented detection.** Smoke / CO / water-leak are not sensed by JARVIS today, so there is nothing to mirror for them — D2 covers the one in-home hazard that has a real lifecycle, and adds no new detection.
+- **Honest coverage *dips* 16.7% → 16.0%.** A new `hazard` path joins the matrix with only its `situation` cell wired; counting its six un-wired cells lowers the percentage. That is the matrix working as intended — surfacing a newly-tracked path rather than hiding it. The adoption matrix adds `hazard_situation` as a live `situation` caller.
+- **Still log-only / owner-gated.** Nothing here is authoritative; flipping any hazard or intrusion situation to drive the live decision remains an owner-approved step, deliberately not taken.
+
+10 new tests: the freeze mirror lifecycle (warning → critical → cleared; critical-without-warning; cleared-with-no-episode; forced divergence; never-raises), plus integration tests proving `_check_freeze` returns the **same** critical/warning/none actions while driving the mirror. The existing freeze regression suite stays green. Phase D → middle-digit bump **8.47.0 → 8.48.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.47.0] — MCU Phase D (D1): intrusion situation earns genuine parity
 
 Phase D begins: making kernel **Situations** the authoritative lifecycle — structurally, at **parity / log-only**, never flipping the live decision. D1 starts with the first and most sensitive consumer, intrusion.
