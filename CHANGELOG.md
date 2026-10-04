@@ -1,3 +1,37 @@
+## [8.71.0] — MCU Phase H (H1): the universal actuator seam
+
+The start of **Phase H — Universal Agency Spine** (the MCU audit's next milestone):
+eliminate JARVIS's alternate agency paths so every consequential action converges
+on one kernel spine. H0 (8.66.0) closed the governance/doc drift; H1 builds the
+audit's P0 **universal actuator** — one authoritative seam every actuation routes
+through.
+
+- **New `actuation.execute_actuator(...)`** — the single composition point for an
+  actuation's **Execution → Event → Verification/Outcome**. Execution runs
+  *through* the kernel planner (`aexecute_plan`), the canonical actuation
+  JarvisEvent is published on success, and the verify-after-act (which records the
+  terminal `ActuatorOutcome`) is scheduled. This is the control_device golden path
+  turned into the reusable framework the audit asked for ("turn the control-device
+  path into the universal actuation framework").
+- **control_device now routes its execution through the seam** instead of
+  hand-assembling plan-execute + emit_event + verify inline. Behaviour-preserving:
+  the same service calls, the same single planner pass, the same event, the same
+  verify/outcome conditions. Every branch (on/off/lock/open/close/media,
+  set_brightness/temperature/volume) now also carries a canonical
+  `ActuatorRequest`, so each actuation has one described request.
+- **`actuator` primitive promoted parity → ● enforce** — the seam is authoritative
+  on a live path (the same bar as `world_model`/`situation`), not a shadow
+  contract. Constitution ledger + `KERNEL_ADOPTION.md` regenerated; doc-sync CI
+  gate green. **Coverage unchanged (honest 17.9%).**
+- Next H increments migrate the remaining paths onto the same seam, in the audit's
+  order: bulk_control → run_scene_or_script → goals → proactive → FRIDAY → HOMER →
+  safety direct actuators.
+
+tests: `test_execute_actuator_seam.py` (5) — executes through the planner once,
+publishes the event on success, schedules verify on success, returns an error with
+no event/verify on failure, and no verify when none is supplied. The full
+control_device/actuation/verify suites (49) stay green, pinning parity.
+
 ## [8.70.0] — Intrusion: arming HOME is no longer treated as "away" (the real root fix)
 
 The actual root cause behind the resident-mistaken-for-intruder false alarms.

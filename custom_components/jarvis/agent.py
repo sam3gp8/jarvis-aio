@@ -1158,34 +1158,7 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
     areq = None         # the canonical ActuatorRequest for this actuation, if built
     capability = None   # domain.service actually executed, for the actuation event
 
-    async def _execute(cap, ex_domain, ex_service, data):
-        """Route one actuation THROUGH the kernel planner (MCU Phase B, B4b): a
-        one-step plan whose run_step performs the awaited service call, so
-        execution genuinely passes through the plan contract (precondition →
-        act). Verify-after-act (``_verify_control``) remains the background
-        verify below. Returns (ok, detail); a failed/blocked plan yields the
-        same error path as a raised service call did before."""
-        from .kernel import plan as _kplan
-        _kp = _kplan.Plan(
-            goal=f"{action} {entity_id}",
-            steps=(_kplan.Step(action=cap, params=dict(data),
-                               preconditions=(f"exists:{entity_id}",),
-                               idempotency_key=f"{entity_id}:{action}"),),
-            correlation_id=actuation.correlation_id())
-
-        async def _run(_s):
-            await hass.services.async_call(ex_domain, ex_service, dict(data),
-                                           blocking=True)
-            return True
-
-        async def _chk(_c, _s):
-            return hass.states.get(entity_id) is not None
-
-        rep = await _kplan.aexecute_plan(_kp, run_step=_run, check=_chk)
-        if not rep.ok:
-            det = (rep.outcomes[0].detail if rep.outcomes else "") or "action failed"
-            return False, det
-        return True, ""
+    svc_domain = svc_name = None   # the HA service this actuation performs
 
     try:
         action_map = {
@@ -1203,19 +1176,16 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
             "volume_down": ("media_player", "volume_down"),
         }
 
-        ok_exec, exec_detail = True, ""
+        # 1) Resolve the HA service + enforce authority (action_map actions only).
         if action == "set_brightness":
             svc_data["brightness_pct"] = int(value or 50)
-            capability = "light.turn_on"
-            ok_exec, exec_detail = await _execute(capability, "light", "turn_on", svc_data)
+            svc_domain, svc_name, capability = "light", "turn_on", "light.turn_on"
         elif action == "set_temperature":
             svc_data["temperature"] = float(value or 72)
-            capability = "climate.set_temperature"
-            ok_exec, exec_detail = await _execute(capability, "climate", "set_temperature", svc_data)
+            svc_domain, svc_name, capability = "climate", "set_temperature", "climate.set_temperature"
         elif action == "volume_set":
             svc_data["volume_level"] = (value or 50) / 100.0
-            capability = "media_player.volume_set"
-            ok_exec, exec_detail = await _execute(capability, "media_player", "volume_set", svc_data)
+            svc_domain, svc_name, capability = "media_player", "volume_set", "media_player.volume_set"
         elif action in action_map:
             svc_domain, svc_name = action_map[action]
             # Authorization gate (v7.41.0). Protected actions (lock/unlock,
@@ -1244,44 +1214,40 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
                     "entity_id": entity_id,
                     "message": note or f"Confirmation required before {action} on {entity_id}.",
                 })
-            # Universal actuator contract (MCU A5 / Phase A): describe this
-            # actuation as one canonical ActuatorRequest, carrying the expected
-            # end-state for deterministic targets so the outcome can be verified
-            # against it. No behaviour change to what executes.
             capability = f"{svc_domain}.{svc_name}"
-            areq = actuation.request(
-                capability, entity_id, params=svc_data, action=action,
-                intent=action.replace("_", " "),
-                expected=_EXPECTED_STATES.get(action))
-            ok_exec, exec_detail = await _execute(capability, svc_domain, svc_name, svc_data)
         else:
             return json.dumps({"error": f"Unknown action: {action}"})
 
+        # 2) Universal actuator contract (MCU A5): one canonical ActuatorRequest
+        # per actuation, carrying the expected end-state for deterministic targets
+        # so the outcome can be verified against it.
+        areq = actuation.request(
+            capability, entity_id, params=svc_data, action=action,
+            intent=action.replace("_", " "),
+            expected=_EXPECTED_STATES.get(action))
+
+        # 3) Universal actuator SEAM (MCU Phase H, H1): Execution → Event →
+        # (scheduled) Verification/Outcome all converge on ``execute_actuator``,
+        # through the kernel planner, instead of being hand-assembled in this
+        # tool. Verify-after-act is scheduled only for deterministic targets.
+        verify_factory = None
+        if action in action_map and action in _EXPECTED_STATES:
+            v_dom, v_svc = action_map[action]
+            _vdata = dict(svc_data)
+
+            def verify_factory():
+                return _verify_control(hass, entity_id, action, v_dom, v_svc,
+                                       _vdata, request=areq)
+
+        ok_exec, exec_detail = await actuation.execute_actuator(
+            hass, capability=capability, entity_id=entity_id, domain=svc_domain,
+            service=svc_name, data=svc_data, action=action, areq=areq,
+            area=wm_area, verify=verify_factory)
         if not ok_exec:
             return json.dumps({"error": f"Failed: {exec_detail}",
                                "entity_id": entity_id})
 
-        if capability:
-            # Event through the shared envelope (MCU Phase A/B): publish a
-            # canonical actuation JarvisEvent on the bus (the ledger records it).
-            # Execution already routed through the kernel planner above (B4b), so
-            # no separate shadow plan is logged here. Best-effort.
-            actuation.emit_event(
-                hass, capability, entity_id, action=action, area=wm_area,
-                request=areq)
-
-        # Get updated state
         new_state = hass.states.get(entity_id)
-
-        # v6.38: verify-after-act — for deterministic targets (on/off, lock,
-        # open/close), confirm the device actually got there in the background;
-        # retry once; log honestly if it still didn't. Silent when it worked.
-        if action in action_map and action in _EXPECTED_STATES:
-            v_dom, v_svc = action_map[action]
-            hass.async_create_task(
-                _verify_control(hass, entity_id, action, v_dom, v_svc, svc_data,
-                                request=areq))
-
         return json.dumps({
             "success": True,
             "entity_id": entity_id,
