@@ -1,3 +1,15 @@
+## [8.46.0] — MCU Phase C (C4): WorldModel is authoritative — adoption → enforce
+
+C1–C3 routed presence / home-summary / briefing context through the kernel `WorldModel` facade. C4 makes that **enforce**: the facade is the *authoritative* read path on those surfaces, not merely consulted alongside raw state — and proves it with tests that have teeth.
+
+- **The gap C4 closes:** because the facade preserves state verbatim, the C1–C3 tests (which seed HA state and check the rendered output) pass *whether the code reads the facade or the raw sweep* — they can't catch a silent regression back to `hass.states.async_all`.
+- **`test_c4_worldmodel_authoritative`** closes it: each test makes `WorldModel.devices(...)` return something that **differs** from raw HA state and asserts the **facade's value wins** — on `SafetyManager._residents_away` (C2), `home_state._build_summary` (C3), the `get_home_summary` agent tool (C3), and `proactive_briefing._anyone_home` (C3). A revert to a raw read now fails CI.
+- **`kernel_adoption` promotes `world_model` ◑ parity → ● enforce.** This is defensible for a specific, honest reason: `home_state._build_summary` and `agent._exec_home_summary` read the facade with **no** raw fallback, so the facade is unambiguously authoritative on ≥1 live path (the adoption definition of enforce). The raw sources survive underneath only as a *failure* fallback for the safety / best-effort callers.
+- **This is a read-only enforce, not a decision enforce.** The doc now draws the line explicitly: a read-context facade may reach enforce on its own because it changes nothing about what JARVIS *does*; flipping an **authority / situation / safety decision** from log-only to authoritative on the live home stays **owner-gated** and un-taken. Authority remains **log-only / parity**.
+- **Coverage unchanged (16.7%)** — the behavioural spine matrix is a different axis; `control_device`'s `world_model` cell stays parity (its post-action verify still reads raw HA state). C4 moves the *adoption* stage, not a spine cell. Context reads in still-legacy modules (`identity`, `presence`, `cognition`, `local_engine`, `observer`, …) remain to be migrated per-release.
+
+4 new enforcement tests; full suite green. Read-side only. Phase C → middle-digit bump **8.45.0 → 8.46.0**. Audit + adoption + coverage gates clean.
+
 ## [8.45.0] — MCU Phase C (C3): home-summary & briefing context through WorldModel
 
 Phase C's read side widens to the **summary / proactive context** surfaces. The builders that describe the home to JARVIS — the system-prompt snapshot, the `get_home_summary` tool, and the proactive-briefing arrival check — now read the world through the kernel `WorldModel` facade (the context authority, audit item #6) instead of scattered raw-state sweeps.

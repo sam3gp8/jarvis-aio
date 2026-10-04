@@ -25,9 +25,15 @@ adoption has actually progressed and which live modules reference it.
 
 Promotion is one-directional and deliberate: a primitive only moves `pure →
 shadow → parity → enforce` once the stage below it has held on real traffic.
-**No primitive is at `enforce` yet** — that is an owner-gated step (see
-`docs/JARVIS_CONSTITUTION.md`, invariant on authority), taken only after parity
-holds on the live home system.
+**`world_model` is at `enforce`** (C4) — but note *what kind* of primitive it
+is: a **read-only context facade**. Its enforce means the facade is the
+authoritative *read* path on migrated surfaces (proven by
+`test_c4_worldmodel_authoritative`); it changes nothing about what JARVIS *does*.
+That is categorically different from enforcing an **authority / situation /
+safety decision** — flipping one of those from log-only to authoritative on the
+live home is an **owner-gated** step (see `docs/JARVIS_CONSTITUTION.md`, invariant
+on authority) and remains deliberately un-taken. In short: a read facade may
+reach enforce on its own; a decision primitive may not.
 
 ## Current matrix
 
@@ -51,7 +57,7 @@ holds on the live home system.
 | `priority` | · pure | — |
 | `router` | · pure | — |
 | `situation` | ◑ parity | `intrusion` |
-| `world_model` | ◑ parity | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
+| `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 
 ## Notes on specific primitives
@@ -59,20 +65,26 @@ holds on the live home system.
 - **persistence** is an internal seam (connection + migrations) consumed by other
   kernel modules such as `ledger`, not by live callers directly — "pure" here
   means "no legacy bypass to retire", not "unused".
-- **world_model** is at parity through `actuation`, `agent`, `cognitive_core`,
-  `home_state` and `proactive_briefing` (MCU Phase A/B/C): the
+- **world_model** is at **enforce** through `actuation`, `agent`,
+  `cognitive_core`, `home_state` and `proactive_briefing` (MCU Phase A/B/C). The
   `control_device` path reads its pre-action context snapshot through the facade
-  — the canonical context authority — and uses the result (area, previous_state),
-  falling back to raw HA state. Parity, not enforce: the facade informs the path
-  but the raw sources stay authoritative underneath. Phase C widens the read
-  side: **C1** routes cognition's presence context (`anyone_home`) through the
-  facade; **C2** routes the intrusion-safety presence/alarm reads
-  (`SafetyManager._residents_away`, `LockdownManager._anyone_home`,
-  `_alarm_armed`) through it with a fail-safe raw-sweep fallback; **C3** routes
-  the home-summary / briefing context builders (`home_state._build_summary`, the
-  `get_home_summary` agent tool, `proactive_briefing`'s arrival detection)
-  through it — all reading the same sources, behaviour-identical, context via the
-  authority.
+  — the canonical context authority — and uses the result (area, previous_state).
+  Phase C widens the read side: **C1** routes cognition's presence context
+  (`anyone_home`) through the facade; **C2** routes the intrusion-safety
+  presence/alarm reads (`SafetyManager._residents_away`,
+  `LockdownManager._anyone_home`, `_alarm_armed`) through it with a fail-safe
+  raw-sweep fallback; **C3** routes the home-summary / briefing context builders
+  (`home_state._build_summary`, the `get_home_summary` agent tool,
+  `proactive_briefing`'s arrival detection) through it. **C4** promotes the stage
+  to enforce: the facade is *authoritative* on these paths, not merely consulted.
+  `home_state._build_summary` and `agent._exec_home_summary` read it with **no**
+  raw fallback, and `test_c4_worldmodel_authoritative` proves the facade's value
+  wins over raw HA state on every migrated read — a regression to a raw sweep
+  fails those tests. (Enforce means authoritative on ≥1 live path; the raw
+  sources survive underneath only as a failure fallback for the safety /
+  best-effort callers, and context reads in still-legacy modules — `identity`,
+  `presence`, `cognition`, `local_engine`, `observer`, … — remain to be migrated
+  per-release, tracked by their own work, not by this stage.)
 - **actuator** is at parity through the shared `actuation` envelope (8.26.0 → 8.31.0, B0): the
   `control_device` path builds a canonical `ActuatorRequest` (now carrying the
   expected end-state) and the verify step produces the matching `ActuatorOutcome`
