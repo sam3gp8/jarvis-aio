@@ -4483,6 +4483,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             </button>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Analyze HA motion (no NVR)</span>
+            <span class="toggle-desc">No Frigate/Nest? A Home Assistant motion/occupancy sensor firing silently analyzes the camera covering that room — so best-effort face recognition &amp; scene learning work on plain cameras. Throttled per camera; no spoken alerts.</span>
+            <button class="toggle-btn ${(d.config?.camera_motion_vision) ? 'on' : 'off'}"
+              data-cfg-key="camera_motion_vision"
+              data-cfg-val="${(d.config?.camera_motion_vision) ? 'false' : 'true'}">
+              ${(d.config?.camera_motion_vision) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Camera alerts</span>
             <span class="toggle-desc">When auto reviews speak aloud. Everything is still analyzed &amp; logged — this only gates what's announced. Intrusion alerts are always spoken.</span>
             <select class="cfg-field" data-cfg-key="camera_alert_level">${this._optsLabeled([['off','Off — observe only'],['urgent','Urgent only (default)'],['important','Important — + deliveries'],['all','Everything notable']], d.config?.camera_alert_level || 'urgent')}</select>

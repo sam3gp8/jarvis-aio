@@ -349,6 +349,91 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS: auto-analyze listener registration failed: %s", exc)
 
+    # ── Generic HA motion → camera vision (opt-in, default off) ──────────────
+    # Nest/Frigate are the only built-in triggers above, so a user on plain HA
+    # cameras + a local vision model (no NVR) never gets a scene analysed on
+    # ordinary motion — which also starves best-effort face recognition (#140),
+    # since that rides on top of the vision analysis. This maps a motion/occupancy
+    # sensor firing to the camera covering its area and runs a SILENT analysis
+    # (no spoken alert; it only feeds scene learning + the recognition hook).
+    # Default OFF, throttled per-camera, so it never spams the vision model or
+    # adds announcements unless the user turns it on.
+    _motion_vision_cd: dict[str, float] = {}
+    MOTION_VISION_DEBOUNCE = 120.0
+    _MOTION_CLASSES = ("motion", "occupancy", "presence", "moving")
+
+    def _camera_covering_area(area_id: str) -> str | None:
+        """A camera entity in the given HA area (direct area assignment first,
+        then the saved floor-plan coverage). None if nothing covers it."""
+        if not area_id:
+            return None
+        try:
+            from .audio_routing import entity_area
+            for st in hass.states.async_all("camera"):
+                if entity_area(hass, st.entity_id) == area_id:
+                    return st.entity_id
+        except Exception:
+            pass
+        try:
+            from .camera_coverage import camera_for_area
+            from homeassistant.helpers import area_registry as _ar
+            area = _ar.async_get(hass).async_get_area(area_id)
+            if area and area.name:
+                return camera_for_area(hass, area.name)
+        except Exception:
+            pass
+        return None
+
+    @callback
+    def _auto_ha_motion(event) -> None:
+        if not _auto_flag("camera_motion_vision", False):
+            return
+        try:
+            data = event.data
+            new = data.get("new_state")
+            old = data.get("old_state")
+            if new is None or str(new.state).lower() != "on":
+                return
+            if old is not None and str(old.state).lower() == "on":
+                return  # only the off→on edge
+            if new.attributes.get("device_class") not in _MOTION_CLASSES:
+                return
+            from .audio_routing import entity_area
+            area_id = entity_area(hass, new.entity_id)
+            if not area_id:
+                return
+            cam = _camera_covering_area(area_id)
+            if not cam or not hass.states.get(cam):
+                return
+            now = _auto_time.monotonic()
+            if now - _motion_vision_cd.get(cam, float("-inf")) < MOTION_VISION_DEBOUNCE:
+                return
+            _motion_vision_cd[cam] = now
+            honorific = entry.options.get(CONF_HONORIFIC, entry.data.get(CONF_HONORIFIC, DEFAULT_HONORIFIC))
+            hass.async_create_task(
+                async_auto_analyze_on_event(
+                    hass, _current_client(), honorific, None, [], cam,
+                    "Motion detected", doorbell=False, announce=False,
+                )
+            )
+        except Exception as exc:
+            _LOGGER.debug("JARVIS auto-analyze (HA motion) error: %s", exc)
+
+    try:
+        from homeassistant.helpers.event import async_track_state_change_event
+        _motion_ids = [
+            st.entity_id for st in hass.states.async_all("binary_sensor")
+            if st.attributes.get("device_class") in _MOTION_CLASSES
+        ]
+        if _motion_ids:
+            camera_unsubs.append(
+                async_track_state_change_event(hass, _motion_ids, _auto_ha_motion)
+            )
+            _LOGGER.info("JARVIS: generic-motion camera vision available (opt-in) "
+                         "watching %d motion/occupancy sensors", len(_motion_ids))
+    except Exception as exc:
+        _LOGGER.debug("JARVIS: HA-motion vision listener registration failed: %s", exc)
+
     # ── Package & mail detection — periodic porch check ─────────────────────
     # Deliveries often don't ring the bell (carrier drops and leaves), so a low-
     # frequency vision sweep of the doorbell/porch camera catches them. Per-camera

@@ -538,6 +538,8 @@ setTimeout(async () => {
     ["camera auto-analyze motion toggle present + wired",
       !!el.shadowRoot.querySelector('button[data-cfg-key="camera_auto_analyze"][data-cfg-val]') &&
       !!el.shadowRoot.querySelector('button[data-cfg-key="camera_auto_analyze_motion"][data-cfg-val]')],
+    ["generic HA-motion vision toggle present + wired (#140)",
+      !!el.shadowRoot.querySelector('button[data-cfg-key="camera_motion_vision"][data-cfg-val]')],
     ["camera alert-level select present + wired",
       !!el.shadowRoot.querySelector('select[data-cfg-key="camera_alert_level"]')],
     ["name input placeholder is the HA name",

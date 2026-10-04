@@ -757,6 +757,7 @@ async def ws_get_panel_data(
                 "host_telemetry": bool(_runtime_opt(hass, entry, "host_telemetry", True)),
                 "camera_auto_analyze": bool(_runtime_opt(hass, entry, "camera_auto_analyze", True)),
                 "camera_auto_analyze_motion": bool(_runtime_opt(hass, entry, "camera_auto_analyze_motion", False)),
+                "camera_motion_vision": bool(_runtime_opt(hass, entry, "camera_motion_vision", False)),
                 "camera_important_only": bool(_runtime_opt(hass, entry, "camera_important_only", True)),
                 "camera_alert_level": (
                     str(_runtime_opt(hass, entry, "camera_alert_level", "") or "")
@@ -1510,6 +1511,7 @@ PANEL_WRITABLE_KEYS = {
     "appliance_announce_unknown",   # bool: announce loads matching no declared appliance
     "camera_auto_analyze",          # bool: auto-inspect doorbell/person camera events
     "camera_auto_analyze_motion",   # bool: also auto-inspect motion events (noisier)
+    "camera_motion_vision",         # bool: generic HA motion sensor → silent camera vision (#140)
     "camera_important_only",         # bool: (legacy) auto reviews announce only important events
     "camera_alert_level",            # str: off|urgent|important|all — severity threshold for auto camera announcements
     "package_detection",            # bool: watch porch cameras for packages & mail
