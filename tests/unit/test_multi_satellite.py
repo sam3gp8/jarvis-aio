@@ -27,6 +27,15 @@ def _wire(cc, monkeypatch, *, enabled, area_of, occupied_areas, sats_by_area,
     )
     monkeypatch.setitem(sys.modules, f"{pkg}.jarvis_config", jc)
     monkeypatch.setitem(sys.modules, f"{pkg}.audio_routing", ar)
+    # `from . import audio_routing` resolves via the package attribute, which is
+    # bound the first time the submodule is imported anywhere — so patching only
+    # sys.modules works solely while nothing has imported these yet. Patch the
+    # package attributes too, so the wiring holds regardless of import order
+    # (e.g. once another module has pulled in audio_routing via WorldModel).
+    pkg_mod = sys.modules.get(pkg)
+    if pkg_mod is not None:
+        monkeypatch.setattr(pkg_mod, "jarvis_config", jc, raising=False)
+        monkeypatch.setattr(pkg_mod, "audio_routing", ar, raising=False)
 
 
 def test_disabled_always_returns_original(cc, monkeypatch):

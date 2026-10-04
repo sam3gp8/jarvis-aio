@@ -37,21 +37,21 @@ import sys
 # "owners" are the live modules (basename, no .py) expected to reference it once
 # the stage is > pure. The check fails if a non-pure primitive has no live ref.
 _DECLARED: dict[str, dict] = {
-    "event":        {"stage": "parity",  "owners": ["agent", "camera", "observer", "proactive_audio"]},
+    "event":        {"stage": "parity",  "owners": ["actuation", "camera", "observer", "proactive_audio"]},
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},
-    "correlation":  {"stage": "shadow",  "owners": ["decision_record", "observer", "proactive_audio"]},
+    "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     "event_bus":    {"stage": "shadow",  "owners": ["__init__"]},
     "ledger":       {"stage": "shadow",  "owners": ["__init__"]},
     # world_model: control_device reads its pre-action context snapshot through
     # the facade and uses the result (area, previous_state) — 8.30.0, MCU Phase A.
-    "world_model":  {"stage": "parity",  "owners": ["agent"]},
+    "world_model":  {"stage": "parity",  "owners": ["actuation"]},
     "situation":    {"stage": "parity",  "owners": ["intrusion"]},
     "authority":    {"stage": "parity",  "owners": ["authority_bridge"]},
     # control_device expresses each actuation as a one-step Plan in shadow
     # (logs it) — 8.33.0, MCU Phase A.
-    "plan":         {"stage": "shadow",  "owners": ["agent"]},
+    "plan":         {"stage": "shadow",  "owners": ["actuation"]},
     "beliefs":      {"stage": "pure",    "owners": []},
     "attention":    {"stage": "pure",    "owners": []},
     "router":       {"stage": "pure",    "owners": []},
@@ -62,7 +62,7 @@ _DECLARED: dict[str, dict] = {
     "budget":       {"stage": "pure",    "owners": []},
     # control_device builds an ActuatorRequest (with expected_outcome) and the
     # verify step produces the canonical ActuatorOutcome — 8.31.0, MCU Phase A.
-    "actuator":     {"stage": "parity",  "owners": ["agent"]},
+    "actuator":     {"stage": "parity",  "owners": ["actuation", "agent"]},
 }
 
 _STAGE_ICON = {"pure": "·", "shadow": "◐", "parity": "◑", "enforce": "●"}

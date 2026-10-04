@@ -1,3 +1,13 @@
+## [8.36.0] — MCU Phase B (B0): the shared actuation envelope
+
+Phase B is *"migrate every actuator onto the golden path."* Phase A's kernel wiring lived inline in `control_device`; copying it into every other actuator would be a maintenance trap. So Phase B starts by **extracting it into one reusable envelope** — the template every other path will adopt.
+
+- **New `custom_components/jarvis/actuation.py`** — the golden-path wiring as pure, best-effort glue over the kernel primitives: `context()` (WorldModel pre-action snapshot), `request()` (canonical `ActuatorRequest` with expected end-state), `plan_shadow()` (one-step `kernel.plan.Plan`), `emit_event()` (actuation `JarvisEvent` on the bus), and `outcome()` (`ActuatorOutcome`). Every function degrades to a null result and never raises into a caller's path, so wiring a path onto the envelope can't break it. Authority stays **log-only** — the envelope describes and records an actuation; it does not perform or gate the service call.
+- **`control_device` refactored onto the envelope** with **no behaviour change**. Its context read, request build, plan-shadow, event emission and outcome recording now call `actuation.*`; the verify-after-act loop is unchanged.
+- **Coverage unchanged at 7.1%** (this is a refactor, not new wiring). The `control_device` cells keep their stages; their evidence now points at the `actuation.*` call sites. `kernel_adoption` shows `actuation` as the live caller for `world_model`/`plan`/`event`/`actuator`/`correlation` (was `agent`).
+
+7 new tests for the envelope directly + the existing control_device suite re-pointed at it; all green. This unblocks B1–B4 (each remaining actuator becomes a small adoption). Refactor/feature → middle-digit bump **8.35.0 → 8.36.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.35.0] — Faces: best-effort LLM resident recognition (#140 Phase 3, opt-in)
 
 For households with **no dedicated face backend** (Frigate/DoubleTake/CompreFace) — only JARVIS's own local vision model — Phase 1's resident whitelist had nothing feeding it names, so the Faces tab stayed empty. This adds an **opt-in, best-effort** path: JARVIS asks its vision model whether a camera frame matches an enrolled resident reference photo.
