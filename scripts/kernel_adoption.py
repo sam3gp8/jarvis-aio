@@ -83,7 +83,9 @@ _DECLARED: dict[str, dict] = {
     # kernel loop detector and agency budget in shadow, logging thrash/budget
     # verdicts without acting on them (E4). Enforcing is owner-gated.
     "loop_detect":  {"stage": "shadow",  "owners": ["actuation"]},
-    "journal":      {"stage": "pure",    "owners": []},
+    # journal: goals records each goal's shadow Plan into the execution journal
+    # (F2), making the goal->plan->step chain durably reconstructable — shadow.
+    "journal":      {"stage": "shadow",  "owners": ["goals"]},
     "budget":       {"stage": "shadow",  "owners": ["actuation"]},
     # control_device builds an ActuatorRequest (with expected_outcome) and the
     # verify step produces the canonical ActuatorOutcome — 8.31.0, MCU Phase A.

@@ -142,12 +142,27 @@ def create(title: str, outcome: str, steps: Optional[list] = None, *,
         return {"error": str(exc)}
 
 
+_journal = None   # lazily-built kernel.journal.ExecutionJournal (F2)
+
+
+def _get_journal():
+    global _journal
+    if _journal is None:
+        from .kernel.journal import ExecutionJournal
+        _journal = ExecutionJournal(config_path_str("jarvis", "journal.db"))
+    return _journal
+
+
 def _shadow_plan(title: str, outcome: str, norm_steps: list) -> None:
-    """MCU Phase F (F1): express a goal's ordered steps as a kernel ``Plan`` in
-    SHADOW — build the Plan alongside the goal and log it, but never execute or
-    consult it. The goal store stays authoritative; this is the structural bridge
-    from the goal planner to the kernel plan primitive (a goal is a plan pursued
-    across time). Best-effort, log-only; never affects goal creation."""
+    """MCU Phase F (F1 + F2): express a goal's ordered steps as a kernel ``Plan``
+    in SHADOW and durably journal it.
+
+    F1 builds the Plan alongside the goal (a goal is a plan pursued across time).
+    F2 records that Plan into the kernel execution journal (``record_plan``) so
+    the goal → plan → step chain is durably reconstructable — the foundation for
+    agency recovery after a restart. Both are SHADOW / log-only: the Plan is never
+    executed or consulted and the journal is never replayed in the live flow; the
+    goal store stays authoritative. Best-effort — never affects goal creation."""
     try:
         from .kernel import plan as P
         steps = tuple(
@@ -158,6 +173,11 @@ def _shadow_plan(title: str, outcome: str, norm_steps: list) -> None:
         plan = P.Plan(goal=(title or outcome), steps=steps)
         _LOGGER.debug("goal shadow plan: %s with %d step(s) [%s]",
                       plan.goal, len(plan.steps), plan.id)
+        if plan.steps:
+            try:
+                _get_journal().record_plan(plan)   # F2: durable goal→plan→step record
+            except Exception:   # pragma: no cover - defensive
+                pass
     except Exception:   # pragma: no cover - defensive
         pass
 
