@@ -47,11 +47,11 @@ holds on the live home system.
 | `ledger` | ◐ shadow | `__init__` |
 | `loop_detect` | · pure | — |
 | `persistence` | · pure | — |
-| `plan` | ◐ shadow | `actuation` |
+| `plan` | ◑ parity | `actuation`, `agent` |
 | `priority` | · pure | — |
 | `router` | · pure | — |
 | `situation` | ◑ parity | `intrusion` |
-| `world_model` | ◑ parity | `actuation` |
+| `world_model` | ◑ parity | `actuation`, `cognitive_core` |
 <!-- END kernel-adoption -->
 
 ## Notes on specific primitives
@@ -59,11 +59,15 @@ holds on the live home system.
 - **persistence** is an internal seam (connection + migrations) consumed by other
   kernel modules such as `ledger`, not by live callers directly — "pure" here
   means "no legacy bypass to retire", not "unused".
-- **world_model** is at parity through `actuation` (8.30.0, MCU Phase A/B): the
+- **world_model** is at parity through `actuation` and `cognitive_core` (MCU
+  Phase A/B/C): the
   `control_device` path reads its pre-action context snapshot through the facade
   — the canonical context authority — and uses the result (area, previous_state),
   falling back to raw HA state. Parity, not enforce: the facade informs the path
-  but the raw sources stay authoritative underneath.
+  but the raw sources stay authoritative underneath. C1 (Phase C) routes
+  cognition's presence context (`anyone_home`) through the facade too,
+  reading the same person entities — behaviour-identical, context via the
+  authority.
 - **actuator** is at parity through the shared `actuation` envelope (8.26.0 → 8.31.0, B0): the
   `control_device` path builds a canonical `ActuatorRequest` (now carrying the
   expected end-state) and the verify step produces the matching `ActuatorOutcome`

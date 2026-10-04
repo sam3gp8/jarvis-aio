@@ -121,3 +121,17 @@ def test_last_seen_delegates(wm_mod, hass, monkeypatch):
                         lambda term: {"term": term, "camera": "porch", "ts": 123.0})
     out = wm_mod.WorldModel(hass).last_seen("keys")
     assert out["camera"] == "porch" and out["term"] == "keys"
+
+
+def test_person_home_detection_parity(wm_mod, hass):
+    """MCU Phase C (C1): cognitive_core reads 'anyone home' via
+    WorldModel.devices('person'); it must match the raw person states."""
+    hass.states.set("person.sam", "home")
+    hass.states.set("person.alex", "not_home")
+    wm = wm_mod.WorldModel(hass)
+    people = wm.devices(domain="person")
+    assert {d["entity_id"] for d in people} == {"person.sam", "person.alex"}
+    assert any(d["state"] == "home" for d in people) is True
+    # raw-source parity
+    raw_home = any(s.state == "home" for s in hass.states.async_all("person"))
+    assert any(d["state"] == "home" for d in people) == raw_home

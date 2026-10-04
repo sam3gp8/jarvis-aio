@@ -2480,10 +2480,19 @@ async def _tick():
     _CORE.tick_count += 1
     _CORE.last_tick = time.time()
 
-    # Determine home state
-    anyone_home = any(
-        s.state == "home" for s in hass.states.async_all("person")
-    )
+    # Determine home state (MCU Phase C, C1): read through the kernel WorldModel
+    # facade — the canonical context authority — instead of a bare states sweep.
+    # WorldModel.devices("person") reads the same person entities, so this is
+    # behaviour-identical; it just routes cognition's presence context through
+    # the facade. Best-effort: falls back to the raw sweep if the facade yields
+    # nothing. (The intrusion-safety away-check is migrated separately in C2.)
+    from .kernel.world_model import WorldModel
+    _people = WorldModel(hass).devices(domain="person")
+    if _people:
+        anyone_home = any(d["state"] == "home" for d in _people)
+    else:
+        anyone_home = any(
+            s.state == "home" for s in hass.states.async_all("person"))
 
     from . import sleep_detection
     bedroom_areas = config.get("bedroom_areas", []) or []
