@@ -66,8 +66,17 @@ _PATHS: dict[str, dict] = {
             "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
         },
     },
-    # Uses only the legacy policy confirmation gate — no kernel contract yet.
-    "bulk_control": {"module": "agent.py", "contracts": {}},
+    # Recorded as one explicit N-step kernel Plan (shadow) and each executed
+    # target routed through the actuation envelope (B3): WorldModel context +
+    # actuation event. Fire-and-forget, so no per-device verify/outcome.
+    "bulk_control": {
+        "module": "agent.py",
+        "contracts": {
+            "world_model": {"stage": "parity", "evidence": "actuation.context"},
+            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            "plan": {"stage": "shadow", "evidence": "bulk_plan"},
+        },
+    },
     # Each step's execution routes through the kernel planner
     # (aexecute_plan) and publishes an actuation event (B4). Full plan
     # ownership of execution; steps are arbitrary services, so no single

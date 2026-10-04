@@ -1,3 +1,14 @@
+## [8.41.0] — MCU Phase B (B3): bulk_control as an explicit plan
+
+The audit flagged `bulk_control` as higher-risk than a single action — *"turn everything off" should produce a plan with explicit targets, not let a bulk helper become a privileged shortcut.* This migrates it onto the kernel contract.
+
+- **The batch is now recorded as one explicit N-step kernel `Plan`** (shadow) — one `Step` per resolved target, with the goal and target count — so a bulk operation is an inspectable plan, not an opaque loop.
+- **Each executed target routes through the shared `actuation` envelope**: WorldModel context (surfacing its area), a canonical `ActuatorRequest`, and a canonical actuation `JarvisEvent` on the bus.
+- **Behaviour preserved**: same target resolution (by area+domain or all-in-domain), the same action filter (don't turn off already-off, don't lock already-locked), **fire-and-forget** (`blocking=False`), the same **protected-device skip** (protected devices are still not run in bulk), and the same `count/total/blocked` result JSON. Because it's fire-and-forget, there is no per-device verify/outcome. Authority stays **log-only**.
+- **Honest coverage: 13.3% → 15.7%.** `bulk_control` rises from all-`·` to `world_model ◑`, `event ◑`, `plan ◐`.
+
+3 new tests (bulk turn_on publishes an event per target; turn_off filters already-off devices; protected devices are skipped with no event). Kernel wiring → middle-digit bump **8.40.0 → 8.41.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.40.0] — MCU Phase B (B4): execute_plan on the kernel planner
 
 The audit noted the project had a real `kernel.plan` the live agent's `execute_plan` never used — "a reference implementation, not the runtime planning authority." This migrates it: **every step of a multi-step plan now executes *through* the kernel planner** (`kernel.plan.aexecute_plan`, the async driver from B-async).
