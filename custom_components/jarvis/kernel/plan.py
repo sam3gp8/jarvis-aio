@@ -160,3 +160,85 @@ def _run_and_verify(step: Step, run_step: RunStep, check: Check,
         if _all_hold(check, step, step.postconditions):
             return DONE, "" if attempt == 1 else f"verified after {attempt} attempts"
     return VERIFY_FAILED, f"postconditions unmet after {attempts} attempt(s)"
+
+
+# ── async sibling (MCU Phase B / B-async) ────────────────────────────────────
+# Real HA actuators ``await`` their service calls, but ``execute_plan`` is
+# synchronous, so a path could not route an awaited action *through* the plan
+# contract. ``aexecute_plan`` mirrors ``execute_plan`` exactly — same stages,
+# statuses and semantics — with **awaitable** ``run_step`` / ``check`` callables.
+# Still pure: no Home Assistant import and no I/O of its own; the side effects
+# are the injected awaitables, so it stays deterministic and unit-testable.
+
+ARunStep = Callable[[Step], Any]        # returns an awaitable → truthy on success
+ACheck = Callable[[Any, Step], Any]      # returns an awaitable → bool
+
+
+async def _aalways_true(_condition: Any, _step: Step) -> bool:
+    return True
+
+
+async def aexecute_plan(
+    plan: Plan,
+    *,
+    run_step: ARunStep,
+    check: Optional[ACheck] = None,
+    completed: Optional[Set[str]] = None,
+    verify_retries: int = 1,
+) -> PlanReport:
+    """Async form of :func:`execute_plan`: ``run_step`` and ``check`` are awaited.
+
+    Same contract — skip already-done steps (by idempotency key), gate on
+    preconditions, act, then verify postconditions (retrying the action
+    ``verify_retries`` times), stopping at the first BLOCKED / FAILED /
+    VERIFY_FAILED. ``completed`` is consulted and updated in place.
+    """
+    check = check or _aalways_true
+    done_keys: Set[str] = completed if completed is not None else set()
+    outcomes: List[StepOutcome] = []
+    ok = True
+
+    for step in plan.steps:
+        if step.idempotency_key and step.idempotency_key in done_keys:
+            outcomes.append(StepOutcome(step.id, step.action, SKIPPED,
+                                        "idempotency_key already completed"))
+            continue
+        if not await _aall_hold(check, step, step.preconditions):
+            outcomes.append(StepOutcome(step.id, step.action, BLOCKED,
+                                        "precondition not met"))
+            ok = False
+            break
+        status, detail = await _arun_and_verify(step, run_step, check, verify_retries)
+        outcomes.append(StepOutcome(step.id, step.action, status, detail))
+        if status != DONE:
+            ok = False
+            break
+        if step.idempotency_key:
+            done_keys.add(step.idempotency_key)
+
+    return PlanReport(plan_id=plan.id, ok=ok, outcomes=tuple(outcomes))
+
+
+async def _aall_hold(check: ACheck, step: Step, conditions: Sequence[Any]) -> bool:
+    for cond in conditions:
+        try:
+            if not await check(cond, step):
+                return False
+        except Exception as exc:
+            _LOGGER.debug("plan: async condition check raised (treated as unmet): %s", exc)
+            return False
+    return True
+
+
+async def _arun_and_verify(step: Step, run_step: ARunStep, check: ACheck,
+                           verify_retries: int) -> Tuple[str, str]:
+    attempts = max(1, verify_retries + 1)
+    for attempt in range(1, attempts + 1):
+        try:
+            if not await run_step(step):
+                return FAILED, f"action returned falsy (attempt {attempt})"
+        except Exception as exc:
+            return FAILED, f"action raised: {exc}"
+        if await _aall_hold(check, step, step.postconditions):
+            return DONE, "" if attempt == 1 else f"verified after {attempt} attempts"
+    return VERIFY_FAILED, f"postconditions unmet after {attempts} attempt(s)"
