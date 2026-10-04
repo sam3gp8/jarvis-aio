@@ -1,3 +1,36 @@
+## [8.65.0] — MCU Phase G (G4): authority ENFORCE — the kernel capability engine gates actuation
+
+The authority flip. The kernel capability engine is now authoritative over the
+live confirm-gate for an allowlisted set of security capabilities — built so it
+can only ever *tighten* the gate, never loosen it.
+
+- **Max-restriction belt.** For an allowlisted capability the action proceeds only
+  if the legacy `confirm_gate` allows it **AND** the kernel engine returns
+  `ALLOW`. So the engine can only turn an otherwise-allowed action into one *held
+  for confirmation* — it can never remove the legacy gate or let through something
+  the gate would hold. `kernel_adoption` moves `authority` `◑` parity → `●` enforce.
+- **Bounded blast radius.** Enforcement applies only to
+  `authority_bridge.AUTHORITY_ENFORCE_CAPABILITIES` — seeded with exactly the
+  security capabilities `policy.confirm_gate` already protects (`lock.unlock`,
+  `lock.open`, `cover.open_cover`/`open`, `alarm_control_panel.alarm_disarm`/
+  `arm_away`/`arm_home`/`arm_night`), where an extra confirmation is the safe
+  direction. Every other capability stays pure log-only parity.
+- **Fail-safe + kill-switch.** A kernel fault (no engine decision) leaves the
+  legacy outcome unchanged — an engine error can never block a legitimate action.
+  Flip `authority_bridge.AUTHORITY_ENFORCE` to `False` to revert to pure parity on
+  the next load. Applied at both protected actuation paths (`control_device` and
+  the bulk/plan step gate); safety-critical autonomous responses (nighttime
+  lockdown, intrusion securing) call `hass.services` directly and never route
+  through the gate, so they are unaffected.
+- **Coverage unchanged (17.9%).** `authority` is not a behaviour-spine contract.
+
+11 new tests: the belt proceeds on engine ALLOW, gates on CONFIRM/DENY, never
+loosens a legacy denial, ignores non-allowlisted capabilities, reverts with the
+kill-switch off, fails safe to legacy on a kernel fault, and logs when it tightens;
+plus end-to-end against the real engine (an unlock with no identity is held; a
+safe light action is untouched). Full suite green; audit + adoption + coverage
+gates clean. Authority enforce flip → **8.64.0 → 8.65.0**.
+
 ## [8.64.0] — MCU Phase R (R3a): intrusion entry-gate decision-parity
 
 Step (a) of the intrusion re-architecture — the highest-risk, most carefully

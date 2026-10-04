@@ -1225,16 +1225,16 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
             from . import policy
             ok, note = await policy.confirm_gate(
                 hass, svc_domain, svc_name, entity_id, action.replace("_", " "))
-            # Authority engine, LOG-ONLY parity (kernel hardening H1): record
-            # whether the Phase 4 engine's decision agrees with this live gate,
-            # to validate before enforcement is ever flipped on. Never blocks.
+            # Authority engine ENFORCE (MCU Phase G/G4): for an allowlisted
+            # security capability the kernel engine decision is now authoritative
+            # via a MAX-RESTRICTION belt — it can only *tighten* this gate (hold an
+            # otherwise-allowed action for confirmation), never loosen it, and it
+            # fails safe to the legacy outcome on any engine fault. For every other
+            # capability (or with the kill-switch off) this is pure log-only parity.
             try:
                 from . import authority_bridge
-                # Feed the engine the richer request it will decide on once
-                # enforced (MCU audit A4): why (intent) and what (scope). Still
-                # log-only — parity never changes the gate's outcome.
-                authority_bridge.record_control_parity(
-                    hass, svc_domain, svc_name, allowed=ok,
+                ok, _authz = authority_bridge.enforced_decision(
+                    hass, svc_domain, svc_name, legacy_ok=ok,
                     intent=action.replace("_", " "), scope=entity_id)
             except Exception:
                 pass
@@ -1735,6 +1735,17 @@ async def _exec_execute_plan(hass: HomeAssistant, args: dict) -> str:
         from . import policy
         ok_gate, gate_note = await policy.confirm_gate(
             hass, domain, service, entity_id, service.replace("_", " "))
+        # Authority engine ENFORCE (MCU Phase G/G4): same max-restriction belt as
+        # the control_device path — an allowlisted security capability may be held
+        # for confirmation by the kernel engine, never loosened, fail-safe to the
+        # legacy outcome. Pure parity for everything else / kill-switch off.
+        try:
+            from . import authority_bridge
+            ok_gate, _authz = authority_bridge.enforced_decision(
+                hass, domain, service, legacy_ok=ok_gate,
+                intent=service.replace("_", " "), scope=entity_id)
+        except Exception:
+            pass
         if not ok_gate:
             results.append({"step": i + 1, "description": desc,
                             "ok": False, "error": gate_note or "confirmation required"})

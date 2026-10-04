@@ -67,7 +67,13 @@ _DECLARED: dict[str, dict] = {
     # is R2 and R3) — see KERNEL_ADOPTION note. Fail-safe + kill-switch.
     "situation":    {"stage": "enforce", "owners": ["intrusion", "hazard_situation",
                                                      "delivery_situation"]},
-    "authority":    {"stage": "parity",  "owners": ["authority_bridge"]},
+    # authority: ENFORCE (G4, owner-approved). authority_bridge.enforced_decision
+    # makes the kernel capability engine authoritative over the live confirm-gate
+    # for an allowlisted set of security capabilities, via a MAX-RESTRICTION belt
+    # (can only add a confirmation, never remove a gate), fail-safe to legacy on a
+    # kernel fault, with a kill-switch. Authoritative on >=1 live path (the agent
+    # control + bulk/plan gates).
+    "authority":    {"stage": "enforce", "owners": ["authority_bridge"]},
     # control_device expresses each actuation as a one-step Plan in shadow
     # (actuation.plan_shadow); execute_plan routes each step's execution THROUGH
     # the planner (agent, aexecute_plan) — B4, so parity, not shadow.

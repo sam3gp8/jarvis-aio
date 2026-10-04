@@ -20,6 +20,32 @@ _LOGGER = logging.getLogger(__name__)
 
 _PARITY_KEY = "_authority_parity"
 
+# ── authority ENFORCE (MCU Phase G/G4) ──────────────────────────────────────────
+# Owner-approved flip of the kernel capability engine from parity to enforce, built
+# with a MAX-RESTRICTION belt: for an allowlisted capability the action proceeds
+# only if the legacy confirm-gate allows it AND the kernel engine returns ALLOW.
+# This can only ever ADD a confirmation (when the engine is stricter than the
+# gate); it can NEVER remove the legacy gate or let through something the gate
+# would hold. FAIL-SAFE: on any engine error the legacy outcome stands unchanged
+# (a kernel fault can never block a legitimate action). KILL-SWITCH: flip
+# AUTHORITY_ENFORCE to False to revert to pure parity (log-only) on the next load.
+AUTHORITY_ENFORCE = True
+
+# Per-capability allowlist — enforcement applies ONLY to these, so the blast
+# radius is bounded. Seeded with exactly the security-relevant capabilities the
+# live policy.confirm_gate already protects (policy._CRITICAL/_HIGH/_MEDIUM), where
+# an extra confirmation is the safe direction. Widen deliberately, never blindly.
+AUTHORITY_ENFORCE_CAPABILITIES = frozenset({
+    "alarm_control_panel.alarm_disarm",
+    "lock.unlock",
+    "lock.open",
+    "cover.open_cover",
+    "cover.open",
+    "alarm_control_panel.alarm_arm_away",
+    "alarm_control_panel.alarm_arm_home",
+    "alarm_control_panel.alarm_arm_night",
+})
+
 
 def _parity(hass):
     from .kernel import AuthorityParity
@@ -65,6 +91,43 @@ def record_control_parity(hass, domain: str, service: str, *, allowed: bool,
     except Exception as exc:  # never affect the actuator path
         _LOGGER.debug("authority parity record failed: %s", exc)
         return None
+
+
+def enforced_decision(hass, domain: str, service: str, *, legacy_ok: bool,
+                      identity=None, confidence: float = 1.0, situation=None,
+                      scope=None, intent=None, token=None, context=None):
+    """MCU Phase G/G4 — authority ENFORCE with a max-restriction belt.
+
+    Records the engine-vs-gate parity (as ``record_control_parity`` does) and,
+    when enforcement is on and ``domain.service`` is allowlisted, returns the
+    effective outcome: ``legacy_ok AND engine == ALLOW``. So the engine can only
+    *tighten* the gate (turn an allow into a held-for-confirmation), never loosen
+    it. Returns ``(effective_ok, decision)``.
+
+    FAIL-SAFE: a kernel fault (decision is None) leaves ``legacy_ok`` unchanged —
+    an engine error can never block a legitimate action. KILL-SWITCH / allowlist:
+    outside enforcement the legacy outcome is returned verbatim (pure parity)."""
+    decision = record_control_parity(
+        hass, domain, service, allowed=legacy_ok, identity=identity,
+        confidence=confidence, situation=situation, scope=scope, intent=intent,
+        token=token, context=context)
+    cap = f"{domain}.{service}"
+    if not AUTHORITY_ENFORCE or cap not in AUTHORITY_ENFORCE_CAPABILITIES:
+        return legacy_ok, decision
+    if decision is None:
+        return legacy_ok, decision          # fail-safe: never block on a fault
+    try:
+        from .kernel import authority as A
+        engine_allows = (decision.decision == A.ALLOW)
+    except Exception:   # pragma: no cover - defensive, fail-safe
+        return legacy_ok, decision
+    effective_ok = bool(legacy_ok) and engine_allows
+    if legacy_ok and not effective_ok:
+        _LOGGER.warning(
+            "authority ENFORCE: %s held for confirmation by the kernel engine "
+            "(decision=%s, reason=%s) — the legacy gate would have allowed it",
+            cap, decision.decision, getattr(decision, "reason", ""))
+    return effective_ok, decision
 
 
 def parity_summary(hass) -> dict:

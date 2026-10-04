@@ -54,7 +54,7 @@ explicit per-flip owner go/no-go.
 | --- | --- | --- |
 | `actuator` | ◑ parity | `actuation`, `agent` |
 | `attention` | ◐ shadow | `output_gate` |
-| `authority` | ◑ parity | `authority_bridge` |
+| `authority` | ● enforce | `authority_bridge` |
 | `beliefs` | ◐ shadow | `agent` |
 | `budget` | ● enforce | `actuation` |
 | `causal` | · pure | — |
@@ -119,10 +119,19 @@ explicit per-flip owner go/no-go.
   `JarvisEvent` (`from_actuation`) on the bus, which the ledger records — so the
   actuation enters the event stream alongside perception. Parity, not enforce:
   the event is emitted and recorded, but no cognitive consumer reacts to it yet.
-- **authority** is at parity through `authority_bridge` (log-only): every control
-  action records what the capability engine *would* have decided against what the
-  legacy confirm-gate actually did. Flipping it to `enforce` on the live system is
-  owner-gated and must not happen without explicit approval.
+- **authority** is at **enforce** through `authority_bridge` (MCU Phase G/G4,
+  owner-approved). Every control action still records engine-vs-gate parity, and
+  now — for an allowlisted set of security capabilities
+  (`AUTHORITY_ENFORCE_CAPABILITIES`: unlock, latch-open, garage/cover open, alarm
+  disarm/arm) — `authority_bridge.enforced_decision` makes the engine
+  authoritative via a **max-restriction belt**: the action proceeds only if the
+  legacy gate allows it AND the engine returns ALLOW, so the engine can only
+  *tighten* the gate (hold an otherwise-allowed action for confirmation), never
+  loosen it. It **fails safe** to the legacy outcome on any engine fault, has a
+  one-line **kill-switch** (`AUTHORITY_ENFORCE`), and applies at both protected
+  actuation paths (`control_device` and the bulk/plan step gate). Safety-critical
+  autonomous responses (lockdown, intrusion securing) call `hass.services`
+  directly and never route through the gate, so they are unaffected.
 - **situation** is at parity through `intrusion`, `hazard_situation` and
   `delivery_situation` (D1–D3): each mirrors a live lifecycle (intrusion verdict,
   freeze warning→critical→cleared, package delivered→removed) into a kernel
