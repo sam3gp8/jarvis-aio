@@ -1,3 +1,14 @@
+## [8.56.0] — MCU Phase F (F2): agency recovery — goals journal their plan
+
+F2 makes the goal → plan → step chain **durably reconstructable** — the audit's point that JARVIS can act but can't pick up where it left off after a restart.
+
+- **When a goal is created, its shadow `Plan` (F1) is now recorded into the kernel execution journal** (`ExecutionJournal.record_plan`), which persists every step as PENDING through the `kernel.persistence` seam. After a restart, the chain is reconstructable from the journal.
+- **Shadow, log-only.** The journal is written but **never replayed in the live flow** — `recover()` is not invoked, nothing is re-run, the goal store stays authoritative, and goal creation is byte-for-byte unchanged. Best-effort: a journal failure never affects `goals.create`. `kernel_adoption` moves `journal` `·` pure → `◐` shadow (owner `goals`).
+- **`causal`, `priority` left honestly pure.** No live path consults them yet, and wiring one without a genuine consumer would be a hollow adoption — so they stay at pure rather than being inflated. `persistence` stays pure by design (internal seam).
+- **Coverage unchanged (17.9%).**
+
+4 new tests: a goal's shadow plan is recorded into the journal with the right steps; no-step goals journal nothing; a real-journal roundtrip reads the step chain back (PENDING); and goal creation still works with the journal wired. Phase F structural work (F1 + F2) is complete; F3 (closed learning loop) is a north-star item surfaced to the owner, not built. Phase F → middle-digit bump **8.55.0 → 8.56.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.55.0] — MCU Phase F (F1): goals expressed as kernel Plans
 
 F1 begins Phase F (agency). A goal is a plan pursued across time, so `goals` now expresses each goal's ordered steps as a kernel `Plan`.

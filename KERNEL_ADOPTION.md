@@ -49,7 +49,7 @@ reach enforce on its own; a decision primitive may not.
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
-| `journal` | · pure | — |
+| `journal` | ◐ shadow | `goals` |
 | `ledger` | ◐ shadow | `__init__` |
 | `loop_detect` | ◐ shadow | `actuation` |
 | `persistence` | · pure | — |
@@ -111,8 +111,16 @@ reach enforce on its own; a decision primitive may not.
   action records what the capability engine *would* have decided against what the
   legacy confirm-gate actually did. Flipping it to `enforce` on the live system is
   owner-gated and must not happen without explicit approval.
-- **priority** (emergency hierarchy) is a pure comparison primitive; `attention`,
-  `authority` and the planner will consult it as they reach parity.
+- **priority** (emergency hierarchy) and **causal** (causal inference) remain
+  **pure**: no live path consults them yet, and wiring one without a genuine
+  consumer would be a hollow adoption — left honest at pure until a real caller
+  needs them. **persistence** stays pure by design (an internal seam the other
+  kernel modules build on, not a live-adoption surface).
+- **journal** is at **shadow** through `goals` (MCU Phase F/F2): when a goal is
+  created, its shadow `Plan` (F1) is recorded into the kernel execution journal
+  (`record_plan`), so the goal → plan → step chain is durably reconstructable —
+  the foundation for agency recovery after a restart. Shadow: the journal is
+  written but never replayed in the live flow; the goal store stays authoritative.
 - **loop_detect** and **budget** are at **shadow** through `actuation` (MCU
   Phase E/E4): the actuation envelope feeds every actuation into the kernel loop
   detector (thrash: A → event → A, or flapping) and the agency budget (a
