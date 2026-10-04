@@ -1,3 +1,12 @@
+## [8.37.0] — MCU Phase B (B1): run_scene_or_script on the kernel contract
+
+First Phase B *adoption* — now that B0 extracted the shared `actuation` envelope, migrating a path is small. `run_scene_or_script` (activate a scene / script / automation) is the lowest-risk actuator, so it goes first.
+
+- **`run_scene_or_script` routes through the envelope**: WorldModel pre-action context (and surfaces the resolved `area` in the result), a canonical `ActuatorRequest`, a one-step shadow `Plan`, and a canonical actuation `JarvisEvent` on the bus. A scene/script/automation has **no single expected end-state**, so there is deliberately no verify-after-act / outcome here; this path has no confirm-gate, so no authority cell. **No behaviour change** to the activation itself — same service call (`scene`/`script` → `turn_on`, `automation` → `trigger`), same success/error, plus `area`.
+- **Honest coverage: 7.1% → 9.5%.** `run_scene_or_script` rises from all-`·` to `world_model ◑`, `event ◑`, `plan ◐`.
+
+4 new tests (scene activation publishes the actuation event with capability/area; script→turn_on; automation→trigger; an invalid target still errors without touching the envelope). Authority stays **log-only / owner-gated** — unchanged. Kernel wiring → middle-digit bump **8.36.0 → 8.37.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.36.0] — MCU Phase B (B0): the shared actuation envelope
 
 Phase B is *"migrate every actuator onto the golden path."* Phase A's kernel wiring lived inline in `control_device`; copying it into every other actuator would be a maintenance trap. So Phase B starts by **extracting it into one reusable envelope** — the template every other path will adopt.
