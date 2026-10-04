@@ -133,12 +133,33 @@ def create(title: str, outcome: str, steps: Optional[list] = None, *,
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (_iso(t), _iso(t), title, outcome, json.dumps(norm_steps),
                  _iso(t), interval, deadline))   # due immediately: first engagement
+            _shadow_plan(title, outcome, norm_steps)   # F1: mirror into kernel.plan
             return {"id": cur.lastrowid, "title": title, "outcome": outcome,
                     "steps": norm_steps, "next_check_ts": _iso(t),
                     "deadline_ts": deadline}
     except Exception as exc:
         _LOGGER.warning("goals.create failed: %s", exc)
         return {"error": str(exc)}
+
+
+def _shadow_plan(title: str, outcome: str, norm_steps: list) -> None:
+    """MCU Phase F (F1): express a goal's ordered steps as a kernel ``Plan`` in
+    SHADOW — build the Plan alongside the goal and log it, but never execute or
+    consult it. The goal store stays authoritative; this is the structural bridge
+    from the goal planner to the kernel plan primitive (a goal is a plan pursued
+    across time). Best-effort, log-only; never affects goal creation."""
+    try:
+        from .kernel import plan as P
+        steps = tuple(
+            P.Step(action=s.get("step", ""),
+                   params={"n": s.get("n"), "status": s.get("status", "pending")})
+            for s in (norm_steps or [])
+        )
+        plan = P.Plan(goal=(title or outcome), steps=steps)
+        _LOGGER.debug("goal shadow plan: %s with %d step(s) [%s]",
+                      plan.goal, len(plan.steps), plan.id)
+    except Exception:   # pragma: no cover - defensive
+        pass
 
 
 def get(goal_id: int, *, db_path: Optional[str] = None) -> Optional[dict]:
