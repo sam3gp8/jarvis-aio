@@ -21,6 +21,7 @@ def wired(intr, load, tmp_path, monkeypatch):
     mgr = S.SituationManager(str(tmp_path / "situations.db"))
     monkeypatch.setattr(intr, "_situation_mgr", mgr)
     monkeypatch.setattr(intr, "_situation_id", None)
+    monkeypatch.setattr(intr, "_last_parity", None)
     return S, mgr
 
 
@@ -102,3 +103,72 @@ def test_mirror_never_raises_on_bad_manager(intr, monkeypatch):
     monkeypatch.setattr(intr, "_situation_mgr", _Boom())
     monkeypatch.setattr(intr, "_situation_id", "sit_x")
     intr._mirror_situation_sync(FakeHass(), "confirmed")   # must not raise
+
+
+# ── D1: parity — the kernel situation is verified to agree with the verdict ─────
+
+def test_parity_agrees_across_the_lifecycle(intr, wired):
+    S, mgr = wired
+    h = FakeHass()
+    intr._mirror_situation_sync(h, "investigating", breach_area="garage")
+    assert intr._last_parity["action"] == "investigating"
+    assert intr._last_parity["actual_state"] == S.INVESTIGATING
+    assert intr._last_parity["agree"] is True
+
+    intr._mirror_situation_sync(h, "confirmed", reason="person on camera")
+    assert intr._last_parity["actual_state"] == S.CONFIRMED
+    assert intr._last_parity["agree"] is True
+
+    intr._mirror_situation_sync(h, "unresolved")
+    assert intr._last_parity["actual_state"] == S.RESOLVED
+    assert intr._last_parity["agree"] is True
+
+
+def test_parity_agrees_for_dismissed(intr, wired):
+    S, mgr = wired
+    h = FakeHass()
+    intr._mirror_situation_sync(h, "investigating", breach_area="garage")
+    intr._mirror_situation_sync(h, "dismissed", reason="just me")
+    assert intr._last_parity["action"] == "dismissed"
+    assert intr._last_parity["actual_state"] == S.RESOLVED
+    assert intr._last_parity["agree"] is True
+
+
+def test_parity_already_confirmed_investigating_still_agrees(intr, wired):
+    # A redundant 'investigating' verdict on an already-CONFIRMED episode is not a
+    # divergence — the kernel is further along, which satisfies the monotonic rank.
+    S, mgr = wired
+    h = FakeHass()
+    intr._mirror_situation_sync(h, "investigating", breach_area="garage")
+    intr._mirror_situation_sync(h, "confirmed")
+    intr._mirror_situation_sync(h, "investigating")   # redundant, late
+    assert intr._last_parity["action"] == "investigating"
+    assert intr._last_parity["actual_state"] == S.CONFIRMED
+    assert intr._last_parity["agree"] is True
+
+
+def test_parity_not_scored_when_no_open_episode(intr, wired):
+    # A dismiss with nothing active has no episode to compare → not scored.
+    S, mgr = wired
+    intr._mirror_situation_sync(FakeHass(), "dismissed", reason="noise")
+    assert intr._last_parity is None
+
+
+def test_parity_detects_divergence(intr, monkeypatch, caplog):
+    # If the kernel situation lags the verdict (verdict=confirmed but situation is
+    # still POSSIBLE), _record_parity flags a divergence at WARNING, log-only.
+    import logging
+
+    class _StubSit:
+        state = "possible"
+
+    class _StubMgr:
+        def get(self, _id):
+            return _StubSit()
+
+    monkeypatch.setattr(intr, "_last_parity", None)
+    with caplog.at_level(logging.WARNING):
+        intr._record_parity(_StubMgr(), "confirmed", "sit_lagging")
+    assert intr._last_parity["agree"] is False
+    assert intr._last_parity["actual_state"] == "possible"
+    assert any("DIVERGENCE" in r.message for r in caplog.records)

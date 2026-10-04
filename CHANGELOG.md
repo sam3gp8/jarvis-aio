@@ -1,3 +1,13 @@
+## [8.47.0] — MCU Phase D (D1): intrusion situation earns genuine parity
+
+Phase D begins: making kernel **Situations** the authoritative lifecycle — structurally, at **parity / log-only**, never flipping the live decision. D1 starts with the first and most sensitive consumer, intrusion.
+
+- **The intrusion → `kernel.situation` mirror now *verifies* agreement, not just copies.** Previously the mirror blindly translated each intrusion lifecycle event into a situation transition (a *shadow* copy, despite the coverage matrix already declaring it parity). D1 adds `_record_parity`: after each mirrored event, the kernel situation's resulting state is compared against what the legacy verdict implies (a monotonic lifecycle rank — `investigating ≥ INVESTIGATING`, `confirmed ≥ CONFIRMED`, `unresolved`/`dismissed` → terminal) and the agreement is recorded and logged. A **divergence** (verdict says confirmed but the kernel situation lags) is logged at **WARNING** so a mirror bug becomes visible. This earns the *parity* the matrix already claimed — the kernel situation is now provably tracking the legacy verdict, not silently drifting.
+- **Still log-only and owner-gated.** Nothing here is authoritative: the legacy `SafetyManager` path owns the intrusion decision. The parity check never affects intrusion handling — it stays inside the existing best-effort, off-loop mirror (a failure is swallowed). **Flipping the intrusion situation to authoritative is a separate, owner-approved step and is deliberately NOT taken.**
+- **Coverage unchanged (16.7%)** — `intrusion`'s `situation` cell was already declared parity; D1 makes that declaration *honest* (evidence retargeted from the bare `situation` reference to the `_record_parity` check) rather than moving the number. The v6.7.1 false-intrusion protections are untouched.
+
+5 new tests: parity agreement across the full lifecycle (investigating → confirmed → unresolved; dismissed → benign → resolved), the "already further along" non-divergence case, the "no open episode → not scored" case, and a forced-divergence test asserting the WARNING fires. The existing mirror + intrusion regression suites stay green. Phase D → middle-digit bump **8.46.0 → 8.47.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.46.0] — MCU Phase C (C4): WorldModel is authoritative — adoption → enforce
 
 C1–C3 routed presence / home-summary / briefing context through the kernel `WorldModel` facade. C4 makes that **enforce**: the facade is the *authoritative* read path on those surfaces, not merely consulted alongside raw state — and proves it with tests that have teeth.
