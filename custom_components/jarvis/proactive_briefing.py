@@ -28,6 +28,8 @@ from typing import Optional
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.util import dt as dt_util
 
+from .kernel.world_model import WorldModel
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -126,11 +128,16 @@ SECURITY_THRESHOLD = 3  # events in 30 min to trigger security briefing
 # ── Arrival detection ───────────────────────────────────────────────────────
 
 def _anyone_home(hass) -> bool:
-    """True if any registered person or tracked device is home."""
+    """True if any registered person or tracked device is home.
+
+    MCU Phase C (C3): presence context read through the WorldModel facade, which
+    reads the same async_all(domain) source and preserves each entity's state
+    verbatim — behaviour-identical. Already best-effort (swallows failures)."""
     try:
+        wm = WorldModel(hass)
         for dom in ("person", "device_tracker"):
-            for s in hass.states.async_all(dom):
-                if s.state == "home":
+            for d in wm.devices(domain=dom):
+                if d["state"] == "home":
                     return True
     except Exception:
         pass
@@ -219,9 +226,9 @@ async def _trigger_briefing(
     # Gather camera snapshot summary
     snap_summary = get_snapshot_summary(hours=4)
 
-    # Check if anyone is home
+    # Check if anyone is home (C3: via the WorldModel facade — same source).
     anyone_home = any(
-        s.state == "home" for s in hass.states.async_all("person")
+        d["state"] == "home" for d in WorldModel(hass).devices(domain="person")
     )
 
     # Build extra context based on reason

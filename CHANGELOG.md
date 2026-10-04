@@ -1,3 +1,16 @@
+## [8.45.0] — MCU Phase C (C3): home-summary & briefing context through WorldModel
+
+Phase C's read side widens to the **summary / proactive context** surfaces. The builders that describe the home to JARVIS — the system-prompt snapshot, the `get_home_summary` tool, and the proactive-briefing arrival check — now read the world through the kernel `WorldModel` facade (the context authority, audit item #6) instead of scattered raw-state sweeps.
+
+- **`home_state._build_summary`** (the 60-second system-prompt snapshot) now reads every domain — sensors, lights, locks, covers, door/window binary_sensors, the alarm panel, and media players — through `WorldModel.devices(domain=…)`.
+- **The `get_home_summary` agent tool (`agent._exec_home_summary`)** now reads people, lights, locks, doors/covers, climate, and weather through the facade.
+- **`proactive_briefing`** (`_anyone_home` and the in-briefing home check) reads presence through the facade.
+- All of these read the **same** `hass.states.async_all(domain)` source and preserve each entity's `state` and `attributes` **verbatim**, so every rendered summary string and JSON field is **behaviour-identical** — the raw sources stay underneath and authoritative.
+- **Coverage unchanged (16.7%)** — adoption *breadth*, not a new actuator-spine cell. `kernel_adoption` now lists `agent`, `home_state`, and `proactive_briefing` as live `world_model` callers (joining `actuation`, `cognitive_core`); the facade is now the read authority for every home-description surface.
+- **`proactive_audio`'s area-filtered ambient telemetry is deliberately deferred** — it re-resolves each sensor's area via `audio_routing.entity_area` regardless, and the facade's own `area=` filter resolves areas differently, so routing it through the facade would add overhead without changing the read authority (and couldn't be proven behaviour-identical as cleanly). Left as a raw sweep rather than migrated imperfectly.
+
+5 new tests: the two home-summary builders are pinned against a seeded world (light/lock/cover/door/alarm/media/temperature rendering; people/climate/weather JSON; the room-temperature filter and all-off phrasing). The existing `proactive_briefing._anyone_home` fail-closed test already covers that migration. Read-side only; authority stays **log-only / parity**. Phase C → middle-digit bump **8.44.0 → 8.45.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.44.0] — MCU Phase C (C2): intrusion-safety presence reads through WorldModel
 
 The careful C2 release the previous one deferred. The signals that decide whether motion is a possible **intruder** — "are the residents away?", "is anyone home?", "is the alarm armed?" — now read the world through the kernel `WorldModel` facade instead of scattered raw-state sweeps. This is the safety-sensitive counterpart to C1, so it ships behaviour-identical and fail-safe.

@@ -16,6 +16,8 @@ from typing import Optional
 
 from homeassistant.core import HomeAssistant
 
+from .kernel.world_model import WorldModel
+
 _LOGGER = logging.getLogger(__name__)
 
 _cache: dict = {"summary": "", "ts": 0.0}
@@ -37,8 +39,15 @@ def get_home_summary(hass: HomeAssistant) -> str:
 
 
 def _build_summary(hass: HomeAssistant) -> str:
-    """Build the home state summary from current HA states."""
+    """Build the home state summary from current HA states.
+
+    MCU Phase C (C3): the home-state snapshot reads the world through the kernel
+    ``WorldModel`` facade (audit item #6 — WorldModel as context authority). The
+    facade reads the same ``hass.states.async_all(domain)`` source and preserves
+    each entity's ``state`` and ``attributes`` verbatim, so the rendered summary
+    is behaviour-identical; the raw source stays underneath and authoritative."""
     parts = []
+    wm = WorldModel(hass)
 
     # ── Occupancy ────────────────────────────────────────────────────────
     occupied_areas = []
@@ -65,12 +74,12 @@ def _build_summary(hass: HomeAssistant) -> str:
     except Exception:
         _default_unit = "°F"
     temps = []
-    for state in hass.states.async_all("sensor"):
-        if state.attributes.get("device_class") == "temperature":
+    for state in wm.devices(domain="sensor"):
+        if state["attributes"].get("device_class") == "temperature":
             try:
-                val = float(state.state)
-                name = state.attributes.get("friendly_name", state.entity_id)
-                unit = state.attributes.get("unit_of_measurement", _default_unit)
+                val = float(state["state"])
+                name = state["attributes"].get("friendly_name", state["entity_id"])
+                unit = state["attributes"].get("unit_of_measurement", _default_unit)
                 # Only include room-level temps, not device internals
                 if any(kw in name.lower() for kw in ("room", "bedroom", "kitchen",
                     "living", "garage", "office", "hallway", "basement")):
@@ -83,10 +92,10 @@ def _build_summary(hass: HomeAssistant) -> str:
     # ── Lights ───────────────────────────────────────────────────────────
     lights_on = []
     lights_total = 0
-    for state in hass.states.async_all("light"):
+    for state in wm.devices(domain="light"):
         lights_total += 1
-        if state.state == "on":
-            lights_on.append(state.attributes.get("friendly_name", state.entity_id))
+        if state["state"] == "on":
+            lights_on.append(state["attributes"].get("friendly_name", state["entity_id"]))
     if lights_on:
         parts.append(f"Lights on ({len(lights_on)}/{lights_total}): {', '.join(lights_on[:8])}")
     else:
@@ -94,39 +103,39 @@ def _build_summary(hass: HomeAssistant) -> str:
 
     # ── Locks ────────────────────────────────────────────────────────────
     unlocked = []
-    for state in hass.states.async_all("lock"):
-        if state.state == "unlocked":
-            unlocked.append(state.attributes.get("friendly_name", state.entity_id))
+    for state in wm.devices(domain="lock"):
+        if state["state"] == "unlocked":
+            unlocked.append(state["attributes"].get("friendly_name", state["entity_id"]))
     if unlocked:
         parts.append(f"Unlocked: {', '.join(unlocked)}")
 
     # ── Covers (garage doors, blinds) ────────────────────────────────────
     open_covers = []
-    for state in hass.states.async_all("cover"):
-        if state.state == "open":
-            open_covers.append(state.attributes.get("friendly_name", state.entity_id))
+    for state in wm.devices(domain="cover"):
+        if state["state"] == "open":
+            open_covers.append(state["attributes"].get("friendly_name", state["entity_id"]))
     if open_covers:
         parts.append(f"Open covers: {', '.join(open_covers)}")
 
     # ── Security ─────────────────────────────────────────────────────────
     open_doors = []
-    for state in hass.states.async_all("binary_sensor"):
-        dclass = state.attributes.get("device_class")
-        if dclass in ("door", "window", "garage_door") and state.state == "on":
-            open_doors.append(state.attributes.get("friendly_name", state.entity_id))
+    for state in wm.devices(domain="binary_sensor"):
+        dclass = state["attributes"].get("device_class")
+        if dclass in ("door", "window", "garage_door") and state["state"] == "on":
+            open_doors.append(state["attributes"].get("friendly_name", state["entity_id"]))
     if open_doors:
         parts.append(f"Open doors/windows: {', '.join(open_doors[:6])}")
 
     # ── Alarm ────────────────────────────────────────────────────────────
-    for state in hass.states.async_all("alarm_control_panel"):
-        parts.append(f"Alarm: {state.state}")
+    for state in wm.devices(domain="alarm_control_panel"):
+        parts.append(f"Alarm: {state['state']}")
 
     # ── Media ────────────────────────────────────────────────────────────
     playing = []
-    for state in hass.states.async_all("media_player"):
-        if state.state == "playing":
-            title = state.attributes.get("media_title", "")
-            name = state.attributes.get("friendly_name", state.entity_id)
+    for state in wm.devices(domain="media_player"):
+        if state["state"] == "playing":
+            title = state["attributes"].get("media_title", "")
+            name = state["attributes"].get("friendly_name", state["entity_id"])
             playing.append(f"{name}" + (f" ({title})" if title else ""))
     if playing:
         parts.append(f"Playing media: {', '.join(playing[:4])}")

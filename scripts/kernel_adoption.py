@@ -45,8 +45,12 @@ _DECLARED: dict[str, dict] = {
     "event_bus":    {"stage": "shadow",  "owners": ["__init__"]},
     "ledger":       {"stage": "shadow",  "owners": ["__init__"]},
     # world_model: control_device reads its pre-action context snapshot through
-    # the facade and uses the result (area, previous_state) — 8.30.0, MCU Phase A.
-    "world_model":  {"stage": "parity",  "owners": ["actuation", "cognitive_core"]},
+    # the facade (8.30.0, MCU Phase A); cognition (C1), the intrusion-safety
+    # presence reads (C2), and the home-summary / briefing context builders (C3)
+    # read the world through the facade too — the canonical context authority.
+    "world_model":  {"stage": "parity",  "owners": ["actuation", "cognitive_core",
+                                                     "home_state", "agent",
+                                                     "proactive_briefing"]},
     "situation":    {"stage": "parity",  "owners": ["intrusion"]},
     "authority":    {"stage": "parity",  "owners": ["authority_bridge"]},
     # control_device expresses each actuation as a one-step Plan in shadow
