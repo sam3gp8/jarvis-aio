@@ -1,3 +1,27 @@
+## [8.72.0] — MCU Phase H (H2): bulk_control onto the universal actuator seam
+
+Second Phase H increment: migrate `bulk_control` onto the `execute_actuator` seam
+H1 introduced, so a batch is genuinely "syntactic sugar over multiple canonical
+actuator requests" (the audit's recommendation) rather than its own
+discover-targets → service-calls path.
+
+- Each executed target now routes through **`actuation.execute_actuator`** — the
+  same Execution (through the kernel planner) → Event path control_device uses —
+  instead of a hand-assembled `hass.services.async_call` + `emit_event`.
+- **Behaviour-preserving:** still fire-and-forget (`blocking=False`, new seam
+  param, default True), so no per-device verify/outcome; the already-off/unlocked
+  filters and the protected-device skip (no event for a skipped device) are
+  unchanged; one actuation event per executed target.
+- The seam gains a `blocking` parameter (default True keeps control_device's
+  verify-after-act semantics; bulk passes False).
+- No kernel-primitive change — `actuator` stays ● enforce, now with a second live
+  consumer. Coverage unchanged (17.9%).
+- Next: run_scene_or_script (H3) onto the same seam.
+
+tests: `test_execute_actuator_seam.py` gains a `blocking`-passthrough test (6
+total); the bulk_control suite (events-per-target, filters, protected-skip) stays
+green, pinning parity.
+
 ## [8.71.0] — MCU Phase H (H1): the universal actuator seam
 
 The start of **Phase H — Universal Agency Spine** (the MCU audit's next milestone):

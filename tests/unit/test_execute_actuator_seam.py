@@ -100,6 +100,24 @@ async def test_seam_failure_returns_error_no_event_no_verify(actuation, fake_has
     assert ran["verify"] is False  # no verify scheduled on failure
 
 
+async def test_seam_honors_blocking_flag(actuation, fake_hass, load):
+    # bulk/fan-out callers pass blocking=False for fire-and-forget; the seam
+    # threads it to the HA service call (default True for control_device verify).
+    seen = {}
+
+    async def _call(domain, service, data=None, blocking=True, **kw):
+        seen["blocking"] = blocking
+        fake_hass.service_calls.append((domain, service, dict(data or {})))
+    fake_hass.services.async_call = _call
+    fake_hass.states.set("light.a", "off")
+    ok, _ = await actuation.execute_actuator(
+        fake_hass, capability="light.turn_on", entity_id="light.a",
+        domain="light", service="turn_on", data={"entity_id": "light.a"},
+        action="turn_on", areq=_req(load, target="light.a"), blocking=False)
+    assert ok is True
+    assert seen["blocking"] is False
+
+
 async def test_seam_no_verify_when_factory_none(actuation, fake_hass, load):
     # A non-deterministic action passes verify=None → nothing scheduled, still ok.
     fake_hass.states.set("light.den", "on")
