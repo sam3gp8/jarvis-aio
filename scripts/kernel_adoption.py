@@ -79,14 +79,21 @@ _DECLARED: dict[str, dict] = {
     "router":       {"stage": "shadow",  "owners": ["reasoning_loop"]},
     "causal":       {"stage": "pure",    "owners": []},
     "priority":     {"stage": "pure",    "owners": []},
-    # loop_detect + budget: the actuation envelope feeds every actuation to the
-    # kernel loop detector and agency budget in shadow, logging thrash/budget
-    # verdicts without acting on them (E4). Enforcing is owner-gated.
+    # loop_detect: the actuation envelope feeds every actuation to the kernel
+    # loop detector in shadow, logging thrash verdicts without acting on them
+    # (E4). Enforcing (suppressing a thrashing actuation) is owner-gated (G2).
     "loop_detect":  {"stage": "shadow",  "owners": ["actuation"]},
     # journal: goals records each goal's shadow Plan into the execution journal
     # (F2), making the goal->plan->step chain durably reconstructable — shadow.
     "journal":      {"stage": "shadow",  "owners": ["goals"]},
-    "budget":       {"stage": "shadow",  "owners": ["actuation"]},
+    # budget: ENFORCE (G1, owner-approved staged roll-out). actuation.agency_budget_check
+    # is authoritative for the discretionary autonomous proactive path
+    # (cognitive_core._execute_action_data): when the self-imposed hourly ceiling
+    # is reached, the autonomous actuation is actually BLOCKED. Scope is tight —
+    # user-requested and safety-critical actuations never route through the gate,
+    # it fails open, and a one-line kill-switch (AGENCY_BUDGET_ENFORCE) reverts it
+    # to shadow. Enforce = authoritative on >=1 live path.
+    "budget":       {"stage": "enforce", "owners": ["actuation"]},
     # control_device builds an ActuatorRequest (with expected_outcome) and the
     # verify step produces the canonical ActuatorOutcome — 8.31.0, MCU Phase A.
     "actuator":     {"stage": "parity",  "owners": ["actuation", "agent"]},

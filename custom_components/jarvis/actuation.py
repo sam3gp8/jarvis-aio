@@ -33,6 +33,72 @@ _LOGGER = logging.getLogger(__name__)
 _loop_detector = None
 _agency_budget = None
 
+# ── agency budget ENFORCE (MCU Phase G/G1) ──────────────────────────────────────
+# First *decision* primitive promoted from shadow to enforce on the live home,
+# chosen as the safest first trial: it gates ONLY a *discretionary autonomous*
+# actuation — JARVIS acting on a learned/trusted pattern of its own accord
+# (cognitive_core._execute_action_data). It does NOT see:
+#   * user-requested actuations (the agent tool path / control_device), nor
+#   * safety-critical responses (nighttime lockdown, intrusion securing — those
+#     call hass.services directly and never route through this gate),
+# so neither a user command nor a safety action can ever be budget-blocked.
+#
+# KILL-SWITCH: flip AGENCY_BUDGET_ENFORCE to False to revert instantly to
+# shadow (log-only, zero behaviour change) on the next load — a one-line revert,
+# no other edit required. Tests pass `enforce=` explicitly.
+#
+# The gate FAILS OPEN: any internal error allows the action, so a budget bug can
+# never stop JARVIS from acting. The ceiling is the kernel default (60 autonomous
+# actions / rolling hour) — generous for the autonomous-only population, so it
+# only ever trips on a genuine runaway (feedback loop / over-eager pattern).
+AGENCY_BUDGET_ENFORCE = True
+
+# A DEDICATED budget counting only discretionary autonomous actuations — a
+# different, correctly-scoped population from the envelope-wide _agency_budget
+# shadow lens below (which still watches the whole actuation stream for thrash).
+_autonomous_budget = None
+
+
+def agency_budget_check(*, enforce: Optional[bool] = None,
+                        now: Optional[float] = None) -> tuple:
+    """ENFORCE gate (G1): may one more *discretionary autonomous* actuation
+    happen now, against the self-imposed hourly ceiling?
+
+    Returns ``(allowed, remaining)``. Records against the budget only when the
+    action is allowed (a blocked action consumes no slot). When the ceiling is
+    reached: returns ``(False, 0)`` under enforce (the caller must skip the
+    actuation), or ``(True, 0)`` when the kill-switch is off (shadow — logs a
+    would-block and lets it through). FAILS OPEN — any internal error returns
+    ``(True, None)`` so a budget fault can never block JARVIS.
+
+    Only the autonomous proactive path calls this; user-requested and
+    safety-critical actuations never reach it.
+    """
+    global _autonomous_budget
+    if enforce is None:
+        enforce = AGENCY_BUDGET_ENFORCE
+    try:
+        import time
+        from .kernel import budget as _bg
+        if _autonomous_budget is None:
+            _autonomous_budget = _bg.AgencyBudget()
+        t = time.time() if now is None else now
+        verdict = _autonomous_budget.check_and_record(_bg.ACTION, now=t)
+        if not verdict:
+            cap = _autonomous_budget.limits.rate_for(_bg.ACTION)
+            if enforce:
+                _LOGGER.warning(
+                    "agency budget: autonomous-action ceiling reached (%s/hr) — "
+                    "BLOCKING this autonomous action (enforce, G1)", cap)
+                return False, 0
+            _LOGGER.warning(
+                "agency budget: autonomous-action ceiling reached (%s/hr) — "
+                "NOT blocked (kill-switch off / shadow)", cap)
+            return True, 0
+        return True, verdict.remaining
+    except Exception:   # pragma: no cover - defensive, fail open
+        return True, None
+
 
 def _agency_shadow(capability: str, entity_id: str, *,
                    cause: Optional[str] = None,
