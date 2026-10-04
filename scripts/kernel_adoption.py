@@ -46,7 +46,7 @@ _DECLARED: dict[str, dict] = {
     "ledger":       {"stage": "shadow",  "owners": ["__init__"]},
     # world_model: control_device reads its pre-action context snapshot through
     # the facade and uses the result (area, previous_state) — 8.30.0, MCU Phase A.
-    "world_model":  {"stage": "parity",  "owners": ["actuation"]},
+    "world_model":  {"stage": "parity",  "owners": ["actuation", "cognitive_core"]},
     "situation":    {"stage": "parity",  "owners": ["intrusion"]},
     "authority":    {"stage": "parity",  "owners": ["authority_bridge"]},
     # control_device expresses each actuation as a one-step Plan in shadow

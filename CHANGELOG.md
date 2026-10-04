@@ -1,3 +1,13 @@
+## [8.43.0] — MCU Phase C (C1): cognition reads presence through WorldModel
+
+Phase C makes the kernel `WorldModel` the **context authority** — cognitive paths read the world through the facade rather than scattered raw-state sweeps (the audit's item #6). It starts read-side and low-risk; nothing about what JARVIS *does* changes, only where it *reads* its context.
+
+- **The main cognitive tick's `anyone_home` check now reads through `WorldModel.devices("person")`** instead of a bare `hass.states.async_all("person")` sweep. Because the facade reads the **same** person entities, this is **behaviour-identical** — it just routes cognition's presence context through the canonical authority. Best-effort: falls back to the raw sweep if the facade yields nothing.
+- **The intrusion-safety away-check is deliberately *not* touched here** — it migrates separately in C2, where safety context gets its own careful release.
+- **Coverage unchanged (16.7%)** — this is adoption *breadth*, not a new actuator-path cell. `kernel_adoption` adds `cognitive_core` as a live `world_model` caller.
+
+1 new parity test (WorldModel.devices("person") home-detection matches the raw person states). Read-side only; authority stays **log-only**. Phase C → middle-digit bump **8.42.0 → 8.43.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.42.0] — MCU Phase B complete (B4b): control_device execution runs through the kernel planner
 
 The final Phase B step. `control_device` expressed its actuation as a kernel `Plan` only in *shadow* (logged, not executed through), because the planner was synchronous. With the async driver (B-async) in place, its execution now genuinely **routes through the kernel planner**.
