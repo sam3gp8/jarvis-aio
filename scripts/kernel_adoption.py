@@ -37,7 +37,7 @@ import sys
 # "owners" are the live modules (basename, no .py) expected to reference it once
 # the stage is > pure. The check fails if a non-pure primitive has no live ref.
 _DECLARED: dict[str, dict] = {
-    "event":        {"stage": "parity",  "owners": ["actuation", "camera", "observer", "proactive_audio"]},
+    "event":        {"stage": "parity",  "owners": ["actuation", "camera", "events", "observer", "proactive_audio"]},
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},

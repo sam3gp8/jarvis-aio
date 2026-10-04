@@ -28,6 +28,7 @@ EVENT_STATE_CHANGED = "state_changed"
 EVENT_CAMERA_ANALYSIS = "camera.analysis"
 EVENT_VOICE_TURN = "voice.turn"
 EVENT_ACTUATION = "control.actuation"
+EVENT_SITUATION = "situation.transition"
 
 
 def _new_id() -> str:
@@ -230,6 +231,38 @@ def from_actuation(
         location=location,
         data={"capability": capability, "intent": intent, "actor": actor,
               "request_id": request_id},
+        importance=importance,
+        correlation_id=correlation_id,
+    )
+
+
+def from_situation(
+    kind: str,
+    *,
+    state: Optional[str] = None,
+    action: Optional[str] = None,
+    subject: Optional[str] = None,
+    location: Optional[str] = None,
+    situation_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+    importance: float = 0.6,
+) -> JarvisEvent:
+    """A situation lifecycle transition as a JarvisEvent (MCU Phase D/D4).
+
+    The nervous-system record that a tracked situation (intrusion / hazard /
+    delivery / …) opened or changed state — ``kind`` is the situation family,
+    ``state`` its resulting lifecycle state, ``action`` the verdict that drove it.
+    Emitted by the situation mirrors so situations enter the event stream the same
+    way perception and actuation do (MCU audit item #8). Parity: the event is
+    published and the ledger records it, but no consumer reacts to it yet.
+    """
+    return JarvisEvent(
+        type=EVENT_SITUATION,
+        source="situation",
+        subject=subject,
+        location=location,
+        data={"kind": kind, "state": state, "action": action,
+              "situation_id": situation_id},
         importance=importance,
         correlation_id=correlation_id,
     )

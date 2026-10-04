@@ -119,6 +119,10 @@ _PATHS: dict[str, dict] = {
         "module": "intrusion.py",
         "contracts": {
             "situation": {"stage": "parity", "evidence": "_record_parity"},
+            # D4: each lifecycle transition publishes a canonical situation
+            # JarvisEvent on the bus (parity — enters the stream + ledger, no
+            # consumer reacts yet).
+            "event": {"stage": "parity", "evidence": "publish_situation"},
         },
     },
     # The in-home freeze hazard lifecycle (SafetyManager._check_freeze:
@@ -130,6 +134,7 @@ _PATHS: dict[str, dict] = {
         "module": "hazard_situation.py",
         "contracts": {
             "situation": {"stage": "parity", "evidence": "_record_parity"},
+            "event": {"stage": "parity", "evidence": "publish_situation"},
         },
     },
     # The per-camera package delivery lifecycle (package_monitor: delivered →
@@ -139,6 +144,7 @@ _PATHS: dict[str, dict] = {
         "module": "delivery_situation.py",
         "contracts": {
             "situation": {"stage": "parity", "evidence": "_record_parity"},
+            "event": {"stage": "parity", "evidence": "publish_situation"},
         },
     },
     "goals": {"module": "goals.py", "contracts": {}},

@@ -116,5 +116,12 @@ def mirror_freeze_sync(hass, action: str, reading: Optional[str] = None) -> None
 
         # Parity (log-only): verify the kernel situation agrees with the verdict.
         _record_parity(mgr, action, episode_id)
+        # D4: publish the transition as a canonical JarvisEvent (parity — it
+        # enters the stream + ledger; no consumer reacts yet). Best-effort.
+        if episode_id:
+            sit_after = mgr.get(episode_id)
+            if sit_after is not None:
+                from . import events
+                events.publish_situation(hass, sit_after, action=action)
     except Exception as exc:
         _LOGGER.debug("hazard: freeze situation mirror failed (%s): %s", action, exc)

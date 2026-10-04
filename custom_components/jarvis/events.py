@@ -35,3 +35,26 @@ def publish(hass, event) -> None:
         bus.publish(event)
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("event publish failed: %s", exc)
+
+
+def publish_situation(hass, situation, *, action=None) -> None:
+    """Publish a situation lifecycle transition as a canonical JarvisEvent
+    (MCU Phase D/D4). Best-effort — never raises into the situation mirror.
+
+    ``situation`` is a ``kernel.situation.Situation`` (duck-typed: kind / state /
+    subject / location / id / correlation_id). ``action`` is the verdict that
+    drove the transition (e.g. "confirmed", "critical", "delivered")."""
+    try:
+        from .kernel.event import from_situation
+        ev = from_situation(
+            getattr(situation, "kind", None),
+            state=getattr(situation, "state", None),
+            action=action,
+            subject=getattr(situation, "subject", None),
+            location=getattr(situation, "location", None),
+            situation_id=getattr(situation, "id", None),
+            correlation_id=getattr(situation, "correlation_id", None),
+        )
+        publish(hass, ev)
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("situation event publish failed: %s", exc)
