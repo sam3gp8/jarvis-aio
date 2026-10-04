@@ -20,14 +20,60 @@ the mute set.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Optional
 
+from .paths import config_path_str
+
 _LOGGER = logging.getLogger(__name__)
+
+# Persist mute preferences so they survive a restart (#181). Entity/category
+# mutes and the blanket switch are written here on every shush/unshush and
+# loaded once on first use. Best-effort: a read/write failure never breaks the
+# gate (mutes just fall back to in-memory for the session).
+MUTES_PATH = config_path_str("jarvis", "output_mutes.json")
+_mutes_loaded = False
+
+
+def _load_mutes() -> None:
+    """Load persisted mutes into _STATE once. Never raises."""
+    global _mutes_loaded
+    if _mutes_loaded:
+        return
+    _mutes_loaded = True
+    try:
+        if not os.path.exists(MUTES_PATH):
+            return
+        with open(MUTES_PATH) as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            _STATE.muted_entities |= {str(e) for e in data.get("entities", []) if e}
+            _STATE.muted_categories |= {str(c) for c in data.get("categories", []) if c}
+            _STATE.mute_all = bool(data.get("all", False))
+    except Exception as exc:
+        _LOGGER.debug("output mutes load failed: %s", exc)
+
+
+def _save_mutes() -> None:
+    """Persist current mutes. Called after shush/unshush. Never raises."""
+    try:
+        os.makedirs(os.path.dirname(MUTES_PATH), exist_ok=True)
+        tmp = MUTES_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({
+                "entities": sorted(_STATE.muted_entities),
+                "categories": sorted(_STATE.muted_categories),
+                "all": bool(_STATE.mute_all),
+            }, f)
+        os.replace(tmp, MUTES_PATH)
+    except Exception as exc:
+        _LOGGER.debug("output mutes persist failed: %s", exc)
 
 
 # Rate-limit defaults — conservative to start, the user can tune later
@@ -171,6 +217,7 @@ def _gate_decision(
 
     Otherwise critical urgency bypasses every gate check.
     """
+    _load_mutes()
     if _STATE.mute_all:
         return False, "blanket shush active"
 
@@ -380,11 +427,13 @@ def shush(
       - all: mute EVERYTHING — blanket kill switch until unshush is called
       - (no args): mute the most recent announcement's entity (targeted)
     """
+    _load_mutes()
     result = {"muted_entities": [], "muted_categories": [], "all": False}
 
     if all:
         _STATE.mute_all = True
         result["all"] = True
+        _save_mutes()
         _LOGGER.warning(
             "JARVIS BLANKET SHUSH engaged — all announcements suppressed "
             "until jarvis.unshush is called"
@@ -406,11 +455,13 @@ def shush(
         _STATE.muted_categories.add(category)
         result["muted_categories"].append(category)
 
+    _save_mutes()
     return result
 
 
 def unshush(entity_id: Optional[str] = None, category: Optional[str] = None) -> dict:
     """Reverse a mute. If neither given, clear ALL mutes including blanket shush."""
+    _load_mutes()
     if entity_id is None and category is None:
         cleared_e = list(_STATE.muted_entities)
         cleared_c = list(_STATE.muted_categories)
@@ -418,6 +469,7 @@ def unshush(entity_id: Optional[str] = None, category: Optional[str] = None) -> 
         _STATE.muted_entities.clear()
         _STATE.muted_categories.clear()
         _STATE.mute_all = False
+        _save_mutes()
         return {
             "cleared_entities": cleared_e,
             "cleared_categories": cleared_c,
@@ -431,11 +483,24 @@ def unshush(entity_id: Optional[str] = None, category: Optional[str] = None) -> 
     if category and category in _STATE.muted_categories:
         _STATE.muted_categories.discard(category)
         result["cleared_categories"].append(category)
+    _save_mutes()
     return result
+
+
+def current_mutes() -> dict:
+    """The current mute preferences — for the panel's Muted Announcements card
+    and the jarvis/mutes websocket (#181). Loads persisted mutes first."""
+    _load_mutes()
+    return {
+        "entities": sorted(_STATE.muted_entities),
+        "categories": sorted(_STATE.muted_categories),
+        "all": bool(_STATE.mute_all),
+    }
 
 
 def status() -> dict:
     """Return current gate state — for jarvis.observer_status service."""
+    _load_mutes()
     recent = _recent_within(_STATE.history, 3600)
     spoken = [a for a in recent if a.was_spoken]
     suppressed = [a for a in recent if not a.was_spoken]

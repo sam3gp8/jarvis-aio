@@ -4402,6 +4402,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             </button>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Notifications only</span>
+            <span class="toggle-desc">Mute speakers — proactive announcements go to your phone/text instead (incl. critical). No unsolicited speaker interruptions.</span>
+            <button class="toggle-btn ${(d.config?.announce_notify_only) ? 'on' : 'off'}"
+              data-cfg-key="announce_notify_only"
+              data-cfg-val="${(d.config?.announce_notify_only) ? 'false' : 'true'}">
+              ${(d.config?.announce_notify_only) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Sentinel</span>
             <span class="toggle-desc">Door/garage/lock-left-open alerts</span>
             <button class="toggle-btn ${(d.config?.sentinel_enabled) ? 'on' : 'off'}"
@@ -4714,6 +4723,20 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
               ${this._renderNotifyOptions(d)}
             </select>
           </div>
+        </div>
+      </div>
+      <!-- MUTED ANNOUNCEMENTS (#181) -->
+      <div class="panel">
+        <div class="head">
+          <span>Muted Announcements</span>
+          <span class="side">SHUSH</span>
+        </div>
+        <div class="mem-sub">Things JARVIS has been told to stop announcing — a window that's often open, a decorative light, etc. Muting an entity silences announcements <b>about it</b> while JARVIS keeps observing it normally (not the same as excluding it). Persists across restarts.</div>
+        <div class="mutes-body" id="mutes-body"><div class="mmwave-empty">Loading…</div></div>
+        <div class="doclib-controls">
+          <input class="cfg-field" id="mutes-add-entity" type="text" placeholder="entity_id to mute (e.g. binary_sensor.lounge_window)" style="flex:1;min-width:200px;"/>
+          <button class="btn primary" id="mutes-add-btn">Mute</button>
+          <button class="btn" id="mutes-refresh">⟳ Refresh</button>
         </div>
       </div>
 ${this._renderRoutineLearning(d)}
@@ -5310,7 +5333,7 @@ ${this._renderExcludedEntities(d)}
       "Anticipation & Memory": "learning", "Memory": "learning",
       "Observer Tuning": "learning", "Routine Learning": "learning",
       "Excluded Entities": "learning",
-      "Notifications": "safety", "Sentinel Rules": "safety",
+      "Notifications": "safety", "Muted Announcements": "safety", "Sentinel Rules": "safety",
       "Hazard Monitor": "safety", "Energy Management": "safety",
       "Appliances": "safety",
       "Cameras": "cameras", "Diagnostics": "cameras",
@@ -5505,6 +5528,7 @@ ${this._renderExcludedEntities(d)}
       this._wireHazard();
       this._wireBriefings();
       this._wireDocLibrary();
+      this._wireMutes();
     }
     if (this._currentTab === 'faces') {
       this._wireFaces();
@@ -7361,6 +7385,76 @@ ${this._renderExcludedEntities(d)}
   }
 
   // ── Household Faces / resident whitelist (#140) ──
+  // ── Muted announcements (#181) ──
+  _wireMutes() {
+    const addBtn = this.shadowRoot?.getElementById("mutes-add-btn");
+    const input = this.shadowRoot?.getElementById("mutes-add-entity");
+    const refresh = this.shadowRoot?.getElementById("mutes-refresh");
+    const add = async () => {
+      const eid = (input?.value || "").trim();
+      if (!eid) return;
+      await this._mutesAction("mute", { entity_id: eid });
+      if (input) input.value = "";
+    };
+    addBtn?.addEventListener("click", add);
+    input?.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+    refresh?.addEventListener("click", () => this._fetchMutes());
+    this._fetchMutes();
+  }
+
+  async _mutesAction(action, extra) {
+    if (!this._hass) return;
+    try {
+      this._mutes = await this._hass.callWS({ type: "jarvis/mutes", action, ...(extra || {}) });
+      this._renderMutes();
+    } catch (err) {
+      this._toast(`✗ ${err?.message || err}`, "err");
+    }
+  }
+
+  async _fetchMutes() {
+    if (!this._hass) return;
+    try {
+      this._mutes = await this._hass.callWS({ type: "jarvis/mutes", action: "list" });
+    } catch (_) {
+      this._mutes = { error: true };
+    }
+    this._renderMutes();
+  }
+
+  _renderMutes() {
+    const body = this.shadowRoot?.getElementById("mutes-body");
+    if (!body) return;
+    const m = this._mutes || {};
+    if (m.error) {
+      body.innerHTML = `<div class="mmwave-empty">Couldn't load — restart Home Assistant after updating.</div>`;
+      return;
+    }
+    const ents = Array.isArray(m.entities) ? m.entities : [];
+    const cats = Array.isArray(m.categories) ? m.categories : [];
+    let html = "";
+    if (m.all) {
+      html += `<div class="intr-fa">Blanket mute is ON — <b>all</b> announcements are suppressed. <button class="btn mutes-x" data-unmute-all="1">Turn off</button></div>`;
+    }
+    if (ents.length || cats.length) {
+      html += `<div class="mutes-chips">`;
+      html += ents.map(e =>
+        `<span class="mutes-chip">${this._esc(e)}<button class="mutes-x" data-unmute-entity="${this._esc(e)}" title="Unmute">✕</button></span>`).join("");
+      html += cats.map(c =>
+        `<span class="mutes-chip cat">${this._esc(c)} <span class="mutes-tag">category</span><button class="mutes-x" data-unmute-category="${this._esc(c)}" title="Unmute">✕</button></span>`).join("");
+      html += `</div>`;
+    } else if (!m.all) {
+      html += `<div class="mmwave-empty">Nothing muted. JARVIS announces about everything it observes. Mute an entity above (or say/run <code>jarvis.shush</code>) to silence announcements about it without excluding it.</div>`;
+    }
+    body.innerHTML = html;
+    body.querySelectorAll("[data-unmute-entity]").forEach(el =>
+      el.addEventListener("click", () => this._mutesAction("unmute", { entity_id: el.getAttribute("data-unmute-entity") })));
+    body.querySelectorAll("[data-unmute-category]").forEach(el =>
+      el.addEventListener("click", () => this._mutesAction("unmute", { category: el.getAttribute("data-unmute-category") })));
+    body.querySelectorAll("[data-unmute-all]").forEach(el =>
+      el.addEventListener("click", () => this._mutesAction("clear", {})));
+  }
+
   _wireFaces() {
     const addBtn = this.shadowRoot?.getElementById("faces-add-btn");
     const input = this.shadowRoot?.getElementById("faces-add-name");
@@ -10191,6 +10285,13 @@ ${this._renderExcludedEntities(d)}
   .faces-ref { display: inline-block; font-size: 10px; padding: 3px 8px; border-radius: 6px; border: 1px dashed var(--border, rgba(255,255,255,.2)); color: var(--text-dim); cursor: pointer; }
   .faces-ref.set { border-style: solid; color: var(--text, #cfe); }
   .faces-ref:hover { border-color: var(--cyan, #00f2fe); }
+  /* Muted announcements (#181) */
+  .mutes-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .mutes-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-family: var(--font-mono); background: var(--panel-2, rgba(255,255,255,.05)); border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: 12px; padding: 3px 4px 3px 10px; }
+  .mutes-chip.cat { border-style: dashed; }
+  .mutes-tag { font-size: 8px; letter-spacing: .05em; color: var(--text-dim); text-transform: uppercase; }
+  .mutes-x { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 11px; line-height: 1; padding: 0 3px; }
+  .mutes-x:hover { color: var(--red, #e55); }
   .intr-timeout-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
   .intr-timeout-row label { font-size: 11px; color: var(--text-dim); }
   .intr-timeout { background: rgba(0,0,0,0.25); border: 1px solid var(--line); border-radius: 5px; color: var(--text); font-size: 11px; padding: 5px 9px; }

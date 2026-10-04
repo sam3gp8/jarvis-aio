@@ -534,7 +534,19 @@ def observer_speak_target(
                 home but no room presence → broadcast; away → notify
       LOW:      sleeping → suppressed; present in room → room speaker;
                 otherwise suppressed (queued — don't interrupt from elsewhere)
+
+    Notifications-only (#181): when the user sets ``announce_notify_only``,
+    JARVIS never speaks a proactive announcement on any speaker — every urgency,
+    including critical, routes to ``notify_only`` so it arrives as a phone/text
+    notification instead. This is the "mute all speakers, text only" switch for
+    people who don't want unsolicited speaker interruptions.
     """
+    try:
+        from . import jarvis_config
+        if jarvis_config.get("announce_notify_only", False):
+            return ([], "notify_only")
+    except Exception:
+        pass
 
     def _broadcast_speakers() -> list[str]:
         """Resolve broadcast speakers: panel toggles > broadcast_group > all."""
