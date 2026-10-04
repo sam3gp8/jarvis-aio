@@ -30,12 +30,13 @@ drift into fiction.
 | `run_scene_or_script` | ◑ | ◑ | · | · | ◐ | · | · |
 | `set_mode` | ◑ | · | · | · | ◐ | · | · |
 | `intrusion` | · | · | ◑ | · | · | · | · |
+| `hazard` | · | · | ◑ | · | · | · | · |
 | `goals` | · | · | · | · | · | · | · |
 | `proactive` | · | · | · | · | · | · | · |
 | `friday` | · | · | · | · | · | · | · |
 | `homer` | · | · | · | · | · | · | · |
 
-**Kernel coverage: 16.7%** (· none ◐ shadow ◑ parity ● full)
+**Kernel coverage: 16.0%** (· none ◐ shadow ◑ parity ● full)
 <!-- END kernel-coverage -->
 
 **16.7% is the honest number today** — most paths are still legacy, exactly the
@@ -102,6 +103,16 @@ one release at a time.
   `LockdownManager`), credited on the already-parity `cognitive_core`
   `world_model` adoption, not as a new cell on this spine path (whose module,
   `intrusion.py`, does no presence reads).
+- **`hazard`** (D2) — the in-home **freeze** hazard lifecycle
+  (`SafetyManager._check_freeze`: warning → critical → cleared) is mirrored into a
+  kernel Situation (`kind="hazard"`) and its agreement verified
+  (`hazard_situation._record_parity`), log-only parity. Adding this path honestly
+  surfaces hazards as a tracked behaviour path — only the `situation` cell is
+  wired, so the overall number *dips* slightly (that is the point: the matrix
+  counts the un-wired cells too). Smoke / CO / water-leak are not detected by
+  JARVIS today, so there is nothing to mirror for them and no detection is
+  invented. The freeze alerts themselves are unchanged — the mirror is additive,
+  off-loop and best-effort.
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
   shared `actuation` envelope for its WorldModel context (`world_model` ◑),
   actuation event (`event` ◑) and shadow plan (`plan` ◐). No deterministic

@@ -376,6 +376,7 @@ class SafetyManager:
 
         if temp_f <= FREEZE_CRITICAL_TEMP_F:
             self._last_freeze_alert = now
+            await self._mirror_freeze_hazard("critical", reading)
             set_to = _fmt_temp(_f_to_unit(55, unit), unit, decimals=0)
             return {
                 "type": "freeze_critical",
@@ -388,6 +389,7 @@ class SafetyManager:
         elif temp_f <= FREEZE_WARN_TEMP_F and not self._freeze_warned:
             self._freeze_warned = True
             self._last_freeze_alert = now
+            await self._mirror_freeze_hazard("warning", reading)
             return {
                 "type": "freeze_warning",
                 "urgency": "high",
@@ -398,8 +400,22 @@ class SafetyManager:
             }
         elif temp_f > FREEZE_WARN_TEMP_F + 5:
             self._freeze_warned = False
+            await self._mirror_freeze_hazard("cleared", reading)
 
         return None
+
+    async def _mirror_freeze_hazard(self, action: str,
+                                    reading: Optional[str] = None) -> None:
+        """MCU Phase D (D2): best-effort, log-only mirror of the freeze hazard
+        lifecycle into the kernel Situation store (via the ``hazard_situation``
+        seam). Runs the SQLite write off-loop and swallows any failure — it never
+        affects freeze alerting."""
+        try:
+            from . import hazard_situation
+            await self.hass.async_add_executor_job(
+                hazard_situation.mirror_freeze_sync, self.hass, action, reading)
+        except Exception:
+            pass
 
     def _alarm_armed(self) -> bool:
         # MCU Phase C (C2): alarm context read through the WorldModel facade, which

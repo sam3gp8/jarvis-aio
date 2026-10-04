@@ -121,6 +121,17 @@ _PATHS: dict[str, dict] = {
             "situation": {"stage": "parity", "evidence": "_record_parity"},
         },
     },
+    # The in-home freeze hazard lifecycle (SafetyManager._check_freeze:
+    # warning → critical → cleared) is mirrored into a kernel Situation
+    # (kind="hazard") and its agreement verified (D2), log-only parity. Adding
+    # this path honestly surfaces hazards as a tracked behaviour path — the only
+    # cell wired so far is situation, so it (slightly) dilutes the coverage %.
+    "hazard": {
+        "module": "hazard_situation.py",
+        "contracts": {
+            "situation": {"stage": "parity", "evidence": "_record_parity"},
+        },
+    },
     "goals": {"module": "goals.py", "contracts": {}},
     "proactive": {"module": "proactive_audio.py", "contracts": {}},
     "friday": {"module": "agent.py", "contracts": {}},
