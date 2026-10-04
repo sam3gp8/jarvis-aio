@@ -59,7 +59,13 @@ _DECLARED: dict[str, dict] = {
     "world_model":  {"stage": "enforce", "owners": ["actuation", "cognitive_core",
                                                      "home_state", "agent",
                                                      "proactive_briefing"]},
-    "situation":    {"stage": "parity",  "owners": ["intrusion", "hazard_situation",
+    # situation: ENFORCE (R1b, 8.61.0) — authoritative on >=1 live path (same
+    # bar as world_model). package_monitor now keys the delivered/removed
+    # transition off the kernel store's per-camera package-present verdict, not
+    # the in-memory flag. HONESTY: only the DELIVERY caller is authoritative;
+    # hazard (freeze) and intrusion remain parity MIRRORS (their re-architecture
+    # is R2 and R3) — see KERNEL_ADOPTION note. Fail-safe + kill-switch.
+    "situation":    {"stage": "enforce", "owners": ["intrusion", "hazard_situation",
                                                      "delivery_situation"]},
     "authority":    {"stage": "parity",  "owners": ["authority_bridge"]},
     # control_device expresses each actuation as a one-step Plan in shadow

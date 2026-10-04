@@ -331,18 +331,24 @@ async def _mirror_delivery(hass, entity_id: str, action: str,
         pass
 
 
-async def _check_presence_parity(hass, entity_id: str, legacy_present: bool) -> None:
-    """MCU Phase R (R1a): best-effort, log-only decision-parity — does the kernel
-    situation store's per-camera package-present view match the legacy verdict?
-    Runs the SQLite read off-loop and swallows any failure; never affects the
-    state machine or announcements."""
+# MCU Phase R (R1b) — delivery enforce kill-switch. When True (default, owner
+# approved), the kernel situation store is AUTHORITATIVE for the per-camera
+# package-present verdict. Flip to False to revert instantly to the legacy
+# in-memory _STATE flag on the next load — a one-line revert. Non-safety: a kernel
+# read failure already falls back to legacy, so the worst case under enforce is a
+# single mis-timed delivery announcement, never a safety miss.
+DELIVERY_SITUATION_ENFORCE = True
+
+
+async def _kernel_present(hass, entity_id: str):
+    """The kernel situation store's per-camera package-present view (True/False),
+    or None if it can't be read. Runs the SQLite read off-loop; never raises."""
     try:
         from . import delivery_situation
-        await hass.async_add_executor_job(
-            delivery_situation.record_presence_parity, hass, entity_id,
-            legacy_present)
+        return await hass.async_add_executor_job(
+            delivery_situation.kernel_package_present_sync, hass, entity_id)
     except Exception:
-        pass
+        return None
 
 
 async def evaluate(hass, groq_client, honorific, tts_entity, speakers,
@@ -359,19 +365,33 @@ async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
     from .tts_helper import async_announce
 
     prev = _STATE.get(entity_id, {"package": False, "mail": False, "count": 0})
-    # MCU Phase R (R1a) — delivery decision-parity: compare the kernel situation
-    # store's per-camera package-present view against this legacy prev verdict and
-    # log any divergence. Log-only; earns the kernel the right to own the verdict
-    # (R1b) once the two agree on real traffic. Best-effort, off-loop, never
-    # affects the state machine or announcements.
-    await _check_presence_parity(hass, entity_id, bool(prev.get("package")))
+    # MCU Phase R (R1a/R1b) — the kernel situation store owns the per-camera
+    # "package present" verdict that drives the delivered/removed transition.
+    #   R1a: read it and log divergence vs the legacy in-memory flag (parity).
+    #   R1b (ENFORCE): when the store has an opinion, it is AUTHORITATIVE — the
+    #        transition below keys off `prev_present` from the kernel, not _STATE.
+    # FAIL-SAFE: a kernel read error (None) or the kill-switch off falls back to
+    # the legacy _STATE flag, so announcements can never break. Non-safety.
+    legacy_present = bool(prev.get("package"))
+    kernel_present = await _kernel_present(hass, entity_id)
+    from . import delivery_situation as _ds
+    _ds.record_presence_parity(hass, entity_id, legacy_present,
+                               kernel_present=kernel_present)
+    if DELIVERY_SITUATION_ENFORCE and kernel_present is not None:
+        prev_present = kernel_present
+        if kernel_present != legacy_present:
+            _LOGGER.warning(
+                "delivery presence ENFORCE: kernel view=%s overrides legacy=%s "
+                "(camera %s)", kernel_present, legacy_present, entity_id)
+    else:
+        prev_present = legacy_present
     quiet = _in_quiet_hours(hass)
     can_speak = _announcements_on(hass) and not quiet
     loc = "the front door"
     spoke = False
 
     # Package arrival
-    if det.get("package") and not prev.get("package"):
+    if det.get("package") and not prev_present:
         n = det.get("count", 1)
         msg = (f"{honorific}, {n} packages have been delivered to {loc}."
                if n and n > 1 else
@@ -382,7 +402,7 @@ async def _evaluate_locked(hass, groq_client, honorific, tts_entity, speakers,
             await async_announce(hass, msg, tts_entity, speakers, context="package")
             spoke = True
     # Package removed
-    elif prev.get("package") and not det.get("package"):
+    elif prev_present and not det.get("package"):
         away = not _anyone_home(hass)
         _log(hass, entity_id, "removed", det, source)
         await _mirror_delivery(hass, entity_id, "removed", 0)

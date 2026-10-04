@@ -1,3 +1,34 @@
+## [8.61.0] — MCU Phase R (R1b): delivery ENFORCE — the kernel situation store owns the per-camera verdict
+
+The flip that R1a's decision-parity earned. `situation` moves `◑` parity → `●`
+enforce — but read *which caller*: only **delivery** becomes authoritative.
+
+- **`package_monitor` now keys the delivered/removed transition off the kernel
+  store's per-camera "package present" verdict** (an open `delivery` episode),
+  not the in-memory `_STATE["package"]` flag. The kernel situation store genuinely
+  owns this decision now — meeting the matrix's enforce bar (authoritative on ≥1
+  live path, exactly as `world_model`'s enforce does).
+- **Non-safety, kill-switched, fail-safe.** Flip
+  `package_monitor.DELIVERY_SITUATION_ENFORCE` to `False` to revert to the legacy
+  flag on the next load. On *any* kernel read error the transition falls back to
+  the legacy flag, so announcements can never break; the worst case under enforce
+  is a single mis-timed delivery announcement (the `_announce_gate` cooldown still
+  collapses rapid repeats), never a safety miss.
+- **Honesty — `hazard` and `intrusion` are NOT enforced.** They remain parity
+  *mirrors*: their verdicts are still computed in the live modules and only
+  recorded into the situation store. "situation = enforce" here means delivery
+  presence is kernel-owned, not that every situation is. Freeze (R2) and intrusion
+  (R3) are their own later flips — freeze will fail *toward* alerting, intrusion is
+  behind an explicit owner go/no-go. **Coverage unchanged (17.9%).**
+
+5 new tests: under enforce a delivery announces once and a second identical
+detection does not re-fire; the kernel view is authoritative on divergence (a
+"forgotten" kernel episode re-fires the transition and logs the override); the
+kill-switch off reverts to the legacy flag; a `None` kernel view falls back to
+legacy (fail-safe); and a removal still announces when away and resolves the
+episode. Full suite green; audit + adoption + coverage gates clean. Delivery
+enforce flip → **8.60.0 → 8.61.0**.
+
 ## [8.60.0] — MCU Phase R (R1a): delivery decision-parity — the kernel situation store earns the per-camera verdict
 
 Groundwork for a genuine situation enforce. The G-phase review found the

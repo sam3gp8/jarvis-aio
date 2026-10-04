@@ -91,14 +91,22 @@ def kernel_package_present_sync(hass, entity_id: str) -> Optional[bool]:
         return None
 
 
-def record_presence_parity(hass, entity_id: str, legacy_present: bool) -> None:
+_UNREAD = object()   # sentinel: caller did not supply a pre-read kernel view
+
+
+def record_presence_parity(hass, entity_id: str, legacy_present: bool,
+                           *, kernel_present=_UNREAD) -> None:
     """R1a decision-parity: compare the kernel store's per-camera package-present
     view against the legacy in-memory verdict (``prev["package"]``) and log any
     divergence. LOG-ONLY — nothing is gated, no behaviour changes. This earns the
     kernel the right to *own* this verdict (the enforce flip, R1b) only once the
-    logs show the two agree on real traffic."""
+    logs show the two agree on real traffic.
+
+    ``kernel_present`` may be passed by a caller that has already read the store
+    (so the live path reads SQLite only once); when omitted it is read here."""
     global _last_presence_parity
-    kernel_present = kernel_package_present_sync(hass, entity_id)
+    if kernel_present is _UNREAD:
+        kernel_present = kernel_package_present_sync(hass, entity_id)
     if kernel_present is None:
         return                        # no kernel opinion → not a divergence
     agree = (kernel_present == bool(legacy_present))
