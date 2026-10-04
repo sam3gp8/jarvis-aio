@@ -1,3 +1,13 @@
+## [8.52.0] — MCU Phase E (E2): attention — the interruption gate runs in shadow
+
+E2 adopts `kernel.attention`, which generalises the "may JARVIS interrupt right now?" decision (ALLOW / DEFER / SUPPRESS) that today lives in `output_gate` plus the adaptive interruption budget.
+
+- **`output_gate` now computes the kernel arbitration alongside its own decision.** `_can_announce_with_multiplier` was split into the unchanged `_gate_decision` (the legacy verdict) plus a thin wrapper that runs `attention.arbitrate` over a context mapped from the gate's live state (priority from urgency, recent-interruption count, effective cap, blanket-shush, duplicate) and logs any divergence at DEBUG.
+- **Shadow, log-only.** The kernel verdict is **ignored** — `output_gate` stays authoritative, every existing announce/suppress/dedup/rate-limit/shush decision is byte-for-byte unchanged, and the shadow is best-effort (a failure never touches the gate). `kernel_adoption` moves `attention` `·` pure → `◐` shadow (owner `output_gate`).
+- **Coverage unchanged (17.9%)** — attention is a cognition primitive on the *adoption* matrix, not a behaviour-bearing spine path. Behaviour is identical.
+
+7 new tests: the gate's decisions (normal allow, blanket-shush blocks even critical, critical bypass, dedup) are unchanged with the shadow active; the shadow helper runs across all priority mappings without raising and logs on divergence; and the duplicate→SUPPRESS mapping is pinned. The full output-gate + budget suites stay green. Phase E → middle-digit bump **8.51.0 → 8.52.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.51.0] — MCU Phase E (E1): beliefs — knowledge confidences as a kernel belief model
 
 Phase E begins the cognition primitives. E1 adopts `kernel.beliefs`: the flat per-fact `confidence` numbers scattered across the knowledge store are now also expressible through the kernel's probabilistic belief model (log-odds pooling, evidence, decay, contradiction).

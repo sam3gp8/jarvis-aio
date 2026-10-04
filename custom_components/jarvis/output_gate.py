@@ -101,7 +101,58 @@ def _budget_multiplier() -> float:
     return mult
 
 
+def _attention_shadow(*, category: str, urgency: str, reason: str,
+                      budget_multiplier: float, max_per_hour: int,
+                      allowed: bool) -> None:
+    """MCU Phase E (E2): compute the kernel attention arbitration ALONGSIDE the
+    legacy gate decision and log any disagreement. SHADOW — the kernel result is
+    ignored and ``output_gate`` stays authoritative; best-effort, never affects
+    the gate. Establishes ``kernel.attention`` as a live-wired primitive."""
+    try:
+        from .kernel import attention as A
+        pri = (A.CRITICAL if urgency == "critical"
+               else A.HIGH if urgency == "high" else A.NORMAL)
+        eff_max = max(1, int(round(max_per_hour * budget_multiplier)))
+        recent = len(_recent_within(_STATE.history, 3600) + _STATE.reservations)
+        ctx = A.AttentionContext(
+            budget_remaining=max(0.0, 1.0 - recent / eff_max),
+            recent_interruptions=recent, max_recent=eff_max,
+            shushed=_STATE.mute_all,
+            duplicate=reason.startswith("duplicate"),
+        )
+        dec = A.arbitrate(A.AttentionRequest(category=category, priority=pri), ctx)
+        if dec.allowed != allowed:
+            _LOGGER.debug(
+                "attention shadow divergence: kernel=%s (%s) vs legacy allowed=%s (%s)",
+                dec.decision, dec.reason, allowed, reason)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
 def _can_announce_with_multiplier(
+    budget_multiplier: float,
+    *,
+    entity_id: str,
+    category: str,
+    urgency: str,
+    message: str,
+    max_per_hour: int = DEFAULT_MAX_PER_HOUR,
+    dedup_minutes: int = DEFAULT_DEDUP_MINUTES,
+    reservation_id: Optional[str] = None,
+) -> tuple[bool, str]:
+    """Decide whether this announcement can proceed, then (E2) run the kernel
+    attention arbitration in shadow alongside it."""
+    allowed, reason = _gate_decision(
+        budget_multiplier, entity_id=entity_id, category=category,
+        urgency=urgency, message=message, max_per_hour=max_per_hour,
+        dedup_minutes=dedup_minutes, reservation_id=reservation_id)
+    _attention_shadow(category=category, urgency=urgency, reason=reason,
+                      budget_multiplier=budget_multiplier,
+                      max_per_hour=max_per_hour, allowed=allowed)
+    return allowed, reason
+
+
+def _gate_decision(
     budget_multiplier: float,
     *,
     entity_id: str,
