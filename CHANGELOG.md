@@ -1,3 +1,13 @@
+## [8.55.0] — MCU Phase F (F1): goals expressed as kernel Plans
+
+F1 begins Phase F (agency). A goal is a plan pursued across time, so `goals` now expresses each goal's ordered steps as a kernel `Plan`.
+
+- **`goals.create` mirrors the goal's steps into a `kernel.plan.Plan`** (`_shadow_plan`): one `Step` per goal step (the step text as the action, its number + status as params), under a `Plan` named for the goal. Built and logged alongside the goal.
+- **Shadow, log-only.** The Plan is **never executed or consulted** — the goal store stays authoritative and goal creation is behaviour-identical. Best-effort: a failure never affects `goals.create`. `kernel_adoption` now lists `goals` as a live `plan` caller (alongside `actuation`, `agent`); `plan` stays at parity.
+- **Coverage unchanged (17.9%)** — this deepens an existing primitive's adoption, not a behaviour-bearing spine path.
+
+3 new tests: the goal-steps → Plan mapping (actions + params), the empty/None-steps safe paths, and `goals.create` still returning and persisting the goal with its steps intact. The goals suite stays green. Phase F → middle-digit bump **8.54.0 → 8.55.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.54.0] — MCU Phase E (E4): agency self-limits — loop detector + budget in shadow
 
 E4 wires the two kernel primitives that watch JARVIS's *own* actuation rate. Both were **pure** (nothing consulted them); this brings them to **shadow** — not the "advisory→enforce" the roadmap sketched, because they were never advisory, and because *enforcing* them gates live actuation, which is owner-gated.

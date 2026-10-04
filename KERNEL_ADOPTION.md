@@ -97,7 +97,11 @@ reach enforce on its own; a decision primitive may not.
   postconditions, with an idempotency key) and logs it. Shadow, not parity:
   `kernel.plan.execute_plan` is synchronous while HA actuation is `await`-ed, so
   the plan describes the actuation but legacy code still performs it — having the
-  plan own execution needs an async driver and is a later step.
+  plan own execution needs an async driver and is a later step. As of Phase B
+  (B4/B4b) `control_device` and `execute_plan` route execution *through* the async
+  planner (`aexecute_plan`), and as of **F1** (MCU Phase F) `goals` expresses each
+  goal's ordered steps as a kernel `Plan` in shadow — a goal is a plan pursued
+  across time — so `plan`'s live callers are `actuation`, `agent` and `goals`.
 - **event** is at parity across `agent`, `camera`, `observer`, `proactive_audio`.
   As of 8.32.0 (MCU Phase A) `control_device` publishes a canonical actuation
   `JarvisEvent` (`from_actuation`) on the bus, which the ledger records — so the
