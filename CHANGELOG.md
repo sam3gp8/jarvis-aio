@@ -1,3 +1,12 @@
+## [8.38.0] — MCU Phase B (B2): set_mode on the kernel contract
+
+Second Phase B adoption — `set_mode` (switch JARVIS's operational mode) records its change through the shared `actuation` envelope.
+
+- **`set_mode` routes through the envelope**: a canonical `ActuatorRequest`, a one-step shadow `Plan`, and a canonical actuation `JarvisEvent` on the bus, emitted right after the mode scene is applied. **`set_mode` is a directive, not a single-entity actuation** — its home effect is the applied mode scene — so there is **no WorldModel entity context** (no `world_model` cell) and **no deterministic end-state** (no verify/outcome). The actuation event's target is the **mode name**. **No behaviour change** — same mode switch, same result JSON; the envelope only describes and records.
+- **Honest coverage: 9.5% → 11.0%.** `set_mode` rises from all-`·` to `event ◑`, `plan ◐`.
+
+2 new tests (a successful mode switch publishes the actuation event with capability `jarvis.set_mode` and the mode as target; a failed switch publishes nothing). Authority stays **log-only / owner-gated** — unchanged. Kernel wiring → middle-digit bump **8.37.0 → 8.38.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.37.0] — MCU Phase B (B1): run_scene_or_script on the kernel contract
 
 First Phase B *adoption* — now that B0 extracted the shared `actuation` envelope, migrating a path is small. `run_scene_or_script` (activate a scene / script / automation) is the lowest-risk actuator, so it goes first.
