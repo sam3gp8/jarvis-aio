@@ -26,7 +26,7 @@ drift into fiction.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `control_device` | ◑ | ◑ | · | ◑ | ◐ | ● | ● |
 | `bulk_control` | · | · | · | · | · | · | · |
-| `execute_plan` | · | · | · | · | · | · | · |
+| `execute_plan` | ◑ | · | · | · | ● | · | · |
 | `run_scene_or_script` | ◑ | ◑ | · | · | ◐ | · | · |
 | `set_mode` | ◑ | · | · | · | ◐ | · | · |
 | `intrusion` | · | · | ◑ | · | · | · | · |
@@ -35,10 +35,10 @@ drift into fiction.
 | `friday` | · | · | · | · | · | · | · |
 | `homer` | · | · | · | · | · | · | · |
 
-**Kernel coverage: 11.0%** (· none ◐ shadow ◑ parity ● full)
+**Kernel coverage: 13.3%** (· none ◐ shadow ◑ parity ● full)
 <!-- END kernel-coverage -->
 
-**11.0% is the honest number today** — most paths are still legacy, exactly the
+**13.3% is the honest number today** — most paths are still legacy, exactly the
 state the audit flagged ("the kernel is not yet the operating system of JARVIS").
 It *dropped* from 8.9% at 8.34.0 on purpose: the new governance gate (below)
 surfaced two consequential tools that were acting on the home without being in
@@ -100,8 +100,11 @@ one release at a time.
   (`event` ◑, `plan` ◐). It is not a single-entity actuation (its home effect is
   the applied mode scene), so there is no `world_model` entity context and no
   verify/outcome; the actuation event's target is the mode name.
-- **`bulk_control` / `execute_plan`** — still the legacy in-agent paths (bulk uses
-  only the `policy` confirmation gate; execute_plan does not use `kernel.plan`).
+- **`execute_plan`** (B4) — each step's execution routes through the kernel planner
+  (`aexecute_plan`, `plan` ●) and publishes an actuation event (`event` ◑); steps
+  are arbitrary services, so there is no single expected end-state (no
+  verify/outcome). Behaviour preserved: continue-on-failure, per-step results.
+- **`bulk_control`** — still legacy (only the `policy` confirmation gate).
 - **`goals` / `proactive` / `friday` / `homer`** — not yet wired to any kernel
   contract.
 

@@ -1,3 +1,13 @@
+## [8.40.0] — MCU Phase B (B4): execute_plan on the kernel planner
+
+The audit noted the project had a real `kernel.plan` the live agent's `execute_plan` never used — "a reference implementation, not the runtime planning authority." This migrates it: **every step of a multi-step plan now executes *through* the kernel planner** (`kernel.plan.aexecute_plan`, the async driver from B-async).
+
+- **Each step runs as a one-step kernel plan** — precondition (entity exists) → act (the awaited `hass.services.async_call`, as the planner's `run_step`) → record — and publishes a canonical actuation `JarvisEvent`. The kernel planner, not an ad-hoc loop, now drives execution.
+- **Behaviour is preserved.** Steps still run independently and the loop **continues on failure**, collecting every per-step result (that's why each step is its *own* one-step plan rather than one N-step plan — the planner stops at the first failure). Validation, the per-step confirm-gate (fail-closed), and the `goal/total/succeeded/failed/results` JSON are unchanged. Authority stays **log-only**.
+- **Honest coverage: 11.0% → 13.3%.** `execute_plan` rises from all-`·` to `plan ●` (full — the planner owns execution) and `event ◑`. `kernel_adoption` `plan` `shadow` → **◑ parity** (it now drives real execution, not just shadow-logging).
+
+5 new tests (multi-step success routes through the planner; continue-on-failure with a missing entity; missing-fields error; per-step confirm-gate blocks one step while others run; empty plan). Kernel wiring → middle-digit bump **8.39.0 → 8.40.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.39.0] — MCU Phase B (B-async): the async plan driver
 
 A prerequisite, not a path migration. Real HA actuators `await` their service calls, but `kernel.plan.execute_plan` is **synchronous** — so no path could route an *awaited* action *through* the plan contract (which is why `control_device.plan` has been stuck at shadow). This adds the async sibling.

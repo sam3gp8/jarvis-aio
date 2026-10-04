@@ -68,8 +68,17 @@ _PATHS: dict[str, dict] = {
     },
     # Uses only the legacy policy confirmation gate — no kernel contract yet.
     "bulk_control": {"module": "agent.py", "contracts": {}},
-    # Legacy in-agent executor; the kernel planner (kernel.plan) is not adopted.
-    "execute_plan": {"module": "agent.py", "contracts": {}},
+    # Each step's execution routes through the kernel planner
+    # (aexecute_plan) and publishes an actuation event (B4). Full plan
+    # ownership of execution; steps are arbitrary services, so no single
+    # expected end-state (no verify/outcome cell).
+    "execute_plan": {
+        "module": "agent.py",
+        "contracts": {
+            "plan": {"stage": "full", "evidence": "aexecute_plan"},
+            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+        },
+    },
     # Activates scenes/scripts/automations. Routed through the shared actuation
     # envelope (B1): WorldModel context, actuation event, shadow plan. No
     # deterministic end-state, so no verify/outcome; no confirm-gate, so no

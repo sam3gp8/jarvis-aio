@@ -1635,6 +1635,16 @@ async def _exec_execute_plan(hass: HomeAssistant, args: dict) -> str:
     if not steps:
         return json.dumps({"error": "no steps provided", "goal": goal})
 
+    # MCU Phase B (B4): each step's execution routes through the kernel planner
+    # (kernel.plan.aexecute_plan) as a one-step plan — precondition (entity
+    # exists) → act → record — and publishes a canonical actuation JarvisEvent.
+    # Behaviour is unchanged: steps still run independently and the loop collects
+    # every result (continue-on-failure), which is why each step is its own
+    # one-step plan rather than one N-step plan (the planner stops at the first
+    # failed step). Authority stays as-is (per-step confirm-gate, log-only).
+    from . import actuation
+    from .kernel import plan as _kplan
+
     results = []
     succeeded = 0
     for i, step in enumerate(steps):
@@ -1665,17 +1675,34 @@ async def _exec_execute_plan(hass: HomeAssistant, args: dict) -> str:
                             "ok": False, "error": gate_note or "confirmation required"})
             continue
 
-        try:
-            await hass.services.async_call(
-                domain, service,
-                {"entity_id": entity_id, **extra},
-                blocking=True,
-            )
+        capability = f"{domain}.{service}"
+        svc_data = {"entity_id": entity_id, **extra}
+        areq = actuation.request(capability, entity_id, params=svc_data,
+                                 action=service)
+        kstep = _kplan.Step(action=capability, params=svc_data,
+                            preconditions=(f"exists:{entity_id}",),
+                            idempotency_key=f"{entity_id}:{service}:{i}")
+        kplan_obj = _kplan.Plan(goal=desc, steps=(kstep,),
+                                correlation_id=actuation.correlation_id())
+
+        async def _run(_s, _d=domain, _svc=service, _data=svc_data):
+            await hass.services.async_call(_d, _svc, dict(_data), blocking=True)
+            return True
+
+        async def _check(_cond, _s, _eid=entity_id):
+            return hass.states.get(_eid) is not None
+
+        report = await _kplan.aexecute_plan(kplan_obj, run_step=_run, check=_check)
+        if report.ok:
             succeeded += 1
+            actuation.emit_event(hass, capability, entity_id, action=service,
+                                 request=areq)
             results.append({"step": i + 1, "description": desc, "ok": True})
-        except Exception as exc:
+        else:
+            detail = (report.outcomes[0].detail if report.outcomes else "") \
+                or "step failed"
             results.append({"step": i + 1, "description": desc,
-                            "ok": False, "error": str(exc)})
+                            "ok": False, "error": detail})
 
     return json.dumps({
         "goal": goal,
