@@ -1555,7 +1555,26 @@ async def _exec_bulk_control(hass: HomeAssistant, args: dict) -> str:
     elif action in ("lock",):
         entities = [e for e in entities if (hass.states.get(e) or type("", (), {"state": ""})()).state == "unlocked"]
 
-    from . import policy
+    from . import policy, actuation
+    from .kernel import plan as _kplan
+
+    # MCU Phase B (B3): a bulk operation is an *explicit plan with targets*, not a
+    # privileged shortcut (the audit's P0.3). Record the whole batch as one
+    # N-step kernel Plan (shadow) so it is inspectable, and route each executed
+    # target through the shared actuation envelope (WorldModel context +
+    # canonical ActuatorRequest + actuation JarvisEvent). Fire-and-forget
+    # (blocking=False) as before, so there is no per-device verify/outcome, and
+    # protected devices are still skipped. Best-effort — the envelope never
+    # affects whether a device is changed.
+    bulk_plan = _kplan.Plan(
+        goal=f"bulk {action} {domain} in {area_name or 'home'}",
+        steps=tuple(_kplan.Step(action=f"{e.split('.')[0]}.{action}",
+                                params={"entity_id": e},
+                                idempotency_key=f"{e}:{action}") for e in entities),
+        correlation_id=actuation.correlation_id())
+    _LOGGER.debug("plan(shadow,bulk): goal=%s targets=%d",
+                  bulk_plan.goal, len(bulk_plan.steps))
+
     success = 0
     blocked = 0
     for eid in entities:
@@ -1574,8 +1593,14 @@ async def _exec_bulk_control(hass: HomeAssistant, args: dict) -> str:
                 if policy.requires_confirmation(hass, sd, sn, eid):
                     blocked += 1
                     continue
+                capability = f"{sd}.{sn}"
+                ctx = actuation.context(hass, eid)
+                areq = actuation.request(capability, eid,
+                                         params={"entity_id": eid}, action=action)
                 await hass.services.async_call(sd, sn, {"entity_id": eid}, blocking=False)
                 success += 1
+                actuation.emit_event(hass, capability, eid, action=action,
+                                     area=ctx["area"], request=areq)
         except Exception as exc:
             _LOGGER.warning("JARVIS: bulk device control failed: %s", exc)
 
