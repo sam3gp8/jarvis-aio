@@ -52,7 +52,7 @@ explicit per-flip owner go/no-go.
 <!-- BEGIN kernel-adoption (python3 scripts/kernel_adoption.py --markdown) -->
 | Primitive | Stage | Live callers |
 | --- | --- | --- |
-| `actuator` | ◑ parity | `actuation`, `agent` |
+| `actuator` | ● enforce | `actuation`, `agent` |
 | `attention` | ◐ shadow | `output_gate` |
 | `authority` | ● enforce | `authority_bridge` |
 | `beliefs` | ◐ shadow | `agent` |

@@ -68,7 +68,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 <!-- BEGIN kernel-stage-ledger (python3 scripts/kernel_docs_sync.py --write) -->
 | Primitive | Stage |
 | --- | --- |
-| `actuator` | ◑ parity |
+| `actuator` | ● enforce |
 | `attention` | ◐ shadow |
 | `authority` | ● enforce |
 | `beliefs` | ◐ shadow |

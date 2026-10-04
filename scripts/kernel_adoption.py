@@ -110,9 +110,14 @@ _DECLARED: dict[str, dict] = {
     # it fails open, and a one-line kill-switch (AGENCY_BUDGET_ENFORCE) reverts it
     # to shadow. Enforce = authoritative on >=1 live path.
     "budget":       {"stage": "enforce", "owners": ["actuation"]},
-    # control_device builds an ActuatorRequest (with expected_outcome) and the
-    # verify step produces the canonical ActuatorOutcome — 8.31.0, MCU Phase A.
-    "actuator":     {"stage": "parity",  "owners": ["actuation", "agent"]},
+    # actuator: ENFORCE (MCU Phase H, H1). actuation.execute_actuator is the
+    # universal actuator SEAM — one authoritative Execution (through the kernel
+    # planner) -> Event -> Verification/Outcome composition. control_device now
+    # genuinely routes its execution through it (not a shadow contract), so the
+    # seam is authoritative on >=1 live path (same bar as world_model/situation).
+    # bulk_control, scenes, goals, proactive, FRIDAY, HOMER and safety migrate
+    # onto the same seam next.
+    "actuator":     {"stage": "enforce", "owners": ["actuation", "agent"]},
 }
 
 _STAGE_ICON = {"pure": "·", "shadow": "◐", "parity": "◑", "enforce": "●"}

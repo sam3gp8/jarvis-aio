@@ -292,3 +292,58 @@ def outcome(request, status: str, hass, entity_id: str, detail: str = "") -> Non
         _LOGGER.debug("actuator(outcome): %s", oc.to_dict())
     except Exception:   # pragma: no cover - defensive
         pass
+
+
+async def execute_actuator(hass, *, capability: str, entity_id: str,
+                           domain: str, service: str, data: dict,
+                           action: str = "", areq=None,
+                           area: Optional[str] = None, verify=None):
+    """MCU Phase H (H1) — the **universal actuator seam**.
+
+    One authoritative place every consequential actuation converges on, composing
+    a single ActuatorRequest's **Execution → Event → (scheduled) Verification /
+    Outcome** — instead of each path re-assembling the envelope by hand. This is
+    the control_device golden path turned into the reusable framework the audit
+    asked for; migrating paths call this rather than open-coding plan-execute +
+    emit_event + verify.
+
+    - Execution routes **through** ``kernel.plan.aexecute_plan`` (the plan
+      contract: precondition → act), so the actuation genuinely passes the kernel
+      planner. ``domain``/``service``/``data`` are the HA service call it performs.
+    - On success the canonical actuation JarvisEvent is published (``emit_event``).
+    - ``verify`` — optional 0-arg coroutine factory — is *scheduled* (not awaited)
+      after a successful execute: the caller's verify-after-act, which records the
+      terminal ActuatorOutcome. ``None`` → no verify (non-deterministic actions).
+
+    Returns ``(ok: bool, detail: str)``; a failed/blocked plan yields
+    ``(False, detail)`` — the same error contract the inline path produced. Never
+    raises for control flow."""
+    from .kernel import plan as _kplan
+    kp = _kplan.Plan(
+        goal=(f"{action} {entity_id}".strip() or capability),
+        steps=(_kplan.Step(
+            action=capability, params=dict(data),
+            preconditions=(f"exists:{entity_id}",),
+            idempotency_key=(f"{entity_id}:{action}" if action else None)),),
+        correlation_id=(getattr(areq, "correlation_id", None) or correlation_id()))
+
+    async def _run(_s):
+        await hass.services.async_call(domain, service, dict(data), blocking=True)
+        return True
+
+    async def _chk(_c, _s):
+        return hass.states.get(entity_id) is not None
+
+    rep = await _kplan.aexecute_plan(kp, run_step=_run, check=_chk)
+    if not rep.ok:
+        det = (rep.outcomes[0].detail if rep.outcomes else "") or "action failed"
+        return False, det
+    if capability:
+        emit_event(hass, capability, entity_id, action=action, area=area,
+                   request=areq)
+    if verify is not None:
+        try:
+            hass.async_create_task(verify())
+        except Exception:   # pragma: no cover - defensive
+            pass
+    return True, ""
