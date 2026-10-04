@@ -64,6 +64,16 @@ IGNORE_FILE = config_path_str(".jarvis_ignore_rules.json")
 # legacy inline thresholds on the next load — a one-line revert.
 HAZARD_SITUATION_ENFORCE = True
 
+# MCU Phase R (R3b) — intrusion entry-gate ENFORCE kill-switch. When True
+# (default), the kernel intrusion_gate is authoritative for whether a possible-
+# intrusion investigation opens, including its residents-tracked-home veto (an
+# awake, positively tracked-home resident never opens one — the fix for the
+# real-world false alarms where a resident on camera at home, under a degraded
+# confinement hold from an unavailable alarm panel, was investigated as an
+# intruder). Flip to False to revert to the pure legacy precondition on the next
+# load. The gate fails safe to the legacy decision on any kernel fault.
+INTRUSION_GATE_ENFORCE = True
+
 # Freeze verdict severity order, so _check_freeze can take the MORE-SEVERE of the
 # kernel and legacy verdicts (fail toward alerting — never miss a freeze alert).
 _FREEZE_SEVERITY = {"critical": 3, "warning": 2, "clear": 1, "none": 0}
@@ -617,20 +627,52 @@ class SafetyManager:
         except Exception:
             return False
 
-    def _record_intrusion_gate_parity(self, legacy_open: bool, *, away: bool,
-                                      require_corroboration: bool,
-                                      alarm_armed: bool, open_entry: bool) -> None:
-        """MCU Phase R (R3a): best-effort, log-only intrusion entry-gate parity.
-        We only reach the corroboration decision with qualifying motion present,
-        so ``qualifying_motion=True`` here. Never raises into the intrusion path."""
+    def _resident_tracked_home(self) -> bool:
+        """A household resident is POSITIVELY tracked home — a person or
+        device_tracker reading ``home`` (never motion/occupancy, which is what
+        intrusion judges). Used as the entry-gate veto: an awake tracked-home
+        resident means motion is them. Read through the WorldModel facade with a
+        raw fallback (safety read), mirroring ``_residents_away``."""
+        try:
+            wm = WorldModel(self.hass)
+            persons = [d["state"] for d in wm.devices(domain="person")]
+            trackers = [d["state"] for d in wm.devices(domain="device_tracker")]
+        except Exception:  # noqa: BLE001 — safety read must never raise
+            persons = [st.state for st in self.hass.states.async_all("person")]
+            trackers = [st.state for st in self.hass.states.async_all("device_tracker")]
+        return any(str(s).lower() == "home" for s in persons) \
+            or any(str(s).lower() == "home" for s in trackers)
+
+    def _intrusion_entry_gate(self, *, away: bool, require_corroboration: bool,
+                              alarm_armed: bool, open_entry: bool,
+                              sleeping: bool, legacy_open: bool) -> bool:
+        """MCU Phase R (R3b): decide whether to open a possible-intrusion
+        investigation via the authoritative kernel gate. We only reach here with
+        qualifying motion present (``qualifying_motion=True``). Records the
+        parity log, then — under enforce — returns the kernel verdict (which adds
+        the residents-tracked-home veto); fails safe to the legacy precondition on
+        any kernel fault or with the kill-switch off. Never raises."""
+        residents_home = self._resident_tracked_home()
         try:
             from . import intrusion as _intr
             _intr.record_gate_parity(
                 legacy_open, away=away, qualifying_motion=True,
                 require_corroboration=require_corroboration,
-                alarm_armed=alarm_armed, open_entry=open_entry)
+                alarm_armed=alarm_armed, open_entry=open_entry,
+                residents_tracked_home=residents_home, sleeping=sleeping)
         except Exception:   # pragma: no cover - defensive
             pass
+        if not INTRUSION_GATE_ENFORCE:
+            return legacy_open
+        try:
+            from .kernel.situation import intrusion_gate
+            return intrusion_gate(
+                away=away, qualifying_motion=True,
+                require_corroboration=require_corroboration,
+                alarm_armed=alarm_armed, open_entry=open_entry,
+                residents_tracked_home=residents_home, sleeping=sleeping)
+        except Exception:   # pragma: no cover - defensive, fail safe to legacy
+            return legacy_open
 
     async def _check_intrusion(self, anyone_home: bool,
                                 sleeping: bool, confined: bool = False) -> Optional[dict]:
@@ -679,19 +721,18 @@ class SafetyManager:
             if _require_corr:
                 armed = self._alarm_armed()
                 entry = self._open_entry()
-                if not (armed or entry):
-                    # MCU Phase R (R3a) — intrusion entry-gate decision-parity:
-                    # the kernel agrees we should NOT open an investigation here.
-                    # Log-only; never affects the decision.
-                    self._record_intrusion_gate_parity(
-                        False, away=away, require_corroboration=_require_corr,
-                        alarm_armed=armed, open_entry=bool(entry))
-                    return None
-            # Reached here → the inline path opens an investigation. Record the
-            # kernel entry-gate verdict against that decision (R3a, log-only).
-            self._record_intrusion_gate_parity(
-                True, away=away, require_corroboration=_require_corr,
-                alarm_armed=armed, open_entry=bool(entry))
+            # MCU Phase R (R3b) — the kernel intrusion entry-gate is authoritative.
+            # The legacy precondition would open iff corroboration is satisfied;
+            # the kernel gate adds the residents-tracked-home veto that stops a
+            # resident on camera at home (under a degraded confinement hold) from
+            # being investigated as an intruder. Fail-safe to the legacy decision
+            # on any kernel fault; kill-switch INTRUSION_GATE_ENFORCE.
+            _legacy_open = bool((not _require_corr) or armed or entry)
+            if not self._intrusion_entry_gate(
+                    away=away, require_corroboration=_require_corr,
+                    alarm_armed=armed, open_entry=bool(entry),
+                    sleeping=sleeping, legacy_open=_legacy_open):
+                return None
             breach_name = self._friendly(entry) if entry else None
             breach_area = self._breach_area(entry)
             # Anchor the search at the breach: the intruder enters there, so the

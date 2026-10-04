@@ -51,25 +51,26 @@ _dismissed_decision_generations: set[int] = set()
 
 def record_gate_parity(legacy_open: bool, *, away: bool, qualifying_motion: bool,
                        require_corroboration: bool, alarm_armed: bool,
-                       open_entry: bool):
-    """MCU Phase R (R3a) — intrusion entry-gate decision-parity. Compute the
+                       open_entry: bool, residents_tracked_home: bool = False,
+                       sleeping: bool = False):
+    """MCU Phase R (R3a/R3b) — intrusion entry-gate decision-parity. Compute the
     kernel's pure gate verdict (``kernel.situation.intrusion_gate``) and compare
     it against the live SafetyManager's inline decision to open a possible-
     intrusion investigation (``legacy_open``), logging any divergence.
 
-    LOG-ONLY — the legacy path still owns the intrusion decision entirely. This
-    is the groundwork (and the burn-in) for the eventual enforce flip (R3b),
-    which — because intrusion has no safe fail-toward direction (a false positive
-    re-creates the prior false-alarm bug, a false negative misses a break-in) —
-    must wait until real traffic shows the two agree. Best-effort; returns the
-    kernel verdict (or ``None`` on failure)."""
+    As of R3b the kernel gate is authoritative *and stricter* — it adds a
+    residents-tracked-home veto — so a logged divergence here is now the expected,
+    desired outcome (the kernel declines to open an investigation the legacy
+    precondition would have opened on a tracked-home resident). Best-effort;
+    returns the kernel verdict (or ``None`` on failure)."""
     global _last_gate_parity
     try:
         from .kernel.situation import intrusion_gate
         kernel_open = intrusion_gate(
             away=away, qualifying_motion=qualifying_motion,
             require_corroboration=require_corroboration,
-            alarm_armed=alarm_armed, open_entry=open_entry)
+            alarm_armed=alarm_armed, open_entry=open_entry,
+            residents_tracked_home=residents_tracked_home, sleeping=sleeping)
     except Exception as exc:   # pragma: no cover - defensive
         _LOGGER.debug("intrusion gate parity compute failed: %s", exc)
         return None
@@ -79,6 +80,7 @@ def record_gate_parity(legacy_open: bool, *, away: bool, qualifying_motion: bool
         "agree": agree, "away": away, "qualifying_motion": qualifying_motion,
         "require_corroboration": require_corroboration,
         "alarm_armed": alarm_armed, "open_entry": open_entry,
+        "residents_tracked_home": residents_tracked_home, "sleeping": sleeping,
     }
     if agree:
         _LOGGER.debug("intrusion gate parity OK: open=%s", legacy_open)

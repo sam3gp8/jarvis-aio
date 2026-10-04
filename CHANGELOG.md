@@ -1,3 +1,40 @@
+## [8.68.0] — MCU Phase R (R3b): intrusion entry-gate ENFORCE — and a real false-alarm fix
+
+Completes the intrusion re-architecture, and does more than flip it: it **fixes a
+live false-alarm class**. The kernel intrusion entry-gate is now authoritative in
+`SafetyManager._check_intrusion`, and — unlike the behaviour-preserving flips —
+it is deliberately **stricter** than the legacy precondition.
+
+- **Root cause fixed.** A diagnostic config dump showed the real failure: when the
+  alarm panel (`home_cove_alarm`) flaps to `unavailable`, lockdown is *held* open
+  as a fail-safe, and with `intrusion_requires_confinement` on that held hold made
+  `_check_intrusion` treat the home as "away" (`away = _residents_away() or
+  confined`). A resident moving on camera *at home* (seen in the log: "a man …
+  shirtless, wearing red shorts" in the kitchen) was then investigated as an
+  intruder. The design intent was always "never fire when someone is home" — the
+  `or confined` path violated it.
+- **The fix: a residents-tracked-home veto in the kernel gate.** An awake resident
+  positively tracked home (a `person`/`device_tracker` reading `home`) never opens
+  an intrusion investigation, even under a degraded confinement hold. At night
+  (`sleeping`) the veto lifts, so a genuine break-in while asleep is still
+  monitored. A genuinely armed-away alarm still reads as away (no resident home),
+  so real away-intrusion detection is unaffected.
+- **Authoritative, fail-safe, kill-switched.** `_check_intrusion` consumes the
+  kernel gate's verdict for whether to open an investigation; on any kernel fault
+  it falls back to the legacy precondition, and `cognitive_core.INTRUSION_GATE_ENFORCE
+  = False` reverts entirely. Only the entry gate is kernel-owned; the stateful
+  investigation/escalation and the vision-confirm step remain legacy.
+- **No coverage/stage inflation.** `situation` was already `●` enforce (delivery +
+  freeze); intrusion joins as an authoritative caller. **Coverage unchanged (17.9%).**
+
+10 new tests: the kernel veto blocks an awake tracked-home resident even with
+corroboration and lifts when asleep; `_resident_tracked_home` reads person/tracker
+home; the entry gate vetoes under enforce, obeys the kill-switch, and fails safe to
+legacy on a kernel fault; and two end-to-end regressions — the reported scenario
+(held lockdown + resident home + open window → **no** investigation) and its
+contrast (genuinely away → investigation still opens). Full suite green; all four
+gates clean. Intrusion enforce + false-alarm fix → **8.67.0 → 8.68.0**.
+
 ## [8.67.0] — MCU Phase H (H0): close the governance drift — generated docs + a CI sync gate
 
 An external gap-audit of v8.65 flagged a **critical governance defect**: the

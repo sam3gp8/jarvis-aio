@@ -106,12 +106,23 @@ def freeze_verdict(temp_f: Optional[float], *, warn_f: float, critical_f: float,
 
 def intrusion_gate(*, away: bool, qualifying_motion: bool,
                    require_corroboration: bool, alarm_armed: bool,
-                   open_entry: bool) -> bool:
+                   open_entry: bool, residents_tracked_home: bool = False,
+                   sleeping: bool = False) -> bool:
     """Should a *possible-intrusion investigation* open for this motion? Pure.
 
     Mirrors the entry precondition in the live SafetyManager intrusion path — the
     false-alarm-critical decision that raises the initial "possible intrusion —
     investigating" alert. It opens only when:
+      * **no awake resident is positively tracked home while the alarm is not
+        armed** — an awake, tracked-home resident with the alarm unarmed means the
+        motion is *them*, not an intruder, so the gate never opens even if
+        confinement is engaged by a degraded hold (e.g. a lockdown held open
+        because the alarm panel is ``unavailable``). This veto is the fix for the
+        real-world false alarms where a resident on camera at home was investigated
+        as an intruder. The veto deliberately does **not** apply when the alarm is
+        explicitly **armed** (``armed_home``/``armed_night``/``armed_away`` — the
+        user opted in to monitoring while home) nor at night (``sleeping``), so a
+        genuine break-in is still monitored in both cases.
       * presence is **away** (or confinement is engaged), AND
       * there is **qualifying motion**, AND
       * when corroboration is required, there is an **armed alarm or an open
@@ -119,9 +130,9 @@ def intrusion_gate(*, away: bool, qualifying_motion: bool,
 
     Deterministic and side-effect-free. The stateful parts of the investigation
     (cooldown, call-off, resident-on-camera, zone-spread escalation) stay in the
-    caller — this is only the gate that decides whether to begin. The prior
-    false-intrusion bug lived on exactly this precondition, which is why the
-    kernel earns it first (decision-parity) before any enforce flip."""
+    caller — this is only the gate that decides whether to begin."""
+    if residents_tracked_home and not sleeping and not alarm_armed:
+        return False
     if not away or not qualifying_motion:
         return False
     if require_corroboration and not (alarm_armed or open_entry):
