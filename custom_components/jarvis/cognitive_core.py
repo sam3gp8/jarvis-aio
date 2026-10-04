@@ -37,6 +37,7 @@ from typing import Optional
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.util import dt as dt_util
 
+from .kernel.world_model import WorldModel
 from .paths import config_path_str
 from .sqlite_utils import ClosingConnection
 
@@ -401,10 +402,15 @@ class SafetyManager:
         return None
 
     def _alarm_armed(self) -> bool:
-        for st in self.hass.states.async_all("alarm_control_panel"):
-            if st.state in ALARM_ARMED_STATES:
-                return True
-        return False
+        # MCU Phase C (C2): alarm context read through the WorldModel facade, which
+        # reads the same async_all("alarm_control_panel") source verbatim. Falls
+        # back to the raw sweep on any facade failure (safety read).
+        try:
+            alarms = [d["state"] for d in WorldModel(self.hass).devices(
+                domain="alarm_control_panel")]
+        except Exception:  # noqa: BLE001 — safety read must never raise
+            alarms = [st.state for st in self.hass.states.async_all("alarm_control_panel")]
+        return any(s in ALARM_ARMED_STATES for s in alarms)
 
     def _friendly(self, eid: Optional[str]) -> Optional[str]:
         if not eid:
@@ -1138,24 +1144,42 @@ class SafetyManager:
         device_tracker entities we cannot claim the house is empty, so this returns
         False and motion is never treated as an intruder. That is what prevents the
         false "motion … while no one is home" alerts when someone is home but their
-        phone isn't tracked."""
+        phone isn't tracked.
+
+        MCU Phase C (C2): the presence/alarm context is read through the kernel
+        WorldModel facade. ``WorldModel.devices(domain=X)`` reads the SAME
+        ``hass.states.async_all(X)`` source and preserves every entity's state
+        verbatim, so the away decision below is behaviour-identical (locked by
+        test_residents_away_worldmodel_parity). Because this is an intrusion-safety
+        read, any facade failure falls back to the raw state sweep so the legacy
+        decision always stands — an empty person/tracker list is a *meaningful*
+        'untracked' signal here, never treated as a facade failure."""
+        try:
+            wm = WorldModel(self.hass)
+            persons = [d["state"] for d in wm.devices(domain="person")]
+            trackers = [d["state"] for d in wm.devices(domain="device_tracker")]
+            alarms = [d["state"] for d in wm.devices(domain="alarm_control_panel")]
+        except Exception:  # noqa: BLE001 — safety read must never raise
+            persons = [st.state for st in self.hass.states.async_all("person")]
+            trackers = [st.state for st in self.hass.states.async_all("device_tracker")]
+            alarms = [st.state for st in self.hass.states.async_all("alarm_control_panel")]
         # A resident's device/person reading 'home' wins outright.
-        for st in self.hass.states.async_all("person"):
-            if str(st.state).lower() == "home":
+        for s in persons:
+            if str(s).lower() == "home":
                 return False
-        for st in self.hass.states.async_all("device_tracker"):
-            if str(st.state).lower() == "home":
+        for s in trackers:
+            if str(s).lower() == "home":
                 return False
         # An intentionally armed-away alarm is a strong 'away' signal.
-        for st in self.hass.states.async_all("alarm_control_panel"):
-            if str(st.state).lower() in ("armed_away", "armed_vacation"):
+        for s in alarms:
+            if str(s).lower() in ("armed_away", "armed_vacation"):
                 return True
         # Otherwise, only 'away' if presence is actually tracked and reads away.
         tracked = False
-        for st in self.hass.states.async_all("person"):
+        for s in persons:
             tracked = True
-        for st in self.hass.states.async_all("device_tracker"):
-            if str(st.state).lower() in ("home", "not_home", "away"):
+        for s in trackers:
+            if str(s).lower() in ("home", "not_home", "away"):
                 tracked = True
         return tracked
 
@@ -1293,10 +1317,15 @@ class LockdownManager:
         }
 
     def _alarm_armed(self) -> bool:
-        for st in self.hass.states.async_all("alarm_control_panel"):
-            if st.state in ALARM_ARMED_STATES:
-                return True
-        return False
+        # MCU Phase C (C2): alarm context read through the WorldModel facade, which
+        # reads the same async_all("alarm_control_panel") source verbatim. Falls
+        # back to the raw sweep on any facade failure (safety read).
+        try:
+            alarms = [d["state"] for d in WorldModel(self.hass).devices(
+                domain="alarm_control_panel")]
+        except Exception:  # noqa: BLE001 — safety read must never raise
+            alarms = [st.state for st in self.hass.states.async_all("alarm_control_panel")]
+        return any(s in ALARM_ARMED_STATES for s in alarms)
 
     def _anyone_home(self) -> bool:
         """True if anyone is home — by tracked presence OR live occupancy. Used by
@@ -1304,17 +1333,32 @@ class LockdownManager:
         'someone is home' (these checks are not motion-triggered, so counting
         occupancy here is safe). Intrusion deliberately does NOT use this — it uses
         _residents_away, because an intruder's own motion would otherwise mask the
-        alarm."""
-        for st in self.hass.states.async_all("person"):
-            if str(st.state).lower() == "home":
+        alarm.
+
+        MCU Phase C (C2): presence/occupancy context read through the WorldModel
+        facade, which reads the same async_all(domain) sources and preserves each
+        entity's state and attributes verbatim — behaviour-identical. Falls back to
+        the raw sweep on any facade failure (safety-adjacent read)."""
+        try:
+            wm = WorldModel(self.hass)
+            persons = [d["state"] for d in wm.devices(domain="person")]
+            trackers = [d["state"] for d in wm.devices(domain="device_tracker")]
+            bsensors = [(d["state"], d["attributes"].get("device_class"))
+                        for d in wm.devices(domain="binary_sensor")]
+        except Exception:  # noqa: BLE001 — safety-adjacent read must never raise
+            persons = [st.state for st in self.hass.states.async_all("person")]
+            trackers = [st.state for st in self.hass.states.async_all("device_tracker")]
+            bsensors = [(st.state, st.attributes.get("device_class"))
+                        for st in self.hass.states.async_all("binary_sensor")]
+        for s in persons:
+            if str(s).lower() == "home":
                 return True
-        for st in self.hass.states.async_all("device_tracker"):
-            if str(st.state).lower() == "home":
+        for s in trackers:
+            if str(s).lower() == "home":
                 return True
         occ_on = ("on", "detected", "occupied", "home", "true")
-        for st in self.hass.states.async_all("binary_sensor"):
-            if (st.attributes.get("device_class") in ("occupancy", "motion", "presence")
-                    and str(st.state).lower() in occ_on):
+        for state, dc in bsensors:
+            if dc in ("occupancy", "motion", "presence") and str(state).lower() in occ_on:
                 return True
         return False
 
