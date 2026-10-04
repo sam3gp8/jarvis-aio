@@ -1,3 +1,13 @@
+## [8.53.0] — MCU Phase E (E3): router — local-first provider routing in shadow
+
+E3 adopts `kernel.router`, which formalises JARVIS's local-first model/provider selection: given a task's requirements and the available providers, pick the best allowed one, preferring local.
+
+- **`reasoning_loop` now computes the kernel route alongside its live decision.** When a sensor event has no fresh reasoning-cache hit, JARVIS routes to the cloud LLM if the connectivity breaker is closed, or to the local Mind if it is OPEN. `_router_shadow` builds the two providers (local always-available; cloud available iff the breaker allows a request) and runs `router.route` over them, logging any divergence at DEBUG.
+- **Shadow, log-only, behaviour-preserving.** The kernel verdict is **ignored** — `connectivity`'s breaker stays authoritative. Crucially, `connectivity.allow_request()` is called **exactly once** and its value reused for both the shadow and the live branch: that call *mutates* the half-open probe counter, so calling it twice would waste the breaker's recovery probe. (A first pass that double-called it was caught by the reasoning-cascade recovery test and fixed before merge.) `kernel_adoption` moves `router` `·` pure → `◐` shadow (owner `reasoning_loop`).
+- **Coverage unchanged (17.9%)** — router is a cognition primitive on the *adoption* matrix, not a behaviour-bearing spine path. Behaviour is identical.
+
+4 new tests: the shadow never raises and agrees with the live decision online and offline (no divergence logged), plus the underlying kernel route mapping (cloud preferred when available, local fallback when the cloud is down). The reasoning-cascade + breaker-recovery suites stay green. Phase E → middle-digit bump **8.52.0 → 8.53.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.52.0] — MCU Phase E (E2): attention — the interruption gate runs in shadow
 
 E2 adopts `kernel.attention`, which generalises the "may JARVIS interrupt right now?" decision (ALLOW / DEFER / SUPPRESS) that today lives in `output_gate` plus the adaptive interruption budget.

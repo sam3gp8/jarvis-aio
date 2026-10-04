@@ -31,6 +31,34 @@ from .directive_helper import build_system_prompt
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _router_shadow(online: bool) -> None:
+    """MCU Phase E (E3): compute the kernel local-first provider route ALONGSIDE
+    the live local/cloud reasoning decision and log any divergence.
+
+    The reasoning path routes to the cloud LLM when the connectivity breaker is
+    closed, and to the local Mind when it is OPEN. ``kernel.router`` formalises
+    that as a local-first provider selection; here it is run in SHADOW — the
+    kernel result is ignored, the breaker stays authoritative — to establish the
+    primitive as live-wired. Best-effort: never affects reasoning."""
+    try:
+        from .kernel import router as R
+        providers = [
+            R.Provider("local", capabilities=frozenset({"*"}), local=True,
+                       available=True, quality=0.5),
+            R.Provider("cloud", capabilities=frozenset({"*"}), local=False,
+                       available=online, quality=0.9),
+        ]
+        res = R.route(R.TaskRequirements(capability="reasoning"), providers)
+        picked = res.provider.name if res.provider else "none"
+        chosen = "cloud" if online else "local"
+        if picked != chosen:
+            _LOGGER.debug("router shadow divergence: kernel=%s (%s) vs live=%s",
+                          picked, res.reason, chosen)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
 # A safety sensor is only a genuine emergency when it ENTERS an active state.
 # Going unavailable/unknown or returning to normal (off/dry/clear) is not.
 _ACTIVE_TRIGGER_STATES = {"on", "detected", "wet", "triggered", "unsafe"}
@@ -515,8 +543,12 @@ async def decide(
         _LOGGER.info("Reasoning cache hit [%s]: speak=%s", sig, dec.get("speak"))
         return dec
 
-    # No fresh cache → we'd call the cloud. Respect the breaker.
-    if not connectivity.allow_request():
+    # No fresh cache → we'd call the cloud. Respect the breaker. Call
+    # allow_request() exactly once — it mutates the half-open probe counter, so
+    # the E3 shadow must reuse the same value rather than call it again.
+    _cloud_ok = connectivity.allow_request()
+    _router_shadow(_cloud_ok)   # E3: kernel route in shadow (log-only)
+    if not _cloud_ok:
         reasoning_cache.note_hit(sig)
         _LOGGER.info("Reasoning: breaker OPEN — Local Mind for [%s]", sig)
         try:
