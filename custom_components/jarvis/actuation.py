@@ -297,7 +297,8 @@ def outcome(request, status: str, hass, entity_id: str, detail: str = "") -> Non
 async def execute_actuator(hass, *, capability: str, entity_id: str,
                            domain: str, service: str, data: dict,
                            action: str = "", areq=None,
-                           area: Optional[str] = None, verify=None):
+                           area: Optional[str] = None, verify=None,
+                           blocking: bool = True):
     """MCU Phase H (H1) — the **universal actuator seam**.
 
     One authoritative place every consequential actuation converges on, composing
@@ -314,6 +315,9 @@ async def execute_actuator(hass, *, capability: str, entity_id: str,
     - ``verify`` — optional 0-arg coroutine factory — is *scheduled* (not awaited)
       after a successful execute: the caller's verify-after-act, which records the
       terminal ActuatorOutcome. ``None`` → no verify (non-deterministic actions).
+    - ``blocking`` — whether the HA service call waits for completion. Default
+      True (control_device's verify-after-act semantics); bulk/fan-out callers
+      pass False for fire-and-forget across many targets (no per-target verify).
 
     Returns ``(ok: bool, detail: str)``; a failed/blocked plan yields
     ``(False, detail)`` — the same error contract the inline path produced. Never
@@ -328,7 +332,8 @@ async def execute_actuator(hass, *, capability: str, entity_id: str,
         correlation_id=(getattr(areq, "correlation_id", None) or correlation_id()))
 
     async def _run(_s):
-        await hass.services.async_call(domain, service, dict(data), blocking=True)
+        await hass.services.async_call(domain, service, dict(data),
+                                       blocking=blocking)
         return True
 
     async def _chk(_c, _s):
