@@ -103,6 +103,13 @@ def mirror_delivery_sync(hass, entity_id: str, action: str,
             _delivery_situation_ids.pop(entity_id, None)
 
         _record_parity(mgr, action, episode_id)
+        # D4: publish the transition as a canonical JarvisEvent (parity — it
+        # enters the stream + ledger; no consumer reacts yet). Best-effort.
+        if episode_id:
+            sit_after = mgr.get(episode_id)
+            if sit_after is not None:
+                from . import events
+                events.publish_situation(hass, sit_after, action=action)
     except Exception as exc:
         _LOGGER.debug("delivery: situation mirror failed (%s/%s): %s",
                       entity_id, action, exc)

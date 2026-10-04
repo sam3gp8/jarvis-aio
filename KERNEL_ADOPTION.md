@@ -47,7 +47,7 @@ reach enforce on its own; a decision primitive may not.
 | `budget` | · pure | — |
 | `causal` | · pure | — |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
-| `event` | ◑ parity | `actuation`, `camera`, `observer`, `proactive_audio` |
+| `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `journal` | · pure | — |
 | `ledger` | ◐ shadow | `__init__` |

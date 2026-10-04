@@ -29,15 +29,15 @@ drift into fiction.
 | `execute_plan` | ◑ | · | · | · | ● | · | · |
 | `run_scene_or_script` | ◑ | ◑ | · | · | ◐ | · | · |
 | `set_mode` | ◑ | · | · | · | ◐ | · | · |
-| `intrusion` | · | · | ◑ | · | · | · | · |
-| `hazard` | · | · | ◑ | · | · | · | · |
-| `delivery` | · | · | ◑ | · | · | · | · |
+| `intrusion` | ◑ | · | ◑ | · | · | · | · |
+| `hazard` | ◑ | · | ◑ | · | · | · | · |
+| `delivery` | ◑ | · | ◑ | · | · | · | · |
 | `goals` | · | · | · | · | · | · | · |
 | `proactive` | · | · | · | · | · | · | · |
 | `friday` | · | · | · | · | · | · | · |
 | `homer` | · | · | · | · | · | · | · |
 
-**Kernel coverage: 15.5%** (· none ◐ shadow ◑ parity ● full)
+**Kernel coverage: 17.9%** (· none ◐ shadow ◑ parity ● full)
 <!-- END kernel-coverage -->
 
 **16.7% is the honest number today** — most paths are still legacy, exactly the
@@ -121,6 +121,13 @@ one release at a time.
   one-shot with no pickup tracking, so there is no sustained episode to mirror
   and none is invented. The delivery announcements and per-camera state machine
   are unchanged — the mirror is additive, off-loop and best-effort.
+- **Situation events (D4)** — `intrusion`, `hazard` and `delivery` each now
+  **publish** a canonical `situation.transition` `JarvisEvent`
+  (`events.publish_situation` → `kernel.from_situation`) on every lifecycle
+  change, so their `event` cell is `◑` parity: the event enters the bus stream and
+  the ledger records it, but **no consumer reacts yet**. Publishing is additive
+  and best-effort — it never affects the underlying intrusion/freeze/delivery
+  handling. This is the step that lifts coverage back up (15.5% → 17.9%).
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
   shared `actuation` envelope for its WorldModel context (`world_model` ◑),
   actuation event (`event` ◑) and shadow plan (`plan` ◐). No deterministic

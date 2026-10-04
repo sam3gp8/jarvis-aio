@@ -1,3 +1,15 @@
+## [8.50.0] — MCU Phase D complete (D4): situations enter the event stream
+
+The final Phase D step. Every tracked situation — intrusion (D1), freeze hazard (D2), package delivery (D3) — now **publishes a canonical `JarvisEvent`** on the kernel event bus when its lifecycle changes, so situations flow through the nervous system the same way perception and actuation already do (MCU audit item #8).
+
+- **New `from_situation` event builder + `EVENT_SITUATION` ("situation.transition")** in `kernel.event`, exported from the kernel package. It carries the situation `kind`, resulting `state`, the `action` (verdict) that drove the transition, `subject`/`location`, and the `situation_id`.
+- **New `events.publish_situation(hass, situation, action=...)`** — the HA-aware bridge that builds the event and publishes it best-effort (no bus wired → silent no-op; never raises).
+- **The three situation mirrors publish on every transition.** Right after each mirror records parity, it fetches the resulting situation and publishes a `situation.transition` event. **Parity, not enforce:** the event enters the bus stream and the ledger records it, but **no consumer reacts to it yet**. Publishing is additive, off-loop and best-effort — it never affects intrusion/freeze/delivery handling.
+- **Honest coverage rises 15.5% → 17.9%.** This is real wiring, not a relabel: the `event` cell flips to `◑` parity on the `intrusion`, `hazard` and `delivery` paths (evidence: `publish_situation` present in each). The adoption matrix adds `events` as a live `event` caller.
+- **Still log-only / owner-gated.** Nothing consumes these events to drive a decision; that (and any situation→authoritative flip) remains an owner-approved step, deliberately not taken.
+
+**This completes MCU Phase D** — Situations are now a first-class, event-publishing part of the kernel across intrusion, hazards and deliveries, all at parity. 6 new tests: the `from_situation` builder, `publish_situation` (reaches the bus; silent without one), and each mirror publishing a correctly-shaped `situation.transition` event on transition. Phase D → middle-digit bump **8.49.0 → 8.50.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.49.0] — MCU Phase D (D3): package deliveries modelled as kernel Situations
 
 Phase D's third situation kind: **deliveries**. The per-camera package lifecycle `package_monitor` already tracks (delivered → sits → removed) is now mirrored into a kernel `Situation` (`kind="delivery"`, `subject=<camera entity_id>`) — parity, log-only — one open episode per camera.
