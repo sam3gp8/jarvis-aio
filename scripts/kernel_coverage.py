@@ -70,9 +70,18 @@ _PATHS: dict[str, dict] = {
     "bulk_control": {"module": "agent.py", "contracts": {}},
     # Legacy in-agent executor; the kernel planner (kernel.plan) is not adopted.
     "execute_plan": {"module": "agent.py", "contracts": {}},
-    # Activates scenes/scripts/automations — a consequential actuator, still
-    # fully legacy. Declared (8.34.0) so the governance gate can see it.
-    "run_scene_or_script": {"module": "agent.py", "contracts": {}},
+    # Activates scenes/scripts/automations. Routed through the shared actuation
+    # envelope (B1): WorldModel context, actuation event, shadow plan. No
+    # deterministic end-state, so no verify/outcome; no confirm-gate, so no
+    # authority cell.
+    "run_scene_or_script": {
+        "module": "agent.py",
+        "contracts": {
+            "world_model": {"stage": "parity", "evidence": "actuation.context"},
+            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
+        },
+    },
     # Mode directive whose entry applies a mode scene (mode_scene) — changes the
     # home, still legacy. Declared (8.34.0) so the governance gate can see it.
     "set_mode": {"module": "agent.py", "contracts": {}},

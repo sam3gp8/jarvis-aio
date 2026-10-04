@@ -1443,10 +1443,25 @@ async def _exec_run_scene_script(hass: HomeAssistant, args: dict) -> str:
     if domain not in ("scene", "script", "automation"):
         return json.dumps({"error": f"Not a scene/script/automation: {entity_id}"})
 
+    # MCU Phase B (B1): route through the shared kernel actuation envelope —
+    # WorldModel context + canonical ActuatorRequest + one-step shadow Plan +
+    # actuation JarvisEvent. A scene/script/automation has no single expected
+    # end-state, so there is no verify-after-act / outcome here. Authority stays
+    # as-is (this path has no confirm-gate) and log-only. Best-effort — the
+    # envelope never affects whether the activation runs.
+    from . import actuation
+    ctx = actuation.context(hass, entity_id)
     try:
         svc = "turn_on" if domain in ("scene", "script") else "trigger"
+        capability = f"{domain}.{svc}"
+        areq = actuation.request(capability, entity_id,
+                                 params={"entity_id": entity_id}, action=svc)
         await hass.services.async_call(domain, svc, {"entity_id": entity_id}, blocking=True)
-        return json.dumps({"success": True, "entity_id": entity_id, "action": "activated"})
+        actuation.plan_shadow(capability, entity_id, svc, None)
+        actuation.emit_event(hass, capability, entity_id, action=svc,
+                             area=ctx["area"], request=areq)
+        return json.dumps({"success": True, "entity_id": entity_id,
+                           "action": "activated", "area": ctx["area"]})
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 

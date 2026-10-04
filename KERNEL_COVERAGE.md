@@ -27,7 +27,7 @@ drift into fiction.
 | `control_device` | ◑ | ◑ | · | ◑ | ◐ | ● | ● |
 | `bulk_control` | · | · | · | · | · | · | · |
 | `execute_plan` | · | · | · | · | · | · | · |
-| `run_scene_or_script` | · | · | · | · | · | · | · |
+| `run_scene_or_script` | ◑ | ◑ | · | · | ◐ | · | · |
 | `set_mode` | · | · | · | · | · | · | · |
 | `intrusion` | · | · | ◑ | · | · | · | · |
 | `goals` | · | · | · | · | · | · | · |
@@ -35,10 +35,10 @@ drift into fiction.
 | `friday` | · | · | · | · | · | · | · |
 | `homer` | · | · | · | · | · | · | · |
 
-**Kernel coverage: 7.1%** (· none ◐ shadow ◑ parity ● full)
+**Kernel coverage: 9.5%** (· none ◐ shadow ◑ parity ● full)
 <!-- END kernel-coverage -->
 
-**7.1% is the honest number today** — most paths are still legacy, exactly the
+**9.5% is the honest number today** — most paths are still legacy, exactly the
 state the audit flagged ("the kernel is not yet the operating system of JARVIS").
 It *dropped* from 8.9% at 8.34.0 on purpose: the new governance gate (below)
 surfaced two consequential tools that were acting on the home without being in
@@ -91,6 +91,10 @@ one release at a time.
   The farthest-along path.
 - **`intrusion`** — mirrors its lifecycle into the kernel **Situation** state
   machine at parity.
+- **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
+  shared `actuation` envelope for its WorldModel context (`world_model` ◑),
+  actuation event (`event` ◑) and shadow plan (`plan` ◐). No deterministic
+  end-state, so no verify/outcome; no confirm-gate, so no authority cell.
 - **`bulk_control` / `execute_plan`** — still the legacy in-agent paths (bulk uses
   only the `policy` confirmation gate; execute_plan does not use `kernel.plan`).
 - **`goals` / `proactive` / `friday` / `homer`** — not yet wired to any kernel
