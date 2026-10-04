@@ -374,6 +374,27 @@ class SafetyManager:
         honorific = self.config.get("honorific", "sir")
         lang = _hass_lang(self.hass)
 
+        # MCU Phase R (R2a) — freeze decision-parity: compare the kernel's pure
+        # threshold verdict against this inline threshold category and log any
+        # divergence. LOG-ONLY — the branches below still drive the alert. Earns
+        # the kernel the right to own the freeze verdict (the flip, R2b). Best-
+        # effort; never affects freeze alerting.
+        try:
+            from . import hazard_situation
+            if temp_f <= FREEZE_CRITICAL_TEMP_F:
+                _legacy_fv = "critical"
+            elif temp_f <= FREEZE_WARN_TEMP_F:
+                _legacy_fv = "warning"
+            elif temp_f > FREEZE_WARN_TEMP_F + 5:
+                _legacy_fv = "clear"
+            else:
+                _legacy_fv = "none"
+            hazard_situation.record_freeze_verdict_parity(
+                temp_f, _legacy_fv, warn_f=FREEZE_WARN_TEMP_F,
+                critical_f=FREEZE_CRITICAL_TEMP_F)
+        except Exception:   # pragma: no cover - defensive
+            pass
+
         if temp_f <= FREEZE_CRITICAL_TEMP_F:
             self._last_freeze_alert = now
             await self._mirror_freeze_hazard("critical", reading)

@@ -28,6 +28,33 @@ _LOGGER = logging.getLogger(__name__)
 _mgr = None                               # lazily-built kernel.SituationManager
 _freeze_situation_id: Optional[str] = None   # current open freeze episode, if any
 _last_parity: Optional[dict] = None          # most recent parity comparison (tests)
+_last_verdict_parity: Optional[dict] = None  # R2a freeze-verdict parity (tests)
+
+
+def record_freeze_verdict_parity(temp_f: Optional[float], legacy_verdict: str, *,
+                                 warn_f: float, critical_f: float) -> str:
+    """MCU Phase R (R2a) — freeze decision-parity. Compute the kernel's pure
+    threshold verdict for ``temp_f`` and compare it against the live
+    SafetyManager's inline threshold category (``legacy_verdict``), logging any
+    divergence. LOG-ONLY — the legacy threshold still drives the alert. This earns
+    the kernel the right to *own* the freeze verdict (the flip, R2b) only once the
+    two agree on real readings. Returns the kernel verdict (for the caller/tests).
+    """
+    global _last_verdict_parity
+    from .kernel.situation import freeze_verdict
+    kernel_verdict = freeze_verdict(temp_f, warn_f=warn_f, critical_f=critical_f)
+    agree = (kernel_verdict == legacy_verdict)
+    _last_verdict_parity = {
+        "temp_f": temp_f, "legacy": legacy_verdict, "kernel": kernel_verdict,
+        "agree": agree,
+    }
+    if agree:
+        _LOGGER.debug("freeze verdict parity OK: %s @ %s°F", legacy_verdict, temp_f)
+    else:
+        _LOGGER.warning(
+            "freeze verdict parity DIVERGENCE: legacy=%r kernel=%r @ %s°F",
+            legacy_verdict, kernel_verdict, temp_f)
+    return kernel_verdict
 
 # Lifecycle rank: the kernel situation must have reached AT LEAST the stage the
 # freeze verdict implies. (Values mirror kernel.situation's state constants.)

@@ -70,6 +70,40 @@ def is_terminal(state: str) -> bool:
     return state in TERMINAL_STATES
 
 
+# ── hazard verdicts (MCU Phase R, R2) ───────────────────────────────────────────
+# Freeze verdict labels — the kernel's pure threshold classification of an outdoor
+# temperature, which the re-architecture moves out of the live SafetyManager so
+# the hazard situation genuinely *owns* the decision (today it only records it).
+FREEZE_CRITICAL = "critical"
+FREEZE_WARNING = "warning"
+FREEZE_CLEAR = "clear"
+FREEZE_NONE = "none"
+
+
+def freeze_verdict(temp_f: Optional[float], *, warn_f: float, critical_f: float,
+                   clear_margin_f: float = 5.0) -> str:
+    """Classify an outdoor temperature (°F) for pipe-freeze risk — pure, no state.
+
+    Mirrors the live SafetyManager threshold logic exactly:
+      * ``temp_f <= critical_f``              → ``critical`` (act immediately),
+      * ``critical_f < temp_f <= warn_f``     → ``warning``  (pipe concern),
+      * ``temp_f > warn_f + clear_margin_f``  → ``clear``    (recovered, w/ hysteresis),
+      * otherwise                             → ``none``     (in the dead band).
+    ``temp_f is None`` (no reading) → ``none``. Deterministic and unit-agnostic:
+    the caller converts to °F first. This is the verdict; the hysteresis flag and
+    the 1-hour alert cooldown stay in the caller (they are orchestration, not the
+    classification)."""
+    if temp_f is None:
+        return FREEZE_NONE
+    if temp_f <= critical_f:
+        return FREEZE_CRITICAL
+    if temp_f <= warn_f:
+        return FREEZE_WARNING
+    if temp_f > warn_f + clear_margin_f:
+        return FREEZE_CLEAR
+    return FREEZE_NONE
+
+
 class InvalidTransition(ValueError):
     """Raised when a situation is asked to make a disallowed transition."""
 
