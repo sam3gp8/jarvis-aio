@@ -47,15 +47,65 @@ _decision_generation = 0
 _pending_decision_generations: set[int] = set()
 _dismissed_decision_generations: set[int] = set()
 
-# ── Kernel situation mirror (Phase 3, SHADOW MODE) ──────────────────────────────
+# ── Kernel situation mirror (Phase 3 → MCU Phase D/D1, PARITY, log-only) ─────────
 # The intrusion lifecycle is mirrored into kernel.situation ALONGSIDE the existing
 # authoritative path, so the generalised state machine can be proven to track the
 # same episodes before anything flips onto it. Entirely best-effort: a mirror
 # failure never affects intrusion handling. Lifecycle mapping:
 #   investigating → open + INVESTIGATING   confirmed  → CONFIRMED
 #   unresolved    → RESOLVED               dismissed  → BENIGN → RESOLVED
+#
+# D1 earns *parity* (not just shadow): after each mirrored event, the kernel
+# situation's resulting state is compared against what the legacy intrusion
+# verdict implies and the agreement is recorded + logged (``_record_parity``). A
+# divergence (verdict says confirmed but the kernel situation lags) is logged at
+# WARNING so a mirror bug is visible. Still LOG-ONLY and owner-gated: nothing
+# here is authoritative — the legacy SafetyManager path owns the intrusion
+# decision. Flipping the kernel situation to authoritative is a separate,
+# owner-approved step and is deliberately NOT taken here.
 _situation_mgr = None            # lazily-built kernel.SituationManager
 _situation_id: Optional[str] = None   # the current open intrusion situation, if any
+_last_parity: Optional[dict] = None   # most recent parity comparison (observability/tests)
+
+# Lifecycle rank: the kernel situation must have reached AT LEAST the stage the
+# legacy verdict implies. (Values mirror kernel.situation's state constants.)
+_STAGE_RANK = {"possible": 1, "investigating": 2, "confirmed": 3,
+               "response": 4, "benign": 4, "resolved": 5}
+# Minimum kernel-situation rank expected for each legacy intrusion verdict.
+_EXPECTED_RANK = {"investigating": 2, "confirmed": 3, "unresolved": 5,
+                  "dismissed": 5}
+
+
+def _record_parity(mgr, action: str, episode_id: Optional[str]) -> None:
+    """Compare the kernel situation's resulting state against the legacy verdict
+    and record/log agreement. Log-only: never affects intrusion handling.
+
+    Agreement = the kernel situation reached at least the lifecycle stage the
+    verdict implies (monotonic ranks). A verdict with no open episode to compare
+    (e.g. a dismiss with nothing active) is simply not scored."""
+    global _last_parity
+    expected = _EXPECTED_RANK.get(action)
+    if expected is None or episode_id is None:
+        return
+    try:
+        sit = mgr.get(episode_id)
+    except Exception:
+        sit = None
+    actual_state = sit.state if sit is not None else None
+    actual_rank = _STAGE_RANK.get(actual_state, 0)
+    agree = actual_rank >= expected
+    _last_parity = {
+        "action": action, "episode_id": episode_id,
+        "expected_rank": expected, "actual_state": actual_state,
+        "actual_rank": actual_rank, "agree": agree,
+    }
+    if agree:
+        _LOGGER.debug("intrusion situation parity OK: verdict %r → kernel %r",
+                      action, actual_state)
+    else:
+        _LOGGER.warning(
+            "intrusion situation parity DIVERGENCE: verdict %r but kernel "
+            "situation is %r (episode %s)", action, actual_state, episode_id)
 
 
 def _get_situation_manager(hass):
@@ -80,6 +130,7 @@ def _mirror_situation_sync(hass, action: str, *, reason: str = "",
         from .kernel import situation as S
         mgr = _get_situation_manager(hass)
         cur = mgr.get(_situation_id) if _situation_id else None
+        episode_id: Optional[str] = None   # the situation this verdict acted on
 
         if action == "investigating":
             if cur is None or cur.terminal:
@@ -90,6 +141,7 @@ def _mirror_situation_sync(hass, action: str, *, reason: str = "",
             elif cur.state == S.POSSIBLE:
                 mgr.transition(cur.id, S.INVESTIGATING, reason=reason or "investigating")
             # already INVESTIGATING/CONFIRMED → nothing to do
+            episode_id = _situation_id
 
         elif action == "confirmed":
             if cur is None or cur.terminal:
@@ -101,19 +153,25 @@ def _mirror_situation_sync(hass, action: str, *, reason: str = "",
                 cur = mgr.transition(cur.id, S.INVESTIGATING, reason="confirmed")
             if cur.state == S.INVESTIGATING:
                 mgr.transition(cur.id, S.CONFIRMED, reason=reason or "confirmed")
+            episode_id = _situation_id
 
         elif action == "unresolved":
             if cur is not None and not cur.terminal:
+                episode_id = cur.id
                 mgr.transition(cur.id, S.RESOLVED, reason=reason or "unresolved")
             _situation_id = None
 
         elif action == "dismissed":
             if cur is not None and not cur.terminal:
+                episode_id = cur.id
                 if cur.state in (S.POSSIBLE, S.INVESTIGATING, S.CONFIRMED):
                     cur = mgr.transition(cur.id, S.BENIGN, reason=reason or "false alarm")
                 if not cur.terminal:
                     mgr.transition(cur.id, S.RESOLVED, reason="false alarm")
             _situation_id = None
+
+        # Parity (log-only): verify the kernel situation agrees with the verdict.
+        _record_parity(mgr, action, episode_id)
     except Exception as exc:
         _LOGGER.debug("intrusion: situation mirror failed (%s): %s", action, exc)
 

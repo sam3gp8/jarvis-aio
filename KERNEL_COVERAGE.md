@@ -90,7 +90,12 @@ one release at a time.
   service call — so the planner owns execution. The farthest-along path: only
   `situation` (by design) and the owner-gated `authority` enforce flip remain.
 - **`intrusion`** — mirrors its lifecycle into the kernel **Situation** state
-  machine at parity. Its presence *context* (the away/home/armed signals that
+  machine at parity, and (D1) **verifies** the mirrored state agrees with the
+  legacy intrusion verdict after every episode event (`_record_parity`,
+  log-only, WARNING on divergence) — genuine parity, not a blind shadow copy.
+  Still owner-gated and non-authoritative: the legacy SafetyManager path owns
+  the intrusion decision; flipping the situation to authoritative is a separate
+  owner-approved step, deliberately not taken. Its presence *context* (the away/home/armed signals that
   decide whether motion is a possible intruder) reads through the `WorldModel`
   facade as of C2 (8.44.0), behaviour-identical with a fail-safe raw-sweep
   fallback — but that read lives in `cognitive_core.py` (`SafetyManager` /

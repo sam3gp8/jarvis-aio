@@ -112,11 +112,13 @@ _PATHS: dict[str, dict] = {
             "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
         },
     },
-    # Intrusion mirrors its lifecycle into the kernel Situation state machine.
+    # Intrusion mirrors its lifecycle into the kernel Situation state machine AND
+    # (D1) verifies the mirrored state agrees with the legacy verdict, log-only —
+    # genuine parity, not a blind shadow copy. Evidence is the parity check.
     "intrusion": {
         "module": "intrusion.py",
         "contracts": {
-            "situation": {"stage": "parity", "evidence": "situation"},
+            "situation": {"stage": "parity", "evidence": "_record_parity"},
         },
     },
     "goals": {"module": "goals.py", "contracts": {}},
