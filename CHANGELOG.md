@@ -1,3 +1,37 @@
+## [8.66.0] — Best-effort face recognition for plain cameras (no NVR) (#140)
+
+Phase-3 best-effort face recognition only ever ran when a `nest_event` or
+`frigate_event` fired (plus doorbell presses and the periodic package sweep).
+A user on **plain Home Assistant cameras + a local vision model, with no
+Frigate/Nest**, therefore never had a camera frame analysed on ordinary motion
+— so the vision pipeline never ran, nothing reached the local model, and the
+recognition hook (which rides on top of that analysis) never got a frame. This
+is exactly the gap @QuentinVape40 hit on #140 (zero requests reaching Ollama).
+
+- **New opt-in trigger: "Analyze HA motion (no NVR)"** (Settings → Cameras,
+  config key `camera_motion_vision`, **default off**). When on, a Home Assistant
+  motion/occupancy/presence `binary_sensor` firing is mapped to the camera that
+  covers its area (direct HA area assignment first, then the saved floor-plan
+  camera coverage) and a vision analysis is run on that camera — which carries
+  the best-effort recognition hook, so the Faces tab finally populates on a
+  no-NVR setup.
+- **Silent by design.** The motion-triggered analysis runs with announcements
+  suppressed — its job is to feed scene learning and face recognition, not to
+  add spoken alerts on every motion. The recognition hook inside
+  `async_analyze_camera` fires either way. (Frigate/Nest/doorbell paths keep
+  their existing notability-gated announcements.)
+- **Bounded.** Throttled per-camera (one analysis per 120s) and gated entirely
+  behind the new default-off flag, so nothing changes — and the local model is
+  never touched on motion — unless the user turns it on. Sensors are discovered
+  at setup; a reload picks up new ones.
+- `async_auto_analyze_on_event` gained an `announce` parameter (default True,
+  so every existing caller is unchanged) that threads through to suppress the
+  tts target, speaker list, and the call's own announce flag.
+
+2 new unit tests (silent run suppresses the announcement targets while still
+analysing the right camera; the default announcing path is unchanged) + a panel
+smoke check for the toggle. New feature → 8.65.1 → 8.66.0.
+
 ## [8.65.1] — Fix: long room name no longer pushes the light pill into the next card
 
 A room card whose name is long (e.g. "Conservatory") shoved its light ON/OFF
