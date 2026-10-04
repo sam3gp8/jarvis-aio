@@ -28,6 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 _mgr = None                                      # lazily-built SituationManager
 _delivery_situation_ids: Dict[str, str] = {}     # camera entity_id -> open sit id
 _last_parity: Optional[dict] = None              # most recent parity (tests)
+_last_presence_parity: Optional[dict] = None     # R1a decision-parity (tests)
 
 _STAGE_RANK = {"possible": 1, "investigating": 2, "confirmed": 3,
                "response": 4, "benign": 4, "resolved": 5}
@@ -69,6 +70,49 @@ def _record_parity(mgr, action: str, episode_id: Optional[str]) -> None:
         _LOGGER.warning(
             "delivery situation parity DIVERGENCE: verdict %r but kernel "
             "situation is %r (episode %s)", action, actual_state, episode_id)
+
+
+def kernel_package_present_sync(hass, entity_id: str) -> Optional[bool]:
+    """The kernel situation store's view of per-camera package presence: is there
+    an open (non-terminal) ``delivery`` episode for this camera?
+
+    This is the verdict the re-architecture (MCU Phase R, R1) moves into the
+    kernel — today the live in-memory ``_STATE[entity_id]["package"]`` owns it.
+    Returns True/False, or ``None`` when the store can't be read (best-effort —
+    the caller treats None as "no kernel opinion", never as a divergence). SYNC —
+    SQLite read, run via the executor."""
+    try:
+        mgr = _get_manager(hass)
+        for sit in mgr.open_situations("delivery"):
+            if sit.subject == entity_id:
+                return True
+        return False
+    except Exception:   # pragma: no cover - defensive
+        return None
+
+
+def record_presence_parity(hass, entity_id: str, legacy_present: bool) -> None:
+    """R1a decision-parity: compare the kernel store's per-camera package-present
+    view against the legacy in-memory verdict (``prev["package"]``) and log any
+    divergence. LOG-ONLY — nothing is gated, no behaviour changes. This earns the
+    kernel the right to *own* this verdict (the enforce flip, R1b) only once the
+    logs show the two agree on real traffic."""
+    global _last_presence_parity
+    kernel_present = kernel_package_present_sync(hass, entity_id)
+    if kernel_present is None:
+        return                        # no kernel opinion → not a divergence
+    agree = (kernel_present == bool(legacy_present))
+    _last_presence_parity = {
+        "entity_id": entity_id, "legacy": bool(legacy_present),
+        "kernel": kernel_present, "agree": agree,
+    }
+    if agree:
+        _LOGGER.debug("delivery presence parity OK: %s (camera %s)",
+                      legacy_present, entity_id)
+    else:
+        _LOGGER.warning(
+            "delivery presence parity DIVERGENCE: legacy=%s kernel=%s (camera %s)",
+            bool(legacy_present), kernel_present, entity_id)
 
 
 def mirror_delivery_sync(hass, entity_id: str, action: str,
