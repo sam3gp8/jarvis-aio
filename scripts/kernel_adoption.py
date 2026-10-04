@@ -66,7 +66,10 @@ _DECLARED: dict[str, dict] = {
     # (actuation.plan_shadow); execute_plan routes each step's execution THROUGH
     # the planner (agent, aexecute_plan) — B4, so parity, not shadow.
     "plan":         {"stage": "parity",  "owners": ["actuation", "agent"]},
-    "beliefs":      {"stage": "pure",    "owners": []},
+    # beliefs: the cognitive_status tool surfaces a belief snapshot seeded from
+    # knowledge confidences via WorldModel.beliefs() + the kernel identity
+    # assertion (E1) — shadow: read-only introspection, no decision consumes it.
+    "beliefs":      {"stage": "shadow",  "owners": ["agent"]},
     "attention":    {"stage": "pure",    "owners": []},
     "router":       {"stage": "pure",    "owners": []},
     "causal":       {"stage": "pure",    "owners": []},

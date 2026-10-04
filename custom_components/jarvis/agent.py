@@ -1855,6 +1855,23 @@ async def _exec_cognitive_status(hass: HomeAssistant, args: dict) -> str:
         analyzer = get_analyzer()
         status["pattern_analysis"] = await hass.async_add_executor_job(
             analyzer.get_stats)
+        # MCU Phase E (E1): surface a read-only snapshot of JARVIS's beliefs —
+        # knowledge facts seeded into the kernel's probabilistic belief model
+        # (WorldModel.beliefs), prefixed by the minimal identity self-assertion.
+        # SHADOW: introspection only; no decision consumes this, the knowledge
+        # store stays authoritative. Best-effort — never fails the status call.
+        try:
+            from .kernel import beliefs as _beliefs
+            from .kernel.world_model import WorldModel
+            bels = await hass.async_add_executor_job(WorldModel(hass).beliefs)
+            status["beliefs"] = {
+                "self": _beliefs.identity_assertion().proposition,
+                "count": len(bels),
+                "sample": [{"proposition": b.proposition,
+                            "p": round(b.probability, 3)} for b in bels[1:6]],
+            }
+        except Exception:
+            pass
         return json.dumps(status)
     except Exception as exc:
         return json.dumps({"error": str(exc)})

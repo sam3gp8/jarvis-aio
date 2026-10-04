@@ -1,3 +1,15 @@
+## [8.51.0] — MCU Phase E (E1): beliefs — knowledge confidences as a kernel belief model
+
+Phase E begins the cognition primitives. E1 adopts `kernel.beliefs`: the flat per-fact `confidence` numbers scattered across the knowledge store are now also expressible through the kernel's probabilistic belief model (log-odds pooling, evidence, decay, contradiction).
+
+- **New `WorldModel.beliefs(subject=None)`** reads the curated knowledge facts and returns them as kernel `Belief` values (`seed_from_confidence`, probability = the fact's confidence), prefixed by JARVIS's minimal identity self-assertion. Best-effort — the identity belief always stands even if the knowledge store is unavailable.
+- **New minimal `beliefs.identity_assertion()`** (north-star seed): one stable, high-confidence self-belief — *"JARVIS is the household's home assistant"*. Pure and additive.
+- **The `cognitive_status` tool surfaces a read-only belief snapshot** (self-assertion + count + a small sample), making `agent` the live caller. **Shadow**: this is introspection only — no decision consumes beliefs, and the knowledge store stays authoritative. `kernel_adoption` moves `beliefs` `·` pure → `◐` shadow (owner `agent`).
+- **North-star boundary, respected:** surfacing the identity assertion into the *live conversation context* (telling the model who it is) is a user-visible self-model change. Per the standing guardrail I did **not** enable that — it is **proposed** for your decision, not built. The self-belief currently lives only in the belief *view*, consumed by nothing.
+- **Coverage unchanged (17.9%)** — beliefs is a cognition primitive tracked by the *adoption* matrix, not a behaviour-bearing spine path. Behaviour is identical; the snapshot only appears when the `cognitive_status` tool is explicitly called.
+
+4 new tests: the identity assertion (minimal, customisable, high-confidence), `WorldModel.beliefs` mapping fact confidences to belief probabilities with the identity prefix, and the best-effort/empty-knowledge paths. Phase E → middle-digit bump **8.50.0 → 8.51.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.50.0] — MCU Phase D complete (D4): situations enter the event stream
 
 The final Phase D step. Every tracked situation — intrusion (D1), freeze hazard (D2), package delivery (D3) — now **publishes a canonical `JarvisEvent`** on the kernel event bus when its lifecycle changes, so situations flow through the nervous system the same way perception and actuation already do (MCU audit item #8).
