@@ -44,14 +44,14 @@ reach enforce on its own; a decision primitive may not.
 | `attention` | ◐ shadow | `output_gate` |
 | `authority` | ◑ parity | `authority_bridge` |
 | `beliefs` | ◐ shadow | `agent` |
-| `budget` | · pure | — |
+| `budget` | ◐ shadow | `actuation` |
 | `causal` | · pure | — |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `journal` | · pure | — |
 | `ledger` | ◐ shadow | `__init__` |
-| `loop_detect` | · pure | — |
+| `loop_detect` | ◐ shadow | `actuation` |
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent` |
 | `priority` | · pure | — |
@@ -109,6 +109,13 @@ reach enforce on its own; a decision primitive may not.
   owner-gated and must not happen without explicit approval.
 - **priority** (emergency hierarchy) is a pure comparison primitive; `attention`,
   `authority` and the planner will consult it as they reach parity.
+- **loop_detect** and **budget** are at **shadow** through `actuation` (MCU
+  Phase E/E4): the actuation envelope feeds every actuation into the kernel loop
+  detector (thrash: A → event → A, or flapping) and the agency budget (a
+  self-imposed autonomous-action ceiling), logging a loop or exhausted-budget
+  verdict but **never acting on it** — no action is suppressed or deferred.
+  Promoting either to **enforce** (actually blocking an actuation) gates live
+  actuation and is **owner-gated**, deliberately not taken.
 - **router** is at **shadow** through `reasoning_loop` (MCU Phase E/E3): the
   reasoning path computes the kernel local-first provider route
   (`router.route`: cloud when the connectivity breaker is closed, local Mind when
