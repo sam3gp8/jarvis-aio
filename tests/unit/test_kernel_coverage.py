@@ -49,8 +49,8 @@ def test_control_device_authority_and_verify_declared(kc):
     assert rows["control_device"]["outcome"] == "full"
     # 8.32.0 (MCU Phase A): the actuation publishes a canonical JarvisEvent.
     assert rows["control_device"]["event"] == "parity"
-    # 8.33.0 (MCU Phase A): the actuation is expressed as a one-step kernel Plan.
-    assert rows["control_device"]["plan"] == "shadow"
+    # B4b: control_device's actuation routes through the kernel planner.
+    assert rows["control_device"]["plan"] == "full"
     # A path with no kernel wiring is all 'none' (friday/homer are still legacy).
     assert set(rows["friday"].values()) == {"none"}
 

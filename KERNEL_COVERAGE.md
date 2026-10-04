@@ -24,7 +24,7 @@ drift into fiction.
 <!-- BEGIN kernel-coverage (python3 scripts/kernel_coverage.py --markdown) -->
 | Path | event | world_model | situation | authority | plan | verify | outcome |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `control_device` | ◑ | ◑ | · | ◑ | ◐ | ● | ● |
+| `control_device` | ◑ | ◑ | · | ◑ | ● | ● | ● |
 | `bulk_control` | ◑ | ◑ | · | · | ◐ | · | · |
 | `execute_plan` | ◑ | · | · | · | ● | · | · |
 | `run_scene_or_script` | ◑ | ◑ | · | · | ◐ | · | · |
@@ -35,10 +35,10 @@ drift into fiction.
 | `friday` | · | · | · | · | · | · | · |
 | `homer` | · | · | · | · | · | · | · |
 
-**Kernel coverage: 15.7%** (· none ◐ shadow ◑ parity ● full)
+**Kernel coverage: 16.7%** (· none ◐ shadow ◑ parity ● full)
 <!-- END kernel-coverage -->
 
-**15.7% is the honest number today** — most paths are still legacy, exactly the
+**16.7% is the honest number today** — most paths are still legacy, exactly the
 state the audit flagged ("the kernel is not yet the operating system of JARVIS").
 It *dropped* from 8.9% at 8.34.0 on purpose: the new governance gate (below)
 surfaced two consequential tools that were acting on the home without being in
@@ -85,11 +85,10 @@ one release at a time.
   (`from_actuation`) onto the kernel event bus, which the ledger records —
   parity, not full, because it enters the stream but no cognitive consumer
   reacts to it yet (the audit's item #8, the event bus as nervous system).
-  **Plan** at shadow (8.33.0): the actuation is expressed as a canonical
-  one-step `kernel.plan.Plan` (preconditions → act → postconditions, with an
-  idempotency key) and logged — shadow, because `execute_plan` is synchronous
-  while HA actuation is `await`-ed, so the plan does not yet *own* execution.
-  The farthest-along path.
+  **Plan** at full (B4b): the actuation runs *through* the kernel planner
+  (`aexecute_plan`) — a one-step plan whose run_step performs the awaited
+  service call — so the planner owns execution. The farthest-along path: only
+  `situation` (by design) and the owner-gated `authority` enforce flip remain.
 - **`intrusion`** — mirrors its lifecycle into the kernel **Situation** state
   machine at parity.
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
