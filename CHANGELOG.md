@@ -1,3 +1,24 @@
+## [8.65.1] — Fix: long room name no longer pushes the light pill into the next card
+
+A room card whose name is long (e.g. "Conservatory") shoved its light ON/OFF
+pill past the card's right edge and into the neighbouring card on the Command
+Center dashboard (#188). The reporter saw it next to a lightless room and
+suspected the missing pill was the cause; the real culprit was the long name.
+
+- **Root cause.** In the card footer the room name and the light pill share a
+  flex row (`justify-content: space-between`). The name had the default
+  `min-width: auto`, so it refused to shrink below its content width, overflowed
+  the fixed-width card, and pushed the pill out the right side. Short names fit,
+  so only long-named rooms were affected — the lightless neighbour was a
+  coincidence of position, not the cause.
+- **Fix.** The footer name now shrinks and ellipsizes within its flex cell
+  (`min-width: 0; text-overflow: ellipsis`), keeping the light pill pinned inside
+  the card's right edge at any card width. On wide cards the full name still
+  shows; when a card is too narrow the name truncates and the full name is
+  available via a `title` hover tooltip.
+- Frontend-only; no behaviour change. Regression pinned by two panel smoke
+  checks.
+
 ## [8.65.0] — MCU Phase G (G4): authority ENFORCE — the kernel capability engine gates actuation
 
 The authority flip. The kernel capability engine is now authoritative over the

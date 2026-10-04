@@ -4079,7 +4079,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           ${iconsRow}
           ${readingsRow}
           <div class="area-foot">
-            <div class="area-name">${a.name}</div>
+            <div class="area-name" title="${this._esc(a.name)}">${a.name}</div>
             ${lightCtl}
           </div>
         </div>`;
@@ -9349,6 +9349,14 @@ ${this._renderExcludedEntities(d)}
     border-top: none;
     padding-top: 0;
     margin-top: 0;
+    /* Shrink/ellipsize a long room name instead of shoving the light pill
+       past the card edge into the next card (#188). Short names are
+       unaffected; the full name stays available via the title tooltip. */
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .area.active .area-foot { border-top-color: var(--cyan-faint); }
   .area-light {
