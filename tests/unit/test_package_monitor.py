@@ -9,6 +9,20 @@ def pm(load):
     return load("package_monitor")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_delivery_store(load, tmp_path, monkeypatch):
+    """MCU Phase R (R1b): package_monitor now reads the kernel situation store for
+    the per-camera package-present verdict. Give every test in this file a fresh
+    per-test situations.db (and clear the per-camera id map) so the decision isn't
+    coupled to the shared real /config store, which would otherwise leak delivery
+    episodes between tests."""
+    ds = load("delivery_situation")
+    S = load("kernel.situation")
+    mgr = S.SituationManager(str(tmp_path / "situations.db"))
+    monkeypatch.setattr(ds, "_mgr", mgr)
+    monkeypatch.setattr(ds, "_delivery_situation_ids", {})
+
+
 # ── detection_from_text: negation handling ───────────────────────────────────
 
 def test_text_positive_package(pm):

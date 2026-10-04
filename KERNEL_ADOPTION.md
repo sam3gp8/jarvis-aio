@@ -68,7 +68,7 @@ explicit per-flip owner go/no-go.
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
 | `router` | ◐ shadow | `reasoning_loop` |
-| `situation` | ◑ parity | `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
+| `situation` | ● enforce | `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 
@@ -136,12 +136,20 @@ explicit per-flip owner go/no-go.
   domain at a time: **(a) decision-parity** — the kernel computes the verdict and
   the live path logs any divergence (no behaviour change) — then **(b) flip** the
   live path to consume the kernel verdict once real traffic shows zero divergence.
-  **R1a (8.60.0)** is step (a) for delivery: the kernel situation store computes a
-  per-camera "package present" view (an open `delivery` episode) and
-  `package_monitor` logs it against the legacy in-memory verdict. Freeze (R2) and
-  intrusion (R3) follow in that order; the freeze flip will fail *toward* alerting,
-  and the intrusion re-architecture is safety-critical and behind an explicit owner
-  go/no-go.
+  **R1a (8.60.0)** was step (a) for delivery (decision-parity); **R1b (8.61.0)**
+  is step (b) — the flip. The stage is now **enforce**, but read *which caller*:
+  only **delivery** is authoritative. `package_monitor` keys the delivered/removed
+  transition off the kernel store's per-camera "package present" verdict (an open
+  `delivery` episode) instead of its in-memory `_STATE` flag, with a kill-switch
+  (`package_monitor.DELIVERY_SITUATION_ENFORCE`) and a fail-safe fallback to the
+  legacy flag on any store-read error. This meets the matrix's enforce bar
+  (authoritative on ≥1 live path, exactly as `world_model`'s enforce does) **but
+  `hazard` (freeze) and `intrusion` remain parity MIRRORS** — their verdicts are
+  still computed in the live modules and only recorded into the situation store.
+  Freeze (R2) and intrusion (R3) are their own flips, in that order: the freeze
+  flip will fail *toward* alerting, and the intrusion re-architecture is
+  safety-critical and behind an explicit owner go/no-go. So "situation = enforce"
+  here means "delivery presence is kernel-owned", not "every situation is".
 - **priority** (emergency hierarchy) and **causal** (causal inference) remain
   **pure**: no live path consults them yet, and wiring one without a genuine
   consumer would be a hollow adoption — left honest at pure until a real caller
