@@ -119,16 +119,30 @@ async def test_requires_confinement_suppresses_when_not_confined(cognitive_core,
     assert _intrusions(actions) == []
 
 
-async def test_requires_confinement_armed_alarm_enables_even_while_home(cognitive_core, fake_hass):
-    # Arming confinement (here an armed_home alarm — NOT an "away" state) engages
-    # monitoring; the armed panel corroborates, so motion alerts even with a
-    # resident home.
+async def test_requires_confinement_armed_home_is_not_away(cognitive_core, fake_hass):
+    # 8.70.0: arming HOME is a HOME posture, not "away". A resident moving through
+    # the house while armed_home must NOT be treated as an intruder — even with no
+    # positive home tracker (the live case: Sam armed home, phones not tracked),
+    # and even with an open door. ("Jarvis pinned it to away when I armed HOME.")
     safety = cognitive_core.SafetyManager(
         fake_hass, {"honorific": "sir", "intrusion_requires_confinement": True})
-    fake_hass.states.set("person.sam", "home")
     fake_hass.states.set("alarm_control_panel.home", "armed_home")
+    fake_hass.states.set("binary_sensor.front_door", "on", device_class="door")
     _motion(fake_hass)
     actions = await safety.tick(sleeping=False, anyone_home=True)
+    fake_hass.close_pending()
+    assert _intrusions(actions) == []
+
+
+async def test_requires_confinement_armed_away_still_fires(cognitive_core, fake_hass):
+    # Contrast: armed_AWAY is an away posture — corroborated motion still alerts,
+    # even without device trackers (the #111 confinement-as-master-switch case).
+    safety = cognitive_core.SafetyManager(
+        fake_hass, {"honorific": "sir", "intrusion_requires_confinement": True})
+    fake_hass.states.set("alarm_control_panel.home", "armed_away")
+    fake_hass.states.set("binary_sensor.front_door", "on", device_class="door")
+    _motion(fake_hass)
+    actions = await safety.tick(sleeping=False, anyone_home=False)
     fake_hass.close_pending()
     assert len(_intrusions(actions)) == 1
 

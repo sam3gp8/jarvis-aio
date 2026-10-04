@@ -1,3 +1,45 @@
+## [8.70.0] — Intrusion: arming HOME is no longer treated as "away" (the real root fix)
+
+The actual root cause behind the resident-mistaken-for-intruder false alarms.
+With `intrusion_requires_confinement` on, `confined = is_lockdown() or
+_alarm_armed()` and then `away = _residents_away() or confined` — and
+`_alarm_armed()` is **true for `armed_home`**. So **arming the panel in HOME mode
+flipped intrusion straight into the "away" branch**, where a resident moving
+through the house is evaluated as an intruder. (The earlier 8.68.0/8.69.0 fixes
+addressed the *confirmation* side and the *unavailable-panel hold*; this is the
+plain case the user hit: panel readably `armed_home`, logbook "Cove Alarm → Armed
+home", a resident home, confirmed as a break-in.)
+
+**The fix.** A HOME arming posture is no longer read as "away":
+- New `_confinement_is_home_posture()` — true when the panel is readably armed in
+  a home mode (`armed_home` / `armed_night` / `armed_custom_bypass`), OR a held
+  auto-lockdown was engaged from one of those modes (the Cove dropped out after a
+  home arm). It is false for genuine tracked-away, an `armed_away`/`armed_vacation`
+  panel, or a user-requested (manual) lockdown.
+- `_check_intrusion` now computes `away = _residents_away()`, and only adds the
+  confinement-implies-away inference when it is **not** a home posture. So arming
+  HOME (or a Cove dropout holding a home-mode lockdown) no longer treats residents
+  as intruders.
+- The arming mode that engaged an auto-lockdown is now captured on
+  `LockdownManager.arm_mode` (kept fresh while the panel is readably armed,
+  persisted across restarts, cleared on disengage), so a later dropout holds with
+  the correct home/away distinction.
+
+**What still fires (unchanged):** `armed_away`/`armed_vacation`, genuine
+tracked-away, and a user-requested lockdown all still infer away and detect
+intrusions. **Night interior monitoring is unaffected** — it runs via the asleep
+path, not this away branch. Lockdown's securing behaviour (locking, re-securing a
+breach) is untouched. Kill-switch `INTRUSION_HOME_ARM_NOT_AWAY` (default on)
+reverts the policy in one line. No kernel-primitive change; coverage unchanged
+(17.9%).
+
+- tests: `test_intrusion_home_posture.py` (10) — the `_confinement_is_home_posture`
+  matrix (readable armed_home/night/away, tracked-away override, manual lockdown,
+  none), arm_mode capture + held-through-dropout for home vs away, the live
+  end-to-end (armed_home held through a dropout → no alarm), and kill-switch
+  revert. `test_cognitive_core_intrusion.py` updated: armed_home while home →
+  no intrusion; armed_away confinement → still fires. Full suite green.
+
 ## [8.69.0] — Intrusion: stop false "intrusion confirmed" on a resident during a degraded alarm-panel hold
 
 A second, deeper false-alarm fix, on the **confirmation** side this time. R3b
