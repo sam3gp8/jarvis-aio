@@ -1,3 +1,33 @@
+## [8.63.0] — MCU Phase R (R2b): freeze ENFORCE — the kernel owns the verdict, failing toward alerting
+
+The freeze flip. The kernel's pipe-freeze verdict is now authoritative in
+`SafetyManager._check_freeze` — and because this is a **safety alert**, it is
+built to fail *toward* alerting, never away from it.
+
+- **The branch is driven by the kernel verdict** (`kernel.situation.freeze_verdict`),
+  chosen via a **max-severity rule**: the acted-on verdict is the *more severe* of
+  (kernel, legacy inline threshold). So a kernel fault can never produce a
+  *less*-severe outcome than the raw thresholds would — **a freeze alert is never
+  missed**. On *any* kernel error the code falls back to the legacy category.
+- **Behaviour-identical in normal operation.** R2a proved the kernel verdict
+  equals the inline thresholds on every temperature, so the alert fires exactly
+  when it did before; the max-severity rule is a safety belt, and the 1-hour
+  cooldown, the `_freeze_warned` hysteresis, the messages and the hazard-situation
+  mirror are all unchanged.
+- **Kill-switch.** Flip `cognitive_core.HAZARD_SITUATION_ENFORCE` to `False` to
+  revert to the pure legacy thresholds on the next load.
+- **`situation` stays `●` enforce** (it was already, from delivery R1b); freeze is
+  now a second authoritative caller. **Intrusion remains a parity mirror**, behind
+  an explicit owner go/no-go. **Coverage unchanged (17.9%).**
+
+6 new tests: the kill-switch off uses pure legacy (kernel ignored); a kernel error
+fails toward the legacy alert; a *less*-severe kernel verdict still alerts (the
+max-severity belt); a *more*-severe kernel verdict wins (alert-biased); and the
+severity helper + default kill-switch. The existing freeze regression suite
+(`test_cognitive_core_freeze.py`) still passes unchanged, pinning behaviour
+identity. Full suite green; audit + adoption + coverage gates clean. Freeze
+enforce flip → **8.62.0 → 8.63.0**.
+
 ## [8.62.0] — MCU Phase R (R2a): freeze decision-parity — the kernel earns the hazard verdict
 
 Step (a) of the freeze re-architecture — the kernel computes the pipe-freeze
