@@ -1,3 +1,14 @@
+## [8.54.0] — MCU Phase E (E4): agency self-limits — loop detector + budget in shadow
+
+E4 wires the two kernel primitives that watch JARVIS's *own* actuation rate. Both were **pure** (nothing consulted them); this brings them to **shadow** — not the "advisory→enforce" the roadmap sketched, because they were never advisory, and because *enforcing* them gates live actuation, which is owner-gated.
+
+- **The actuation envelope now feeds every actuation into `kernel.loop_detect` and `kernel.budget`.** `actuation.emit_event` calls `_agency_shadow`, which records the action key into a module-level `LoopDetector` (thrash: A → event → A, or flapping within a window) and an `AgencyBudget` (a self-imposed autonomous-action ceiling, default 60/hour), and **logs** a loop or exhausted-budget verdict at WARNING.
+- **Shadow / log-only.** The verdict is **never acted on** — no actuation is suppressed or deferred; the actuation path is byte-for-byte unchanged and the watchers are best-effort (a failure never touches actuation). `kernel_adoption` moves `loop_detect` and `budget` `·` pure → `◐` shadow (owner `actuation`).
+- **Enforcing is owner-gated.** Promoting either to *enforce* — actually blocking a thrashing action or one that exceeds the self-imposed budget — changes what JARVIS does on the live home, so it is **not** taken here; it is on the owner decision list.
+- **Coverage unchanged (17.9%)** — these are cognition/agency primitives on the *adoption* matrix, not behaviour-bearing spine paths.
+
+4 new tests: `_agency_shadow` never raises; a rapid same-key actuation burst trips the thrash-loop warning; exceeding the 60/hour ceiling logs budget exhaustion; and `emit_event` still publishes the actuation event with the shadow active. The actuation + loop-detect + budget suites stay green. Phase E → middle-digit bump **8.53.0 → 8.54.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.53.0] — MCU Phase E (E3): router — local-first provider routing in shadow
 
 E3 adopts `kernel.router`, which formalises JARVIS's local-first model/provider selection: given a task's requirements and the available providers, pick the best allowed one, preferring local.

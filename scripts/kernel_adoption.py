@@ -79,9 +79,12 @@ _DECLARED: dict[str, dict] = {
     "router":       {"stage": "shadow",  "owners": ["reasoning_loop"]},
     "causal":       {"stage": "pure",    "owners": []},
     "priority":     {"stage": "pure",    "owners": []},
-    "loop_detect":  {"stage": "pure",    "owners": []},
+    # loop_detect + budget: the actuation envelope feeds every actuation to the
+    # kernel loop detector and agency budget in shadow, logging thrash/budget
+    # verdicts without acting on them (E4). Enforcing is owner-gated.
+    "loop_detect":  {"stage": "shadow",  "owners": ["actuation"]},
     "journal":      {"stage": "pure",    "owners": []},
-    "budget":       {"stage": "pure",    "owners": []},
+    "budget":       {"stage": "shadow",  "owners": ["actuation"]},
     # control_device builds an ActuatorRequest (with expected_outcome) and the
     # verify step produces the canonical ActuatorOutcome — 8.31.0, MCU Phase A.
     "actuator":     {"stage": "parity",  "owners": ["actuation", "agent"]},

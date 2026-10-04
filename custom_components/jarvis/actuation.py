@@ -22,6 +22,48 @@ from typing import Any, Dict, Optional, Sequence
 
 _LOGGER = logging.getLogger(__name__)
 
+# ── agency self-limits shadow (MCU Phase E/E4) ──────────────────────────────────
+# The kernel loop detector and agency budget watch JARVIS's *own* actuation rate:
+# the detector notices an action thrashing (A → event → A, or flapping), the
+# budget counts autonomous actions against a self-imposed hourly ceiling. Here
+# they run in SHADOW — every actuation is fed in and a loop / exhausted-budget
+# verdict is logged, but the verdict is NEVER acted on: no action is suppressed
+# or deferred. Promoting this to ENFORCE (actually blocking an actuation) gates
+# live actuation and is an owner-gated step, deliberately not taken.
+_loop_detector = None
+_agency_budget = None
+
+
+def _agency_shadow(capability: str, entity_id: str, *,
+                   cause: Optional[str] = None,
+                   event_id: Optional[str] = None) -> None:
+    """Feed one actuation into the kernel loop detector + agency budget and log
+    any thrash-loop or exhausted-budget verdict. SHADOW / log-only: best-effort,
+    never suppresses an action, never raises into the actuation path."""
+    global _loop_detector, _agency_budget
+    try:
+        import time
+        from .kernel import loop_detect as _ld, budget as _bg
+        if _loop_detector is None:
+            _loop_detector = _ld.LoopDetector()
+        if _agency_budget is None:
+            _agency_budget = _bg.AgencyBudget()
+        now = time.time()
+        key = f"{capability}:{entity_id}"
+        verdict = _loop_detector.record(key, now=now, cause=cause,
+                                        event_id=event_id)
+        if verdict.looping:
+            _LOGGER.warning(
+                "agency shadow: actuation loop on %s (%s, count=%s) — NOT "
+                "suppressed (shadow)", key, verdict.reason, verdict.count)
+        bverdict = _agency_budget.check_and_record(_bg.ACTION, now=now)
+        if not bverdict:
+            _LOGGER.warning(
+                "agency shadow: autonomous-action budget exhausted at %s — NOT "
+                "enforced (shadow)", key)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
 
 def correlation_id() -> Optional[str]:
     """Current kernel correlation id, or None — never raises."""
@@ -109,6 +151,9 @@ def emit_event(hass, capability: str, entity_id: str, *, action: str = "",
             request_id=(request.id if request is not None else None),
             correlation_id=correlation_id())
         events.publish(hass, ev)
+        # E4: feed the actuation to the agency loop/budget watchers (shadow).
+        _agency_shadow(capability, entity_id, cause=correlation_id(),
+                       event_id=ev.id)
     except Exception:   # pragma: no cover - defensive
         pass
 
