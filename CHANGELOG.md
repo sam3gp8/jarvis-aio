@@ -1,3 +1,15 @@
+## [8.49.0] — MCU Phase D (D3): package deliveries modelled as kernel Situations
+
+Phase D's third situation kind: **deliveries**. The per-camera package lifecycle `package_monitor` already tracks (delivered → sits → removed) is now mirrored into a kernel `Situation` (`kind="delivery"`, `subject=<camera entity_id>`) — parity, log-only — one open episode per camera.
+
+- **New `delivery_situation` module** mirrors the delivery lifecycle into `kernel.situation` and (like D1/D2) **verifies** agreement: `delivered ≥ INVESTIGATING`, `removed` → terminal, with a **WARNING** on divergence. It tracks one open episode per camera, so two porches can have independent deliveries in flight.
+- **`package_monitor._evaluate_locked` drives it best-effort, off-loop** via `_mirror_delivery` (swallow-all, `async_add_executor_job`), placed right after the existing `_log(...)` calls on the `delivered` and `removed` transitions. The **announcements and per-camera state machine are unchanged** — same once-on-arrival package/mail speech, same removed-while-away alert, same cooldowns. A mirror failure never touches delivery handling.
+- **Only the package episode is mirrored.** Mail arrival is a one-shot with no pickup tracking, so there is no sustained episode to mirror and none is invented.
+- **Honest coverage *dips* 16.0% → 15.5%.** A new `delivery` path joins the matrix with only its `situation` cell wired. The adoption matrix now lists `delivery_situation`, `hazard_situation`, `intrusion` as live `situation` callers.
+- **Still log-only / owner-gated.** Nothing here is authoritative.
+
+8 new tests: the per-camera mirror lifecycle (delivered → removed; two cameras independent; idempotent redundant-delivered; removed-with-no-episode; forced divergence; never-raises) plus an integration test proving `package_monitor.evaluate` still announces once on arrival while opening/resolving the delivery situation. The existing package-monitor suite stays green. Phase D → middle-digit bump **8.48.0 → 8.49.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.48.0] — MCU Phase D (D2): freeze hazard modelled as a kernel Situation
 
 Phase D widens Situations past intrusion to the first **hazard**. The in-home freeze lifecycle (`SafetyManager._check_freeze`: warning → critical → cleared) is now mirrored into a kernel `Situation` (`kind="hazard"`, `subject="freeze"`) — parity, log-only — so the generalised state machine tracks hazards the same way it tracks intrusion.

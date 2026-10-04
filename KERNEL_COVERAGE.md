@@ -31,12 +31,13 @@ drift into fiction.
 | `set_mode` | ◑ | · | · | · | ◐ | · | · |
 | `intrusion` | · | · | ◑ | · | · | · | · |
 | `hazard` | · | · | ◑ | · | · | · | · |
+| `delivery` | · | · | ◑ | · | · | · | · |
 | `goals` | · | · | · | · | · | · | · |
 | `proactive` | · | · | · | · | · | · | · |
 | `friday` | · | · | · | · | · | · | · |
 | `homer` | · | · | · | · | · | · | · |
 
-**Kernel coverage: 16.0%** (· none ◐ shadow ◑ parity ● full)
+**Kernel coverage: 15.5%** (· none ◐ shadow ◑ parity ● full)
 <!-- END kernel-coverage -->
 
 **16.7% is the honest number today** — most paths are still legacy, exactly the
@@ -113,6 +114,13 @@ one release at a time.
   JARVIS today, so there is nothing to mirror for them and no detection is
   invented. The freeze alerts themselves are unchanged — the mirror is additive,
   off-loop and best-effort.
+- **`delivery`** (D3) — the per-camera package delivery lifecycle
+  (`package_monitor`: delivered → removed) is mirrored into a kernel Situation
+  (`kind="delivery"`, one open episode per camera) and its agreement verified
+  (`delivery_situation._record_parity`), log-only parity. Mail arrival is a
+  one-shot with no pickup tracking, so there is no sustained episode to mirror
+  and none is invented. The delivery announcements and per-camera state machine
+  are unchanged — the mirror is additive, off-loop and best-effort.
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
   shared `actuation` envelope for its WorldModel context (`world_model` ◑),
   actuation event (`event` ◑) and shadow plan (`plan` ◐). No deterministic
