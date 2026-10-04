@@ -1,3 +1,38 @@
+## [8.59.0] — MCU Phase G (G2): loop-detect ENFORCE — suppress a thrashing autonomous action
+
+The second staged enforce flip, on the same tightly-scoped path as G1.
+
+- **A thrashing discretionary autonomous actuation is now actually suppressed.**
+  When JARVIS acts on a learned/trusted pattern of its own accord
+  (`cognitive_core._execute_action_data`) and the identical action re-fires too
+  many times in a tight window (flapping), or self-triggers through the event
+  chain (A → event → A), the kernel loop detector's verdict is **authoritative**:
+  the actuation is skipped and the cycle breaks. `kernel_adoption` moves
+  `loop_detect` `◐` shadow → `●` enforce.
+- **Same narrow scope as the budget flip (G1).** User-requested actuations (the
+  agent tool path / `control_device`) and safety-critical responses (nighttime
+  lockdown, intrusion securing — which call `hass.services` directly) **never
+  route through the gate**, so neither a user command nor a safety action can
+  ever be loop-suppressed.
+- **Deliberately HIGH threshold.** Five firings of the *identical* action within
+  60 seconds — far above any legitimate proactive cadence — so a genuine repeat
+  is never mistaken for a loop. Checked before the budget gate, so a thrash
+  doesn't even consume a budget slot.
+- **Fails open + one-line kill-switch.** Any detector error allows the action;
+  flip `actuation.LOOP_DETECT_ENFORCE` to `False` to revert to shadow on the next
+  load. (The envelope-wide E4 shadow lens in `_agency_shadow` still logs thrash
+  across the whole actuation stream, unchanged.)
+- **Coverage unchanged (17.9%).** `loop_detect` is not a behaviour-spine contract.
+
+11 new tests: the gate allows a non-looping action; suppresses a thrashing action
+under enforce; keeps suppressing through the post-loop cooldown; never suppresses
+with the kill-switch off (shadow); fails open on error; distinct actions don't
+trip each other; and the live autonomous path executes when not looping, is
+suppressed once thrashing (4 calls made, the 5th asserted *not* made), is
+untouched with the kill-switch off, and a direct safety-style call is never
+loop-suppressed. Full suite green; audit + adoption + coverage gates clean.
+Second enforce flip → **8.58.0 → 8.59.0**.
+
 ## [8.58.0] — MCU Phase G (G1): agency budget ENFORCE — the first live enforce flip
 
 The kernel migration's first **enforce** flip of a *decision* primitive on the

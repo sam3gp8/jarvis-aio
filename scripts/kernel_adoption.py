@@ -79,10 +79,14 @@ _DECLARED: dict[str, dict] = {
     "router":       {"stage": "shadow",  "owners": ["reasoning_loop"]},
     "causal":       {"stage": "pure",    "owners": []},
     "priority":     {"stage": "pure",    "owners": []},
-    # loop_detect: the actuation envelope feeds every actuation to the kernel
-    # loop detector in shadow, logging thrash verdicts without acting on them
-    # (E4). Enforcing (suppressing a thrashing actuation) is owner-gated (G2).
-    "loop_detect":  {"stage": "shadow",  "owners": ["actuation"]},
+    # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
+    # is authoritative for the discretionary autonomous proactive path
+    # (cognitive_core._execute_action_data): a thrashing/self-triggering action
+    # is actually SUPPRESSED. Same tight scope as budget (G1) — user-requested and
+    # safety-critical actuations never route through it — high threshold, fails
+    # open, one-line kill-switch LOOP_DETECT_ENFORCE. (The envelope-wide E4 shadow
+    # lens in _agency_shadow still logs thrash across the whole actuation stream.)
+    "loop_detect":  {"stage": "enforce", "owners": ["actuation"]},
     # journal: goals records each goal's shadow Plan into the execution journal
     # (F2), making the goal->plan->step chain durably reconstructable — shadow.
     "journal":      {"stage": "shadow",  "owners": ["goals"]},

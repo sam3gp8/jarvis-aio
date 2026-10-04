@@ -58,6 +58,59 @@ AGENCY_BUDGET_ENFORCE = True
 # shadow lens below (which still watches the whole actuation stream for thrash).
 _autonomous_budget = None
 
+# ── loop-detect ENFORCE (MCU Phase G/G2) ────────────────────────────────────────
+# The second staged flip, same tightly-scoped path as G1: a thrashing discretionary
+# autonomous actuation (the same action re-firing in a tight window, or an
+# A -> event -> A self-trigger) is actually SUPPRESSED, not merely logged. Same
+# exclusions as G1 — user-requested and safety-critical actuations never reach it.
+# HIGH threshold on purpose (5 firings of the identical action within 60s, well
+# above any legitimate proactive cadence) so a real repeat is never mistaken for a
+# loop. FAILS OPEN; one-line kill-switch LOOP_DETECT_ENFORCE reverts to shadow.
+LOOP_DETECT_ENFORCE = True
+_autonomous_loop = None
+
+
+def loop_detect_check(key: str, *, enforce: Optional[bool] = None,
+                      cause: Optional[str] = None,
+                      event_id: Optional[str] = None,
+                      now: Optional[float] = None) -> tuple:
+    """ENFORCE gate (G2): is this *discretionary autonomous* actuation thrashing?
+
+    Records the firing into a dedicated high-threshold loop detector and returns
+    ``(allowed, reason)``. When the detector reports an active loop or a post-loop
+    cooldown and enforce is on, returns ``(False, reason)`` so the caller
+    SUPPRESSES the actuation (breaking the cycle). When the kill-switch is off it
+    logs a would-suppress and returns ``(True, reason)`` (shadow). FAILS OPEN —
+    any internal error returns ``(True, "error")`` so a detector fault can never
+    block JARVIS. Only the autonomous proactive path calls this.
+    """
+    global _autonomous_loop
+    if enforce is None:
+        enforce = LOOP_DETECT_ENFORCE
+    try:
+        import time
+        from .kernel import loop_detect as _ld
+        if _autonomous_loop is None:
+            _autonomous_loop = _ld.LoopDetector(
+                window_s=60.0, max_repeats=5, cooldown_s=60.0)
+        t = time.time() if now is None else now
+        verdict = _autonomous_loop.record(key, now=t, cause=cause,
+                                          event_id=event_id)
+        if verdict:         # looping or cooling down from a just-flagged loop
+            if enforce:
+                _LOGGER.warning(
+                    "loop detect: autonomous actuation %s thrashing (%s, count=%s) "
+                    "— SUPPRESSING this action (enforce, G2)",
+                    key, verdict.reason, verdict.count)
+                return False, verdict.reason
+            _LOGGER.warning(
+                "loop detect: autonomous actuation %s thrashing (%s) — NOT "
+                "suppressed (kill-switch off / shadow)", key, verdict.reason)
+            return True, verdict.reason
+        return True, _ld.NONE
+    except Exception:   # pragma: no cover - defensive, fail open
+        return True, "error"
+
 
 def agency_budget_check(*, enforce: Optional[bool] = None,
                         now: Optional[float] = None) -> tuple:

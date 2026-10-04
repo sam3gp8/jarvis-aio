@@ -34,15 +34,15 @@ safety decision** — flipping one of those from log-only to authoritative on th
 live home is an **owner-gated** step (see `docs/JARVIS_CONSTITUTION.md`, invariant
 on authority).
 
-As of **G1**, the owner approved a **staged** roll-out of the decision-primitive
-flips, safest first. The first — **`budget` → enforce** — has been taken: it
-gates only a *discretionary, self-imposed, non-safety* ceiling on JARVIS's own
-autonomous actions, fails open, and has a one-line kill-switch, so its worst case
-is a skipped convenience action, not an unsafe or missed-safety outcome. The
-remaining flips are still un-taken and each needs its own owner go/no-go:
-`loop_detect` (G2), the `hazard`/`delivery` situations (G3), and — behind an
-explicit pause — **`authority`** (G4) and the **`intrusion`** situation (G5),
-the two highest-risk ones. In short: a read facade may reach enforce on its own;
+The owner approved a **staged** roll-out of the decision-primitive flips, safest
+first. Two have been taken, both on the *discretionary autonomous* path and both
+degrading gracefully (worst case: one learned-convenience action is skipped and
+re-surfaces next cycle — never an unsafe or missed-safety outcome), each with a
+fail-open gate and a one-line kill-switch: **`budget` → enforce** (G1, a
+self-imposed hourly ceiling) and **`loop_detect` → enforce** (G2, suppress a
+thrashing action). The remaining flips are still un-taken: the `hazard`/`delivery`
+situations (G3), and — behind an explicit owner pause — **`authority`** (G4) and
+the **`intrusion`** situation (G5), the two highest-risk ones. In short: a read facade may reach enforce on its own;
 a *non-safety, self-imposed* decision primitive may reach it with owner approval
 and a kill-switch; an authority/situation/safety decision may not, except by an
 explicit per-flip owner go/no-go.
@@ -63,7 +63,7 @@ explicit per-flip owner go/no-go.
 | `event_bus` | ◐ shadow | `__init__` |
 | `journal` | ◐ shadow | `goals` |
 | `ledger` | ◐ shadow | `__init__` |
-| `loop_detect` | ◐ shadow | `actuation` |
+| `loop_detect` | ● enforce | `actuation` |
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
@@ -151,11 +151,18 @@ explicit per-flip owner go/no-go.
   *self-imposed, discretionary, non-safety* ceiling degrades gracefully (worst
   case: one learned-convenience action is skipped and re-surfaces next cycle),
   which is why it was chosen first.
-- **loop_detect** is at **shadow** through `actuation` (MCU Phase E/E4): the
-  actuation envelope feeds every actuation into the kernel loop detector (thrash:
-  A → event → A, or flapping), logging a loop verdict but **never acting on it** —
-  no action is suppressed. Promoting it to **enforce** (actually suppressing a
-  thrashing actuation) is the next staged flip (G2) and is **owner-gated**.
+- **loop_detect** is at **enforce** through `actuation` (MCU Phase G/G2) — the
+  second staged flip. `actuation.loop_detect_check` is authoritative for the same
+  path as `budget`: a thrashing discretionary autonomous actuation (the identical
+  action re-firing in a tight window, or an A → event → A self-trigger) is
+  actually **suppressed**, breaking the cycle. The threshold is deliberately high
+  (5 identical firings within 60s, above any legitimate proactive cadence), it is
+  checked before the budget gate (a thrash consumes no budget slot), the scope is
+  the same narrow one as G1 (user-requested and safety-critical actuations never
+  route through it), it **fails open**, and a one-line kill-switch
+  (`LOOP_DETECT_ENFORCE`) reverts it to shadow. The envelope-wide E4 shadow lens
+  in `actuation._agency_shadow` still logs thrash across the whole actuation
+  stream, unchanged.
 - **router** is at **shadow** through `reasoning_loop` (MCU Phase E/E3): the
   reasoning path computes the kernel local-first provider route
   (`router.route`: cloud when the connectivity breaker is closed, local Mind when
