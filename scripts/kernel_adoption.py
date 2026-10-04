@@ -48,7 +48,15 @@ _DECLARED: dict[str, dict] = {
     # the facade (8.30.0, MCU Phase A); cognition (C1), the intrusion-safety
     # presence reads (C2), and the home-summary / briefing context builders (C3)
     # read the world through the facade too — the canonical context authority.
-    "world_model":  {"stage": "parity",  "owners": ["actuation", "cognitive_core",
+    # ENFORCE (C4, 8.46.0): the facade is *authoritative* on migrated paths, not
+    # merely consulted — home_state._build_summary and agent._exec_home_summary
+    # read it with no raw fallback, and test_c4_worldmodel_authoritative proves
+    # the facade value wins over raw HA state on every migrated read (a regression
+    # to a raw sweep fails those tests). Enforce = authoritative on ≥1 live path;
+    # the raw sources remain underneath only as a failure fallback for the
+    # safety/best-effort callers, and un-migrated context reads elsewhere are
+    # still legacy (tracked by the per-release migration, not this stage).
+    "world_model":  {"stage": "enforce", "owners": ["actuation", "cognitive_core",
                                                      "home_state", "agent",
                                                      "proactive_briefing"]},
     "situation":    {"stage": "parity",  "owners": ["intrusion"]},
