@@ -74,6 +74,18 @@ HAZARD_SITUATION_ENFORCE = True
 # load. The gate fails safe to the legacy decision on any kernel fault.
 INTRUSION_GATE_ENFORCE = True
 
+# Away false-alarm fix (8.69.0) — harden intrusion CONFIRMATION under a degraded
+# hold. When the home is "away" only because a lockdown is being HELD through an
+# unreadable alarm panel (a Cove/Alula cloud drop), a resident is very likely
+# still inside, so a blind "trust the camera" confirmation on an inconclusive /
+# unavailable vision check must NOT fire a critical intrusion alarm. With this on
+# (default), that degraded-hold case requires real corroboration instead — a
+# positive vision person-confirm or a genuine inward route through the house.
+# Genuine away (tracked-away / armed-away / a user-requested lockdown) is
+# unchanged: vision-inconclusive still fails toward alerting there. Flip to False
+# to revert to the prior always-fail-open behavior on the next load.
+INTRUSION_DEGRADED_CONFIRM_HARDEN = True
+
 # Freeze verdict severity order, so _check_freeze can take the MORE-SEVERE of the
 # kernel and legacy verdicts (fail toward alerting — never miss a freeze alert).
 _FREEZE_SEVERITY = {"critical": 3, "warning": 2, "clear": 1, "none": 0}
@@ -643,6 +655,39 @@ class SafetyManager:
         return any(str(s).lower() == "home" for s in persons) \
             or any(str(s).lower() == "home" for s in trackers)
 
+    def _confinement_degraded(self) -> bool:
+        """True when the home is being treated as 'away' ONLY because a lockdown
+        is being HELD through an unreadable alarm panel (a Cove/Alula cloud drop)
+        — not by a verified arm, a tracked-away / armed-away presence, or a
+        user-requested lockdown.
+
+        In that degraded state a resident is very likely still inside (the panel
+        simply never reported a ``disarmed`` to lift the auto-lockdown), so the
+        intrusion CONFIRMATION step must require real corroboration rather than
+        blindly trusting a camera on an inconclusive vision check. Genuine away is
+        deliberately excluded here so it keeps failing toward alerting. Never
+        raises — a fault returns False, leaving the prior fail-toward-safety
+        behavior intact."""
+        try:
+            # A resident positively tracked away, or an actually-readable armed
+            # panel, is genuine 'away' — never a degraded hold.
+            if self._residents_away():
+                return False
+            if self._alarm_armed():
+                return False
+            mgr = _CORE.lockdown_mgr
+            # No active lockdown, or a user-REQUESTED (manual) one, is not a
+            # degraded hold: a manual lockdown is a deliberate away-posture the
+            # user chose, so it keeps full confirmation strength.
+            if mgr is None or not mgr.active or not mgr.auto:
+                return False
+            # Auto (alarm-engaged) lockdown, no readable armed panel → degraded
+            # iff the panel is currently indeterminate (held through a dropout).
+            _armed, _disarm_confirmed, indeterminate = _alarm_state_view(self.hass)
+            return bool(indeterminate)
+        except Exception:  # noqa: BLE001 — safety read must never raise
+            return False
+
     def _intrusion_entry_gate(self, *, away: bool, require_corroboration: bool,
                               alarm_armed: bool, open_entry: bool,
                               sleeping: bool, legacy_open: bool) -> bool:
@@ -1032,10 +1077,31 @@ class SafetyManager:
                     "— not confirming on motion alone", cam_entity)
                 confirmed = False
                 reason = "motion while away, but the covering camera shows no one"
+            elif (INTRUSION_DEGRADED_CONFIRM_HARDEN
+                  and self._confinement_degraded()):
+                # Vision inconclusive/unavailable AND the home is "away" only
+                # because a lockdown is held through an unreadable alarm panel
+                # (8.69.0). A resident is very likely still inside, so a blind
+                # "trust the camera" confirmation here is exactly what fired the
+                # false critical "intrusion confirmed" on a resident the vision
+                # model couldn't resolve. Require real corroboration instead — the
+                # same evidence the no-camera path uses: a genuine inward route
+                # from the breach, or sustained multi-room movement. (A positive
+                # vision person-confirm still escalates immediately on any later
+                # tick, via the `vision is True` branch above.)
+                if inv.get("breach_area"):
+                    confirmed = inward
+                    reason = ("someone is moving inward through the house from "
+                              "the point of entry")
+                else:
+                    confirmed = spread and sustained
+                    reason = ("sustained movement through the house while no one "
+                              "is home")
             else:
-                # Vision inconclusive/unavailable → fall back to prior behavior
-                # (trust the camera) so a broken vision path never suppresses a
-                # real alert. Fail toward safety.
+                # Vision inconclusive/unavailable under GENUINE away (tracked-away
+                # / armed-away / a user-requested lockdown) → fall back to prior
+                # behavior (trust the camera) so a broken vision path never
+                # suppresses a real alert. Fail toward safety.
                 confirmed, reason = True, "a person is on camera"
         elif inv.get("breach_area"):
             # Entry point known: require motion to have travelled INWARD from the

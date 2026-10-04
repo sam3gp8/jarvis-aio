@@ -1,3 +1,44 @@
+## [8.69.0] — Intrusion: stop false "intrusion confirmed" on a resident during a degraded alarm-panel hold
+
+A second, deeper false-alarm fix, on the **confirmation** side this time. R3b
+(8.68.0) stopped an investigation from *opening* on an awake resident positively
+tracked home. This closes the residual case where the investigation does open —
+because the resident is home but *not* positively tracked (phone off Wi-Fi, a
+`not_home`/stale tracker) and not face-enrolled — and then gets **confirmed as a
+critical break-in**.
+
+**The mechanism.** With `intrusion_requires_confinement` on and the alarm panel
+(`alarm_control_panel.home_cove_alarm`) `unavailable`, the lockdown is *held*
+defensively (correct — a cloud drop must not *lift* a real armed-night lockdown),
+but it is never lifted either, because only a confirmed `disarmed` lifts it and an
+unavailable panel never reports one. So `is_lockdown()` stays true all day →
+`confined` → the home is treated as "away" while the family is home. During the
+investigation, if the covering camera's vision check comes back
+**inconclusive/unavailable** (a flaky or slow local model), the confirm step used
+to **fail open** — "trust the camera" → a critical `intrusion_confirmed` alarm on
+the resident.
+
+**The fix.** A new `_confinement_degraded()` predicate recognises the one
+degraded state — the home is "away" *only* because an auto (alarm-engaged)
+lockdown is held through a currently-indeterminate panel, with no tracked-away /
+armed-away presence and no user-requested lockdown. In that state, an inconclusive
+vision check no longer confirms on "trust the camera" alone; it requires real
+corroboration — a positive vision person-confirm, or a genuine **inward route**
+from the breach (the same evidence the no-camera path already demands). A positive
+vision confirm still escalates instantly on any later tick, and a clear vision
+negative still clears, both unchanged. **Genuine away** (tracked-away, armed-away,
+or a user-requested lockdown) is untouched: vision-inconclusive still fails toward
+alerting there, so a real break-in with a broken vision path is never suppressed.
+
+- Entry behaviour is unchanged (the initial, soft "possible intrusion —
+  investigating" ping still fires once, still subject to learned damping); this
+  only hardens the escalation to a *confirmed critical* alarm.
+- Kill-switch `INTRUSION_DEGRADED_CONFIRM_HARDEN` (default on) reverts to the prior
+  always-fail-open behaviour in one line. `_confinement_degraded()` never raises —
+  a fault leaves the prior fail-toward-safety behaviour intact.
+- No kernel-primitive change; the stateful investigation/confirmation stays in the
+  live path by design. Coverage unchanged (17.9%).
+
 ## [8.68.0] — MCU Phase R (R3b): intrusion entry-gate ENFORCE — and a real false-alarm fix
 
 Completes the intrusion re-architecture, and does more than flip it: it **fixes a
