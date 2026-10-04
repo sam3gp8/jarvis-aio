@@ -32,19 +32,63 @@ may arbitrate among themselves; a lower tier may not win against a higher one.
 
 ## 2. Authority
 
-**Invariant A1 — authority is log-only until explicitly promoted.** The capability
-engine (`kernel/authority.py`) runs in parity through `authority_bridge`: for every
+**Invariant A1 — authority is log-only until deliberately promoted.** The capability
+engine (`kernel/authority.py`) begins in parity through `authority_bridge`: for every
 control action it records what it *would* have decided versus what the legacy
-confirm-gate actually did. It must not deny or alter a live action while in parity.
+confirm-gate actually did, and while in parity for a given capability it must not
+deny or alter the live action. Promotion past parity is the owner-gated step in A2;
+a primitive never jumps straight to authoritative (C1).
 
-**Invariant A2 — enforcement is owner-gated.** Flipping authority from parity to
-`enforce` on the live home system is a deliberate, human-approved step, taken only
-after parity holds on real traffic. No automated process, prompt, or external input
-may flip it. (This is why `KERNEL_ADOPTION.md` shows no primitive at `enforce`.)
+**Invariant A2 — enforcement is owner-gated, and may only tighten.** Flipping a
+decision primitive from parity to `enforce` on the live home is a deliberate,
+human-approved step, taken only after parity has held on real traffic. No automated
+process, prompt, scheduled trigger, or external input may flip it. Where authority
+*is* enforced, it runs under a **max-restriction belt**: the action proceeds only if
+the legacy gate allows it **and** the engine allows it, so enforcement can only ever
+*add* a confirmation, never remove the legacy gate or loosen a decision. Every
+enforced path fails safe to the legacy outcome on an engine fault and carries a
+one-line kill-switch back to parity. The live stage of each primitive is recorded in
+the generated ledger below (§ *Enforcement ledger*), which CI keeps in agreement
+with the implementation.
 
 **Invariant A3 — capabilities expire and can be revoked.** Tokens carry an optional
 expiry and a revocation set; an expired or revoked token is denied even if its scope
 would otherwise allow the action. Derived (child) tokens never outlive their parent.
+
+### Enforcement ledger
+
+> **Generated** from `scripts/kernel_adoption.py` (`_DECLARED`) by
+> `scripts/kernel_docs_sync.py`; CI (`--check`) fails if this block or the
+> `KERNEL_ADOPTION.md` matrix disagrees with the implementation. Do not hand-edit —
+> change the declared stage in code and run `--write`. A primitive at `enforce` is
+> authoritative on at least one live path; several (authority, the freeze/delivery
+> situations) are owner-approved and governed by the A2 max-restriction/fail-safe
+> rule, and intrusion deliberately remains at parity pending a real-traffic burn-in.
+
+<!-- BEGIN kernel-stage-ledger (python3 scripts/kernel_docs_sync.py --write) -->
+| Primitive | Stage |
+| --- | --- |
+| `actuator` | ◑ parity |
+| `attention` | ◐ shadow |
+| `authority` | ● enforce |
+| `beliefs` | ◐ shadow |
+| `budget` | ● enforce |
+| `causal` | · pure |
+| `correlation` | ◐ shadow |
+| `event` | ◑ parity |
+| `event_bus` | ◐ shadow |
+| `journal` | ◐ shadow |
+| `ledger` | ◐ shadow |
+| `loop_detect` | ● enforce |
+| `persistence` | · pure |
+| `plan` | ◑ parity |
+| `priority` | · pure |
+| `router` | ◐ shadow |
+| `situation` | ● enforce |
+| `world_model` | ● enforce |
+<!-- END kernel-stage-ledger -->
+
+
 
 ## 3. Safety defaults
 
@@ -68,7 +112,9 @@ warning, never take down the integration or a safety path.
 unit-tested, then shadow, then parity, before it can influence a live decision. No
 primitive jumps straight to authoritative. The adoption matrix
 (`KERNEL_ADOPTION.md`) must reflect reality; `scripts/kernel_adoption.py --check`
-guards against drift.
+guards against a declared stage having no live caller, and
+`scripts/kernel_docs_sync.py --check` guards against this document and the matrix
+describing a different stage than the implementation declares.
 
 **Invariant C2 — the invariants above outrank convenience.** If a feature can only
 ship by weakening a rule in this document, it does not ship until the rule is
@@ -94,8 +140,10 @@ primitive blocks it, in `tests/unit/test_constitution.py` (run in CI):
 | Correlation propagates | `kernel.correlation.scope` | a correlation id is carried through a scope and restored on exit |
 
 If one of those tests fails, an invariant has been broken — treat it as a release
-blocker. (Authority-is-log-only and enforcement-is-owner-gated are operational
-stances verified by the adoption/coverage matrices, not unit tests.)
+blocker. The owner-gated promotion stance (A2) and each primitive's live stage are
+operational facts verified by the adoption/coverage matrices and the doc-sync gate
+(`scripts/kernel_docs_sync.py --check`), which keeps this document's enforcement
+ledger in agreement with the implementation, rather than by unit tests.
 
 ---
 

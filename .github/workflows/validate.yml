@@ -59,6 +59,8 @@ jobs:
         run: python scripts/kernel_adoption.py --check
       - name: Kernel coverage (no evidence drift)
         run: python scripts/kernel_coverage.py --check
+      - name: Docs in sync (constitution + adoption matrix)
+        run: python scripts/kernel_docs_sync.py --check
       - name: Unit tests
         run: python -m pytest tests/ -q
 
