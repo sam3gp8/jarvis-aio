@@ -50,6 +50,12 @@ ALARM_ARMED_STATES = {
     "armed_home", "armed_away", "armed_night", "armed_vacation",
     "armed_custom_bypass",
 }
+# Arming modes the user chose while HOME. A lockdown auto-engaged from one of
+# these, then held open through a later panel dropout, must NOT be read as "the
+# home is away" for intrusion — the user was home when they armed and the panel
+# simply never reported a disarm to lift it. (armed_away / armed_vacation are the
+# away modes, and keep inferring away through a hold.)
+_HOME_ARM_MODES = {"armed_home", "armed_night", "armed_custom_bypass"}
 LOCKDOWN_DOOR_COVER_CLASSES = {"door", "garage", "garage_door"}
 LOCKDOWN_BREACH_COOLDOWN = 120  # seconds between repeat breach announcements
 LOCKDOWN_SECURE_VERIFY_DELAY = 25  # seconds to wait before confirming a close actually took (slow covers)
@@ -85,6 +91,18 @@ INTRUSION_GATE_ENFORCE = True
 # unchanged: vision-inconclusive still fails toward alerting there. Flip to False
 # to revert to the prior always-fail-open behavior on the next load.
 INTRUSION_DEGRADED_CONFIRM_HARDEN = True
+
+# Away false-alarm root fix (8.70.0) — a HOME arming posture must not be read as
+# "away" for intrusion. With this on (default), when the confinement engaging
+# intrusion monitoring is a home posture — the panel is readably armed_home /
+# armed_night / armed_custom_bypass, OR a held auto-lockdown that began from one
+# of those modes (panel since gone unavailable) — the intrusion "away" branch is
+# NOT forced; presence falls back to tracked presence. So arming HOME (or a Cove
+# dropout holding a home-mode lockdown) no longer treats a resident moving through
+# the house as an intruder. An armed_away/vacation posture, genuine tracked-away,
+# or a user-requested lockdown still infers away as before. Night interior
+# monitoring is unaffected: it runs via the asleep path. Flip to False to revert.
+INTRUSION_HOME_ARM_NOT_AWAY = True
 
 # Freeze verdict severity order, so _check_freeze can take the MORE-SEVERE of the
 # kernel and legacy verdicts (fail toward alerting — never miss a freeze alert).
@@ -688,6 +706,36 @@ class SafetyManager:
         except Exception:  # noqa: BLE001 — safety read must never raise
             return False
 
+    def _confinement_is_home_posture(self) -> bool:
+        """True when the confinement engaging intrusion monitoring is a HOME
+        posture, so the home must NOT be treated as 'away' (interior movement is
+        residents, not intruders). A home posture is:
+          * the panel is readably armed in a HOME mode (armed_home / armed_night /
+            armed_custom_bypass), OR
+          * no panel is readably armed but a held auto-lockdown was engaged from a
+            HOME mode (the Cove dropped out after an armed-home / armed-night arm).
+        NOT a home posture: genuine tracked-away or an armed_away/vacation panel
+        (``_residents_away`` wins), an away-mode held lockdown, or a user-requested
+        (manual) lockdown — all deliberate away postures that keep inferring away.
+        Night interior monitoring is unaffected: it runs via the asleep path, not
+        this away branch. Never raises — a fault returns False (prior behavior)."""
+        try:
+            # Genuinely away (tracked-away, or armed_away/vacation) is never a
+            # home posture.
+            if self._residents_away():
+                return False
+            # A readably-armed panel: home posture iff its mode is a home mode.
+            mode = _armed_mode(self.hass)
+            if mode:
+                return mode in _HOME_ARM_MODES
+            # No readable arm → consult a held auto-lockdown's captured mode.
+            mgr = _CORE.lockdown_mgr
+            if mgr is not None and mgr.active and mgr.auto:
+                return str(getattr(mgr, "arm_mode", "")).lower() in _HOME_ARM_MODES
+            return False
+        except Exception:  # noqa: BLE001 — safety read must never raise
+            return False
+
     def _intrusion_entry_gate(self, *, away: bool, require_corroboration: bool,
                               alarm_armed: bool, open_entry: bool,
                               sleeping: bool, legacy_open: bool) -> bool:
@@ -728,9 +776,23 @@ class SafetyManager:
         ``confined`` is set by the intrusion_requires_confinement gate: an
         explicit Lockdown/alarm-armed signal engages the away-path monitoring
         even when presence isn't tracked-away, so arming confinement while home
-        still watches for entry (issue #111)."""
+        still watches for entry (issue #111).
+
+        Away false-alarm root fix (8.70.0): a HOME arming posture
+        (armed_home / armed_night, readable or held through a Cove dropout) does
+        NOT count as 'away' — the residents are inside, so their movement through
+        the house must not be treated as an intruder. Only genuine tracked-away,
+        an armed_away/vacation panel, a user-requested lockdown, or an away-mode
+        held lockdown infers away. Night interior monitoring still runs via the
+        asleep path below."""
         now = time.time()
-        away = self._residents_away() or confined
+        away = self._residents_away()
+        if not away and confined:
+            # Confinement engaged. Infer 'away' UNLESS it is a home arming posture
+            # (the fix for "Jarvis pinned it to away when I armed HOME").
+            if not (INTRUSION_HOME_ARM_NOT_AWAY
+                    and self._confinement_is_home_posture()):
+                away = True
 
         # A recent user "false alarm" call-off suppresses new intrusion alerts.
         try:
@@ -1455,6 +1517,7 @@ class LockdownManager:
         self.since = 0.0
         self.reason = ""
         self.auto = False                 # engaged by the alarm (auto-lift on disarm)
+        self.arm_mode = ""                # last readable armed mode that engaged/held this auto-lockdown
         self.exempt_windows: set = set()   # openings open at engage / adopted as intentional (doors + windows)
         self._secured_by_us: set = set()   # entities JARVIS closed/locked this lockdown (reopen ⇒ intentional)
         self._alerted: set = set()         # entities already alerted about this lockdown
@@ -1479,6 +1542,7 @@ class LockdownManager:
                 self.since = d.get("since", time.time())
                 self.reason = d.get("reason", "restored")
                 self.auto = bool(d.get("auto", False))
+                self.arm_mode = str(d.get("arm_mode", "") or "")
                 self.exempt_windows = set(d.get("exempt_windows", []))
                 _LOGGER.warning(
                     "Lockdown state RESTORED (auto=%s, %d exempt windows)",
@@ -1496,6 +1560,7 @@ class LockdownManager:
                     "since": self.since,
                     "reason": self.reason,
                     "auto": self.auto,
+                    "arm_mode": self.arm_mode,
                     "exempt_windows": sorted(self.exempt_windows),
                     "auto_suppressed": self._auto_suppressed,
                 }, f)
@@ -1515,6 +1580,7 @@ class LockdownManager:
             "since": self.since,
             "reason": self.reason,
             "auto": self.auto,
+            "arm_mode": self.arm_mode,
             "exempt_windows": len(self.exempt_windows),
         }
 
@@ -1638,13 +1704,17 @@ class LockdownManager:
         return locked
 
     async def engage(self, reason: str, auto: bool = False,
-                     announce: bool = True) -> Optional[dict]:
+                     announce: bool = True, arm_mode: str = "") -> Optional[dict]:
         if self.active:
             return None
         self.active = True
         self.since = time.time()
         self.reason = reason
         self.auto = auto
+        # Remember the arming mode that engaged an auto-lockdown (home vs away),
+        # so a later panel dropout holds with the correct mode — the away
+        # false-alarm root fix depends on it. Manual lockdowns carry no mode.
+        self.arm_mode = str(arm_mode or "") if auto else ""
         self._secured_by_us = set()
         self._alerted = set()
         self._last_breach_alert = 0.0
@@ -1705,6 +1775,7 @@ class LockdownManager:
         self.active = False
         self.reason = ""
         self.auto = False
+        self.arm_mode = ""
         self.exempt_windows = set()
         self._secured_by_us = set()
         self._alerted = set()
@@ -3223,9 +3294,17 @@ async def _sync_lockdown_to_alarm(reason: str, announce: bool = True) -> None:
     if not armed and mgr._auto_suppressed:
         mgr._auto_suppressed = False
         await mgr._persist()
+    # Keep the last readable armed mode fresh on the manager while the panel is
+    # readable+armed, so a later dropout holds with the correct home/away mode
+    # captured (the away false-alarm root fix reads it). Harmless when inactive.
+    mode = _armed_mode(_CORE.hass) if armed else ""
+    if armed and mode and mgr.auto and getattr(mgr, "arm_mode", "") != mode:
+        mgr.arm_mode = mode
+        await mgr._persist()
     action = None
     if armed and not mgr.active and not mgr._auto_suppressed:
-        action = await mgr.engage("alarm armed", auto=True, announce=announce)
+        action = await mgr.engage("alarm armed", auto=True, announce=announce,
+                                  arm_mode=mode)
     elif mgr.active and mgr.auto and disarm_confirmed:
         action = await mgr.disengage("alarm disarmed")
     if action and _CORE.hass:
@@ -3258,6 +3337,20 @@ def _alarm_state_view(hass) -> tuple:
     if disarmed:
         return False, True, False
     return False, False, True
+
+
+def _armed_mode(hass) -> str:
+    """The state of the first readably-armed alarm panel (e.g. 'armed_home',
+    'armed_away'), or '' when no panel is readably armed. Used to tell a HOME
+    arming posture from an AWAY one for intrusion."""
+    try:
+        for st in hass.states.async_all("alarm_control_panel"):
+            s = str(st.state).lower()
+            if s in ALARM_ARMED_STATES:
+                return s
+    except Exception:  # noqa: BLE001 — safety read must never raise
+        pass
+    return ""
 
 
 def _log_alarm_indeterminate(reason: str, lockdown_active: bool) -> None:
