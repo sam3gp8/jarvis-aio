@@ -208,20 +208,54 @@ def test_shadow_control_plan_no_expected(load):
     assert plan is not None and plan.steps[0].postconditions == ()
 
 
-async def test_control_device_builds_shadow_plan(agent, fake_hass, no_sleep, load, monkeypatch):
-    actuation = load("actuation")
+async def test_control_device_routes_execution_through_planner(agent, fake_hass, no_sleep, load, monkeypatch):
+    """B4b: the actuation runs *through* the kernel planner (aexecute_plan), and
+    the device service call still happens exactly once."""
+    kplan = load("kernel.plan")
     calls = []
-    real = actuation.plan_shadow
-    monkeypatch.setattr(actuation, "plan_shadow",
-                        lambda *a, **k: calls.append((a, k)) or real(*a, **k))
+    real = kplan.aexecute_plan
+    async def _spy(plan, **kw):
+        calls.append(plan)
+        return await real(plan, **kw)
+    monkeypatch.setattr(kplan, "aexecute_plan", _spy)
     fake_hass.states.set("lock.front", "unlocked")
-    await agent._exec_control_device(
+    out = await agent._exec_control_device(
         fake_hass, {"entity_id": "lock.front", "action": "lock"})
     await fake_hass.drain()
+    assert '"success": true' in out.lower()
+    # the actuation routed through the planner once (verify-after-act, which can
+    # retry, is scheduled separately and is not this planner call)
     assert len(calls) == 1
-    (cap, eid, act, expected), _ = calls[0]
-    assert cap == "lock.lock" and eid == "lock.front" and act == "lock"
-    assert expected == ("locked",)
+    assert calls[0].steps[0].action == "lock.lock"
+    assert ("lock", "lock") in [(c[0], c[1]) for c in fake_hass.service_calls]
+
+
+async def test_parametric_action_routes_through_planner(agent, fake_hass, no_sleep, load, monkeypatch):
+    kplan = load("kernel.plan")
+    calls = []
+    real = kplan.aexecute_plan
+    async def _spy(plan, **kw):
+        calls.append(plan)
+        return await real(plan, **kw)
+    monkeypatch.setattr(kplan, "aexecute_plan", _spy)
+    fake_hass.states.set("light.den", "on")
+    out = await agent._exec_control_device(
+        fake_hass, {"entity_id": "light.den", "action": "set_brightness", "value": 40})
+    await fake_hass.drain()
+    assert '"success": true' in out.lower()
+    assert len(calls) == 1 and calls[0].steps[0].action == "light.turn_on"
+
+
+async def test_execution_failure_returns_error(agent, fake_hass, no_sleep):
+    """If the service call raises, the planner reports failure and the path
+    returns an error (not a bogus success)."""
+    fake_hass.states.set("light.den", "off")
+    async def boom(domain, service, data=None, blocking=False, **kw):
+        raise RuntimeError("device offline")
+    fake_hass.services.async_call = boom
+    out = await agent._exec_control_device(
+        fake_hass, {"entity_id": "light.den", "action": "turn_on"})
+    assert '"error"' in out and "Failed" in out
 
 
 def test_record_outcome_builds_actuator_outcome(fake_hass, load, caplog):

@@ -61,9 +61,10 @@ _PATHS: dict[str, dict] = {
             # The actuation is published as a canonical JarvisEvent on the bus
             # (8.32.0). Parity — it enters the stream, no consumer reacts yet.
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
-            # The actuation is expressed as a one-step kernel Plan (8.33.0).
-            # Shadow — execute_plan is sync while HA actuation is async.
-            "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
+            # Execution routes through the kernel planner (B4b): a one-step plan
+            # whose run_step performs the awaited service call (aexecute_plan).
+            # Full — the planner owns execution, not just a shadow description.
+            "plan": {"stage": "full", "evidence": "aexecute_plan"},
         },
     },
     # Recorded as one explicit N-step kernel Plan (shadow) and each executed

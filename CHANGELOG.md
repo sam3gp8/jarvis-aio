@@ -1,3 +1,13 @@
+## [8.42.0] — MCU Phase B complete (B4b): control_device execution runs through the kernel planner
+
+The final Phase B step. `control_device` expressed its actuation as a kernel `Plan` only in *shadow* (logged, not executed through), because the planner was synchronous. With the async driver (B-async) in place, its execution now genuinely **routes through the kernel planner**.
+
+- **`control_device`'s actuation runs through `kernel.plan.aexecute_plan`** — a one-step plan whose `run_step` performs the awaited `hass.services.async_call` (precondition: the entity exists). The planner owns execution; the redundant shadow-plan log is gone. Applies to every branch (the `action_map` set *and* the parametric brightness/temperature/volume actions).
+- **Behaviour preserved**: the confirm-gate + authority parity still run *before* the plan (fail-closed, `awaiting_confirmation` unchanged); verify-after-act (`_verify_control`) is still the background verify *after*; `previous_state`/`area`/success JSON unchanged; a failed/blocked plan returns the same `{"error": "Failed: …"}` a raised service call did. Authority stays **log-only**.
+- **Honest coverage: 15.7% → 16.7%.** `control_device` `plan` rises `◐` → **● full**. Its row is now `event ◑ · world_model ◑ · authority ◑ · plan ● · verify ● · outcome ●` — only `situation` is `·` (by design) and `authority` stays at parity pending the owner-gated enforce decision.
+
+**This completes MCU Phase B** — every consequential actuator (`control_device`, `run_scene_or_script`, `set_mode`, `execute_plan`, `bulk_control`) is on the shared kernel actuation contract. 3 new/updated tests (control_device + parametric actions route through the planner; a failing service call returns an error, not a bogus success). Kernel wiring → middle-digit bump **8.41.0 → 8.42.0**. Full suite green; audit + adoption + coverage gates clean.
+
 ## [8.41.0] — MCU Phase B (B3): bulk_control as an explicit plan
 
 The audit flagged `bulk_control` as higher-risk than a single action — *"turn everything off" should produce a plan with explicit targets, not let a bulk helper become a privileged shortcut.* This migrates it onto the kernel contract.

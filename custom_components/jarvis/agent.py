@@ -1158,6 +1158,35 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
     areq = None         # the canonical ActuatorRequest for this actuation, if built
     capability = None   # domain.service actually executed, for the actuation event
 
+    async def _execute(cap, ex_domain, ex_service, data):
+        """Route one actuation THROUGH the kernel planner (MCU Phase B, B4b): a
+        one-step plan whose run_step performs the awaited service call, so
+        execution genuinely passes through the plan contract (precondition →
+        act). Verify-after-act (``_verify_control``) remains the background
+        verify below. Returns (ok, detail); a failed/blocked plan yields the
+        same error path as a raised service call did before."""
+        from .kernel import plan as _kplan
+        _kp = _kplan.Plan(
+            goal=f"{action} {entity_id}",
+            steps=(_kplan.Step(action=cap, params=dict(data),
+                               preconditions=(f"exists:{entity_id}",),
+                               idempotency_key=f"{entity_id}:{action}"),),
+            correlation_id=actuation.correlation_id())
+
+        async def _run(_s):
+            await hass.services.async_call(ex_domain, ex_service, dict(data),
+                                           blocking=True)
+            return True
+
+        async def _chk(_c, _s):
+            return hass.states.get(entity_id) is not None
+
+        rep = await _kplan.aexecute_plan(_kp, run_step=_run, check=_chk)
+        if not rep.ok:
+            det = (rep.outcomes[0].detail if rep.outcomes else "") or "action failed"
+            return False, det
+        return True, ""
+
     try:
         action_map = {
             "turn_on":  (domain, "turn_on"),
@@ -1174,18 +1203,19 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
             "volume_down": ("media_player", "volume_down"),
         }
 
+        ok_exec, exec_detail = True, ""
         if action == "set_brightness":
             svc_data["brightness_pct"] = int(value or 50)
             capability = "light.turn_on"
-            await hass.services.async_call("light", "turn_on", svc_data, blocking=True)
+            ok_exec, exec_detail = await _execute(capability, "light", "turn_on", svc_data)
         elif action == "set_temperature":
             svc_data["temperature"] = float(value or 72)
             capability = "climate.set_temperature"
-            await hass.services.async_call("climate", "set_temperature", svc_data, blocking=True)
+            ok_exec, exec_detail = await _execute(capability, "climate", "set_temperature", svc_data)
         elif action == "volume_set":
             svc_data["volume_level"] = (value or 50) / 100.0
             capability = "media_player.volume_set"
-            await hass.services.async_call("media_player", "volume_set", svc_data, blocking=True)
+            ok_exec, exec_detail = await _execute(capability, "media_player", "volume_set", svc_data)
         elif action in action_map:
             svc_domain, svc_name = action_map[action]
             # Authorization gate (v7.41.0). Protected actions (lock/unlock,
@@ -1223,17 +1253,19 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
                 capability, entity_id, params=svc_data, action=action,
                 intent=action.replace("_", " "),
                 expected=_EXPECTED_STATES.get(action))
-            await hass.services.async_call(svc_domain, svc_name, svc_data, blocking=True)
+            ok_exec, exec_detail = await _execute(capability, svc_domain, svc_name, svc_data)
         else:
             return json.dumps({"error": f"Unknown action: {action}"})
 
+        if not ok_exec:
+            return json.dumps({"error": f"Failed: {exec_detail}",
+                               "entity_id": entity_id})
+
         if capability:
-            # Plan + event through the shared envelope (MCU Phase A/B): express
-            # the actuation as a one-step kernel Plan (shadow) and publish a
+            # Event through the shared envelope (MCU Phase A/B): publish a
             # canonical actuation JarvisEvent on the bus (the ledger records it).
-            # Best-effort — neither affects what executes.
-            actuation.plan_shadow(
-                capability, entity_id, action, _EXPECTED_STATES.get(action))
+            # Execution already routed through the kernel planner above (B4b), so
+            # no separate shadow plan is logged here. Best-effort.
             actuation.emit_event(
                 hass, capability, entity_id, action=action, area=wm_area,
                 request=areq)
