@@ -1,3 +1,39 @@
+## [8.66.0] — MCU Phase H (H0): close the governance drift — generated docs + a CI sync gate
+
+An external gap-audit of v8.65 flagged a **critical governance defect**: the
+`docs/JARVIS_CONSTITUTION.md` still declared *"authority is log-only … no primitive
+at enforce"* after authority (and four other primitives) had been flipped to
+enforce. The specification had fallen behind the executable architecture — exactly
+the drift the kernel governance is meant to prevent. This release closes it and
+makes the drift impossible to reintroduce silently.
+
+- **Constitution Authority section rewritten to the enforced reality.** Invariant A1
+  now says authority *begins* log-only and is promoted deliberately; A2 is widened
+  to state the owner-gated promotion rule **and** the enforcement contract that
+  actually governs the live flips — a **max-restriction belt** (enforcement can only
+  *add* a confirmation, never loosen a decision), fail-safe to legacy on a kernel
+  fault, and a one-line kill-switch. The stale *"no primitive at enforce"*
+  parenthetical is gone.
+- **New generated enforcement ledger** in the Constitution, and the existing
+  `KERNEL_ADOPTION.md` matrix, are both rendered from `kernel_adoption._DECLARED` by
+  the new `scripts/kernel_docs_sync.py` (`--write`). The docs are no longer
+  hand-maintained prose that can drift.
+- **New CI gate** `scripts/kernel_docs_sync.py --check` (wired into `validate.yml`)
+  fails the build when the Constitution ledger or the adoption matrix describes a
+  different stage than the implementation declares. On first run it already caught a
+  stale caller list (`situation` had gained `cognitive_core` as a live caller) and
+  corrected it.
+- **No behaviour change** — documentation + governance only. The enforcement ledger
+  reads: `world_model`, `budget`, `loop_detect`, `situation`, `authority` at
+  `● enforce`; `actuator`/`authority`-adjacent contracts at parity; intrusion
+  deliberately still parity pending burn-in. **Coverage unchanged (17.9%).**
+
+6 new tests: the committed docs are in sync; the ledger lists every primitive with a
+stage and reads `authority`/`world_model` as enforce; extract/replace round-trips;
+and the gate detects both a stale block and missing markers. Full suite green; all
+four gates (audit + adoption + coverage + docs-sync) clean. Governance fix →
+**8.65.0 → 8.66.0**.
+
 ## [8.65.0] — MCU Phase G (G4): authority ENFORCE — the kernel capability engine gates actuation
 
 The authority flip. The kernel capability engine is now authoritative over the
