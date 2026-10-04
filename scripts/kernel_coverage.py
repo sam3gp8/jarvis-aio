@@ -82,9 +82,17 @@ _PATHS: dict[str, dict] = {
             "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
         },
     },
-    # Mode directive whose entry applies a mode scene (mode_scene) — changes the
-    # home, still legacy. Declared (8.34.0) so the governance gate can see it.
-    "set_mode": {"module": "agent.py", "contracts": {}},
+    # Mode directive whose entry applies a mode scene (mode_scene). Routed
+    # through the actuation envelope (B2): actuation event + shadow plan for the
+    # mode change. No single-entity context (so no world_model) and no
+    # deterministic end-state (so no verify/outcome); the target is the mode.
+    "set_mode": {
+        "module": "agent.py",
+        "contracts": {
+            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
+        },
+    },
     # Intrusion mirrors its lifecycle into the kernel Situation state machine.
     "intrusion": {
         "module": "intrusion.py",

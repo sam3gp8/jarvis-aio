@@ -28,17 +28,17 @@ drift into fiction.
 | `bulk_control` | · | · | · | · | · | · | · |
 | `execute_plan` | · | · | · | · | · | · | · |
 | `run_scene_or_script` | ◑ | ◑ | · | · | ◐ | · | · |
-| `set_mode` | · | · | · | · | · | · | · |
+| `set_mode` | ◑ | · | · | · | ◐ | · | · |
 | `intrusion` | · | · | ◑ | · | · | · | · |
 | `goals` | · | · | · | · | · | · | · |
 | `proactive` | · | · | · | · | · | · | · |
 | `friday` | · | · | · | · | · | · | · |
 | `homer` | · | · | · | · | · | · | · |
 
-**Kernel coverage: 9.5%** (· none ◐ shadow ◑ parity ● full)
+**Kernel coverage: 11.0%** (· none ◐ shadow ◑ parity ● full)
 <!-- END kernel-coverage -->
 
-**9.5% is the honest number today** — most paths are still legacy, exactly the
+**11.0% is the honest number today** — most paths are still legacy, exactly the
 state the audit flagged ("the kernel is not yet the operating system of JARVIS").
 It *dropped* from 8.9% at 8.34.0 on purpose: the new governance gate (below)
 surfaced two consequential tools that were acting on the home without being in
@@ -95,6 +95,10 @@ one release at a time.
   shared `actuation` envelope for its WorldModel context (`world_model` ◑),
   actuation event (`event` ◑) and shadow plan (`plan` ◐). No deterministic
   end-state, so no verify/outcome; no confirm-gate, so no authority cell.
+- **`set_mode`** (B2) — the mode directive records its change through the envelope
+  (`event` ◑, `plan` ◐). It is not a single-entity actuation (its home effect is
+  the applied mode scene), so there is no `world_model` entity context and no
+  verify/outcome; the actuation event's target is the mode name.
 - **`bulk_control` / `execute_plan`** — still the legacy in-agent paths (bulk uses
   only the `policy` confirmation gate; execute_plan does not use `kernel.plan`).
 - **`goals` / `proactive` / `friday` / `homer`** — not yet wired to any kernel

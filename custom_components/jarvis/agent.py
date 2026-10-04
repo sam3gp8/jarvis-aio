@@ -2276,6 +2276,21 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
                 await mode_scene.apply_mode_entry(hass, res["mode"])
             except Exception:
                 pass
+            # MCU Phase B (B2): record the mode change through the shared kernel
+            # actuation envelope — a canonical ActuatorRequest + one-step shadow
+            # Plan + an actuation JarvisEvent. set_mode is a directive, not a
+            # single-entity actuation (its home effect is the applied mode
+            # scene), so there is no WorldModel entity context and no
+            # verify/outcome; the target is the mode name. Best-effort.
+            from . import actuation
+            _cap = "jarvis.set_mode"
+            _mode = res["mode"]
+            _areq = actuation.request(_cap, _mode, params={"mode": _mode},
+                                      action="set_mode",
+                                      intent=f"set mode to {_mode}")
+            actuation.plan_shadow(_cap, _mode, "set_mode", None)
+            actuation.emit_event(hass, _cap, _mode, action="set_mode",
+                                 request=_areq)
             info = modes.mode_info()
             try:
                 from .websocket import jarvis_log
