@@ -3233,14 +3233,23 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
     extra = action_data.get("service_data", {}) or {}
     if not domain or not service or not entity_ids:
         return False
-    # MCU Phase G/G1 — agency budget ENFORCE. This is a *discretionary
-    # autonomous* actuation: JARVIS acting on a learned/trusted pattern of its
-    # own accord (never a user request, never a safety response — those paths
-    # do not reach here). Gate it against the self-imposed hourly ceiling so a
-    # feedback loop or over-eager pattern can't flood the house. Best-effort and
-    # fails open; honors the kill-switch (actuation.AGENCY_BUDGET_ENFORCE).
+    # MCU Phase G — enforce gates for the *discretionary autonomous* path. This
+    # is JARVIS acting on a learned/trusted pattern of its own accord (never a
+    # user request, never a safety response — those paths do not reach here).
+    # Both gates are best-effort, fail open, and honor their kill-switches.
     try:
         from . import actuation
+        # G2 — loop-detect ENFORCE: suppress a thrashing/self-triggering action
+        # (checked first, so a thrash doesn't even consume a budget slot).
+        _key = f"{domain}.{service}:{','.join(str(e) for e in entity_ids)}"
+        loop_ok, _reason = actuation.loop_detect_check(_key)
+        if not loop_ok:
+            _LOGGER.warning(
+                "Proactive action suppressed by loop detector (%s.%s on %s) — "
+                "%s", domain, service, entity_ids, _reason)
+            return False
+        # G1 — agency budget ENFORCE: gate against the self-imposed hourly
+        # ceiling so a feedback loop or over-eager pattern can't flood the house.
         allowed, _rem = actuation.agency_budget_check()
         if not allowed:
             _LOGGER.warning(
