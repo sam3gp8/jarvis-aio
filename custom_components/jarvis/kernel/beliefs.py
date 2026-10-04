@@ -132,3 +132,15 @@ def seed_from_confidence(proposition: str, confidence: float, *, source: str = "
                   evidence=(Evidence(source=source, supports=confidence >= 0.5,
                                      weight=abs(_logit(_clamp_p(float(confidence)))),
                                      note="seed"),))
+
+
+# ── identity (MCU Phase E/E1, north-star seed) ──────────────────────────────────
+# A single, stable self-assertion JARVIS holds about *who it is*. Kept deliberately
+# minimal: one high-confidence belief, pure and additive. It is exposed in the
+# belief *view* (WorldModel.beliefs) but is NOT surfaced into the live LLM prompt —
+# doing that changes what JARVIS is told about itself, a user-visible self-model
+# step that is proposed to the owner rather than enabled here.
+def identity_assertion(*, name: str = "JARVIS",
+                       role: str = "the household's home assistant") -> Belief:
+    """The minimal 'who JARVIS is' self-belief (probability ~0.99)."""
+    return seed_from_confidence(f"{name} is {role}", 0.99, source="identity")

@@ -43,7 +43,7 @@ reach enforce on its own; a decision primitive may not.
 | `actuator` | ◑ parity | `actuation`, `agent` |
 | `attention` | · pure | — |
 | `authority` | ◑ parity | `authority_bridge` |
-| `beliefs` | · pure | — |
+| `beliefs` | ◐ shadow | `agent` |
 | `budget` | · pure | — |
 | `causal` | · pure | — |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
@@ -109,6 +109,15 @@ reach enforce on its own; a decision primitive may not.
   owner-gated and must not happen without explicit approval.
 - **priority** (emergency hierarchy) is a pure comparison primitive; `attention`,
   `authority` and the planner will consult it as they reach parity.
+- **beliefs** is at **shadow** through `agent` (MCU Phase E/E1): the
+  `cognitive_status` tool surfaces a read-only snapshot of JARVIS's beliefs —
+  knowledge-store facts seeded into the kernel's probabilistic belief model
+  (`WorldModel.beliefs` → `seed_from_confidence`), prefixed by a minimal identity
+  self-assertion (`beliefs.identity_assertion`). Shadow, not parity: it is
+  introspection only — no decision consumes it, and the knowledge store stays
+  authoritative. Surfacing the identity assertion into the *live* conversation
+  context (so the model is told who it is) is a user-visible self-model step that
+  is **proposed to the owner, not enabled here**.
 
 ## Keeping this current
 

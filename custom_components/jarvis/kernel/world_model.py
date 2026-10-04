@@ -174,6 +174,32 @@ class WorldModel:
             _LOGGER.debug("world_model.facts failed: %s", exc)
             return []
 
+    def beliefs(self, subject: Optional[str] = None) -> List[Any]:
+        """Curated knowledge facts as kernel ``Belief`` values (MCU Phase E/E1).
+
+        Generalises the flat per-fact ``confidence`` numbers into the kernel's
+        probabilistic belief model (``kernel.beliefs``) — each fact becomes a
+        Belief seeded from its confidence, prefixed by JARVIS's minimal identity
+        self-assertion. SHADOW: this view is available and unit-tested, but no
+        live decision consumes it yet, and the knowledge store stays authoritative.
+        Best-effort → the identity belief alone (never empty) on any failure."""
+        from . import beliefs as B
+        out: List[Any] = [B.identity_assertion()]
+        try:
+            for f in (_all_facts(subject) or []):
+                if not isinstance(f, dict):
+                    continue
+                subj = f.get("subject") or ""
+                key = f.get("key") or ""
+                val = f.get("value")
+                prop = f"{subj}.{key}={val}" if subj else f"{key}={val}"
+                out.append(B.seed_from_confidence(
+                    prop, float(f.get("confidence", 1.0) or 1.0),
+                    source=f.get("source") or "knowledge"))
+        except Exception as exc:
+            _LOGGER.debug("world_model.beliefs failed: %s", exc)
+        return out
+
     def relationships(
         self,
         subject: Optional[str] = None,
