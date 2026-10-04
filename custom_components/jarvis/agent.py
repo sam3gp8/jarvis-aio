@@ -1441,12 +1441,13 @@ async def _exec_run_scene_script(hass: HomeAssistant, args: dict) -> str:
     if domain not in ("scene", "script", "automation"):
         return json.dumps({"error": f"Not a scene/script/automation: {entity_id}"})
 
-    # MCU Phase B (B1): route through the shared kernel actuation envelope —
-    # WorldModel context + canonical ActuatorRequest + one-step shadow Plan +
-    # actuation JarvisEvent. A scene/script/automation has no single expected
-    # end-state, so there is no verify-after-act / outcome here. Authority stays
-    # as-is (this path has no confirm-gate) and log-only. Best-effort — the
-    # envelope never affects whether the activation runs.
+    # MCU Phase B (B1) / Phase H (H3): route the activation through the
+    # **universal actuator seam** (``actuation.execute_actuator``) — the same
+    # Execution (through the kernel planner) → Event path control_device and
+    # bulk_control use — instead of a direct service call + hand-logged shadow
+    # plan + emit_event. A scene/script/automation has no single expected
+    # end-state, so there is no verify-after-act / outcome (``verify=None``), and
+    # it blocks like before. Authority stays as-is (this path has no confirm-gate).
     from . import actuation
     ctx = actuation.context(hass, entity_id)
     try:
@@ -1454,10 +1455,13 @@ async def _exec_run_scene_script(hass: HomeAssistant, args: dict) -> str:
         capability = f"{domain}.{svc}"
         areq = actuation.request(capability, entity_id,
                                  params={"entity_id": entity_id}, action=svc)
-        await hass.services.async_call(domain, svc, {"entity_id": entity_id}, blocking=True)
-        actuation.plan_shadow(capability, entity_id, svc, None)
-        actuation.emit_event(hass, capability, entity_id, action=svc,
-                             area=ctx["area"], request=areq)
+        ok, detail = await actuation.execute_actuator(
+            hass, capability=capability, entity_id=entity_id, domain=domain,
+            service=svc, data={"entity_id": entity_id}, action=svc, areq=areq,
+            area=ctx["area"], verify=None, blocking=True)
+        if not ok:
+            return json.dumps({"error": detail or "activation failed",
+                               "entity_id": entity_id})
         return json.dumps({"success": True, "entity_id": entity_id,
                            "action": "activated", "area": ctx["area"]})
     except Exception as exc:
