@@ -41,7 +41,7 @@ reach enforce on its own; a decision primitive may not.
 | Primitive | Stage | Live callers |
 | --- | --- | --- |
 | `actuator` | ◑ parity | `actuation`, `agent` |
-| `attention` | · pure | — |
+| `attention` | ◐ shadow | `output_gate` |
 | `authority` | ◑ parity | `authority_bridge` |
 | `beliefs` | ◐ shadow | `agent` |
 | `budget` | · pure | — |
@@ -118,6 +118,11 @@ reach enforce on its own; a decision primitive may not.
   authoritative. Surfacing the identity assertion into the *live* conversation
   context (so the model is told who it is) is a user-visible self-model step that
   is **proposed to the owner, not enabled here**.
+- **attention** is at **shadow** through `output_gate` (MCU Phase E/E2): the
+  gate computes the kernel interruption arbitration (`attention.arbitrate` →
+  ALLOW / DEFER / SUPPRESS) alongside its legacy announce decision and logs any
+  divergence. Shadow — the kernel verdict is ignored and `output_gate` stays
+  authoritative; it establishes the primitive as live-wired before any delegation.
 
 ## Keeping this current
 

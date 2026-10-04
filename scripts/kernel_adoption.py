@@ -70,7 +70,9 @@ _DECLARED: dict[str, dict] = {
     # knowledge confidences via WorldModel.beliefs() + the kernel identity
     # assertion (E1) — shadow: read-only introspection, no decision consumes it.
     "beliefs":      {"stage": "shadow",  "owners": ["agent"]},
-    "attention":    {"stage": "pure",    "owners": []},
+    # attention: output_gate computes the kernel interruption arbitration
+    # alongside its legacy announce decision and logs divergence (E2) — shadow.
+    "attention":    {"stage": "shadow",  "owners": ["output_gate"]},
     "router":       {"stage": "pure",    "owners": []},
     "causal":       {"stage": "pure",    "owners": []},
     "priority":     {"stage": "pure",    "owners": []},
