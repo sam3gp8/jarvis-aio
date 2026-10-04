@@ -55,7 +55,7 @@ reach enforce on its own; a decision primitive may not.
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent` |
 | `priority` | · pure | — |
-| `router` | · pure | — |
+| `router` | ◐ shadow | `reasoning_loop` |
 | `situation` | ◑ parity | `delivery_situation`, `hazard_situation`, `intrusion` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
@@ -109,6 +109,13 @@ reach enforce on its own; a decision primitive may not.
   owner-gated and must not happen without explicit approval.
 - **priority** (emergency hierarchy) is a pure comparison primitive; `attention`,
   `authority` and the planner will consult it as they reach parity.
+- **router** is at **shadow** through `reasoning_loop` (MCU Phase E/E3): the
+  reasoning path computes the kernel local-first provider route
+  (`router.route`: cloud when the connectivity breaker is closed, local Mind when
+  it is OPEN) alongside its live decision and logs any divergence. Shadow — the
+  kernel result is ignored and the breaker stays authoritative. The breaker's
+  `allow_request()` is called exactly once and its value reused (it mutates the
+  half-open probe counter), so routing behaviour is unchanged.
 - **beliefs** is at **shadow** through `agent` (MCU Phase E/E1): the
   `cognitive_status` tool surfaces a read-only snapshot of JARVIS's beliefs —
   knowledge-store facts seeded into the kernel's probabilistic belief model

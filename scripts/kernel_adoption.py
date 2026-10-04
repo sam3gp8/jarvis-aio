@@ -73,7 +73,10 @@ _DECLARED: dict[str, dict] = {
     # attention: output_gate computes the kernel interruption arbitration
     # alongside its legacy announce decision and logs divergence (E2) — shadow.
     "attention":    {"stage": "shadow",  "owners": ["output_gate"]},
-    "router":       {"stage": "pure",    "owners": []},
+    # router: reasoning_loop computes the kernel local-first provider route
+    # alongside its live cloud/local-Mind breaker decision and logs divergence
+    # (E3) — shadow.
+    "router":       {"stage": "shadow",  "owners": ["reasoning_loop"]},
     "causal":       {"stage": "pure",    "owners": []},
     "priority":     {"stage": "pure",    "owners": []},
     "loop_detect":  {"stage": "pure",    "owners": []},
