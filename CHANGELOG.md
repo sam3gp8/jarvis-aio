@@ -1,3 +1,12 @@
+## [8.57.0] — Notifications-only speaker mute + persistent, visible announcement mutes (#181)
+
+Two controls for people who don't want unsolicited speaker interruptions.
+
+- **"Notifications only" speaker mute (new toggle, Settings → General).** When on, JARVIS **never speaks a proactive announcement on any speaker** — every urgency, *including critical*, routes to a phone/text notification instead. This closes the gap a user hit: the **Announcement Speakers** list only governs broadcasts, while lower-urgency proactive announcements speak on *whichever room you're in* (which is why an office-only setting didn't stop a kitchen briefing). The new toggle (`announce_notify_only`) short-circuits that at the single routing chokepoint (`observer_speak_target`), so there's no room-local bypass. Off by default — nothing changes unless you enable it.
+- **Per-entity announcement mutes are now persistent and visible.** `jarvis.shush` (mute announcements about a specific entity or category without excluding it from observation) already existed, but mutes were memory-only and reset on restart, with no UI. They now persist to `<config>/jarvis/output_mutes.json` across restarts, and a new **Muted Announcements** card (Settings → Safety & Energy) lists them with one-click unmute and an add-by-entity box. This is the supported way to tell JARVIS "stop mentioning this often-open window / this decorative light" while it keeps tracking them.
+
+New `jarvis/mutes` websocket (list/mute/unmute/clear) backs the card. 13 new tests (notify-only routing across every urgency + off-path, mute persistence across a simulated restart, blanket/category/entity, gate suppression) + panel smoke coverage. New feature → **8.56.0 → 8.57.0**. Full suite green; audit clean.
+
 ## [8.56.0] — MCU Phase F (F2): agency recovery — goals journal their plan
 
 F2 makes the goal → plan → step chain **durably reconstructable** — the audit's point that JARVIS can act but can't pick up where it left off after a restart.

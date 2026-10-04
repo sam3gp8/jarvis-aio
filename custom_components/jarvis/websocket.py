@@ -81,6 +81,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_voice_confirm_test)
         websocket_api.async_register_command(hass, ws_intrusion)
         websocket_api.async_register_command(hass, ws_faces)
+        websocket_api.async_register_command(hass, ws_mutes)
         websocket_api.async_register_command(hass, ws_mode)
         websocket_api.async_register_command(hass, ws_energy)
         websocket_api.async_register_command(hass, ws_hazard)
@@ -739,6 +740,7 @@ async def ws_get_panel_data(
             "goals":          goals,
             "config": {
                 "announcements_enabled": announcements_on,
+                "announce_notify_only": bool(_runtime_opt(hass, entry, "announce_notify_only", False)),
                 "sentinel_enabled": sentinel_on,
                 "observer_enabled": observer_enabled_cfg,
                 "pattern_learn_doors":     bool(_runtime_opt(hass, entry, "pattern_learn_doors", False)),
@@ -1356,6 +1358,7 @@ async def ws_get_activity_log(
 PANEL_WRITABLE_KEYS = {
     "ui_language",
     "announcements_enabled",
+    "announce_notify_only",      # bool: mute speakers — proactive announcements go to notifications only (#181)
     "sentinel_enabled",
     "observer_enabled",
     "pattern_learn_doors",         # learn door/window activity for routines
@@ -2779,6 +2782,44 @@ async def ws_faces(
     except Exception as exc:
         _LOGGER.exception("ws_faces failed: %s", exc)
         connection.send_error(msg["id"], "faces_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/mutes",
+    vol.Optional("action"): vol.In(["list", "mute", "unmute", "clear"]),
+    vol.Optional("entity_id"): str,
+    vol.Optional("category"): str,
+})
+@websocket_api.async_response
+async def ws_mutes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Manage the announcement mute list from the panel (#181): the entities and
+    categories JARVIS has been told to stop announcing (without excluding them
+    from observation). Persisted across restarts by output_gate."""
+    try:
+        from . import output_gate
+        action = msg.get("action", "list")
+        eid = msg.get("entity_id")
+        cat = msg.get("category")
+        if action == "mute" and (eid or cat):
+            await hass.async_add_executor_job(
+                lambda: output_gate.shush(entity_id=eid, category=cat))
+            jarvis_log("OBSERVER", f"Muted announcements: {eid or cat}")
+        elif action == "unmute" and (eid or cat):
+            await hass.async_add_executor_job(
+                lambda: output_gate.unshush(entity_id=eid, category=cat))
+            jarvis_log("OBSERVER", f"Unmuted announcements: {eid or cat}")
+        elif action == "clear":
+            await hass.async_add_executor_job(output_gate.unshush)
+            jarvis_log("OBSERVER", "Cleared all announcement mutes")
+        mutes = await hass.async_add_executor_job(output_gate.current_mutes)
+        connection.send_result(msg["id"], mutes)
+    except Exception as exc:
+        _LOGGER.exception("ws_mutes failed: %s", exc)
+        connection.send_error(msg["id"], "mutes_failed", str(exc))
 
 
 @websocket_api.websocket_command({

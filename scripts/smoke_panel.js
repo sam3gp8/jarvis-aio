@@ -45,7 +45,7 @@ const PANEL = {
     { id: "banter", label: "Pick a personality level", hint: "wit", done: false },
     { id: "briefings", label: "Turn on daily briefings", hint: "briefings", done: false, jump: "Briefings" },
   ] },
-  config: { floor_plan_address: "123 Example St, Springfield IL", banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", llm_face_recognition: true, voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
+  config: { floor_plan_address: "123 Example St, Springfield IL", banter_level: 2, search_backend: "searxng", searxng_url: "http://sx.local:8080", calendar_tight_gap_min: 20, recognition_source: "frigate", llm_face_recognition: true, announce_notify_only: true, voice_confirm_enabled: true, voice_confirm_mode: "gated", intrusion_response_timeout: 120, cameras: [{ entity_id: "camera.front", name: "Front Door", raw_name: "Front Door", outdoor: false, location_mode: "auto" }, { entity_id: "camera.back", name: "Backyard", raw_name: "Backyard", outdoor: true, location_mode: "auto" }], camera_names: {}, lockdown: { active: false } },
   suggestions: [
     { id: 11, description: "Turn porch light on at 18:00 (6 days running)", confidence: 0.82, count: 6, yaml: "{}",
       pattern_type: "time_routine", entities: ["light.porch"],
@@ -73,6 +73,7 @@ let _intrCalledOff = false;
 let _intrAck = false;
 const _residents = ["Sam"];
 const _faceRefs = [];
+const _mutedEntities = ["binary_sensor.lounge_window"];
 const _intrSnap = { url: "/local/jarvis/intrusion/intrusion_dining_room_1730000000.jpg", camera: "camera.dining_room", ts: 1730000000, path: "/config/www/jarvis/intrusion/x.jpg" };
 const hass = {
   config: { location_name: "Springfield IL", latitude: 39.78, longitude: -89.65 },
@@ -235,6 +236,12 @@ const hass = {
         ],
         recognition_source: "frigate",
       };
+    }
+    if (m.type === "jarvis/mutes") {
+      if (m.action === "mute" && m.entity_id && !_mutedEntities.includes(m.entity_id)) _mutedEntities.push(m.entity_id);
+      if (m.action === "unmute" && m.entity_id) { const i = _mutedEntities.indexOf(m.entity_id); if (i >= 0) _mutedEntities.splice(i, 1); }
+      if (m.action === "clear") _mutedEntities.length = 0;
+      return { entities: _mutedEntities.slice(), categories: [], all: false };
     }
     return {};
   },
@@ -1071,6 +1078,24 @@ setTimeout(async () => {
       && _garageBtn.getAttribute("data-cfg-val") === "true"],
     ["garage confirmation toggle asks for confirmation to enable",
       !!_garageBtn && !!_garageBtn.getAttribute("data-confirm")],
+  );
+
+  // #181: notifications-only speaker mute + Muted Announcements card.
+  const _notifyOnlyBtn = el.shadowRoot.querySelector('[data-cfg-key="announce_notify_only"]');
+  const _mutesCard = _card("Muted Announcements");
+  await el._fetchMutes();
+  const _mutesBody = el.shadowRoot.getElementById("mutes-body")?.innerHTML || "";
+  checks.push(
+    ["notifications-only speaker-mute toggle renders", !!_notifyOnlyBtn],
+    ["notifications-only toggle reflects saved ON state",
+      !!_notifyOnlyBtn && _notifyOnlyBtn.classList.contains("on")],
+    ["Muted Announcements card maps to the Safety section",
+      !!_mutesCard && _mutesCard.dataset.section === "safety"],
+    ["Muted Announcements has an add-entity control",
+      !!el.shadowRoot.querySelector("#mutes-add-entity") && !!el.shadowRoot.querySelector("#mutes-add-btn")],
+    ["a muted entity renders with an unmute control",
+      /binary_sensor\.lounge_window/.test(_mutesBody)
+      && /data-unmute-entity="binary_sensor\.lounge_window"/.test(_mutesBody)],
   );
 
   let ok = true;
