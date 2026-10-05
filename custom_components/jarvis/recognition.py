@@ -77,6 +77,18 @@ _MAX_FACE_SNAPSHOTS = 60      # prune beyond this many files
 _LLM_GUESS_CACHE: dict[str, dict] = {}
 FACE_REF_DIR = config_path_str("jarvis", "faces_ref")
 
+# Best-effort UNKNOWN sightings (#140-b): a person seen on a camera that no
+# backend / reference photo could name. Surfaced in Recently Seen so the Faces
+# tab is never empty on a fresh, backend-less setup and the frame can be labelled
+# into the dataset. Like the LLM guesses, this cache is NEVER read by the
+# intrusion stand-down (`resident_present`) — an unnamed sighting can't disable
+# an alert. One entry per camera (newest wins).
+#   _UNKNOWN_FACE_CACHE: {camera_entity: {"ts": datetime, "url": str|None, "mono": float}}
+_UNKNOWN_FACE_CACHE: dict[str, dict] = {}
+# Throttle how often we re-pin an unknown frame per camera (disk writes only;
+# Recently Seen already shows one unknown row per camera).
+_UNKNOWN_SNAP_THROTTLE = 120.0
+
 
 def _normalize_score(raw) -> float:
     """Frigate scores are 0..1; return a 0..100 percent. Never raises."""
@@ -395,6 +407,65 @@ def remember_llm_guess(camera_name: str, name: str, confidence: float) -> None:
         pass
 
 
+def remember_unknown_face(camera_name: str, url: Optional[str] = None) -> None:
+    """Record that an UNNAMED person was seen on a camera (#140-b).
+
+    Lets Recently Seen surface a labelable card on a backend-less / reference-less
+    setup, where otherwise nothing ever appears. Kept in its own cache that
+    ``resident_present`` never reads, so it can't affect intrusion. ``url`` is an
+    optional pinned snapshot of the frame; one entry per camera (newest wins)."""
+    try:
+        cam = str(camera_name or "")
+        entity_id = cam if cam.startswith("camera.") else _camera_entity_from_name(cam)
+        _UNKNOWN_FACE_CACHE[entity_id] = {
+            "ts": datetime.now(timezone.utc).replace(tzinfo=None),
+            "url": url,
+            "mono": _time.time(),
+        }
+    except Exception:
+        pass
+
+
+async def capture_unknown_snapshot(hass, camera: str, image_b64: str) -> Optional[str]:
+    """Pin an already-captured frame as the latest 'unknown' snapshot for a
+    camera and record it in Recently Seen (#140-b). Returns the served URL or
+    None. Throttled per camera (disk writes only). Best-effort; never raises."""
+    try:
+        cam0 = str(camera or "")
+        entity_id = cam0 if cam0.startswith("camera.") else _camera_entity_from_name(cam0)
+        prev = _UNKNOWN_FACE_CACHE.get(entity_id)
+        if (prev and prev.get("url")
+                and (_time.time() - prev.get("mono", 0)) < _UNKNOWN_SNAP_THROTTLE):
+            # Re-stamp freshness without rewriting the file, and keep the URL.
+            remember_unknown_face(entity_id, prev.get("url"))
+            return prev.get("url")
+        if not image_b64:
+            remember_unknown_face(entity_id, None)
+            return None
+        import base64
+        content = base64.b64decode(image_b64)
+        try:
+            from .camera import _downscale_jpeg
+            content = _downscale_jpeg(content, 480)
+        except Exception:
+            pass
+        from .paths import config_path_str as _cps
+        key = f"unknown_{_face_norm(entity_id.split('.', 1)[-1])}" or "unknown"
+        snap_dir = _cps("www", "jarvis", "faces", hass=hass)
+        path = os.path.join(snap_dir, f"{key}.jpg")
+        await hass.async_add_executor_job(_store_face_snapshot, path, content)
+        url = f"{FACE_SNAPSHOT_URL_BASE}/{key}.jpg"
+        remember_unknown_face(entity_id, url)
+        return url
+    except Exception as exc:
+        _LOGGER.debug("capture_unknown_snapshot failed for %s: %s", camera, exc)
+        try:
+            remember_unknown_face(camera, None)
+        except Exception:
+            pass
+        return None
+
+
 def last_seen_at(hass: HomeAssistant, camera_entity: str) -> Optional[dict]:
     """Return most recent recognition on that camera, or None if stale."""
     rec = _RECOGNITION_CACHE.get(camera_entity)
@@ -500,6 +571,35 @@ def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
                 continue
             _add(rec.get("name"), cam, rec.get("confidence", 0.0), age,
                  "llm_guess", low_conf=True)
+    except Exception:
+        pass
+
+    try:
+        # Best-effort UNKNOWN sightings (#140-b): a person seen with no backend /
+        # reference could name. Surfaced so Recently Seen is never empty and the
+        # frame is labelable. Suppressed for any camera that already has a named
+        # row (a real recognition / LLM guess covers it), and carries the pinned
+        # frame so "Label as…" enrolls the actual sighting. Never feeds intrusion.
+        named_cams = {cam for (_n, cam) in rows.keys()}
+        for cam, rec in _UNKNOWN_FACE_CACHE.items():
+            ts = rec.get("ts")
+            if ts and (now - ts) > CACHE_MAX_AGE:
+                continue
+            if cam in named_cams:
+                continue
+            age = int((now - ts).total_seconds()) if ts else 10 ** 9
+            rows[("unknown", cam)] = {
+                "name": "Unknown",
+                "camera_entity": cam,
+                "camera": (cam or "").split(".", 1)[-1],
+                "confidence": 0.0,
+                "age_seconds": age,
+                "is_unknown": True,
+                "is_resident": False,
+                "snapshot_url": rec.get("url"),
+                "is_low_confidence": False,
+                "source": "best_effort_unknown",
+            }
     except Exception:
         pass
 

@@ -1346,6 +1346,25 @@ async def async_analyze_camera(
             "speak": None, "spoke": False, "camera": camera_name,
         }
     det_type = _guess_detection_type(prompt, analysis)
+    # Best-effort unknown-face surfacing (#140-b): when best-effort recognition is
+    # ON and a person is in frame, make sure Recently Seen shows a labelable card
+    # even with no face backend and no reference photo — otherwise it stays empty
+    # and the dataset can't be bootstrapped on the fly. Pins the analysed frame;
+    # fire-and-forget; its cache never feeds intrusion, and a named recognition
+    # for this camera suppresses the unknown row (see recognition.recent_faces).
+    try:
+        if images_b64 and _cfg_opt(hass, "llm_face_recognition", False):
+            import re as _re_person
+            if _re_person.search(
+                r"\b(person|someone|somebody|individual|man|woman|men|women|"
+                r"people|child|children|boy|girl|human|face|intruder)\b",
+                (analysis or "").lower(),
+            ):
+                from . import recognition as _rec_unknown
+                hass.async_create_task(
+                    _rec_unknown.capture_unknown_snapshot(hass, entity_id, images_b64[0]))
+    except Exception:
+        pass
     rsn_provider = _cfg_opt(hass, "camera_reasoning_provider", "groq") or "groq"
     rsn_model = _cfg_opt(hass, "camera_reasoning_model", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
     rsn_client = await async_make_client(

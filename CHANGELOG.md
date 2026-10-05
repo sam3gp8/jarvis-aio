@@ -1,3 +1,27 @@
+## [8.91.0] — Unknown faces surface in Recently Seen so they're labelable (issue #140)
+
+On a backend-less, reference-less setup, walking past the camera left the Faces
+tab's **Recently Seen** empty ("No non-resident faces seen recently") — so the
+on-the-fly "📷 Label as…" feature (8.84.0) had nothing to label, and the dataset
+couldn't be bootstrapped. Best-effort only ever recorded a *matched* resident
+guess; an unknown person was never surfaced.
+
+- When **best-effort recognition is ON** (`llm_face_recognition`, opt-in) and a
+  camera analysis describes a person, JARVIS now pins that frame and records a
+  **best-effort UNKNOWN sighting** (`recognition.capture_unknown_snapshot` /
+  `remember_unknown_face`), which `recent_faces` surfaces as a labelable
+  **Unknown** card carrying the real frame.
+- **Safety unchanged:** the unknown cache is kept strictly separate and is
+  **never** read by `resident_present` — an unnamed sighting can't stand
+  intrusion monitoring down. An Unknown card is suppressed for any camera that
+  already has a named recognition/guess (no duplicate), and the write is
+  throttled per camera. Off by default (gated on the same opt-in flag), so
+  installs without best-effort are unaffected.
+
+tests: three new cases in `tests/unit/test_recognition_faces.py` (surfaces a
+labelable row with the pinned frame; suppressed when a named recognition covers
+the camera; never feeds `resident_present`). Audit + all four kernel gates green.
+
 ## [8.90.0] — Camera analysis respects the configured language (issue #140)
 
 Camera/vision logs reverted to English ("A man detected in the Salon…") even on
