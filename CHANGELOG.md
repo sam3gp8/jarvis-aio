@@ -1,3 +1,25 @@
+## [8.87.0] — Continuity of self: boot summary + periodic capture (roadmap Phase I, I2)
+
+Phase I's second increment wires the agency-state primitive (8.85.0) into the
+live integration — shadow stage.
+
+- New `continuity.py` binder:
+  - on startup, logs what JARVIS was in the middle of before the restart
+    (`continuity: mode=… · N goals · M open situations (captured …s ago)`);
+  - on a 5-minute tick (and once at boot) captures a fresh snapshot of the live
+    active goals (`goals.active`), open kernel situations (`SituationStore`) and
+    mode (`modes.active_mode`).
+- **Shadow / behaviour-preserving:** it reads live state and writes its own
+  snapshot DB + a log line — it drives nothing. Every read is defensive, so a
+  failure can never reach the boot path. Kill-switch:
+  `continuity.AGENCY_CAPTURE_ENABLED`.
+- `agency_state` advances pure → **shadow** (owner `continuity`) in the adoption
+  matrix; Constitution ledger + `KERNEL_ADOPTION.md` regenerate from it; all four
+  static kernel gates stay green.
+
+tests: `tests/unit/test_continuity.py` (capture persistence, boot summary,
+no-prior-snapshot, kill-switch, reader-failure-swallowed).
+
 ## [8.86.0] — Roadmap: forward spec for Phases J–Ω (plan of record)
 
 Documentation only. With Phase I underway, `docs/KERNEL_PLAN.md` now carries a

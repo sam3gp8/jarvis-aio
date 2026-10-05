@@ -288,7 +288,7 @@ survive a restart, so it resumes rather than waking up blank.
 | # | Increment | Stage | Status | Release |
 | --- | --- | --- | --- | --- |
 | I1 | `kernel/agency_state.py`: durable versioned snapshot + continuity summary + reconcile | pure | ✅ Shipped | 8.85.0 |
-| I2 | bootstrap captures the snapshot; boot logs the continuity summary | shadow | ⏳ Planned | — |
+| I2 | `continuity.py`: bootstrap captures the snapshot; boot logs the continuity summary | shadow | ✅ Shipped | 8.87.0 |
 | I3 | boot-time reconcile of reloaded vs. live commitments, log agreement | parity | ⏳ Planned | — |
 | I4 | JARVIS resumes / announces continuity through the output seam (kill-switched) | enforce | ⏳ Planned | — |
 
@@ -304,6 +304,18 @@ survive a restart, so it resumes rather than waking up blank.
   into commitments still live vs. ones that vanished while JARVIS was down.
 - Landed **pure** (declared in the adoption matrix): the primitive exists and is
   unit-tested, nothing live wired yet, so the release is behaviour-preserving.
+
+#### I2 — bootstrap capture + boot summary (8.87.0)
+
+- `continuity.py`: a live binder over the pure primitive. On boot
+  `boot_summary()` reloads the last snapshot and logs what JARVIS was in the
+  middle of; on a 5-minute tick (and once at boot) `capture_now()` reads the
+  live goals (`goals.active`), open situations (kernel `SituationStore`) and mode
+  (`modes.active_mode`) and writes a fresh snapshot.
+- **Shadow** (`agency_state` → shadow, owner `continuity`): reads live state and
+  writes its own snapshot DB + a log line; drives nothing. Every read is
+  defensive, so a failure can never reach the boot path. Kill-switch:
+  `continuity.AGENCY_CAPTURE_ENABLED`.
 
 ### Phases J–Ω — forward spec
 
