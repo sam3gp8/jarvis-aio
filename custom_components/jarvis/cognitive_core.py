@@ -3537,16 +3537,30 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
             return False
     except Exception:   # pragma: no cover - defensive, fail open
         pass
-    try:
-        await hass.services.async_call(
-            domain, service,
-            {"entity_id": entity_ids, **extra},
-            blocking=True,
-        )
-        return True
-    except Exception as exc:
-        _LOGGER.warning("Proactive action failed (%s.%s): %s", domain, service, exc)
-        return False
+    # MCU Phase H (H5): route the proactive actuation through the UNIVERSAL
+    # ACTUATOR SEAM (actuation.execute_actuator) — the same Execution (kernel
+    # planner) -> Event path control_device/bulk_control/scenes use — per target,
+    # instead of a direct multi-entity hass.services call. The G1/G2 gates above
+    # still decide WHETHER the proactive action runs; the seam decides HOW it is
+    # executed and recorded. Best-effort: returns True if at least one target
+    # actuated (so a wholly-failed action makes no "I did it" claim).
+    capability = f"{domain}.{service}"
+    successes = 0
+    for eid in entity_ids:
+        try:
+            from . import actuation
+            data = {"entity_id": eid, **extra}
+            areq = actuation.request(capability, eid, params=data, action=service)
+            ok, _detail = await actuation.execute_actuator(
+                hass, capability=capability, entity_id=eid, domain=domain,
+                service=service, data=data, action=service, areq=areq,
+                verify=None, blocking=True)
+            if ok:
+                successes += 1
+        except Exception as exc:   # pragma: no cover - defensive
+            _LOGGER.warning("Proactive action failed (%s.%s on %s): %s",
+                            domain, service, eid, exc)
+    return successes > 0
 
 
 def _autonomous_done_message(offer: dict) -> str:

@@ -1,3 +1,29 @@
+## [8.75.0] — MCU Phase H (H5): proactive autonomy onto the universal actuator seam
+
+Fifth Phase H increment. The discretionary **autonomous/proactive** actuation path
+(`cognitive_core._execute_action_data` — JARVIS acting on a learned/trusted pattern
+of its own accord) now executes **through the universal actuator seam** instead of
+a direct multi-entity `hass.services` call.
+
+- The **G1/G2 gates still decide WHETHER** a proactive action runs (agency-budget
+  and loop-detect enforce, unchanged and still checked first); the **seam decides
+  HOW** it executes and is recorded — each target is a canonical per-entity
+  `ActuatorRequest` run through the kernel planner, publishing an actuation
+  JarvisEvent, exactly like control_device / bulk_control / scenes.
+- Per-target now (the audit's "canonical actuator request per target"): a
+  multi-entity proactive action becomes one seam call per entity. Best-effort —
+  returns success if at least one target actuated, so a wholly-failed action makes
+  no false "I did it" claim. Adds an `exists:<entity>` precondition (the seam's),
+  so a proactive offer never fires at an unknown entity.
+- `actuator` primitive stays ● enforce with **proactive as a new live consumer**
+  (cognitive_core). Coverage unchanged (17.9%).
+- This removes one of the audit's flagged **legacy actuator bypasses**
+  (`proactive action → legacy`).
+
+tests: `test_budget_enforce.py` gains a seam-routing/event test; the G1/G2 enforce
+suites are updated to the per-entity service-call shape (and set the target entity
+so the seam precondition holds). Full suite green.
+
 ## [8.74.0] — MCU Phase H (H4a): the full goal lifecycle is journaled
 
 Fourth Phase H increment, first half of goals→kernel. F1/F2 recorded a goal's
