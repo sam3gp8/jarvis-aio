@@ -163,35 +163,49 @@ class LocalIntentRouter:
         else:
             targets = candidates
 
-        # Write-ahead: durably record intent BEFORE issuing a high-stakes call.
-        txns: list[str] = []
+        # Write-ahead: durably record intent BEFORE issuing a high-stakes call,
+        # keyed per entity so each target's recovery-ledger entry is marked
+        # complete only when that entity actually actuated.
+        txn_by_eid: dict[str, str] = {}
         if high_stakes and self.ledger is not None and desired_state is not None:
             for eid in targets:
                 try:
-                    txns.append(
-                        self.ledger.record_intent(
-                            eid, desired_state, action=f"{domain}.{service}"
-                        )
+                    txn_by_eid[eid] = self.ledger.record_intent(
+                        eid, desired_state, action=f"{domain}.{service}"
                     )
                 except Exception:  # noqa: BLE001
                     _LOGGER.exception("ledger record_intent failed for %s", eid)
 
-        try:
-            await self.hass.services.async_call(
-                domain, service, {"entity_id": targets}, blocking=True
-            )
-        except Exception:  # noqa: BLE001
-            _LOGGER.exception("intent: %s.%s failed for %s", domain, service, targets)
-            self._release_all(tokens)
-            return []
-
-        for txn in txns:
+        # MCU Phase H (H10): route each target through the universal actuator
+        # seam (one canonical per-entity request) instead of a single direct
+        # multi-entity hass.services call — so intent-router actuations are
+        # planned, event-published and journaled like every other actuation.
+        # Same net effect on the home; now observable, and the recovery ledger is
+        # marked complete per entity that genuinely actuated.
+        acted: list[str] = []
+        for eid in targets:
             try:
-                self.ledger.mark_complete(txn)
+                from .. import actuation
+                areq = actuation.request(f"{domain}.{service}", eid,
+                                         params={"entity_id": eid}, action=service)
+                ok, _detail = await actuation.execute_actuator(
+                    self.hass, capability=f"{domain}.{service}", entity_id=eid,
+                    domain=domain, service=service, data={"entity_id": eid},
+                    action=service, areq=areq, verify=None, blocking=True)
             except Exception:  # noqa: BLE001
-                pass
+                _LOGGER.exception("intent: %s.%s failed for %s", domain, service, eid)
+                ok = False
+            if ok:
+                acted.append(eid)
+                txn = txn_by_eid.get(eid)
+                if txn is not None:
+                    try:
+                        self.ledger.mark_complete(txn)
+                    except Exception:  # noqa: BLE001
+                        pass
+
         self._release_all(tokens)
-        return targets
+        return acted
 
     def _release_all(self, tokens: dict) -> None:
         if self.mutex is None:
@@ -251,9 +265,15 @@ class LocalIntentRouter:
                     return {"executed": False, "intent": intent, "entity_id": entity_id,
                             "reason": "entity busy (higher-priority lock)"}
             try:
-                await self.hass.services.async_call(
-                    domain, service, {"entity_id": entity_id}, blocking=True
-                )
+                from .. import actuation
+                areq = actuation.request(f"{domain}.{service}", entity_id,
+                                         params={"entity_id": entity_id}, action=service)
+                ok, _detail = await actuation.execute_actuator(
+                    self.hass, capability=f"{domain}.{service}", entity_id=entity_id,
+                    domain=domain, service=service, data={"entity_id": entity_id},
+                    action=service, areq=areq, verify=None, blocking=True)
+                if not ok:
+                    raise RuntimeError("actuation did not complete")
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("intent: context action failed for %s", entity_id)
                 if token is not None:

@@ -1,3 +1,35 @@
+## [8.79.0] — MCU Phase H (H10): the local intent router onto the universal seam
+
+Ninth Phase H increment. `LocalIntentRouter` (the no-cloud command router behind
+"turn off the lights", "secure the garage", "turn it off") actuated with bare
+`hass.services.async_call` — a single **multi-entity** batch call for area intents
+(lights on/off, secure-area locks/covers) and a single call for the pronoun
+context action. H10 routes both through `actuation.execute_actuator`.
+
+- **Per-entity canonical request:** an area intent becomes one seam call per
+  resolved entity (the same per-target shape bulk_control and the proactive path
+  already use) instead of one `{"entity_id": [...]}` batch — so each actuation is
+  planned, publishes its own actuation `JarvisEvent`, and is journaled.
+- **Mutex + write-ahead ledger preserved, now more precise:** the per-entity
+  concurrency locks are unchanged, and the high-stakes recovery ledger is marked
+  complete **per entity that actually actuated** (keyed `txn_by_eid`), rather than
+  marking the whole batch complete on a single call's return — better recovery
+  fidelity if one target fails.
+- **Net effect on the home is unchanged** (same services on the same entities);
+  the result dict now reports the entities that genuinely actuated. `intent_router`
+  no longer contains a direct world-mutating `hass.services` call.
+- `actuator` stays ● enforce; `intent_router` consumes the seam through
+  `actuation`. **Coverage unchanged (17.9%).**
+
+tests: new `test_intent_router_seam.py` — lights-off routes per-entity + emits an
+actuation event each; secure-area marks the recovery ledger complete per entity;
+the pronoun context action routes a single entity through the seam. Existing
+`test_intent_router.py` (pure matching/resolution) stays green.
+
+Phase H exit criterion ("zero consequential actuator bypasses"): `routines` and
+`mode_scene` are the last alternate paths, migrated next, then the exit-criteria
+CI gate lands.
+
 ## [8.78.0] — MCU Phase H (H9): the offline local fast-path onto the universal seam
 
 Eighth Phase H increment. The **local intent engine** (`local_engine` — the
