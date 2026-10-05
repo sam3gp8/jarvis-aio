@@ -32,6 +32,7 @@ from .const import (
     CONF_OBSERVER_QUIET_END,
     CONF_OBSERVER_QUIET_START,
     CONF_OLLAMA_BASE_URL,
+    DEFAULT_HONORIFIC,
     DEFAULT_OBSERVER_QUIET_END,
     DEFAULT_OBSERVER_QUIET_START,
     DOMAIN,
@@ -739,6 +740,8 @@ async def ws_get_panel_data(
             "suggestions":    suggestions,
             "goals":          goals,
             "config": {
+                "honorific": str(_runtime_opt(hass, entry, "honorific", DEFAULT_HONORIFIC)
+                                 or DEFAULT_HONORIFIC),
                 "announcements_enabled": announcements_on,
                 "announce_notify_only": bool(_runtime_opt(hass, entry, "announce_notify_only", False)),
                 "sentinel_enabled": sentinel_on,
