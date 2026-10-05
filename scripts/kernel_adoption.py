@@ -125,11 +125,12 @@ _DECLARED: dict[str, dict] = {
     # actuation.execute_safety_actuator) and the offline local fast-path (H9,
     # local_engine via actuation._seam_execute) do too, as seam *consumers*
     # through actuation (so the direct kernel-primitive referencers stay
-    # actuation/agent). H8 closed the last SAFETY direct bypass (intrusion/
-    # nighttime lockdown now secure through the seam, fail-toward-protection);
-    # H9+ migrates the remaining alternate execution paths (local_engine +
-    # intent_router done; routines / mode_scene next) ahead of the
-    # exit-criteria gate.
+    # actuation/agent). H8 closed the last SAFETY direct bypass; H9–H11 migrated
+    # the remaining alternate execution paths (local_engine, intent_router,
+    # mode_scene, scenes), and scripts/kernel_bypass_check.py now proves the
+    # Phase H exit criterion: every world-mutating service call converges on the
+    # seam or is classified (communications / read-only / meta / the generic
+    # user-authored routine runner).
     "actuator":     {"stage": "enforce", "owners": ["actuation", "agent"]},
 }
 
