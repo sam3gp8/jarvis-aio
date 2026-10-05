@@ -244,7 +244,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # can never affect the authoritative paths. Kill-switch:
     # continuity.AGENCY_CAPTURE_ENABLED.
     from . import continuity as _continuity
+    # Read the pre-restart snapshot FIRST — summary (I2) + reconcile (I3) both
+    # need it before the boot seed overwrites "latest" with a post-restart one.
     await hass.async_add_executor_job(_continuity.boot_summary, hass)
+    await hass.async_add_executor_job(_continuity.boot_reconcile, hass)
 
     async def _agency_capture(now=None):
         await hass.async_add_executor_job(_continuity.capture_now, hass)

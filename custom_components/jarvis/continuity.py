@@ -113,3 +113,38 @@ def boot_summary(hass=None) -> str:
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency boot summary failed: %s", exc)
         return ""
+
+
+def boot_reconcile(hass=None):
+    """Reconcile the pre-restart snapshot against what is still live (I3 — parity).
+
+    Loads the snapshot from before this restart and checks each remembered goal /
+    situation against the ids that are still live now, logging how many JARVIS
+    could resume versus how many vanished while it was down. **Observe-only** — it
+    computes and logs the reconciliation, drives nothing, and never raises into
+    startup. Must run *before* the boot seed capture, so ``load_latest`` still
+    returns the pre-restart snapshot rather than a freshly-written one.
+
+    Returns the ``ReconcileReport`` (or None if nothing to reconcile / disabled).
+    """
+    if not AGENCY_CAPTURE_ENABLED:
+        return None
+    try:
+        state = _store(hass).load_latest()
+        if state is None:
+            return None
+        live_goal_ids = [g["id"] for g in _live_goals()]
+        live_situation_ids = [s["id"] for s in _live_situations(hass)]
+        report = agency_state.reconcile(
+            state,
+            live_goal_ids=live_goal_ids,
+            live_situation_ids=live_situation_ids,
+        )
+        _LOGGER.info(
+            "JARVIS: continuity reconcile — %d still live, %d vanished while down",
+            len(report.still_live), len(report.vanished),
+        )
+        return report
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("agency boot reconcile failed: %s", exc)
+        return None

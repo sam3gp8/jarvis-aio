@@ -58,6 +58,38 @@ def test_kill_switch_disables_capture_and_boot(cont, monkeypatch):
     assert cont._store().load_latest() is None
 
 
+def test_boot_reconcile_splits_live_from_vanished(cont, monkeypatch, caplog):
+    # Snapshot a world with two goals + one situation...
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals",
+                        lambda: [{"id": "g1"}, {"id": "g2"}])
+    monkeypatch.setattr(cont, "_live_situations",
+                        lambda hass=None: [{"id": "s1", "status": "open"}])
+    cont.capture_now()
+    # ...then a restart where only g1 and s1 are still live (g2 vanished).
+    monkeypatch.setattr(cont, "_live_goals", lambda: [{"id": "g1"}])
+    monkeypatch.setattr(cont, "_live_situations",
+                        lambda hass=None: [{"id": "s1", "status": "open"}])
+    with caplog.at_level(logging.INFO):
+        rep = cont.boot_reconcile()
+    assert {c.id for c in rep.still_live} == {"g1", "s1"}
+    assert {c.id for c in rep.vanished} == {"g2"}
+    assert any("continuity reconcile" in r.message for r in caplog.records)
+
+
+def test_boot_reconcile_none_without_prior_snapshot(cont):
+    assert cont.boot_reconcile() is None
+
+
+def test_boot_reconcile_kill_switch(cont, monkeypatch):
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [{"id": "g1"}])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    cont.capture_now()
+    monkeypatch.setattr(cont, "AGENCY_CAPTURE_ENABLED", False)
+    assert cont.boot_reconcile() is None
+
+
 def test_capture_swallows_a_failing_reader(cont, monkeypatch):
     # A reader that blows up must never propagate out of capture_now.
     def boom(*a, **k):

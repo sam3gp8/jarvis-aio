@@ -289,7 +289,7 @@ survive a restart, so it resumes rather than waking up blank.
 | --- | --- | --- | --- | --- |
 | I1 | `kernel/agency_state.py`: durable versioned snapshot + continuity summary + reconcile | pure | ✅ Shipped | 8.85.0 |
 | I2 | `continuity.py`: bootstrap captures the snapshot; boot logs the continuity summary | shadow | ✅ Shipped | 8.87.0 |
-| I3 | boot-time reconcile of reloaded vs. live commitments, log agreement | parity | ⏳ Planned | — |
+| I3 | `continuity.boot_reconcile`: reloaded vs. live commitments, log agreement | parity | ✅ Shipped | 8.88.0 |
 | I4 | JARVIS resumes / announces continuity through the output seam (kill-switched) | enforce | ⏳ Planned | — |
 
 #### I1 — AgencyState primitive (8.85.0)
@@ -316,6 +316,16 @@ survive a restart, so it resumes rather than waking up blank.
   writes its own snapshot DB + a log line; drives nothing. Every read is
   defensive, so a failure can never reach the boot path. Kill-switch:
   `continuity.AGENCY_CAPTURE_ENABLED`.
+
+#### I3 — boot-time reconcile (8.88.0)
+
+- `continuity.boot_reconcile()`: on boot (before the seed capture, so it reads
+  the *pre-restart* snapshot) it reconciles each remembered goal / situation
+  against the ids still live now (`agency_state.reconcile`), and logs how many
+  JARVIS could resume versus how many vanished while it was down.
+- **Parity / log-only:** it computes and logs the reconciliation and drives
+  nothing, so the adoption stage stays `shadow` (observe-only) until I4 makes a
+  resumption authoritative (enforce). Same kill-switch and fail-safe as I2.
 
 ### Phases J–Ω — forward spec
 
