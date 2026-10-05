@@ -1,3 +1,18 @@
+## [8.86.0] — Roadmap: forward spec for Phases J–Ω (plan of record)
+
+Documentation only. With Phase I underway, `docs/KERNEL_PLAN.md` now carries a
+concise spec for every remaining maturity tier — J (Cognitive OS), K (Attention
+& Working Memory), L (Prediction & Causal), M (Learning), N (Graduated
+Autonomy), O (Multi-Agent), P (Household Intelligence), Q (Embodied), R (MCU
+integration), S (Self Model), T (Knowledge Graph), U (Advanced Planning), V
+(Long-Horizon Agency), W (Social), X (Environmental), Y (Self-Optimization), Z
+(Resilience), AA (Multimodal), AB (Collaborative), AC (Contextual Autonomy), AD
+(Research), AE (Synthesis) and Ω (Continuous Evolution). Each is specced to the
+same discipline — new kernel primitive, shadow→parity→enforce ladder, per-phase
+`*_ENFORCE` kill-switch and fail-safe, done-when — plus a cross-cutting
+governance invariant, a dependency-ordered sequencing, and two consolidation
+recommendations (merge O into AB; N with AC). No code change.
+
 ## [8.85.0] — Continuity of self: durable agency state (roadmap Phase I, I1)
 
 The execution journal (H4) already recovers in-flight *plan steps* after a
