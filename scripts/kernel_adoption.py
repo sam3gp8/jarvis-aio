@@ -127,8 +127,9 @@ _DECLARED: dict[str, dict] = {
     # through actuation (so the direct kernel-primitive referencers stay
     # actuation/agent). H8 closed the last SAFETY direct bypass (intrusion/
     # nighttime lockdown now secure through the seam, fail-toward-protection);
-    # H9+ migrates the remaining alternate execution paths (local_engine done;
-    # intent_router / routines / mode_scene next) ahead of the exit-criteria gate.
+    # H9+ migrates the remaining alternate execution paths (local_engine +
+    # intent_router done; routines / mode_scene next) ahead of the
+    # exit-criteria gate.
     "actuator":     {"stage": "enforce", "owners": ["actuation", "agent"]},
 }
 
