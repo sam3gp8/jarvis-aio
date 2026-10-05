@@ -7683,6 +7683,8 @@ ${this._renderExcludedEntities(d)}
           ref_name: n,
           has_ref: refSet.has(this._faceNorm(n)),
           ref_hint: llmOn,
+          // Enroll straight from the camera that last saw them (#140).
+          can_capture: !!(seen && seen.camera_entity),
         });
       }).join("") + `</div>`;
     } else {
@@ -7705,6 +7707,8 @@ ${this._renderExcludedEntities(d)}
         relation: r.is_unknown ? "unknown" : "known",
         low_conf: !!r.is_low_confidence,
         actions: r.is_unknown ? [] : [{ label: "+ Resident", kind: "add", name: r.name }],
+        // Assign this sighting's frame to a household resident's reference (#140).
+        assignTargets: residents,
       })).join("") + `</div>`;
     } else {
       html += `<div class="mmwave-empty">No non-resident faces seen recently. When your backend names a face that isn't a resident, it appears here.</div>`;
@@ -7728,6 +7732,20 @@ ${this._renderExcludedEntities(d)}
     body.querySelectorAll("input[type=file][data-faces-ref]").forEach(inp =>
       inp.addEventListener("change", (e) => this._uploadFaceReference(
         inp.getAttribute("data-faces-ref"), e.target.files && e.target.files[0])));
+    // On-the-fly labeling (#140): assign a Recently-Seen frame to a resident…
+    body.querySelectorAll("select[data-faces-assign]").forEach(sel =>
+      sel.addEventListener("change", (e) => {
+        const name = e.currentTarget.value;
+        const card = e.currentTarget.closest(".faces-card");
+        e.currentTarget.value = "";
+        if (name && card) this._labelFaceAs(card, name);
+      }));
+    // …or enroll a resident's reference straight from their last sighting.
+    body.querySelectorAll("button[data-faces-capture]").forEach(el =>
+      el.addEventListener("click", () => {
+        const card = el.closest(".faces-card");
+        if (card) this._labelFaceAs(card, el.getAttribute("data-faces-capture"));
+      }));
   }
 
   // Normalized name key, mirroring recognition._face_norm, so the panel can tell
@@ -7754,9 +7772,56 @@ ${this._renderExcludedEntities(d)}
     }
   }
 
+  // On-the-fly labeling (#140): grab the image a face card is showing and enroll
+  // it as a resident's reference photo, so the dataset can be built straight from
+  // real-world detections instead of manual file uploads. Prefers the exact frame
+  // on the card (a loaded live frame or the pinned recognition-time snapshot);
+  // falls back to a fresh frame from the card's camera.
+  async _captureFaceImage(cardEl) {
+    if (!cardEl) return null;
+    const img = cardEl.querySelector("img.faces-thumb-img");
+    const src = img && img.getAttribute("src");
+    // A live frame already loaded into the card is a base64 data URL — use as-is.
+    if (src && src.startsWith("data:")) return src;
+    // A pinned snapshot is a same-origin URL (served by HA) — read its bytes.
+    if (src) {
+      try {
+        const blob = await (await fetch(src)).blob();
+        return await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result || ""));
+          fr.onerror = reject;
+          fr.readAsDataURL(blob);
+        });
+      } catch (_) { /* fall through to a fresh camera frame */ }
+    }
+    // Only a placeholder was shown → pull a fresh frame from the card's camera.
+    const cam = cardEl.dataset ? cardEl.dataset.cam : "";
+    if (cam && this._hass) {
+      try {
+        const res = await this._hass.callWS({ type: "jarvis/camera_snapshot", entity_id: cam });
+        if (res?.image) return `data:image/jpeg;base64,${res.image}`;
+      } catch (_) { /* nothing to assign */ }
+    }
+    return null;
+  }
+
+  async _labelFaceAs(cardEl, name) {
+    if (!name || !this._hass) return;
+    try {
+      const image = await this._captureFaceImage(cardEl);
+      if (!image) { this._toast("✗ no snapshot available to assign", "err"); return; }
+      await this._hass.callWS({ type: "jarvis/faces", action: "set_reference", name, image });
+      this._toast(`✓ reference photo set for ${name} from this sighting`, "ok");
+      await this._fetchFaces();
+    } catch (err) {
+      this._toast(`✗ ${err?.message || err}`, "err");
+    }
+  }
+
   // One face card: snapshot (or an initial placeholder) with the name under it.
   _faceCard({ name, camera_entity, camera, confidence, age_seconds, relation, actions,
-              snapshot_url, low_conf, ref_name, has_ref, ref_hint }) {
+              snapshot_url, low_conf, ref_name, has_ref, ref_hint, assignTargets, can_capture }) {
     const safe = this._esc(name || "Unknown");
     const initial = this._esc((name || "?").trim().charAt(0).toUpperCase() || "?");
     let badge = relation === "resident" ? `<span class="faces-badge resident">RESIDENT</span>`
@@ -7785,13 +7850,28 @@ ${this._renderExcludedEntities(d)}
       const lbl = has_ref ? "📷 Change photo" : "📷 Set photo";
       refCtl = `<label class="faces-ref ${has_ref ? "set" : ""}"${ref_hint && !has_ref ? ' title="Add a reference photo to let best-effort recognition match this resident"' : ""}>${lbl}`
         + `<input type="file" accept="image/*" data-faces-ref="${this._esc(ref_name)}" style="display:none"/></label>`;
+      // On-the-fly: enroll this resident's reference straight from the frame that
+      // last saw them, no file upload needed (#140).
+      if (can_capture) {
+        refCtl += `<button class="faces-ref faces-cap" data-faces-capture="${this._esc(ref_name)}" title="Use this sighting as the reference photo">📷 From sighting</button>`;
+      }
     }
-    return `<div class="faces-card">
+    // On-the-fly labeling for Recently-Seen cards: assign the shown frame to a
+    // household resident as their reference photo (#140).
+    let assignCtl = "";
+    if (Array.isArray(assignTargets) && assignTargets.length) {
+      assignCtl = `<div class="faces-card-assign"><select class="faces-assign-sel" data-faces-assign="1" aria-label="Assign this face to a resident">`
+        + `<option value="">📷 Label as…</option>`
+        + assignTargets.map(n => `<option value="${this._esc(n)}">${this._esc(n)}</option>`).join("")
+        + `</select></div>`;
+    }
+    return `<div class="faces-card" data-cam="${this._esc(camera_entity || "")}">
       <div class="faces-thumb">${thumb}${badge}</div>
       <div class="faces-card-name">${safe}</div>
       <div class="faces-card-meta">${meta.join(" · ")}</div>
       ${acts ? `<div class="faces-card-act">${acts}</div>` : ""}
       ${refCtl ? `<div class="faces-card-ref">${refCtl}</div>` : ""}
+      ${assignCtl}
     </div>`;
   }
 
@@ -10531,6 +10611,18 @@ ${this._renderExcludedEntities(d)}
   .faces-ref { display: inline-block; font-size: 10px; padding: 3px 8px; border-radius: 6px; border: 1px dashed var(--border, rgba(255,255,255,.2)); color: var(--text-dim); cursor: pointer; }
   .faces-ref.set { border-style: solid; color: var(--text, #cfe); }
   .faces-ref:hover { border-color: var(--cyan, #00f2fe); }
+  /* On-the-fly labeling (#140) */
+  .faces-cap { background: transparent; margin-left: 6px; font-family: inherit; }
+  .faces-card-assign { margin-top: 4px; }
+  .faces-assign-sel {
+    font-size: 10px; font-family: var(--font-mono);
+    padding: 3px 6px; border-radius: 6px;
+    background: var(--panel-2, rgba(255,255,255,.05));
+    border: 1px dashed var(--border, rgba(255,255,255,.2));
+    color: var(--text-dim); cursor: pointer; max-width: 100%;
+  }
+  .faces-assign-sel:hover { border-color: var(--cyan, #00f2fe); color: var(--text, #cfe); }
+  .faces-assign-sel:focus { outline: none; border-color: var(--cyan, #00f2fe); }
   /* Muted announcements (#181) */
   .mutes-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   .mutes-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-family: var(--font-mono); background: var(--panel-2, rgba(255,255,255,.05)); border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: 12px; padding: 3px 4px 3px 10px; }
