@@ -1,3 +1,27 @@
+## [8.83.0] — Global search box in the panel header (issue #209)
+
+The panel had no way to jump straight to a place or find an entity — you had to
+know which tab/sub-section a setting lived under and scroll for it.
+
+- New search box in the masthead (right-hand cluster, beside the clock) that
+  searches **both** panel destinations and Home Assistant entities at once:
+  - **Sections** — the eight tabs plus every Settings sub-section and the
+    notable cards (Excluded Entities, Floor Plan Editor, Muted Announcements,
+    AI Models, …), matched on label or keyword. Picking one switches to that
+    tab and, for Settings, opens the right sub-section.
+  - **Entities** — matched by entity id or friendly name from the live HA
+    states. Picking one lands on Settings → Learning and pre-fills the
+    Excluded-Entities picker (the task the reporter was mid-way through).
+- Results render in a grouped dropdown; Escape or an empty query clears it, and
+  the box is hidden on phones where the masthead has no room.
+- The masthead's right-hand items (search · clock · lockdown) are now grouped in
+  one flex cell so the three-column header layout is unchanged.
+
+Frontend-only. The masthead renders on every tab, so the box is always
+available. tests: five new panel smoke-test assertions (box renders; section
+match; entity match by id; empty-query clears/hides; navigation switches
+tab + sub-section); `node --check` + the full smoke suite stay green.
+
 ## [8.82.0] — Lockdown pill is smaller / harder to toggle by accident (issue #208)
 
 The header lockdown toggle reserved a fixed 34px for its state label so the pill

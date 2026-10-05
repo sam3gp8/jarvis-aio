@@ -1111,6 +1111,23 @@ setTimeout(async () => {
       && /data-unmute-entity="binary_sensor\.lounge_window"/.test(_mutesBody)],
   );
 
+  // #209: global search box over entities + panel sections.
+  const _gsInput = el.shadowRoot.getElementById("gsearch-input");
+  const _gsSectionHtml = (() => { el._runGlobalSearch("excluded"); return el.shadowRoot.getElementById("gsearch-results")?.innerHTML || ""; })();
+  const _gsEntityHtml = (() => { el._runGlobalSearch("camera"); return el.shadowRoot.getElementById("gsearch-results")?.innerHTML || ""; })();
+  const _gsEmptyHidden = (() => { el._runGlobalSearch(""); const b = el.shadowRoot.getElementById("gsearch-results"); return !!b && b.hidden === true; })();
+  const _gsNav = (() => { el._navigateTo("settings", "safety"); return el._currentTab === "settings" && el._settingsSection === "safety"; })();
+  checks.push(
+    ["global search box renders in the masthead", !!_gsInput],
+    ["global search matches a panel section (Excluded Entities)",
+      /gs-item/.test(_gsSectionHtml) && /data-kind="section"/.test(_gsSectionHtml)
+      && /Excluded Entities/.test(_gsSectionHtml) && /data-section="learning"/.test(_gsSectionHtml)],
+    ["global search matches HA entities by id",
+      /data-kind="entity"/.test(_gsEntityHtml) && /data-eid="camera\.front"/.test(_gsEntityHtml)],
+    ["global search clears + hides the dropdown on empty query", _gsEmptyHidden],
+    ["global search navigation switches tab + settings sub-section", _gsNav],
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();

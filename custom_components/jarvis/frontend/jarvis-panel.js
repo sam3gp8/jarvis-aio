@@ -1603,6 +1603,101 @@ class JarvisPanel extends HTMLElement {
     return (h && String(h).trim()) || "sir";
   }
 
+  // ─── global search (issue #209) ─────────────────────────────────────────
+  // A header search over BOTH Home Assistant entities and panel sections, so
+  // the user can jump straight to a place (e.g. Excluded Entities) or find an
+  // entity by name instead of hunting through tabs.
+  _searchIndex() {
+    return [
+      { label: "Command Center", tab: "dashboard", kw: "dashboard home status overview" },
+      { label: "Residence", tab: "residence", kw: "rooms areas floor plan" },
+      { label: "Intrusion", tab: "intrusion", kw: "security alarm breach lockdown" },
+      { label: "Faces", tab: "faces", kw: "face recognition household residents" },
+      { label: "Suggestions", tab: "suggestions", kw: "ideas recommendations" },
+      { label: "Settings", tab: "settings", kw: "configuration options preferences" },
+      { label: "Logs", tab: "logs", kw: "debug history events" },
+      { label: "Memory", tab: "memory", kw: "knowledge facts routines" },
+      { label: "Settings · General", tab: "settings", section: "general", kw: "residence sub-agents mode diagnostics" },
+      { label: "Settings · Voice & Audio", tab: "settings", section: "voice", kw: "ai models briefings voice confirmation speakers tts" },
+      { label: "Settings · Learning", tab: "settings", section: "learning", kw: "anticipation memory observer routine" },
+      { label: "Settings · Safety & Energy", tab: "settings", section: "safety", kw: "notifications muted sentinel hazard energy appliances" },
+      { label: "Settings · Cameras", tab: "settings", section: "cameras", kw: "camera doorbell diagnostics" },
+      { label: "Settings · Home & Extras", tab: "settings", section: "home", kw: "wellbeing character documents extras" },
+      { label: "Settings · Floor Plan", tab: "settings", section: "floorplan", kw: "floorplan map rooms floor plan editor" },
+      { label: "Excluded Entities", tab: "settings", section: "learning", kw: "exclude ignore entity hide noise" },
+      { label: "Floor Plan Editor", tab: "settings", section: "floorplan", kw: "floorplan map rooms floor plan" },
+      { label: "Cameras", tab: "settings", section: "cameras", kw: "camera" },
+      { label: "Notifications", tab: "settings", section: "safety", kw: "notify phone push" },
+      { label: "Muted Announcements", tab: "settings", section: "safety", kw: "mute shush silence" },
+      { label: "AI Models", tab: "settings", section: "voice", kw: "model provider llm" },
+      { label: "Sentinel Rules", tab: "settings", section: "safety", kw: "sentinel rule" },
+    ];
+  }
+
+  // Switch tab (and, for Settings, the active sub-section) programmatically —
+  // the same transitions the tab bar / sub-nav click handlers perform.
+  _navigateTo(tab, section) {
+    if (tab && tab !== this._currentTab) {
+      this._currentTab = tab;
+      this._render();
+      if (tab === "logs") this._fetchDebugLog();
+      if (tab === "memory") { this._fetchKnowledge(); this._fetchPersonRoutines(); }
+    }
+    if (tab === "settings" && section) {
+      this._settingsSection = section;
+      this._applySettingsSections();
+    }
+  }
+
+  _runGlobalSearch(q) {
+    const box = this.shadowRoot && this.shadowRoot.getElementById("gsearch-results");
+    if (!box) return;
+    const query = String(q || "").trim().toLowerCase();
+    if (!query) { box.hidden = true; box.innerHTML = ""; return; }
+    const secs = this._searchIndex().filter(s =>
+      s.label.toLowerCase().includes(query) || (s.kw || "").includes(query)).slice(0, 6);
+    const states = this._hass?.states || {};
+    const ents = [];
+    for (const eid of Object.keys(states).sort()) {
+      const name = String(this._entName(eid) || "");
+      if (eid.toLowerCase().includes(query) || name.toLowerCase().includes(query)) {
+        ents.push(eid);
+        if (ents.length >= 8) break;
+      }
+    }
+    let html = "";
+    if (secs.length) {
+      html += `<div class="gs-group">Sections</div>` + secs.map(s =>
+        `<button class="gs-item" data-kind="section" data-tab="${this._esc(s.tab)}" data-section="${this._esc(s.section || '')}">${this._esc(s.label)}</button>`).join('');
+    }
+    if (ents.length) {
+      html += `<div class="gs-group">Entities</div>` + ents.map(eid =>
+        `<button class="gs-item" data-kind="entity" data-eid="${this._esc(eid)}"><span class="gs-ent-name">${this._esc(this._entName(eid))}</span><span class="gs-ent-id">${this._esc(eid)}</span></button>`).join('');
+    }
+    box.innerHTML = html || `<div class="gs-empty">No matches.</div>`;
+    box.hidden = false;
+  }
+
+  _onGlobalSearchPick(el) {
+    const kind = el.getAttribute("data-kind");
+    if (kind === "section") {
+      this._navigateTo(el.getAttribute("data-tab"), el.getAttribute("data-section") || null);
+    } else if (kind === "entity") {
+      const eid = el.getAttribute("data-eid");
+      // Land on the Excluded-Entities card (Settings → Learning) and pre-fill the
+      // entity picker — the task the reporter was doing when they hit the gap.
+      this._navigateTo("settings", "learning");
+      setTimeout(() => {
+        const f = this.shadowRoot && this.shadowRoot.getElementById("excl-ent-input");
+        if (f) { f.value = eid; f.focus(); }
+      }, 0);
+    }
+    const box = this.shadowRoot && this.shadowRoot.getElementById("gsearch-results");
+    if (box) { box.hidden = true; box.innerHTML = ""; }
+    const input = this.shadowRoot && this.shadowRoot.getElementById("gsearch-input");
+    if (input) input.value = "";
+  }
+
   _mockData() {
     return {
       observer:   { state: "RUNNING", level: "live" },
@@ -4104,17 +4199,24 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     </button>
     <div class="brand"><img class="brand-logo" src="/jarvis_panel_static/jarvis-logo.png" alt="" onerror="this.style.display='none'"/>J·A·R·V·I·S <span>// v${this._liveData?.version || '—'}</span><span class="status-badge ${this._liveData?.lockdown?.active ? 'alert' : ''}">[ STATUS: ${this._liveData?.lockdown?.active ? 'LOCKDOWN' : 'NOMINAL'} ]</span></div>
     <div class="greeting"><span id="greeting-text">${this._greeting()}</span>, <b>${this._esc(this._honorific())}</b></div>
-    <div class="clock">
-      <div class="time" id="clock-time">${hh}:${mm}:${ss}</div>
-      <div class="date" id="clock-date">${days[now.getDay()]} · ${String(now.getDate()).padStart(2,"0")} · ${mons[now.getMonth()]} · ${now.getFullYear()}</div>
+    <div class="masthead-right">
+      <div class="gsearch" id="gsearch">
+        <input id="gsearch-input" class="gsearch-input" type="search" autocomplete="off" spellcheck="false"
+               placeholder="Search entities & settings…" aria-label="Search entities and settings" />
+        <div class="gsearch-results" id="gsearch-results" role="listbox" hidden></div>
+      </div>
+      <div class="clock">
+        <div class="time" id="clock-time">${hh}:${mm}:${ss}</div>
+        <div class="date" id="clock-date">${days[now.getDay()]} · ${String(now.getDate()).padStart(2,"0")} · ${mons[now.getMonth()]} · ${now.getFullYear()}</div>
+      </div>
+      <button class="lockdown-toggle ${this._liveData?.lockdown?.active ? 'on' : ''}" id="lockdown-btn"
+        role="switch" aria-checked="${this._liveData?.lockdown?.active ? 'true' : 'false'}" aria-label="Lockdown"
+        title="${this._liveData?.lockdown?.active ? 'Lockdown engaged — tap to lift' : 'Tap to engage lockdown'}">
+        <span class="ld-switch" aria-hidden="true"><span class="ld-knob"></span></span>
+        <span class="ld-label">LOCKDOWN</span>
+        <span class="ld-state">${this._liveData?.lockdown?.active ? 'ARMED' : 'OFF'}</span>
+      </button>
     </div>
-    <button class="lockdown-toggle ${this._liveData?.lockdown?.active ? 'on' : ''}" id="lockdown-btn"
-      role="switch" aria-checked="${this._liveData?.lockdown?.active ? 'true' : 'false'}" aria-label="Lockdown"
-      title="${this._liveData?.lockdown?.active ? 'Lockdown engaged — tap to lift' : 'Tap to engage lockdown'}">
-      <span class="ld-switch" aria-hidden="true"><span class="ld-knob"></span></span>
-      <span class="ld-label">LOCKDOWN</span>
-      <span class="ld-state">${this._liveData?.lockdown?.active ? 'ARMED' : 'OFF'}</span>
-    </button>
   </div>
 
   <!-- TAB NAV -->
@@ -5447,6 +5549,35 @@ ${this._renderExcludedEntities(d)}
     });
     // Apply the active section on every render (Settings tab only).
     if (this._currentTab === "settings") this._applySettingsSections();
+
+    // Global search (issue #209) — header box over entities + sections.
+    const gsIn = this.shadowRoot.getElementById("gsearch-input");
+    const gsBox = this.shadowRoot.getElementById("gsearch-results");
+    if (gsIn) {
+      gsIn.addEventListener("input", (e) => this._runGlobalSearch(e.currentTarget.value));
+      gsIn.addEventListener("focus", (e) => { if (e.currentTarget.value) this._runGlobalSearch(e.currentTarget.value); });
+      gsIn.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          e.currentTarget.value = "";
+          if (gsBox) { gsBox.hidden = true; gsBox.innerHTML = ""; }
+          e.currentTarget.blur();
+        }
+      });
+      // Hide the dropdown when focus leaves the box — deferred so a result
+      // click (which steals focus) still fires before we tear the list down.
+      gsIn.addEventListener("blur", () => {
+        setTimeout(() => { if (gsBox) gsBox.hidden = true; }, 150);
+      });
+    }
+    if (gsBox) {
+      // mousedown (not click) so the pick registers before the input's blur.
+      gsBox.addEventListener("mousedown", (e) => {
+        const item = e.target.closest(".gs-item");
+        if (!item) return;
+        e.preventDefault();
+        this._onGlobalSearchPick(item);
+      });
+    }
 
     // Memory tab: teach a new fact
     const memAdd = this.shadowRoot.querySelector("#mem-add");
@@ -8749,6 +8880,91 @@ ${this._renderExcludedEntities(d)}
     margin-top: 4px;
   }
 
+  /* Right-hand masthead cluster: search · clock · lockdown */
+  .masthead-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 16px;
+  }
+
+  /* Global search (issue #209) */
+  .gsearch { position: relative; }
+  .gsearch-input {
+    width: 180px;
+    max-width: 30vw;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 7px 12px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    outline: none;
+    transition: border-color .2s ease, box-shadow .2s ease, width .2s ease;
+  }
+  .gsearch-input::placeholder { color: var(--text-dim); }
+  .gsearch-input:focus {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 2px rgba(0,242,254,0.18);
+    width: 230px;
+  }
+  .gsearch-results {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 320px;
+    max-width: 80vw;
+    max-height: 60vh;
+    overflow-y: auto;
+    z-index: 60;
+    background: var(--bg-panel, #0b1620);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    padding: 6px;
+  }
+  .gs-group {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 8px 8px 4px;
+  }
+  .gs-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .gs-item:hover { background: rgba(0,242,254,0.08); }
+  .gs-ent-name { color: var(--text); }
+  .gs-ent-id {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
+  .gs-empty {
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 12px 10px;
+    font-family: var(--font-mono);
+  }
+
   /* GRID */
   .grid {
     display: grid;
@@ -10733,6 +10949,10 @@ ${this._renderExcludedEntities(d)}
     .brand { font-size: 13px; letter-spacing: 0.2em; }
     .greeting { font-size: 10px; }
     .clock .time { font-size: 16px; }
+    /* hide the search box on phones — too little room beside the clock/lockdown */
+    .masthead-right { gap: 8px; }
+    .gsearch { display: none; }
+    .gsearch-results { width: 80vw; }
 
     /* dominant-room hero smaller */
     .room-name { font-size: 24px; }
