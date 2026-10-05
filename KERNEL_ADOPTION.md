@@ -54,6 +54,7 @@ explicit per-flip owner go/no-go.
 | --- | --- | --- |
 | `actor` | ◐ shadow | `actuation`, `agent` |
 | `actuator` | ● enforce | `actuation`, `agent` |
+| `agency_state` | · pure | — |
 | `attention` | ◐ shadow | `output_gate` |
 | `authority` | ● enforce | `authority_bridge` |
 | `beliefs` | ◐ shadow | `agent` |
