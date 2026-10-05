@@ -1,3 +1,17 @@
+## [8.81.0] — Fix: panel home greeting honors the configured name (issue #210)
+
+The panel's home-view greeting always said "Good morning, **sir**" even when a
+different form of address was configured — the name was hard-coded in the
+template while the honorific setting was never surfaced to the frontend.
+
+- `get_panel_data` now includes `config.honorific` (from the same
+  `honorific` option the voice/announcement paths use; defaults to `"sir"`).
+- The panel greeting renders `this._honorific()` (HTML-escaped), falling back to
+  `"sir"` when unset or before live data arrives.
+
+tests: `test_ws_get_panel_data_returns_status_and_full_config_payload` asserts the
+honorific is surfaced; `node --check` + the panel smoke test stay green.
+
 ## [8.80.0] — MCU Phase H (H11): last actuator paths onto the seam + the exit-criteria gate
 
 Tenth Phase H increment, and the one that **closes Phase H's exit criterion:

@@ -771,6 +771,7 @@ async def test_ws_get_panel_data_returns_status_and_full_config_payload(
         "sentinel_enabled": False,
         "cognition_enabled": False,
         "home_context_max_entities": 0,
+        "honorific": "Tony",   # issue #210: the configured form of address
     }
     monkeypatch.setattr(
         websocket,
@@ -836,6 +837,9 @@ async def test_ws_get_panel_data_returns_status_and_full_config_payload(
     assert payload["config"]["sentinel_enabled"] is False
     assert payload["config"]["home_context_max_entities"] == 0
     assert payload["config"]["notify_services_available"] == ["notify.mobile_app_phone"]
+    # issue #210: the configured honorific is surfaced to the panel (so the
+    # home-view greeting can address the user by name instead of "sir").
+    assert payload["config"]["honorific"] == "Tony"
 
 
 async def test_ws_get_panel_data_populates_area_and_dominant_room(fake_hass, monkeypatch):

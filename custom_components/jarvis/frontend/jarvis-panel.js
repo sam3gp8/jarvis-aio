@@ -1594,6 +1594,15 @@ class JarvisPanel extends HTMLElement {
     return "Good evening";
   }
 
+  // The configured form of address (Settings → honorific), e.g. a name instead
+  // of "sir". Surfaced via panel_data config; falls back to "sir" (the default)
+  // when unset or before live data arrives. (issue #210)
+  _honorific() {
+    let h;
+    try { h = this._data()?.config?.honorific; } catch (_e) { h = null; }
+    return (h && String(h).trim()) || "sir";
+  }
+
   _mockData() {
     return {
       observer:   { state: "RUNNING", level: "live" },
@@ -4094,7 +4103,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       <svg viewBox="0 0 24 24"><path d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"/></svg>
     </button>
     <div class="brand"><img class="brand-logo" src="/jarvis_panel_static/jarvis-logo.png" alt="" onerror="this.style.display='none'"/>J·A·R·V·I·S <span>// v${this._liveData?.version || '—'}</span><span class="status-badge ${this._liveData?.lockdown?.active ? 'alert' : ''}">[ STATUS: ${this._liveData?.lockdown?.active ? 'LOCKDOWN' : 'NOMINAL'} ]</span></div>
-    <div class="greeting"><span id="greeting-text">${this._greeting()}</span>, <b>sir</b></div>
+    <div class="greeting"><span id="greeting-text">${this._greeting()}</span>, <b>${this._esc(this._honorific())}</b></div>
     <div class="clock">
       <div class="time" id="clock-time">${hh}:${mm}:${ss}</div>
       <div class="date" id="clock-date">${days[now.getDay()]} · ${String(now.getDate()).padStart(2,"0")} · ${mons[now.getMonth()]} · ${now.getFullYear()}</div>
