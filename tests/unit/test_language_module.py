@@ -51,6 +51,25 @@ def test_missing_language_is_safe(language):
     assert language.language_directive(types.SimpleNamespace()) == ""
 
 
+# ── forced task directive (#140 — camera analysis logs reverting to English) ──
+def test_task_directive_forces_language_without_escape_clause(language):
+    d = language.language_task_directive(_hass("fr"))
+    assert "French" in d
+    assert "regardless of the language" in d
+    # No "reply in the user's language" escape — unlike language_directive.
+    assert "another language" not in d
+
+
+def test_task_directive_english_is_empty(language):
+    assert language.language_task_directive(_hass("en")) == ""
+    assert language.language_task_directive(_hass(None)) == ""
+
+
+def test_task_directive_appends_with_leading_space(language):
+    d = language.language_task_directive(_hass("de"))
+    assert d.startswith(" ") and "German" in d
+
+
 def test_request_language_overrides_global(language):
     # A German voice satellite in a Russian household must be answered in German,
     # not Russian (discussion #55: wrong-language, garbled voice replies).
