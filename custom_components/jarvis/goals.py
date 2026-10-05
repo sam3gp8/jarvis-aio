@@ -133,7 +133,7 @@ def create(title: str, outcome: str, steps: Optional[list] = None, *,
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (_iso(t), _iso(t), title, outcome, json.dumps(norm_steps),
                  _iso(t), interval, deadline))   # due immediately: first engagement
-            _shadow_plan(title, outcome, norm_steps)   # F1: mirror into kernel.plan
+            _shadow_plan(cur.lastrowid, title, outcome, norm_steps)   # F1: mirror into kernel.plan
             return {"id": cur.lastrowid, "title": title, "outcome": outcome,
                     "steps": norm_steps, "next_check_ts": _iso(t),
                     "deadline_ts": deadline}
@@ -153,24 +153,40 @@ def _get_journal():
     return _journal
 
 
-def _shadow_plan(title: str, outcome: str, norm_steps: list) -> None:
-    """MCU Phase F (F1 + F2): express a goal's ordered steps as a kernel ``Plan``
-    in SHADOW and durably journal it.
+def _goal_plan_id(goal_id: int) -> str:
+    """Deterministic kernel plan_id for a goal, so the goal's lifecycle (create →
+    step advances → completion) addresses the SAME journal rows across calls."""
+    return f"goalplan_{int(goal_id)}"
+
+
+def _goal_step_id(goal_id: int, n) -> str:
+    return f"goalstep_{int(goal_id)}_{n}"
+
+
+def _shadow_plan(goal_id: int, title: str, outcome: str, norm_steps: list) -> None:
+    """MCU Phase F (F1 + F2) / Phase H (H4a): express a goal's ordered steps as a
+    kernel ``Plan`` in SHADOW and durably journal it, keyed by DETERMINISTIC ids
+    derived from the goal id so the whole goal lifecycle lands on the same rows.
 
     F1 builds the Plan alongside the goal (a goal is a plan pursued across time).
-    F2 records that Plan into the kernel execution journal (``record_plan``) so
-    the goal → plan → step chain is durably reconstructable — the foundation for
-    agency recovery after a restart. Both are SHADOW / log-only: the Plan is never
-    executed or consulted and the journal is never replayed in the live flow; the
-    goal store stays authoritative. Best-effort — never affects goal creation."""
+    F2 records that Plan into the kernel execution journal (``record_plan``, which
+    is idempotent per (plan_id, step_id)) so the goal → plan → step chain is
+    durably reconstructable — the foundation for agency recovery after a restart.
+    Still SHADOW / log-only: the Plan is never executed or consulted and the
+    journal is never replayed in the live flow; the goal store stays authoritative
+    (promoting the kernel Plan to authoritative is the separate, owner-gated H4b).
+    Best-effort — never affects goal creation."""
     try:
         from .kernel import plan as P
         steps = tuple(
             P.Step(action=s.get("step", ""),
-                   params={"n": s.get("n"), "status": s.get("status", "pending")})
+                   params={"n": s.get("n"), "status": s.get("status", "pending")},
+                   idempotency_key=_goal_step_id(goal_id, s.get("n")),
+                   id=_goal_step_id(goal_id, s.get("n")))
             for s in (norm_steps or [])
         )
-        plan = P.Plan(goal=(title or outcome), steps=steps)
+        plan = P.Plan(goal=(title or outcome), steps=steps,
+                      id=_goal_plan_id(goal_id))
         _LOGGER.debug("goal shadow plan: %s with %d step(s) [%s]",
                       plan.goal, len(plan.steps), plan.id)
         if plan.steps:
@@ -178,6 +194,35 @@ def _shadow_plan(title: str, outcome: str, norm_steps: list) -> None:
                 _get_journal().record_plan(plan)   # F2: durable goal→plan→step record
             except Exception:   # pragma: no cover - defensive
                 pass
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _journal_goal_progress(goal_id: int, steps: list,
+                           status: Optional[str] = None) -> None:
+    """MCU Phase H (H4a): record a goal's step transitions into the kernel
+    execution journal as they happen — so the journal reconstructs not just that a
+    goal was *planned* (F2) but what actually *happened* to it (Phase H exit
+    criterion: every consequential agency operation is reconstructable from the
+    journal). For each step in a terminal state (done/failed/skipped) the matching
+    journal row is finished with that status; when the goal itself closes
+    (done/failed/cancelled) any still-pending steps are marked skipped. SHADOW /
+    best-effort — the goal store stays authoritative and this never affects the
+    update it records."""
+    try:
+        jr = _get_journal()
+        pid = _goal_plan_id(goal_id)
+        goal_closed = status in ("done", "failed", "cancelled")
+        for s in (steps or []):
+            st = str(s.get("status", "pending"))
+            n = s.get("n")
+            if st in ("done", "failed", "skipped"):
+                jr.finish_step(pid, _goal_step_id(goal_id, n), st,
+                               str(s.get("note", ""))[:300])
+            elif goal_closed:
+                # goal is closing with this step still open → it won't run
+                jr.finish_step(pid, _goal_step_id(goal_id, n), "skipped",
+                               "goal closed before step completed")
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -282,6 +327,10 @@ def update(goal_id: int, *, step_updates: Optional[list] = None,
         params.append(int(goal_id))
         with _connect(db_path) as conn:
             conn.execute(f"UPDATE goals SET {', '.join(sets)} WHERE id=?", params)
+        # H4a: journal the goal's step transitions (and closure) into the kernel
+        # execution journal — shadow/best-effort, after the authoritative commit.
+        _journal_goal_progress(int(goal_id), steps,
+                               status if status in STATUSES else None)
         return {"ok": True, "id": int(goal_id)}
     except Exception as exc:
         _LOGGER.warning("goals.update failed: %s", exc)
@@ -296,7 +345,14 @@ def cancel(goal_id: int, *, db_path: Optional[str] = None) -> bool:
                 "UPDATE goals SET status='cancelled', updated_ts=? "
                 "WHERE id=? AND status='active'",
                 (_iso(datetime.now()), int(goal_id)))
-            return cur.rowcount > 0
+            cancelled = cur.rowcount > 0
+        if cancelled:
+            # H4a: record the cancellation in the kernel journal (open steps →
+            # skipped), so the goal's terminal state is reconstructable.
+            g = get(goal_id, db_path=db_path)
+            _journal_goal_progress(int(goal_id),
+                                   (g or {}).get("steps") or [], "cancelled")
+        return cancelled
     except Exception:
         return False
 
