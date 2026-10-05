@@ -42,6 +42,13 @@ _DECLARED: dict[str, dict] = {
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
+    # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
+    # brackets a named sub-agent's run in an actor scope; actuation.request /
+    # emit_event read it so every actuation the sub-agent performs through the
+    # universal seam is recorded as actor="friday"/"homer" (correlated to JARVIS's
+    # delegating turn), not falsely as "jarvis". Metadata-only, like correlation —
+    # no decision consumes it for control flow, so shadow.
+    "actor":        {"stage": "shadow",  "owners": ["actuation", "agent"]},
     "event_bus":    {"stage": "shadow",  "owners": ["__init__"]},
     "ledger":       {"stage": "shadow",  "owners": ["__init__"]},
     # world_model: control_device reads its pre-action context snapshot through

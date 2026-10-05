@@ -193,6 +193,17 @@ def correlation_id() -> Optional[str]:
         return None
 
 
+def acting_agent() -> str:
+    """The agent acting in the current context — ``"jarvis"`` on the direct path,
+    the sub-agent (e.g. ``"friday"``) while a delegated run is in scope (H6).
+    Never raises; always returns a non-empty name."""
+    try:
+        from .kernel import actor
+        return actor.current()
+    except Exception:   # pragma: no cover - defensive
+        return "jarvis"
+
+
 def context(hass, entity_id: str) -> Dict[str, Any]:
     """Pre-action context snapshot through the kernel WorldModel facade — the
     canonical context authority (entity_id / domain / name / state / area). The
@@ -225,6 +236,7 @@ def request(capability: str, entity_id: str, *, params: Optional[dict] = None,
         from .kernel import build_actuator_request
         return build_actuator_request(
             capability, target=entity_id, params=dict(params or {}),
+            actor=acting_agent(),
             intent=intent or (action.replace("_", " ") if action else None),
             correlation_id=correlation_id(),
             idempotency_key=f"{entity_id}:{action}" if action else None,
@@ -266,6 +278,7 @@ def emit_event(hass, capability: str, entity_id: str, *, action: str = "",
         ev = from_actuation(
             capability, target=entity_id,
             intent=action.replace("_", " ") if action else None,
+            actor=(getattr(request, "actor", None) or acting_agent()),
             location=area,
             request_id=(request.id if request is not None else None),
             correlation_id=correlation_id())

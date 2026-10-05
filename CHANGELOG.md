@@ -1,3 +1,34 @@
+## [8.76.0] — MCU Phase H (H6): delegation attribution — a sub-agent's actuations name the sub-agent
+
+Sixth Phase H increment. When JARVIS delegates an objective to a named sub-agent
+(FRIDAY the background automator), the actuations the sub-agent performs flow
+through the very **same** universal seam JARVIS uses (control_device /
+bulk_control / run_scene_or_script, H1–H3). Until now the journal recorded
+*"jarvis did X"* for an action a sub-agent took under JARVIS's delegation — the
+audit's canonical request shape wants *who* to be truthful.
+
+- New ambient **`kernel.actor`** contextvar (mirroring `kernel.correlation`):
+  `"jarvis"` by default, isolated per async task, never leaks between chains.
+- `agent._run_delegated` brackets a **named profile's** run in `actor.scope("friday")`
+  / `actor.scope("homer")`, so every `ActuatorRequest` the sub-agent builds and
+  every actuation `JarvisEvent` it emits is attributed to the sub-agent — while
+  the existing **correlation id** still links the chain back to JARVIS's delegating
+  turn. Together: *"FRIDAY did X, correlated to JARVIS's delegation."*
+- `actuation.request` / `emit_event` read the ambient actor (the request carries
+  it; the event names it). A **generic capability-scoped** delegation is JARVIS
+  with a reduced toolset, not a distinct agent, so it stays `"jarvis"`.
+- **Metadata-only and behaviour-preserving**: no control flow consumes `actor`
+  (authority has its own separate actor on `AuthorityRequest`); only the recorded
+  attribution changes. **Kill-switched** (`agent._DELEGATION_ATTRIBUTION = False`
+  reverts every delegated actuation to `actor="jarvis"`).
+- `actor` primitive declared ◐ shadow (owners: actuation, agent), like
+  correlation. Coverage unchanged (17.9%).
+
+tests: `test_delegation_attribution.py` — the contextvar (default/scope/nesting),
+`actuation.request`/`emit_event` reading it, and `_run_delegated` attributing
+FRIDAY/HOMER (and leaving generic delegation and the kill-switch as "jarvis",
+with no scope leak past the run). Full suite green.
+
 ## [8.75.0] — MCU Phase H (H5): proactive autonomy onto the universal actuator seam
 
 Fifth Phase H increment. The discretionary **autonomous/proactive** actuation path
