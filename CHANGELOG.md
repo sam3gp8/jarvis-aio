@@ -1,3 +1,42 @@
+## [8.80.0] — MCU Phase H (H11): last actuator paths onto the seam + the exit-criteria gate
+
+Tenth Phase H increment, and the one that **closes Phase H's exit criterion:
+zero consequential actuator bypasses**.
+
+**Last device-decision paths migrated:**
+- `mode_scene.apply_mode_entry` (Movie-mode mood dim) now dims the bound room's
+  lights **per entity through the seam** instead of a direct multi-entity call —
+  still fire-and-forget, same net effect, now event-published and journaled.
+- `scenes` scene-suggestion activation now routes `scene.turn_on` through the
+  seam, like `run_scene_or_script` (H3).
+
+**The exit-criteria CI gate — `scripts/kernel_bypass_check.py`:**
+An AST scan of the integration that **fails CI if any world-mutating
+`*.services.async_call` is made outside the universal seam and is not classified**
+— the runtime sibling of the 8.34.0 governance gate (which classifies agent
+*tools*), same "classify or wire" philosophy applied to raw service calls. A call
+is allowed iff it lives in `actuation.py` (the seam), its literal domain is a
+communication channel (notify / persistent_notification / tts / assist_satellite),
+it is a literal read-only/meta service (`weather.get_forecasts`,
+`automation.reload`) or `media_player` playback, or its `(file, function)` is in a
+documented allowlist (the `execute_plan` kernel-planner step, the seam's
+verify-after-act retry, config-driven notify pushes, and the **generic
+user-authored routine runner** — arbitrary service/target/data steps that are a
+user macro, not a JARVIS device decision, so deliberately classified rather than
+forced onto the per-entity seam). Wired into `validate.yml` alongside the
+adoption / coverage / docs-sync gates.
+
+With this, **every consequential actuation JARVIS makes — user control, bulk,
+scenes, proactive, delegated sub-agents, safety securing, the offline local
+fast-path, intent routing, and mode moods — converges on
+`actuation.execute_actuator`**, and the gate mechanically prevents a new bypass
+from landing. `actuator` stays ● enforce; coverage unchanged (17.9%).
+
+tests: `test_bypass_gate.py` (the tree is clean + a new direct `light`/`lock`/… or
+dynamic-domain call in an unclassified site fails the gate), `test_mode_scene_seam.py`
+(per-entity dim + event, zero-pct turn-off, non-movie no-op). Existing suites
+stay green.
+
 ## [8.79.0] — MCU Phase H (H10): the local intent router onto the universal seam
 
 Ninth Phase H increment. `LocalIntentRouter` (the no-cloud command router behind

@@ -45,13 +45,23 @@ async def apply_mode_entry(hass, mode: str) -> None:
         ]
         if not lights:
             return
+        # MCU Phase H (H11): route the movie-mode dim through the universal
+        # actuator seam (one canonical per-entity request each) instead of a
+        # direct multi-entity hass.services call — so the mood actuation is
+        # planned, event-published and journaled like every other actuation.
+        # Fire-and-forget (blocking=False), same as before; never raises.
+        from . import actuation
         if pct <= 0:
-            await hass.services.async_call(
-                "light", "turn_off", {"entity_id": lights}, blocking=False)
+            svc, data_extra = "turn_off", {}
         else:
-            await hass.services.async_call(
-                "light", "turn_on",
-                {"entity_id": lights, "brightness_pct": pct}, blocking=False)
+            svc, data_extra = "turn_on", {"brightness_pct": pct}
+        for eid in lights:
+            data = {"entity_id": eid, **data_extra}
+            areq = actuation.request(f"light.{svc}", eid, params=data, action=svc)
+            await actuation.execute_actuator(
+                hass, capability=f"light.{svc}", entity_id=eid, domain="light",
+                service=svc, data=data, action=svc, areq=areq,
+                verify=None, blocking=False)
         _LOGGER.info("Movie mood: dimmed %d light(s) in %s to %d%%",
                      len(lights), area, pct)
     except Exception as exc:

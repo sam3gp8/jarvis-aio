@@ -98,11 +98,21 @@ async def async_activate_by_intent(
             return {"success": False, "error": "no_match", "pick": pick}
         pick = pick_clean
 
-    # Activate
+    # Activate — through the universal actuator seam (MCU Phase H, H11), the same
+    # Execution -> Event path control_device / run_scene_or_script use, so a
+    # suggested-scene activation is planned, event-published and journaled rather
+    # than a bare hass.services call. A scene has no single deterministic
+    # end-state, so no verify-after-act (verify=None), as elsewhere.
     try:
-        await hass.services.async_call(
-            "scene", "turn_on", {"entity_id": pick}, blocking=True
-        )
+        from . import actuation
+        areq = actuation.request("scene.turn_on", pick,
+                                 params={"entity_id": pick}, action="turn_on")
+        ok, detail = await actuation.execute_actuator(
+            hass, capability="scene.turn_on", entity_id=pick, domain="scene",
+            service="turn_on", data={"entity_id": pick}, action="turn_on",
+            areq=areq, verify=None, blocking=True)
+        if not ok:
+            raise RuntimeError(detail or "scene activation did not complete")
     except Exception as exc:
         _LOGGER.error("JARVIS scene activation error: %s", exc)
         return {"success": False, "error": str(exc)}
