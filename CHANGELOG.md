@@ -1,3 +1,42 @@
+## [8.77.0] — MCU Phase H (H8): safety securing onto the universal seam (fail-toward-protection)
+
+Seventh Phase H increment, and the one that closes the **last direct-actuator
+bypass**. Securing the home against a threat — intrusion lockdown (`_lock_all`,
+`_secure_entity`) and nighttime lockdown (`_nighttime_lockdown`) — was the only
+world-mutating actuation left that called `hass.services` directly, outside the
+universal seam. H8 routes it through a new **`actuation.execute_safety_actuator`**
+under a **SAFETY policy-mode** that is the deliberate inverse of the discretionary
+path:
+
+- **Never blocked.** A safety response must always run, so it does **not** pass
+  the agency-budget / loop-detect gates at all (those live in the proactive path,
+  not the seam). An exhausted budget or a thrash verdict can never withhold a
+  lock.
+- **Verification mandatory.** Unlike a proactive offer, a securing action always
+  schedules a verify-after-act + records the terminal `ActuatorOutcome` — a lock
+  that silently didn't engage is a safety failure.
+- **Fail toward protection.** On *any* seam/kernel fault — or any non-success —
+  it **falls open to a direct `hass.services` call**, so the home is still
+  secured. `lock` / `close_cover` are idempotent, so the backstop can never leave
+  the home *less* secure than the direct call did.
+- **Kill-switched.** `actuation.SAFETY_SEAM_ENFORCE = False` reverts the whole
+  path to the exact direct call it replaced.
+
+With this, every consequential actuation — user control, bulk, scenes, proactive,
+delegated sub-agents, and now safety securing — converges on `execute_actuator`;
+the `actuator` primitive gains `cognitive_core` as a live consumer. Behaviour on
+the live home is preserved (same services, same end-states, same announcements);
+what changes is that a securing action is now journaled (plan → event → verified
+outcome) like every other actuation. **Coverage unchanged (17.9%).**
+
+tests: `test_safety_seam.py` — secures through the seam + publishes the actuation
+event; never budget/loop-blocked even when both are exhausted; fails open to a
+direct call on a seam exception and on a non-success result; returns False only
+when even the direct call fails; kill-switch reverts to the direct call;
+verification is always scheduled; and the `LockdownManager` `_lock_all` /
+`_secure_entity` paths secure through the seam end-to-end. Existing lockdown /
+intrusion suites stay green. Coverage/adoption/docs-sync gates OK.
+
 ## [8.76.0] — MCU Phase H (H6): delegation attribution — a sub-agent's actuations name the sub-agent
 
 Sixth Phase H increment. When JARVIS delegates an objective to a named sub-agent
