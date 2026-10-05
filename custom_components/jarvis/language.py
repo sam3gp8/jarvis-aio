@@ -95,3 +95,26 @@ def language_directive(hass, lang: str | None = None) -> str:
         f"another language, reply in that language instead. Keep entity names and "
         f"proper nouns unchanged.\n"
     )
+
+
+def language_task_directive(hass, lang: str | None = None) -> str:
+    """A **forced** output-language suffix for internal, machine-authored task
+    prompts (camera analysis, briefings, sentinel notices).
+
+    :func:`language_directive` carries a "reply in the user's language" escape
+    clause — right for a conversation, but wrong for a vision analysis whose own
+    instruction text is in English: the model reads that English instruction as
+    "the user wrote in English" and answers in English (issue #140). This
+    directive has no escape clause — the task text is not the user speaking — so
+    the model still produces its output in the configured language. Returns ``""``
+    for English (unaffected). Designed to append to a task string, so it leads
+    with a space. Never raises.
+    """
+    lname = language_name(hass, lang)
+    if not lname:
+        return ""
+    return (
+        f" Write your entire response in {lname}, regardless of the language "
+        f"these instructions are written in. Keep entity names and proper nouns "
+        f"unchanged."
+    )

@@ -1,3 +1,22 @@
+## [8.90.0] — Camera analysis respects the configured language (issue #140)
+
+Camera/vision logs reverted to English ("A man detected in the Salon…") even on
+a household set to French. The system prompt did carry the language directive,
+but that directive has a "reply in the user's language" escape clause — and the
+vision call's own instruction text is English, so the model read that as the
+user writing in English and answered in English.
+
+- New `language.language_task_directive(hass)` — a **forced** output-language
+  instruction for internal, machine-authored task prompts (no escape clause),
+  returning `""` for English so English installs are unaffected.
+- `camera.async_analyze_camera` appends it to the analysis task, so the
+  description itself is produced in the configured language. Best-effort
+  (import-guarded) — it can never break analysis.
+
+tests: three new cases in `tests/unit/test_language_module.py` (forces the
+language without the escape clause, empty for English, appends with a leading
+space). Audit + all four static kernel gates green.
+
 ## [8.89.0] — Cognitive OS: the unified cognitive cycle primitive (roadmap Phase J, J1)
 
 Phase J begins. Today JARVIS runs several parallel ad-hoc loops; Phase J
