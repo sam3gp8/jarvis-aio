@@ -365,3 +365,94 @@ async def execute_actuator(hass, *, capability: str, entity_id: str,
         except Exception:   # pragma: no cover - defensive
             pass
     return True, ""
+
+
+# ── SAFETY policy-mode seam (MCU Phase H, H8) ───────────────────────────────────
+# Securing the home against a threat (intrusion lockdown, nighttime lockdown) is
+# the last actuator path that still called hass.services directly, bypassing the
+# universal seam. H8 routes it through execute_actuator too — but under a
+# FAIL-TOWARD-PROTECTION contract that is the opposite of the discretionary path:
+#
+#   * it must NEVER be blocked. It does not pass the agency-budget / loop-detect
+#     gates at all (those live in the proactive path, not in the seam), so a
+#     spent budget or a thrash verdict can never hold a safety response.
+#   * verification is mandatory (a securing action that silently didn't land is a
+#     safety failure), so it always schedules a verify-after-act + outcome.
+#   * on ANY seam/kernel fault — or any non-success — it FAILS OPEN to a direct
+#     hass.services call, so the home is still secured. lock / close_cover are
+#     idempotent (locking a locked lock, closing a closed cover are no-ops), so
+#     the backstop can never leave the home *less* secure than the direct call.
+#   * a one-line kill-switch reverts the whole path to the exact direct call it
+#     replaced.
+SAFETY_SEAM_ENFORCE = True
+
+# securing service -> the secured end-state we verify against
+_SAFETY_EXPECTED = {"lock": ("locked",), "close_cover": ("closed",)}
+
+
+async def _safety_verify(hass, areq, entity_id: str, service: str) -> None:
+    """Record the verified ActuatorOutcome for a securing action — did the entity
+    actually reach its secured state? Best-effort; never raises."""
+    try:
+        from .kernel.actuator import VERIFIED, MISMATCH
+    except Exception:   # pragma: no cover - defensive
+        VERIFIED, MISMATCH = "verified", "mismatch"
+    try:
+        expected = _SAFETY_EXPECTED.get(service, ())
+        st = hass.states.get(entity_id)
+        cur = str(st.state).lower() if st is not None else None
+        status = VERIFIED if (cur in expected) else MISMATCH
+        outcome(areq, status, hass, entity_id,
+                detail=f"safety:{service} -> {cur}")
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+async def execute_safety_actuator(hass, *, capability: str, entity_id: str,
+                                  domain: str, service: str,
+                                  data: Optional[dict] = None,
+                                  action: str = "") -> bool:
+    """Perform a SAFETY/securing actuation through the universal seam, with the
+    fail-toward-protection contract above. Returns True iff the securing action
+    was performed (through the seam or the direct fallback). Never raises."""
+    svc_data = dict(data or {"entity_id": entity_id})
+
+    async def _direct() -> bool:
+        await hass.services.async_call(domain, service, dict(svc_data),
+                                       blocking=True)
+        return True
+
+    # Kill-switch → the exact direct call this path replaced.
+    if not SAFETY_SEAM_ENFORCE:
+        return await _direct()
+
+    try:
+        areq = request(capability, entity_id, params=svc_data, action=action,
+                       expected=_SAFETY_EXPECTED.get(service))
+    except Exception:   # pragma: no cover - defensive
+        areq = None
+
+    try:
+        ok, _detail = await execute_actuator(
+            hass, capability=capability, entity_id=entity_id, domain=domain,
+            service=service, data=svc_data, action=action, areq=areq,
+            verify=(lambda: _safety_verify(hass, areq, entity_id, service)),
+            blocking=True)
+        if ok:
+            return True
+        _LOGGER.warning(
+            "safety seam did not secure %s (%s): %s — failing open to a direct "
+            "call", entity_id, capability, _detail)
+    except Exception as exc:
+        _LOGGER.warning(
+            "safety seam error on %s (%s): %s — failing open to a direct call",
+            entity_id, capability, exc)
+
+    # Fail toward protection: secure directly so a safety response is never
+    # blocked by a seam fault. Idempotent, so this cannot un-secure anything.
+    try:
+        return await _direct()
+    except Exception as exc:   # pragma: no cover - defensive
+        _LOGGER.warning("safety direct call failed on %s (%s): %s",
+                        entity_id, capability, exc)
+        return False

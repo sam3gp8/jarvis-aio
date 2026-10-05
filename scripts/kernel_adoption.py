@@ -119,11 +119,15 @@ _DECLARED: dict[str, dict] = {
     "budget":       {"stage": "enforce", "owners": ["actuation"]},
     # actuator: ENFORCE (MCU Phase H, H1). actuation.execute_actuator is the
     # universal actuator SEAM — one authoritative Execution (through the kernel
-    # planner) -> Event -> Verification/Outcome composition. control_device now
-    # genuinely routes its execution through it (not a shadow contract), so the
-    # seam is authoritative on >=1 live path (same bar as world_model/situation).
-    # bulk_control, scenes, goals, proactive, FRIDAY, HOMER and safety migrate
-    # onto the same seam next.
+    # planner) -> Event -> Verification/Outcome composition. control_device,
+    # bulk_control and scenes (agent) route execution through it directly; the
+    # discretionary proactive path (H5) and the SAFETY securing path (H8, via
+    # actuation.execute_safety_actuator) do too, as seam *consumers* through
+    # actuation (so the direct kernel-primitive referencers stay actuation/agent).
+    # H8 closes the last direct-actuator bypass: intrusion/nighttime lockdown now
+    # secure through the seam under a fail-toward-protection contract (never
+    # budget/loop-blocked, verification mandatory, fails open to a direct call,
+    # kill-switched).
     "actuator":     {"stage": "enforce", "owners": ["actuation", "agent"]},
 }
 

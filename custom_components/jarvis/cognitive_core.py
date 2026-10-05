@@ -1350,13 +1350,17 @@ class SafetyManager:
             if state.state == "unlocked":
                 eid = state.entity_id
                 fname = state.attributes.get("friendly_name", eid)
-                # Auto-lock
+                # Auto-lock — through the SAFETY seam (H8), which can never be
+                # blocked and fails open to a direct call.
                 try:
-                    await self.hass.services.async_call(
-                        "lock", "lock", {"entity_id": eid}, blocking=True,
-                    )
-                    unlocked.append(fname)
-                    _LOGGER.info("Cognitive lockdown: locked %s", eid)
+                    from . import actuation
+                    ok = await actuation.execute_safety_actuator(
+                        self.hass, capability="lock.lock", entity_id=eid,
+                        domain="lock", service="lock",
+                        data={"entity_id": eid}, action="lock")
+                    if ok:
+                        unlocked.append(fname)
+                        _LOGGER.info("Cognitive lockdown: locked %s", eid)
                 except Exception as exc:
                     _LOGGER.warning("Cognitive lockdown: failed to lock %s: %s", eid, exc)
 
@@ -1367,11 +1371,14 @@ class SafetyManager:
                 eid = state.entity_id
                 fname = state.attributes.get("friendly_name", eid)
                 try:
-                    await self.hass.services.async_call(
-                        "cover", "close_cover", {"entity_id": eid}, blocking=True,
-                    )
-                    open_covers.append(fname)
-                    _LOGGER.info("Cognitive lockdown: closed %s", eid)
+                    from . import actuation
+                    ok = await actuation.execute_safety_actuator(
+                        self.hass, capability="cover.close_cover", entity_id=eid,
+                        domain="cover", service="close_cover",
+                        data={"entity_id": eid}, action="close")
+                    if ok:
+                        open_covers.append(fname)
+                        _LOGGER.info("Cognitive lockdown: closed %s", eid)
                 except Exception as exc:
                     _LOGGER.warning("Cognitive lockdown: failed to close %s: %s", eid, exc)
 
@@ -1673,12 +1680,19 @@ class LockdownManager:
         return False
 
     async def _secure_entity(self, eid: str, dom: str) -> bool:
+        # Through the SAFETY seam (H8): never budget/loop-blocked, verified, and
+        # fails open to a direct call so a securing action is never withheld.
         try:
+            from . import actuation
             if dom == "lock":
-                await self.hass.services.async_call("lock", "lock", {"entity_id": eid}, blocking=True)
-            else:
-                await self.hass.services.async_call("cover", "close_cover", {"entity_id": eid}, blocking=True)
-            return True
+                return await actuation.execute_safety_actuator(
+                    self.hass, capability="lock.lock", entity_id=eid,
+                    domain="lock", service="lock",
+                    data={"entity_id": eid}, action="lock")
+            return await actuation.execute_safety_actuator(
+                self.hass, capability="cover.close_cover", entity_id=eid,
+                domain="cover", service="close_cover",
+                data={"entity_id": eid}, action="close")
         except Exception as exc:
             _LOGGER.warning("Lockdown: secure %s failed: %s", eid, exc)
             return False
@@ -1695,10 +1709,14 @@ class LockdownManager:
                 eid = st.entity_id
                 fname = st.attributes.get("friendly_name", eid)
                 try:
-                    await self.hass.services.async_call(
-                        "lock", "lock", {"entity_id": eid}, blocking=True)
-                    locked.append(fname)
-                    _LOGGER.info("Lockdown: locked %s", eid)
+                    from . import actuation
+                    ok = await actuation.execute_safety_actuator(
+                        self.hass, capability="lock.lock", entity_id=eid,
+                        domain="lock", service="lock",
+                        data={"entity_id": eid}, action="lock")
+                    if ok:
+                        locked.append(fname)
+                        _LOGGER.info("Lockdown: locked %s", eid)
                 except Exception as exc:
                     _LOGGER.warning("Lockdown: failed to lock %s: %s", eid, exc)
         return locked
