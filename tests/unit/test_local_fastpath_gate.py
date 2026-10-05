@@ -104,3 +104,39 @@ async def test_turn_off_light_is_never_gated(load, monkeypatch):
     result = await le.try_local(h, "turn off the kitchen light", "sir")
     assert result is not None and result.handled
     assert any(c[:2] == ("light", "turn_off") for c in h.service_calls)
+
+
+# ── MCU Phase H: the offline fast-path routes through the universal seam ───────
+async def test_local_fastpath_routes_through_seam_and_emits_event(load, monkeypatch):
+    # The local engine no longer calls hass.services directly: a fast-path
+    # actuation now goes through actuation.execute_actuator, so it publishes a
+    # canonical actuation JarvisEvent (same observability as control_device),
+    # while still performing the identical service call.
+    le = load("local_engine")
+    ev = load("events")
+    _install_vc(monkeypatch, protected=False)
+    published = []
+    monkeypatch.setattr(ev, "publish", lambda hass, e: published.append(e))
+    h = FakeHass()
+    h.states.set("light.kitchen", "on", friendly_name="Kitchen")
+    result = await le.try_local(h, "turn off the kitchen light", "sir")
+    assert result is not None and result.handled
+    assert ("light", "turn_off", {"entity_id": "light.kitchen"}) in h.service_calls
+    assert any(e.data.get("capability") == "light.turn_off"
+               and e.subject == "light.kitchen" for e in published)
+
+
+async def test_local_seam_execute_returns_false_on_failure(load, monkeypatch):
+    # If the seam reports a non-success, _seam_execute returns False (same
+    # contract the old direct try/except gave on a failed call).
+    le = load("local_engine")
+    act = load("actuation")
+
+    async def _nope(*a, **k):
+        return (False, "boom")
+    monkeypatch.setattr(act, "execute_actuator", _nope)
+    h = FakeHass()
+    h.states.set("light.kitchen", "on")
+    ok = await le._seam_execute(h, "light", "turn_off",
+                                {"entity_id": "light.kitchen"}, blocking=True)
+    assert ok is False

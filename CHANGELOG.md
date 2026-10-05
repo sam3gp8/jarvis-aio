@@ -1,3 +1,37 @@
+## [8.78.0] — MCU Phase H (H9): the offline local fast-path onto the universal seam
+
+Eighth Phase H increment. The **local intent engine** (`local_engine` — the
+zero-API offline fast-path that handles the bulk of voice/text commands without
+the cloud LLM) was a whole alternate execution architecture: it actuated devices
+with bare `hass.services.async_call` for turn on/off/toggle, lock/unlock,
+open/close covers, dim/brighten, media + volume, climate set-temperature, scene /
+script activation, and the "goodnight" shortcut (all-lights-off + lock-all).
+
+H9 routes **all** of those through a new `local_engine._seam_execute` →
+`actuation.execute_actuator`, so a command handled offline is now planned,
+event-published and journaled exactly like one handled by the cloud agent — the
+offline path is no longer an unobservable side-door.
+
+- **Behaviour-preserving:** each site performs the same service call with the same
+  `blocking` semantics and returns success/failure exactly as its old try/except
+  did; the fast-path's authorization gate is unchanged (protected actions still
+  defer to the agent *before* execution, so nothing new is actuated).
+- **What changes:** each local actuation now emits a canonical actuation
+  `JarvisEvent` (the observability control_device has had since Phase A), and
+  `local_engine` no longer contains a single direct world-mutating `hass.services`
+  call.
+- `actuator` stays ● enforce; `local_engine` consumes the seam through
+  `actuation` (direct kernel-primitive referencers remain actuation/agent).
+  **Coverage unchanged (17.9%).**
+
+tests: `test_local_fastpath_gate.py` gains a seam-routing + actuation-event test
+and a `_seam_execute` failure-contract test; the existing fast-path gate /
+actuation suites stay green (the seam preserves the exact service-call shape).
+
+Part of closing the Phase H exit criterion ("zero consequential actuator
+bypasses"): `intent_router`, `routines` and `mode_scene` are the remaining
+alternate paths, migrated next, then the exit-criteria CI gate lands.
+
 ## [8.77.0] — MCU Phase H (H8): safety securing onto the universal seam (fail-toward-protection)
 
 Seventh Phase H increment, and the one that closes the **last direct-actuator
