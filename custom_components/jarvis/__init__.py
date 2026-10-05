@@ -236,6 +236,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     sched.add("event-ledger-flush", 30, _flush_event_ledger)
 
+    # ── Continuity of self (roadmap Phase I, I2 — shadow) ───────────────────
+    # Log what JARVIS was in the middle of before this restart (active goals,
+    # open situations, mode), then capture a fresh agency snapshot periodically
+    # so the next boot can resume. SHADOW: reads live state, writes its own
+    # snapshot DB + a log line, drives nothing. Entirely best-effort — a failure
+    # can never affect the authoritative paths. Kill-switch:
+    # continuity.AGENCY_CAPTURE_ENABLED.
+    from . import continuity as _continuity
+    await hass.async_add_executor_job(_continuity.boot_summary, hass)
+
+    async def _agency_capture(now=None):
+        await hass.async_add_executor_job(_continuity.capture_now, hass)
+
+    sched.add("agency-capture", 300, _agency_capture)
+    await _agency_capture()   # seed an initial snapshot so a quick restart resumes
+
     # ── Auto-analyze camera events GOING FORWARD (doorbell / person) ─────────
     # The listeners above only CACHE Nest/Frigate events — historically nothing
     # was analyzed unless a user automation called jarvis.analyze_on_event. These

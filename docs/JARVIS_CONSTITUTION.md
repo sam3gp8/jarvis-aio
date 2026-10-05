@@ -70,7 +70,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | --- | --- |
 | `actor` | ◐ shadow |
 | `actuator` | ● enforce |
-| `agency_state` | · pure |
+| `agency_state` | ◐ shadow |
 | `attention` | ◐ shadow |
 | `authority` | ● enforce |
 | `beliefs` | ◐ shadow |
