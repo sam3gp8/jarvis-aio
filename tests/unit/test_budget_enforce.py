@@ -106,15 +106,35 @@ def cog(load, act):
 
 async def test_autonomous_action_executes_under_ceiling(cog):
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     ok = await cog._execute_action_data(
         hass, {"domain": "light", "service": "turn_on",
                "entity_ids": ["light.lamp"]})
     assert ok is True
-    assert hass.service_calls == [("light", "turn_on", {"entity_id": ["light.lamp"]})]
+    # H5: the proactive actuation now routes through the universal seam per target
+    # (canonical per-entity ActuatorRequest), so the service call is per-entity.
+    assert hass.service_calls == [("light", "turn_on", {"entity_id": "light.lamp"})]
+
+
+async def test_proactive_action_routes_through_seam_and_emits_event(cog, load, monkeypatch):
+    # H5: the proactive actuation goes through the universal seam, so it publishes
+    # a canonical actuation JarvisEvent (the same observability as control_device).
+    ev = load("events")
+    published = []
+    monkeypatch.setattr(ev, "publish", lambda hass, e: published.append(e))
+    hass = FakeHass()
+    hass.states.set("light.lamp", "off")
+    ok = await cog._execute_action_data(
+        hass, {"domain": "light", "service": "turn_on", "entity_ids": ["light.lamp"]})
+    assert ok is True
+    assert len(published) == 1
+    assert published[0].data["capability"] == "light.turn_on"
+    assert published[0].subject == "light.lamp"
 
 
 async def test_autonomous_action_blocked_when_budget_exhausted(cog, act, caplog):
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     # Exhaust the autonomous budget so the next proactive action is over-ceiling.
     import time
     now = time.time()
@@ -135,6 +155,7 @@ async def test_autonomous_action_not_blocked_with_kill_switch_off(cog, act, monk
     # action through (shadow), proving the revert path.
     monkeypatch.setattr(act, "AGENCY_BUDGET_ENFORCE", False)
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     import time
     now = time.time()
     for i in range(60):
@@ -143,7 +164,7 @@ async def test_autonomous_action_not_blocked_with_kill_switch_off(cog, act, monk
         hass, {"domain": "light", "service": "turn_on",
                "entity_ids": ["light.lamp"]})
     assert ok is True
-    assert hass.service_calls == [("light", "turn_on", {"entity_id": ["light.lamp"]})]
+    assert hass.service_calls == [("light", "turn_on", {"entity_id": "light.lamp"})]
 
 
 # ── exclusion: safety / direct service calls bypass the gate entirely ────────
@@ -157,6 +178,7 @@ async def test_safety_direct_call_is_never_budget_blocked(cog, act):
     for i in range(60):
         act.agency_budget_check(enforce=True, now=now)   # exhaust autonomous budget
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     # Simulate the safety path (as _nighttime_lockdown does): a direct call.
     await hass.services.async_call("lock", "lock", {"entity_id": "lock.front"},
                                    blocking=True)

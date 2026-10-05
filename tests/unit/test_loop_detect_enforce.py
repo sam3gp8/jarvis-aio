@@ -106,15 +106,18 @@ def cog(load, act):
 
 async def test_autonomous_action_executes_when_not_looping(cog):
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     ok = await cog._execute_action_data(
         hass, {"domain": "light", "service": "turn_on",
                "entity_ids": ["light.lamp"]})
     assert ok is True
-    assert hass.service_calls == [("light", "turn_on", {"entity_id": ["light.lamp"]})]
+    # H5: proactive actuation routes through the universal seam per target.
+    assert hass.service_calls == [("light", "turn_on", {"entity_id": "light.lamp"})]
 
 
 async def test_autonomous_action_suppressed_once_thrashing(cog, caplog):
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     action = {"domain": "light", "service": "turn_on", "entity_ids": ["light.lamp"]}
     # First four identical autonomous firings execute; the fifth is suppressed.
     for _ in range(4):
@@ -130,6 +133,7 @@ async def test_autonomous_action_suppressed_once_thrashing(cog, caplog):
 async def test_autonomous_action_not_suppressed_with_kill_switch_off(cog, act, monkeypatch):
     monkeypatch.setattr(act, "LOOP_DETECT_ENFORCE", False)
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     action = {"domain": "light", "service": "turn_on", "entity_ids": ["light.lamp"]}
     for _ in range(6):
         assert await cog._execute_action_data(hass, action) is True
@@ -145,6 +149,7 @@ async def test_safety_direct_call_is_never_loop_suppressed(cog, act):
     for i in range(6):
         act.loop_detect_check("light.turn_on:light.lamp", enforce=True, now=5000.0)
     hass = FakeHass()
+    hass.states.set("light.lamp", "off")  # entity exists (seam precondition)
     await hass.services.async_call("lock", "lock", {"entity_id": "lock.front"},
                                    blocking=True)
     assert ("lock", "lock", {"entity_id": "lock.front"}) in hass.service_calls
