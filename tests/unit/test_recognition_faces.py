@@ -27,10 +27,12 @@ def recog(load, tmp_path, monkeypatch):
     mod._RECOGNITION_CACHE.clear()
     mod._FACE_SNAPSHOTS.clear()
     mod._LLM_GUESS_CACHE.clear()
+    mod._UNKNOWN_FACE_CACHE.clear()
     yield mod, fr
     mod._RECOGNITION_CACHE.clear()
     mod._FACE_SNAPSHOTS.clear()
     mod._LLM_GUESS_CACHE.clear()
+    mod._UNKNOWN_FACE_CACHE.clear()
 
 
 def _cache(mod, camera_entity, name, confidence, age_seconds):
@@ -302,3 +304,35 @@ def test_face_reference_name_is_traversal_safe(recog):
     for n in mod.list_face_references():
         assert "/" not in n and ".." not in n
     assert not os.path.exists(os.path.join(mod.FACE_REF_DIR, "..", "etc"))
+
+
+# ── best-effort UNKNOWN surfacing (#140-b) ──────────────────────────────────────
+
+def test_remember_unknown_surfaces_labelable_row(recog, fake_hass):
+    mod, _ = recog
+    mod.remember_unknown_face("camera.hall", url="/local/jarvis/faces/unknown_hall.jpg")
+    rows = mod.recent_faces(fake_hass)
+    unk = [r for r in rows if r["is_unknown"]]
+    assert len(unk) == 1
+    assert unk[0]["camera_entity"] == "camera.hall"
+    assert unk[0]["snapshot_url"] == "/local/jarvis/faces/unknown_hall.jpg"
+    assert unk[0]["is_resident"] is False
+
+
+def test_unknown_suppressed_when_named_recognition_on_same_camera(recog, fake_hass):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.hall", "Sam", 95.0, age_seconds=5)
+    mod.remember_unknown_face("camera.hall", url="/x.jpg")
+    rows = mod.recent_faces(fake_hass)
+    # Only the named resident row for that camera — no duplicate "Unknown" card.
+    assert [r["name"] for r in rows] == ["Sam"]
+
+
+def test_unknown_cache_never_feeds_resident_present(recog, fake_hass):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    # An unknown sighting (even if it somehow carried a resident-ish name) must
+    # not stand intrusion down — resident_present reads only the trusted cache.
+    mod.remember_unknown_face("camera.hall", url="/x.jpg")
+    assert mod.resident_present(fake_hass) is None
