@@ -3107,6 +3107,17 @@ def _resolve_capability(capability: str) -> set:
 # generic denylist for FRIDAY alone.
 _FRIDAY_GRANTS: set = {"control_device", "bulk_control", "run_scene_or_script"}
 
+# MCU Phase H (H6) — delegation attribution. When a named sub-agent profile
+# (FRIDAY/HOMER) runs, the actuations it performs flow through the very same
+# universal seam JARVIS uses, so the journal would otherwise record "jarvis did X"
+# for an action the sub-agent took under JARVIS's delegation. With this on, the
+# sub-agent's run is bracketed in a kernel actor scope so each actuation it makes
+# is attributed to the sub-agent (``actor="friday"``), correlated — via the
+# existing correlation id — to JARVIS's delegating turn. Metadata-only (the
+# recorded `actor`/event `actor`), behaviour-preserving; flip to False to revert
+# every delegated actuation to actor="jarvis".
+_DELEGATION_ATTRIBUTION: bool = True
+
 AGENT_PROFILES: dict = {
     "HOMER": {
         "actuating": False,
@@ -3254,15 +3265,31 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
             turns = _DELEGATION_MAX_TURNS
         turns = max(1, min(turns, _DELEGATION_MAX_TURNS))
 
+    # H6: attribute the sub-agent's actuations to it (FRIDAY/HOMER), not to the
+    # delegating JARVIS loop. Only named profiles are distinct agents; a generic
+    # capability-scoped delegation is JARVIS acting with a reduced toolset, so it
+    # stays "jarvis" (a falsy scope is a no-op passthrough). Kill-switchable.
+    actor_name = (label.lower() if (profile and _DELEGATION_ATTRIBUTION) else None)
     try:
-        result = await run_agent(
-            hass,
-            messages=[{"role": "user", "content": objective}],
-            persona=persona, provider_name=provider_name, api_key=api_key,
-            model=model, base_url=base_url, config=config,
-            allowed_tools=allowed, max_iterations=turns, depth=depth + 1,
-            extra_directive=directive,
-        )
+        from .kernel import actor as _actor
+    except Exception:   # pragma: no cover - defensive
+        _actor = None
+
+    try:
+        if _actor is not None and actor_name:
+            _ctx = _actor.scope(actor_name)
+        else:
+            import contextlib as _ctxlib
+            _ctx = _ctxlib.nullcontext()
+        with _ctx:
+            result = await run_agent(
+                hass,
+                messages=[{"role": "user", "content": objective}],
+                persona=persona, provider_name=provider_name, api_key=api_key,
+                model=model, base_url=base_url, config=config,
+                allowed_tools=allowed, max_iterations=turns, depth=depth + 1,
+                extra_directive=directive,
+            )
         out = {"objective": objective, "result": result}
         if profile:
             out["profile"] = label

@@ -11,7 +11,7 @@ Phase 0 contents:
 """
 from __future__ import annotations
 
-from . import correlation, persistence
+from . import actor, correlation, persistence
 from .event import (
     EVENT_ACTUATION,
     EVENT_CAMERA_ANALYSIS,
@@ -74,6 +74,7 @@ __all__ = [
     "from_situation",
     "persistence",
     "correlation",
+    "actor",
     "JarvisEventBus",
     "EventLedger",
     "WorldModel",
