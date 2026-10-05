@@ -305,8 +305,226 @@ survive a restart, so it resumes rather than waking up blank.
 - Landed **pure** (declared in the adoption matrix): the primitive exists and is
   unit-tested, nothing live wired yet, so the release is behaviour-preserving.
 
-The remaining maturity tiers (Phase J — cognitive OS, K — attention/working
-memory, and onward) stay as north-star and are scoped per-phase when reached.
+### Phases J–Ω — forward spec
+
+Each phase lands as its own sequence of releases on the **shadow → parity →
+enforce** ladder, with a per-phase kill-switch (`*_ENFORCE`) and a fail-safe
+default to the legacy path. Every phase extends the existing kernel primitives
+(`event · world_model · situation · authority · beliefs · attention · router ·
+causal · plan · journal · persistence · actuator · budget · loop_detect ·
+priority · agency_state`) rather than adding a parallel system. The
+cross-cutting invariant below binds all of them.
+
+**Phase J — Cognitive OS (unified cognitive cycle).** One explicit
+perceive→interpret→decide→act→reflect loop every subsystem ticks through, vs. N
+ad-hoc loops. New: `kernel/cycle.py` (pure step sequencer + `CycleTrace`,
+correlation id per tick). Ladder: pure → shadow (`cognitive_core` runs a cycle
+alongside its loop) → parity (per-tick decision compare) → enforce (one
+subsystem driven by the cycle). Kill: `COGNITIVE_CYCLE_ENFORCE`; fail-safe =
+legacy loop. Done: ≥1 loop *is* the cycle, journal-reconstructable.
+
+**Phase K — Attention & Working Memory.** A bounded, decay-scored working set of
+salient items feeding attention arbitration. New: `kernel/working_memory.py`
+(capacity-bounded, deterministic eviction). Ladder: pure → shadow (populate from
+the bus) → parity (attention consults it) → enforce (arbitration reads it
+authoritatively). Kill: `WORKING_MEMORY_ENFORCE`; fail-safe = current attention
+inputs. Done: attention is a function of the bounded set, not an unbounded scan.
+
+**Phase L — Prediction & Causal Reasoning.** Upgrade `causal.py` from seed to
+live predictor: `predict(context)` + `explain(effect)`. Ladder: pure → shadow
+(predict next state, log hit/miss) → parity (accuracy over real traffic) →
+enforce (proactive gated on prediction confidence). Kill:
+`CAUSAL_PREDICT_ENFORCE`; fail-safe = reactive only. Done: a measured accuracy
+number gates ≥1 proactive path.
+
+**Phase M — Learning & Adaptation (closed loop).** Journaled outcomes feed back
+into beliefs/weights. New: `kernel/learning.py` (bounded, reversible updates).
+Ladder: pure → shadow (compute would-be adjustments) → parity (offline compare)
+→ enforce (belief confidences update from outcomes, clamped + audited). Kill:
+`LEARNING_ENFORCE`; fail-safe = frozen weights. **Governance:** learned weights
+may never relax an authority gate or safety threshold. Done: a decision's inputs
+shift from a prior outcome, reversibly.
+
+**Phase N — Graduated Autonomy (per-capability trust).** Replace the single
+autonomy flag with per-capability trust that earns up (suggest → confirm → act)
+on verified track record. New: `kernel/autonomy.py` (trust ledger; level = pure
+fn of success history × risk class). Ladder: pure → shadow → parity → enforce
+(**owner-gated** promotion, max-restriction belt within an owner ceiling; safety
+classes never auto-promote). Kill: `GRADUATED_AUTONOMY_ENFORCE`; fail-safe =
+current single setting. **PAUSE for owner before enforce.** Done: ≥1 low-risk
+capability self-promotes within a ceiling; safety classes never do.
+
+**Phase O — Multi-Agent JARVIS (child agencies).** Scoped, budgeted child agents
+beyond FRIDAY/HOMER, each inheriting a strictly *narrower* capability set. New:
+`kernel/agency.py` (lifecycle + capability derivation that can only narrow).
+Ladder: pure → shadow (dry-run spawn) → parity (child plan vs parent-direct) →
+enforce (one real budgeted sub-task). Kill: `CHILD_AGENCY_ENFORCE`; fail-safe =
+parent acts directly. Done: a child completes a scoped task, attributed,
+budgeted, provably un-escalatable. *(Consolidation: this is the hierarchical case
+of Phase AB — recommend merging.)*
+
+**Phase P — Proactive Household Intelligence.** Household-level anticipation
+(routines, comfort) — suggest, don't act. Builds on L + K; adds a
+`household_model` view (occupancy rhythm, routine graph). Ladder: pure → shadow
+(infer routines) → parity (suggestions vs heuristics) → enforce (suggestions
+sourced from the model, never silent actuation). Kill:
+`HOUSEHOLD_PROACTIVE_ENFORCE`; fail-safe = current heuristics. Done: suggestions
+are model-driven and measurably more relevant.
+
+**Phase Q — Embodied JARVIS (spatial/temporal model).** First-class space (areas,
+adjacency, floor-plan) and time (dayparts, cadence). New: `kernel/space_time.py`
+(spatial graph + temporal frame, pure queries). Ladder: pure → shadow → parity
+(camera↔sensor mapping, cf. #140) → enforce (presence/coverage/routing read the
+model). Kill: `SPACE_TIME_ENFORCE`; fail-safe = current per-feature mapping.
+Done: ≥1 live presence/coverage path is model-authoritative.
+
+**Phase R — JARVIS MCU integration (closed cognitive/agency loop).** The
+integration milestone: cognition (J–M) + agency (N–Q) run as *one* closed loop.
+No new primitive; wiring + a coverage lift + an exit-criteria gate. Ladder:
+shadow (trace a full perceive→predict→decide→act→learn pass) → parity
+(representative set) → enforce (loop owns one end-to-end scenario) + CI gate
+forbidding open-loop regressions. Fail-safe = open-loop legacy. Done: one real
+scenario is fully closed-loop and journal-reconstructable.
+
+**Phase S — Self Model & Self Awareness.** An explicit, inspectable model of
+JARVIS's own capabilities, commitments (agency_state), confidence and limits,
+reported honestly. New: `kernel/self_model.py` (read-only projection; no new
+authority). Ladder: pure → shadow (diagnostics read) → parity (self-report vs
+ground truth) → enforce (self-answers sourced from the model, no confabulation).
+Kill: `SELF_MODEL_ENFORCE`; fail-safe = static capability list. **Hard rule:**
+describing a capability never grants it. Done: "what can/are you doing" answers
+are provably model-backed.
+
+**Phase T — Deep World Model (knowledge graph).** Upgrade `knowledge.py`
+facts+relations to a typed, queryable graph. New: graph view on
+`kernel/world_model.py` (`entities`, `relations`, `query`). Ladder: pure → shadow
+(answer context queries) → parity (graph vs current recall) → enforce (≥1 context
+builder reads the graph authoritatively). Kill: `KNOWLEDGE_GRAPH_ENFORCE`;
+fail-safe = current semantic recall. Done: a live context read is
+graph-authoritative with no raw fallback.
+
+**Phase U — Advanced Reasoning & Planning.** Multi-step, constraint-aware plans
+(preconditions, alternatives, compensation). New: extend `kernel/plan.py`. Ladder:
+pure → shadow (richer plans alongside linear) → parity (outcome compare) → enforce
+(goals/execute_plan use it; every step still authority+verify gated). Kill:
+`ADVANCED_PLANNER_ENFORCE`; fail-safe = linear planner. Done: a multi-constraint
+task plans+verifies through it, journal-reconstructable.
+
+**Phase V — Long-Horizon Agency.** Durable, resumable, progress-tracked goals
+spanning days/weeks — the direct payoff of Phase I. New: `kernel/long_horizon.py`
+(durable goal/milestone ledger, resumed from agency_state). Ladder: pure → shadow
+(track progress) → parity (resume-after-restart proven vs journal) → enforce
+(a multi-day goal survives restarts and drives suggestions). Kill:
+`LONG_HORIZON_ENFORCE`; fail-safe = session-scoped goals. Done: a goal persists +
+resumes across a restart with correct progress.
+
+**Phase W — Social & Relationship Intelligence.** Per-person preference/pattern
+models that personalize — within strict consent/privacy limits. New:
+`kernel/social.py` (consent-flagged, owner-inspectable, purgeable). Ladder: pure
+→ shadow (infer preferences) → parity (personalized vs default) → enforce
+(opt-in personalization on ≥1 path). Kill: `SOCIAL_MODEL_ENFORCE`; fail-safe =
+non-personalized default. **Privacy:** never drives a security/intrusion
+decision; owner can purge any person-model. Done: one interaction is measurably
+personalized, consent-gated, purgeable.
+
+**Phase X — Physical / Environmental Intelligence.** Reason about climate,
+energy, air, light and comfort/efficiency trade-offs. New:
+`kernel/environment.py` (state + objective functions). Ladder: pure → shadow
+(recommendations) → parity (vs sentinel/energy heuristics) → enforce
+(suggest-don't-act; any actuation stays on the safety seam). Kill:
+`ENVIRONMENT_ENFORCE`; fail-safe = current heuristics. Done: climate/energy
+suggestions come from the model and respect the safety seam + priority ladder.
+
+**Phase Y — Self-Optimization.** Measure own performance (latency, accuracy,
+interruption cost, model spend) and tune *within owner bounds*. New:
+`kernel/optimize.py` (metrics + bounded tuning proposals). Ladder: pure → shadow
+(propose tunings) → parity (tuned vs baseline) → enforce (self-tunes within owner
+bounds; never loosens safety/authority/budget ceilings). Kill:
+`SELF_OPTIMIZE_ENFORCE`; fail-safe = fixed config. Done: one parameter self-tunes
+within bounds with a measured win.
+
+**Phase Z — Resilient / Distributed Compute.** Graceful degradation and optional
+distribution — local-first, cloud-optional, offline-safe. New:
+`kernel/resilience.py` (health/fallback policy across compute tiers). Ladder:
+pure → shadow (would-be tier choice) → parity (vs current breaker) → enforce
+(degradation path owns routing when a tier is down). Kill: `RESILIENCE_ENFORCE`;
+fail-safe = current conservative breaker. Done: a simulated tier outage degrades
+gracefully with no loss of safety behavior.
+
+**Phase AA — Omnipresent Multimodal JARVIS.** Unify voice/vision/text/panel/
+satellites into one coherent presence (consistent attention/output across
+surfaces). New: `kernel/surfaces.py` (surface registry + one cross-surface
+arbiter). Ladder: pure → shadow → parity (which satellite speaks) → enforce
+(cross-surface arbitration authoritative, mutes honored everywhere). Kill:
+`SURFACES_ENFORCE`; fail-safe = per-surface current logic. Done: one
+utterance/notification arbitrated once across all surfaces, no double-announce.
+
+**Phase AB — Collaborative / Multi-Agent JARVIS.** Peer agencies coordinating a
+shared objective (bid/claim/settle over the event bus). New:
+`kernel/coordination.py` (budgeted protocol). Ladder: pure → shadow (simulate) →
+parity (coordinated vs single-agent) → enforce (a task split across peers;
+conflicts resolved by the priority ladder). Kill: `COORDINATION_ENFORCE`;
+fail-safe = single-agent. Done: two agencies complete a shared task without
+escalation or double-actuation. *(Consolidation: fold Phase O's child agencies in
+as the hierarchical case of this phase.)*
+
+**Phase AC — Advanced Autonomy (dynamic/contextual).** Autonomy flexes with
+context (time, presence, risk, confidence) atop per-capability trust. New: extend
+`kernel/autonomy.py` with a contextual modifier (context → level, only *downward*
+from the N ceiling by default). Ladder: pure → shadow → parity → enforce (context
+tightens autonomy — e.g., guests present → more confirmation — owner-gated; only
+loosens within the N ceiling). Kill: `CONTEXTUAL_AUTONOMY_ENFORCE`; fail-safe =
+Phase N static levels. **PAUSE for owner.** Done: context demonstrably tightens
+autonomy on ≥1 capability, never silently loosens past the ceiling.
+*(Consolidation: N + AC are one autonomy engine — recommend one phase, two
+stages. Both are the most safety-sensitive phases.)*
+
+**Phase AD — Research & Discovery (investigative agency).** Bounded, cited,
+tool-using inquiry (diagnose an anomaly, research an answer). New:
+`kernel/inquiry.py` (investigate→gather→synthesize with citations + spend cap).
+Ladder: pure → shadow (dry investigations) → parity (vs direct answer) → enforce
+(a real diagnostic question answered with cited evidence, budget-capped). Kill:
+`INQUIRY_ENFORCE`; fail-safe = direct answer / no investigation. Done: one
+investigation returns a cited, bounded conclusion within budget.
+
+**Phase AE — Mature MCU JARVIS (synthesis).** The capstone: all prior phases
+operate as one coherent system; prove the whole. No new primitive; a synthesis
+gate + scenario suite. Ladder: end-to-end scenario traces (shadow) → parity
+dashboard (coverage %, closed-loop %, autonomy ceilings, invariants green) →
+enforce (representative scenarios run closed-loop) → a synthesis CI gate (no phase
+regressed below its enforced stage). Done: the scenario suite passes closed-loop
+and `KERNEL_COVERAGE` + governance invariants hold at target.
+
+**Phase Ω — Continuous Evolution (evergreen).** A standing process: new HA
+features, issues and audits fold in under the same discipline forever. No new
+primitive; a recurring cadence + a "new capability intake" checklist (ladder,
+gates, kill-switch, Constitution update). The governance gates prevent drift.
+Exit criterion: never — the invariants keep holding as the system grows.
+
+### Cross-cutting invariant (binds every phase above)
+
+Each phase's enforce step must leave intact (and the four gates enforce): no
+actuator bypasses authority; sub-agents / children / peers can only *narrow*
+capability; security-sensitive capability needs explicit authority; every
+actuator verifies its postcondition; everything carries correlation +
+idempotency; credentials never enter prompts; local-first when quality permits;
+no blocking I/O on the loop. **Learning (M), autonomy (N/AC) and optimization (Y)
+may never relax a safety threshold or authority gate** — only tighten, or loosen
+strictly within an owner-set ceiling. *More capability never means less
+governance.*
+
+### Recommended sequencing (by dependency, not alphabet)
+
+J → K → L → M (cognition core) → N (autonomy, owner-gated) → Q → T (space/time +
+knowledge read models) → P, X, W (applied, suggest-don't-act) → U → V (planning +
+long-horizon, paying off Phase I) → S (self-model) → O/AB, AC (multi-agent +
+contextual autonomy) → Y, Z, AA, AD (optimization, resilience, multimodal,
+inquiry) → R then AE (integration, then synthesis) → Ω (evergreen).
+
+Two consolidation recommendations stand (not yet applied, to keep the backlog's
+phase letters stable): merge **O into AB** (hierarchical vs peer agencies are one
+story) and **N with AC** (one autonomy engine). Both autonomy phases PAUSE for
+owner before any enforce step.
 
 ---
 
