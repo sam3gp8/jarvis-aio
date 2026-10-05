@@ -1,3 +1,33 @@
+## [8.85.0] — Continuity of self: durable agency state (roadmap Phase I, I1)
+
+The execution journal (H4) already recovers in-flight *plan steps* after a
+restart, but JARVIS's sense of what it is *in the middle of* — the goals it's
+pursuing, the situations it has open, the mode it's in — lived only in memory and
+was lost on every reboot. Phase I begins closing that gap.
+
+- New kernel primitive **`kernel/agency_state.py`** — a durable, versioned
+  snapshot of JARVIS's ongoing commitments, written through the one persistence
+  seam (its own DB file; no schema merge):
+  - `capture(mode, goals, situations, …)` builds an `AgencyState` from plain
+    extracted data (no Home Assistant import — pure and deterministic);
+  - `AgencyStore` persists snapshots (newest-wins, pruned to the newest N) and
+    reloads the latest, skipping any written by a newer schema rather than
+    mis-parsing it;
+  - `continuity_summary(state)` renders a one-line "here's what I was doing"
+    string; `reconcile(state, live_goal_ids, live_situation_ids)` splits a
+    reloaded snapshot into commitments still live vs. ones that vanished while
+    JARVIS was down.
+- Landed **pure** (shadow→parity→enforce): the primitive exists and is
+  unit-tested, but nothing live is wired to it yet, so this release is
+  behaviour-preserving. Bootstrap capture (shadow), boot-time reconcile (parity),
+  and resume/announce (enforce, kill-switched) are the following increments.
+- Declared `agency_state: pure` in the kernel adoption matrix; the Constitution
+  stage ledger and `KERNEL_ADOPTION.md` regenerate from it, and all four static
+  kernel gates stay green.
+
+tests: `tests/unit/test_agency_state.py` (15 cases — capture, JSON round-trip,
+store persistence/prune/reopen, newer-schema skip, continuity summary, reconcile).
+
 ## [8.84.0] — On-the-fly face labeling from camera snapshots (issue #140)
 
 Building a reference-photo dataset for best-effort recognition meant manually

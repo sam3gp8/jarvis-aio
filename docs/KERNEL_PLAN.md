@@ -205,10 +205,13 @@ owner-gated:
 | A4 | Richer authority **parity** inputs (situation/scope/intent/token) — still log-only | ✅ Shipped | 8.25.0 |
 | A5 | Universal `ActuatorRequest` contract + route `control_device` through it (shadow/parity) | ✅ Shipped | 8.26.0 |
 
-Held as north-star (not near-term, would destabilize a lived-in system):
-persistent agency / continuity-of-self, a graduated-autonomy state machine, a
-full IdentityAssertion subsystem, closing the full learning loop, and a single
-physical persistence store. Hard authority enforcement remains owner-gated.
+Held as north-star at the time of that audit (not near-term then): persistent
+agency / continuity-of-self, a graduated-autonomy state machine, a full
+IdentityAssertion subsystem, closing the full learning loop, and a single
+physical persistence store. Continuity-of-self is now in active, incremental work
+as **Phase I** (see "Roadmap — post-H maturity tiers" below); it lands shadow →
+parity → enforce like everything else, so a lived-in system stays stable. Hard
+authority enforcement remains owner-gated.
 
 ### A1 — Behavioral coverage matrix (8.22.0)
 
@@ -264,6 +267,46 @@ physical persistence store. Hard authority enforcement remains owner-gated.
   deterministic and HA-free; it runs on a real temp DB in tests.
 
 **This completes the post-migration hardening shortlist (H1–H4).**
+
+---
+
+## Roadmap — post-H maturity tiers (Phase I onward)
+
+With the MCU "universal agency spine" complete (every consequential actuation
+converges on the kernel, journal-reconstructable, zero bypasses), the roadmap
+turns to the maturity tiers that were previously held as north-star. They follow
+the same discipline as everything above: **one release per increment, additive,
+shadow → parity → enforce, authority/safety owner-gated, every gate green.**
+More capability never means less governance.
+
+### Phase I — Continuity of self (AgencyState + restart recovery) 🚧
+
+The journal (H4) recovers in-flight *plan steps*; Phase I makes JARVIS's wider
+*agency* — the goals it's pursuing, the situations it has open, the mode it's in —
+survive a restart, so it resumes rather than waking up blank.
+
+| # | Increment | Stage | Status | Release |
+| --- | --- | --- | --- | --- |
+| I1 | `kernel/agency_state.py`: durable versioned snapshot + continuity summary + reconcile | pure | ✅ Shipped | 8.85.0 |
+| I2 | bootstrap captures the snapshot; boot logs the continuity summary | shadow | ⏳ Planned | — |
+| I3 | boot-time reconcile of reloaded vs. live commitments, log agreement | parity | ⏳ Planned | — |
+| I4 | JARVIS resumes / announces continuity through the output seam (kill-switched) | enforce | ⏳ Planned | — |
+
+#### I1 — AgencyState primitive (8.85.0)
+
+- `kernel/agency_state.py`: `capture(mode, goals, situations, …)` builds an
+  `AgencyState` from plain extracted data (no HA import — pure); `AgencyStore`
+  persists snapshots through `kernel.persistence` (own DB file, newest-wins,
+  pruned to the newest N) and reloads the latest, skipping any written by a newer
+  schema rather than mis-parsing it.
+- `continuity_summary(state)` renders a one-line "what I was in the middle of";
+  `reconcile(state, live_goal_ids, live_situation_ids)` splits a reloaded snapshot
+  into commitments still live vs. ones that vanished while JARVIS was down.
+- Landed **pure** (declared in the adoption matrix): the primitive exists and is
+  unit-tested, nothing live wired yet, so the release is behaviour-preserving.
+
+The remaining maturity tiers (Phase J — cognitive OS, K — attention/working
+memory, and onward) stay as north-star and are scoped per-phase when reached.
 
 ---
 

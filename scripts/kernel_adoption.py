@@ -41,6 +41,13 @@ _DECLARED: dict[str, dict] = {
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},
+    # agency_state: continuity of self (roadmap Phase I, I1). A durable, versioned
+    # snapshot of JARVIS's ongoing commitments (active goals, open situations,
+    # mode) through the persistence seam, with a continuity summary + reconcile so
+    # a restart can know what it was in the middle of. PURE: the primitive exists
+    # and is unit-tested, but nothing live is wired yet — bootstrap capture is
+    # I2 (shadow), boot reconcile I3 (parity), resume/announce I4 (enforce).
+    "agency_state": {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /
