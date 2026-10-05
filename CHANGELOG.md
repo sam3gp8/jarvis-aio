@@ -1,3 +1,20 @@
+## [8.88.0] — Continuity of self: boot-time reconcile (roadmap Phase I, I3)
+
+Phase I's third increment: on boot, JARVIS now checks what it was in the middle
+of against what is still live.
+
+- New `continuity.boot_reconcile()`: loads the pre-restart snapshot (before the
+  boot seed overwrites it) and reconciles each remembered goal / open situation
+  against the ids still live now (`agency_state.reconcile`), logging
+  `continuity reconcile — N still live, M vanished while down`.
+- **Parity / log-only / behaviour-preserving:** it computes and logs the
+  reconciliation and drives nothing — the adoption stage stays `shadow`
+  (observe-only) until I4 makes a resumption authoritative. Same kill-switch
+  (`continuity.AGENCY_CAPTURE_ENABLED`) and defensive reads as I2.
+
+tests: three new cases in `tests/unit/test_continuity.py` (live/vanished split,
+no-prior-snapshot, kill-switch); audit + the four static kernel gates green.
+
 ## [8.87.0] — Continuity of self: boot summary + periodic capture (roadmap Phase I, I2)
 
 Phase I's second increment wires the agency-state primitive (8.85.0) into the
