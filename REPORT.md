@@ -1,23 +1,23 @@
-# JARVIS traction report — 2026-10-04
+# JARVIS traction report — 2026-10-05
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-03 vs the 7 before
+## 7 days to 2026-10-04 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 562 | 825 | -32% |
-| Unique visitors (sum of daily) | 207 | 136 | +52% |
-| Clones | 2067 | 1885 | +10% |
-| Unique cloners (sum of daily) | 548 | 441 | +24% |
+| Views | 477 | 906 | -47% |
+| Unique visitors (sum of daily) | 165 | 184 | -10% |
+| Clones | 3230 | 1886 | +71% |
+| Unique cloners (sum of daily) | 779 | 451 | +73% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 24 | +6 | +7 |
+| Stars | 25 | +5 | +8 |
 | Forks | 3 | +0 | +0 |
 | Watchers | 1 | -1 | -1 |
 | HA analytics installs | — | — | — |
@@ -27,35 +27,35 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| github.com | 112 | 26 |
+| github.com | 119 | 31 |
 | lm.facebook.com | 23 | 22 |
 | facebook.com | 20 | 19 |
-| chatgpt.com | 8 | 7 |
-| community.home-assistant.io | 7 | 6 |
-| Google | 7 | 5 |
+| Google | 9 | 7 |
+| community.home-assistant.io | 8 | 7 |
+| chatgpt.com | 7 | 6 |
 | l.facebook.com | 2 | 2 |
 | DuckDuckGo | 1 | 1 |
-| search.brave.com | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 460 | 212 |
-| `/sam3gp8/jarvis-aio/pulls` | 148 | 6 |
-| `/sam3gp8/jarvis-aio/issues` | 122 | 36 |
+| `/sam3gp8/jarvis-aio` | 447 | 214 |
+| `/sam3gp8/jarvis-aio/pulls` | 143 | 7 |
+| `/sam3gp8/jarvis-aio/issues` | 122 | 35 |
 | `/sam3gp8/jarvis-aio/pull/66` | 47 | 2 |
-| `/sam3gp8/jarvis-aio/releases` | 29 | 14 |
+| `/sam3gp8/jarvis-aio/releases` | 37 | 21 |
 | `/sam3gp8/jarvis-aio/pull/56` | 27 | 2 |
 | `/sam3gp8/jarvis-aio/discussions/55` | 22 | 5 |
 | `/sam3gp8/jarvis-aio/pull/54` | 19 | 1 |
-| `/sam3gp8/jarvis-aio/discussions` | 16 | 8 |
+| `/sam3gp8/jarvis-aio/issues/140` | 17 | 5 |
 | `/sam3gp8/jarvis-aio/pull/64` | 16 | 2 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-04 | 77 | 28 | 1258 | 270 |
 | 2026-10-03 | 92 | 20 | 384 | 125 |
 | 2026-10-02 | 128 | 37 | 1077 | 233 |
 | 2026-10-01 | 47 | 22 | 195 | 56 |
