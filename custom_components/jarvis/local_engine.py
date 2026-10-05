@@ -564,6 +564,31 @@ def _needs_confirmation(hass, action, entity_id="") -> bool:
         return False
 
 
+async def _seam_execute(hass, domain: str, service: str, data: dict, *,
+                        blocking: bool = True, action: str = "") -> bool:
+    """Route a local-engine actuation through the **universal actuator seam**
+    (MCU Phase H) — so the offline fast-path is planned, event-published and
+    journaled like every other actuation instead of a bare ``hass.services``
+    call. Behaviour-preserving: it performs the same service call (same
+    blocking), just through the kernel planner, and returns True on success /
+    False on failure exactly as the direct call's try/except did. Never raises."""
+    entity_id = str(data.get("entity_id", "")) if isinstance(data, dict) else ""
+    capability = f"{domain}.{service}"
+    try:
+        from . import actuation
+        areq = actuation.request(capability, entity_id, params=data,
+                                 action=(action or service))
+        ok, _detail = await actuation.execute_actuator(
+            hass, capability=capability, entity_id=entity_id, domain=domain,
+            service=service, data=dict(data), action=(action or service),
+            areq=areq, verify=None, blocking=blocking)
+        return bool(ok)
+    except Exception as exc:   # pragma: no cover - defensive
+        _LOGGER.warning("Local seam execute failed for %s.%s (%s): %s",
+                        domain, service, entity_id, exc)
+        return False
+
+
 async def _execute_action(hass, action, entity_id, args):
     try:
         domain = entity_id.split(".")[0]
@@ -593,21 +618,21 @@ async def _execute_action(hass, action, entity_id, args):
                 svc_data["is_volume_muted"] = True
             elif action == "unmute":
                 svc_data["is_volume_muted"] = False
-            await hass.services.async_call(svc_domain, svc_name, svc_data, blocking=True)
-            return True
+            return await _seam_execute(hass, svc_domain, svc_name, svc_data,
+                                       blocking=True, action=action)
         elif action in ("set_temp", "set_temp_named"):
             temp = args.get("temperature")
             if temp:
-                await hass.services.async_call(
-                    "climate", "set_temperature",
-                    {"entity_id": entity_id, "temperature": float(temp)}, blocking=True)
-                return True
+                return await _seam_execute(
+                    hass, "climate", "set_temperature",
+                    {"entity_id": entity_id, "temperature": float(temp)},
+                    blocking=True, action="set_temperature")
         elif action == "volume_set":
             level = args.get("volume_level", 50)
-            await hass.services.async_call(
-                "media_player", "volume_set",
-                {"entity_id": entity_id, "volume_level": level / 100.0}, blocking=True)
-            return True
+            return await _seam_execute(
+                hass, "media_player", "volume_set",
+                {"entity_id": entity_id, "volume_level": level / 100.0},
+                blocking=True, action="volume_set")
         return False
     except Exception as exc:
         _LOGGER.warning("Local action failed for %s: %s", entity_id, exc)
@@ -873,7 +898,10 @@ async def try_local(hass, text, honorific="sir", force=False):
         if found:
             eid, fname, dtype = found
             try:
-                await hass.services.async_call(dtype, "turn_on", {"entity_id": eid}, blocking=True)
+                ok = await _seam_execute(hass, dtype, "turn_on", {"entity_id": eid},
+                                         blocking=True, action="activate")
+                if not ok:
+                    raise RuntimeError("activation did not complete")
                 _update_ctx(entity=eid, domain=dtype)
                 return LocalResult(text=f"Activating {fname} now, {honorific}.", success=True)
             except Exception as exc:
@@ -885,24 +913,27 @@ async def try_local(hass, text, honorific="sir", force=False):
         if found:
             eid, fname, dtype = found
             try:
-                await hass.services.async_call(dtype, "turn_on", {"entity_id": eid}, blocking=True)
+                if not await _seam_execute(hass, dtype, "turn_on", {"entity_id": eid},
+                                           blocking=True, action="activate"):
+                    raise RuntimeError("activation did not complete")
                 return LocalResult(text=f"Goodnight, {honorific}. {fname} activated. Rest well.", success=True)
             except Exception as exc:
                 _LOGGER.warning("JARVIS: goodnight scene/script '%s' failed to run: %s", eid, exc)
         off_count = 0
         for s in hass.states.async_all("light"):
             if s.state == "on":
-                try:
-                    await hass.services.async_call("light", "turn_off", {"entity_id": s.entity_id}, blocking=False)
+                if await _seam_execute(hass, "light", "turn_off",
+                                       {"entity_id": s.entity_id},
+                                       blocking=False, action="turn_off"):
                     off_count += 1
-                except Exception as exc:
-                    _LOGGER.debug("JARVIS: goodnight could not turn off %s: %s", s.entity_id, exc)
+                else:
+                    _LOGGER.debug("JARVIS: goodnight could not turn off %s", s.entity_id)
         for s in hass.states.async_all("lock"):
             if s.state == "unlocked":
-                try:
-                    await hass.services.async_call("lock", "lock", {"entity_id": s.entity_id}, blocking=False)
-                except Exception as exc:
-                    _LOGGER.warning("JARVIS: goodnight could not lock %s: %s", s.entity_id, exc)
+                if not await _seam_execute(hass, "lock", "lock",
+                                           {"entity_id": s.entity_id},
+                                           blocking=False, action="lock"):
+                    _LOGGER.warning("JARVIS: goodnight could not lock %s", s.entity_id)
         return LocalResult(text=f"Goodnight, {honorific}. {off_count} lights off, all locks secured. Rest well.", success=True)
 
     # Single-entity patterns

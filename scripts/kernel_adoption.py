@@ -121,13 +121,14 @@ _DECLARED: dict[str, dict] = {
     # universal actuator SEAM — one authoritative Execution (through the kernel
     # planner) -> Event -> Verification/Outcome composition. control_device,
     # bulk_control and scenes (agent) route execution through it directly; the
-    # discretionary proactive path (H5) and the SAFETY securing path (H8, via
-    # actuation.execute_safety_actuator) do too, as seam *consumers* through
-    # actuation (so the direct kernel-primitive referencers stay actuation/agent).
-    # H8 closes the last direct-actuator bypass: intrusion/nighttime lockdown now
-    # secure through the seam under a fail-toward-protection contract (never
-    # budget/loop-blocked, verification mandatory, fails open to a direct call,
-    # kill-switched).
+    # discretionary proactive path (H5), the SAFETY securing path (H8, via
+    # actuation.execute_safety_actuator) and the offline local fast-path (H9,
+    # local_engine via actuation._seam_execute) do too, as seam *consumers*
+    # through actuation (so the direct kernel-primitive referencers stay
+    # actuation/agent). H8 closed the last SAFETY direct bypass (intrusion/
+    # nighttime lockdown now secure through the seam, fail-toward-protection);
+    # H9+ migrates the remaining alternate execution paths (local_engine done;
+    # intent_router / routines / mode_scene next) ahead of the exit-criteria gate.
     "actuator":     {"stage": "enforce", "owners": ["actuation", "agent"]},
 }
 
