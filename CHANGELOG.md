@@ -1,3 +1,25 @@
+## [8.73.0] — MCU Phase H (H3): run_scene_or_script onto the universal actuator seam
+
+Third Phase H increment: `run_scene_or_script` now activates scenes / scripts /
+automations **through** the `execute_actuator` seam, so its execution passes the
+kernel planner (precondition → act) and publishes the actuation event via the
+same path control_device and bulk_control use — rather than a direct
+`hass.services.async_call` + a separately hand-logged shadow plan + emit_event.
+
+- `scene.turn_on` / `script.turn_on` / `automation.trigger` routes through
+  `actuation.execute_actuator` (`blocking=True`, `verify=None` — a scene/script
+  has no single deterministic end-state, so no verify-after-act, as before).
+- Behaviour-preserving: same service call, one actuation event per activation
+  (capability / subject / area unchanged), an invalid target still errors without
+  touching the envelope, and the authority posture is unchanged (this path has no
+  confirm-gate).
+- No kernel-primitive change — `actuator` stays ● enforce with a **third live
+  consumer** (run_scene_or_script). Coverage unchanged (17.9%).
+- Next: goals (H4) consuming kernel Plan/Journal.
+
+tests: the `run_scene_or_script` suite (scene/script/automation event, service
+call, invalid target) stays green, pinning parity.
+
 ## [8.72.0] — MCU Phase H (H2): bulk_control onto the universal actuator seam
 
 Second Phase H increment: migrate `bulk_control` onto the `execute_actuator` seam
