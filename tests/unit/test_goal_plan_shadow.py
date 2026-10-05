@@ -19,7 +19,7 @@ def test_shadow_plan_maps_goal_steps_to_kernel_plan(goals, load):
              {"n": 2, "step": "check the mail", "status": "done", "note": ""}]
     # Build via the same helper create() uses — it must not raise and the mapping
     # is exercised through a monkeypatch-free direct call.
-    goals._shadow_plan("Tidy up", "a tidy home", steps)  # never raises
+    goals._shadow_plan(1, "Tidy up", "a tidy home", steps)  # never raises
 
     # Reconstruct what it builds to pin the mapping.
     plan = P.Plan(goal="Tidy up", steps=tuple(
@@ -31,8 +31,8 @@ def test_shadow_plan_maps_goal_steps_to_kernel_plan(goals, load):
 
 
 def test_shadow_plan_empty_steps_is_safe(goals):
-    goals._shadow_plan("t", "o", [])        # no steps → no raise
-    goals._shadow_plan("t", "o", None)      # defensive
+    goals._shadow_plan(1, "t", "o", [])        # no steps → no raise
+    goals._shadow_plan(1, "t", "o", None)      # defensive
 
 
 def test_create_still_returns_goal_with_steps(goals, tmp_path):

@@ -1,3 +1,30 @@
+## [8.74.0] — MCU Phase H (H4a): the full goal lifecycle is journaled
+
+Fourth Phase H increment, first half of goals→kernel. F1/F2 recorded a goal's
+kernel Plan into the execution journal **at creation** only — so the journal
+could show a goal was *planned* but not what *happened* to it. H4a records the
+goal's **step transitions and closure** into the journal too, directly advancing
+Phase H's exit criterion: *every consequential agency operation is reconstructable
+from the journal.*
+
+- A goal's kernel Plan now uses **deterministic ids** (`goalplan_<id>` /
+  `goalstep_<id>_<n>`), so create → step advance → close all address the **same**
+  journal rows (record_plan is `INSERT OR IGNORE`; finish_step updates by id).
+- `goals.update(...)` journals each step's terminal status (done/failed/skipped)
+  as it is marked; when the goal itself closes (done/failed/cancelled) any
+  still-open steps are journaled as `skipped`. `goals.cancel(...)` does the same.
+- **Behaviour-preserving & SHADOW:** the goals SQLite store stays authoritative;
+  the journal is written alongside (best-effort, after the authoritative commit)
+  and never replayed in the live flow. Promoting the kernel Plan/Journal to be
+  *authoritative* for goals — making the store a derived view — is the separate,
+  **owner-gated H4b** (it changes user-facing persisted state), deliberately not
+  taken here.
+- `journal` primitive stays ◐ shadow (owner: goals); no coverage change (17.9%).
+
+tests: `test_goal_journal_shadow.py` gains lifecycle coverage — create/advance/
+close land on the same rows; cancel journals the terminal state. The F1/F2
+shadow-plan tests are updated for the new `_shadow_plan(goal_id, …)` signature.
+
 ## [8.73.0] — MCU Phase H (H3): run_scene_or_script onto the universal actuator seam
 
 Third Phase H increment: `run_scene_or_script` now activates scenes / scripts /
