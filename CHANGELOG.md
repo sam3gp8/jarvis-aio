@@ -1,3 +1,29 @@
+## [8.84.0] — On-the-fly face labeling from camera snapshots (issue #140)
+
+Building a reference-photo dataset for best-effort recognition meant manually
+uploading a file per resident. Now you can enroll references straight from
+real-world detections in the Faces tab.
+
+- **Recently Seen cards** get a **"📷 Label as…"** dropdown of your household
+  residents. Pick one and the frame that card is showing is enrolled as that
+  resident's reference photo — turning a live sighting (known, unknown, or an
+  LLM guess) into training data in one click.
+- **Resident cards** get a **"📷 From sighting"** button next to the file
+  upload (shown when the resident was seen on a camera) that enrolls their
+  reference from the frame that last saw them — no file picking.
+- Both reuse the existing `jarvis/faces` `set_reference` command and capture the
+  exact image on the card: a loaded live frame or the pinned recognition-time
+  snapshot, falling back to a fresh frame from the card's camera.
+
+Frontend-only and entirely manual — nothing changes until you pick a resident,
+so it's behaviour-preserving, with no new config and no effect on intrusion
+logic (reference photos only feed the opt-in best-effort matcher, which never
+drives intrusion decisions). tests: three new panel smoke-test assertions (the
+Label-as dropdown lists residents; the resident-card capture button renders;
+labeling a sighting round-trips that frame through `set_reference`);
+`node --check` + the full smoke suite stay green; the four static kernel gates
+are unaffected.
+
 ## [8.83.0] — Global search box in the panel header (issue #209)
 
 The panel had no way to jump straight to a place or find an entity — you had to

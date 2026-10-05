@@ -1041,6 +1041,31 @@ setTimeout(async () => {
     ["resident cards expose a reference-photo upload for the matcher",
       !!_samCard && !!_samCard.querySelector('input[type=file][data-faces-ref="Sam"]')],
   );
+
+  // #140: on-the-fly labeling — build the reference dataset straight from
+  // real-world detections instead of manual file uploads.
+  const _quentinAssignSel = _quentinCard?.querySelector("select[data-faces-assign]");
+  const _samCapBtn = _samCard?.querySelector('button[data-faces-capture="Sam"]');
+  let _assignCall = null;
+  const _origCallWS = el._hass.callWS.bind(el._hass);
+  el._hass.callWS = async (m) => {
+    if (m && m.type === "jarvis/faces" && m.action === "set_reference") _assignCall = m;
+    return _origCallWS(m);
+  };
+  // Quentin's card shows a live camera frame (a data: URL), so labeling it as a
+  // resident should enroll that exact frame via set_reference.
+  await el._labelFaceAs(_quentinCard, "Sam");
+  el._hass.callWS = _origCallWS;
+  checks.push(
+    ["recently-seen card offers a 'Label as…' resident dropdown",
+      !!_quentinAssignSel && /Label as/.test(_quentinAssignSel.textContent)
+      && /<option value="Sam"/.test(_quentinAssignSel.innerHTML)],
+    ["resident card can enroll a reference from the last sighting",
+      !!_samCapBtn],
+    ["labeling a sighting enrolls that frame as the resident's reference",
+      !!_assignCall && _assignCall.name === "Sam"
+      && /^data:image\//.test(String(_assignCall.image || ""))],
+  );
   el._currentTab = "settings";
   el._render();
 
