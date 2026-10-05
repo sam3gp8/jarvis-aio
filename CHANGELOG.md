@@ -1,3 +1,25 @@
+## [8.89.0] — Cognitive OS: the unified cognitive cycle primitive (roadmap Phase J, J1)
+
+Phase J begins. Today JARVIS runs several parallel ad-hoc loops; Phase J
+introduces one explicit, instrumented cognitive cycle they can converge on.
+
+- New kernel primitive **`kernel/cycle.py`**:
+  - `CognitiveCycle` runs an ordered list of named `CycleStep`s over a shared
+    mutable context as one pass, stamping a per-tick `cycle_id` (the pass's
+    correlation id) and returning a `CycleTrace` (per-step ok / detail /
+    duration). A step that raises is recorded as failed, never raised into the
+    caller; `on_error="stop"` halts the pass, `"continue"` (default) carries on.
+  - `standard_cycle({phase: fn})` builds a cycle over the canonical phases
+    (perceive → interpret → decide → act → reflect), skipping any a caller omits.
+- Landed **pure** (declared `cycle: pure` in the adoption matrix): the primitive
+  exists and is unit-tested, nothing live runs through it yet, so the release is
+  behaviour-preserving. A subsystem runs a cycle alongside its own loop in J2
+  (shadow), parity in J3, enforce in J4.
+
+tests: `tests/unit/test_cycle.py` (9 cases — order + trace, shared context +
+cycle_id, failure recorded/continue, on_error stop, never-raises, standard_cycle
+canonical order, trace serialization). Audit + all four static kernel gates green.
+
 ## [8.88.0] — Continuity of self: boot-time reconcile (roadmap Phase I, I3)
 
 Phase I's third increment: on boot, JARVIS now checks what it was in the middle
