@@ -49,6 +49,13 @@ _DECLARED: dict[str, dict] = {
     # summary on boot — it reads live state and writes its own DB + a log line,
     # driving nothing. Boot reconcile is I3 (parity); resume/announce I4 (enforce).
     "agency_state": {"stage": "shadow",  "owners": ["continuity"]},
+    # cycle: unified cognitive cycle (roadmap Phase J, J1). A CognitiveCycle runs
+    # named injected steps (perceive→interpret→decide→act→reflect) as one
+    # instrumented pass with a per-tick correlation id and a CycleTrace. PURE:
+    # the primitive exists and is unit-tested, nothing live runs through it yet
+    # — a subsystem runs a cycle alongside its loop in J2 (shadow), parity J3,
+    # enforce J4.
+    "cycle":        {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

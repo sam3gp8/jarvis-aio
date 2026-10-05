@@ -327,6 +327,25 @@ survive a restart, so it resumes rather than waking up blank.
   nothing, so the adoption stage stays `shadow` (observe-only) until I4 makes a
   resumption authoritative (enforce). Same kill-switch and fail-safe as I2.
 
+### Phase J — Cognitive OS (unified cognitive cycle) 🚧
+
+| # | Increment | Stage | Status | Release |
+| --- | --- | --- | --- | --- |
+| J1 | `kernel/cycle.py`: `CognitiveCycle` + `CycleTrace` + `standard_cycle` | pure | ✅ Shipped | 8.89.0 |
+| J2 | a subsystem (e.g. `cognitive_core`) runs a cycle alongside its loop, logs the trace | shadow | ⏳ Planned | — |
+| J3 | per-tick cycle decision compared to the legacy loop's | parity | ⏳ Planned | — |
+| J4 | one subsystem's loop *is* the cycle; legacy path retired | enforce | ⏳ Planned | — |
+
+#### J1 — cognitive-cycle primitive (8.89.0)
+
+- `kernel/cycle.py`: `CognitiveCycle` runs ordered, named `CycleStep`s over a
+  shared context as one pass, stamping a per-tick `cycle_id` and returning a
+  `CycleTrace` (per-step ok / detail / duration); a failing step is recorded,
+  never raised. `standard_cycle({phase: fn})` builds a pass over the canonical
+  perceive → interpret → decide → act → reflect phases, skipping omitted ones.
+- Landed **pure** (declared in the adoption matrix): nothing live runs through it
+  yet, so the release is behaviour-preserving.
+
 ### Phases J–Ω — forward spec
 
 Each phase lands as its own sequence of releases on the **shadow → parity →
