@@ -1,3 +1,17 @@
+## [8.82.0] — Lockdown pill is smaller / harder to toggle by accident (issue #208)
+
+The header lockdown toggle reserved a fixed 34px for its state label so the pill
+stayed the same width whether it read "OFF" or "ARMED". When OFF (the common
+case) that left a block of empty, still-clickable space to the right of the word
+— making it easy to engage lockdown by mistake.
+
+- The state label (`.ld-state`) now sizes to its actual text (`min-width: 0`),
+  and the pill's right padding is trimmed (12px → 10px), so the OFF pill is just
+  as wide as its contents. The pill grows slightly when it flips to "ARMED"
+  (a rare, deliberate action), which is fine.
+
+Frontend-only; `node --check` + the panel smoke test stay green.
+
 ## [8.81.0] — Fix: panel home greeting honors the configured name (issue #210)
 
 The panel's home-view greeting always said "Good morning, **sir**" even when a

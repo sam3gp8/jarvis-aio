@@ -8680,7 +8680,7 @@ ${this._renderExcludedEntities(d)}
     display: inline-flex; align-items: center; gap: 8px;
     background: rgba(0,0,0,0.35);
     border: 1px solid var(--line-hot, #2a3f4a);
-    padding: 5px 12px 5px 8px; border-radius: 999px; cursor: pointer;
+    padding: 5px 10px 5px 8px; border-radius: 999px; cursor: pointer;
     transition: border-color .2s ease, box-shadow .2s ease; white-space: nowrap;
     -webkit-tap-highlight-color: transparent;
   }
@@ -8705,7 +8705,11 @@ ${this._renderExcludedEntities(d)}
   }
   .ld-state {
     font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
-    color: var(--text-faint); transition: color .2s ease; min-width: 34px;
+    color: var(--text-faint); transition: color .2s ease;
+    /* issue #208: size to the actual state text ("OFF"/"ARMED") instead of
+       reserving a fixed 34px — that reserved width was dead clickable space to
+       the right of "OFF" that made the pill easy to toggle by accident. */
+    min-width: 0;
   }
   /* armed */
   .lockdown-toggle.on { border-color: #ff5a5a; box-shadow: 0 0 18px rgba(255,60,60,0.30); }
