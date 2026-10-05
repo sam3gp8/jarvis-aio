@@ -7,7 +7,7 @@ live integration — shadow stage.
   - on startup, logs what JARVIS was in the middle of before the restart
     (`continuity: mode=… · N goals · M open situations (captured …s ago)`);
   - on a 5-minute tick (and once at boot) captures a fresh snapshot of the live
-    active goals (`goals.active`), open kernel situations (`SituationStore`) and
+    active goals (`goals.active`), open kernel situations (`SituationManager`) and
     mode (`modes.active_mode`).
 - **Shadow / behaviour-preserving:** it reads live state and writes its own
   snapshot DB + a log line — it drives nothing. Every read is defensive, so a

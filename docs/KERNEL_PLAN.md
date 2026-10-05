@@ -310,7 +310,7 @@ survive a restart, so it resumes rather than waking up blank.
 - `continuity.py`: a live binder over the pure primitive. On boot
   `boot_summary()` reloads the last snapshot and logs what JARVIS was in the
   middle of; on a 5-minute tick (and once at boot) `capture_now()` reads the
-  live goals (`goals.active`), open situations (kernel `SituationStore`) and mode
+  live goals (`goals.active`), open situations (kernel `SituationManager`) and mode
   (`modes.active_mode`) and writes a fresh snapshot.
 - **Shadow** (`agency_state` → shadow, owner `continuity`): reads live state and
   writes its own snapshot DB + a log line; drives nothing. Every read is

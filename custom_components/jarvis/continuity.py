@@ -69,8 +69,8 @@ def _live_mode() -> Optional[str]:
 def _live_situations(hass=None) -> List[dict]:
     """Open kernel situations as plain capture rows; empty on any failure."""
     try:
-        from .kernel.situation import SituationStore
-        store = SituationStore(config_path_str("jarvis", "situations.db", hass=hass))
+        from .kernel.situation import SituationManager
+        store = SituationManager(config_path_str("jarvis", "situations.db", hass=hass))
         rows: List[dict] = []
         for s in store.open_situations():
             label = s.kind + (f" · {s.subject}" if getattr(s, "subject", None) else "")

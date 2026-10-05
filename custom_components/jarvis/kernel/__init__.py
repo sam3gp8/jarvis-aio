@@ -27,6 +27,7 @@ from .event import (
 )
 from . import (
     actuator,
+    agency_state,
     attention,
     authority,
     beliefs,
@@ -75,6 +76,7 @@ __all__ = [
     "persistence",
     "correlation",
     "actor",
+    "agency_state",
     "JarvisEventBus",
     "EventLedger",
     "WorldModel",
