@@ -313,6 +313,16 @@ async def _trigger_briefing(
 
         _LOGGER.info("Proactive briefing (%s): %s", reason, briefing_text[:100])
 
+        # Persist so the full briefing is retrievable in the UI (#232) — phone
+        # notifications truncate long ones. Tagged device_id="briefing" with a
+        # "[Briefing] " prefix, mirroring briefing.async_briefing.
+        try:
+            from .database import save_message
+            await hass.async_add_executor_job(
+                save_message, "assistant", f"[Briefing] {briefing_text}", "briefing")
+        except Exception as exc:
+            _LOGGER.debug("briefing persist failed: %s", exc)
+
         # Route: speak at home, push notification when away
         if anyone_home:
             # Check sleep

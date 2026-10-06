@@ -1,3 +1,23 @@
+## [8.104.0] — Briefings are retrievable in the panel (issue #232)
+
+Long briefings get truncated in phone notifications; now the full text is always
+readable in the UI.
+
+- The **Memory** tab gains a **Recent Briefings** card showing the last 10
+  briefings in full, newest first, with timestamps (the latest highlighted).
+- New `jarvis/briefings` WS endpoint returns recent briefings (full text,
+  `[Briefing] ` prefix stripped). Briefings are read from the existing
+  conversation store tagged `device_id="briefing"` — `briefing.async_briefing`
+  already persisted them, and **proactive briefings now persist too** (they
+  previously only logged/pushed), so both scheduled and arrival/security
+  briefings show up.
+- Additive, behaviour-preserving: no change to how briefings are generated,
+  spoken, or pushed.
+
+tests: three new `scripts/smoke_panel.js` cases (the card renders; briefings
+show full text newest-first; the latest is marked). `node --check` + smoke
+clean; audit (IMPORTS) + all four kernel gates green.
+
 ## [8.103.0] — Camera Watch remembers the chosen camera (issue #231)
 
 Selecting a camera in Camera Watch didn't stick: navigating away and back reset

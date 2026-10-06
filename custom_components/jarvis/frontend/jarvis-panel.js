@@ -1503,6 +1503,48 @@ class JarvisPanel extends HTMLElement {
     }).join("");
   }
 
+  async _fetchBriefings() {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({ type: "jarvis/briefings", limit: 10 });
+      this._briefings = { items: res?.briefings || [] };
+    } catch (err) {
+      this._briefings = { items: [], error: String(err) };
+    }
+    this._briefingsLoaded = true;
+    this._renderBriefings();
+  }
+
+  _renderBriefings() {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const list = root.getElementById("briefings-list");
+    if (!list) return;
+    const esc = (s) => String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    if (this._briefings?.error) {
+      list.innerHTML = `<div class="mem-empty">Couldn't load briefings — ${esc(this._briefings.error)}</div>`;
+      return;
+    }
+    const items = this._briefings?.items || [];
+    if (!items.length) {
+      list.innerHTML = this._briefingsLoaded
+        ? `<div class="mem-empty">No briefings yet — they appear here once JARVIS has delivered one.</div>`
+        : `<div class="mem-empty">Loading…</div>`;
+      return;
+    }
+    const when = (ts) => {
+      if (!ts) return "";
+      const d = new Date(/Z|[+-]\d\d:?\d\d$/.test(ts) ? ts : ts + "Z");
+      return isNaN(d) ? "" : d.toLocaleString();
+    };
+    list.innerHTML = items.map((b, i) => `
+      <div class="brief-item ${i === 0 ? 'brief-latest' : ''}">
+        <div class="brief-when">${esc(when(b.timestamp))}${i === 0 ? ' · latest' : ''}</div>
+        <div class="brief-text">${esc(b.text)}</div>
+      </div>`).join("");
+  }
+
   _renderKnowledgeList() {
     const root = this.shadowRoot;
     if (!root) return;
@@ -1641,7 +1683,7 @@ class JarvisPanel extends HTMLElement {
       this._currentTab = tab;
       this._render();
       if (tab === "logs") this._fetchDebugLog();
-      if (tab === "memory") { this._fetchKnowledge(); this._fetchPersonRoutines(); }
+      if (tab === "memory") { this._fetchKnowledge(); this._fetchPersonRoutines(); this._fetchBriefings(); }
     }
     if (tab === "settings" && section) {
       this._settingsSection = section;
@@ -5412,6 +5454,15 @@ ${this._renderExcludedEntities(d)}
       <div class="mem-sub">Habits JARVIS has confidently attributed to one person, from 30 days of sole-occupant activity — separate from household-wide facts above.</div>
       <div id="proutine-list" class="mem-list"><div class="mem-empty">Loading…</div></div>
     </div>
+
+    <div class="panel">
+      <div class="head">
+        <span>Recent Briefings</span>
+        <span class="side">FULL TEXT</span>
+      </div>
+      <div class="mem-sub">The full briefings JARVIS delivered — read here when a phone notification truncated a long one.</div>
+      <div id="briefings-list" class="mem-list"><div class="mem-empty">Loading…</div></div>
+    </div>
   </div>
   ` : ''}
 
@@ -5531,7 +5582,7 @@ ${this._renderExcludedEntities(d)}
           this._currentTab = newTab;
           this._render();
           if (newTab === "logs") this._fetchDebugLog();
-          if (newTab === "memory") { this._fetchKnowledge(); this._fetchPersonRoutines(); }
+          if (newTab === "memory") { this._fetchKnowledge(); this._fetchPersonRoutines(); this._fetchBriefings(); }
         }
       });
     });
@@ -10721,6 +10772,14 @@ ${this._renderExcludedEntities(d)}
   .goal-steps-bar i { display: block; height: 100%; background: var(--cyan-dim); box-shadow: 0 0 6px var(--cyan-glow); }
   .goal-steps-pct { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); white-space: nowrap; }
   .goal-when { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); margin-top: 6px; letter-spacing: 0.04em; }
+
+  /* RECENT BRIEFINGS (#232) — full text, newest first */
+  .brief-item { padding: 8px 0; border-top: 1px dashed var(--line); }
+  .brief-item:first-of-type { border-top: none; }
+  .brief-when { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); letter-spacing: 0.04em; margin-bottom: 4px; }
+  .brief-text { font-size: 12px; color: var(--text); line-height: 1.5; white-space: pre-wrap; }
+  .brief-latest .brief-text { color: var(--text, #cfe); }
+  .brief-latest .brief-when { color: var(--cyan, #00f2fe); }
 
   /* PERSON ROUTINES (reuses .sug-conf / .mem-group styling) */
   .proutine-item {
