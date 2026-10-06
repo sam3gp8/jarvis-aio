@@ -1,3 +1,23 @@
+## [8.100.0] — Uncertainty primitive (Epistemic Fabric, pure)
+
+Makes uncertainty first-class: JARVIS can distinguish *"I believe the garage is
+empty: 0.92"* from *"the garage is empty."*
+
+- New `kernel/uncertainty.py` (pure, no HA import): an `Uncertain` pairs a value
+  with a `confidence` (clamped 0–1), a **band** (`known` ≥0.95 / `believed` ≥0.60
+  / `guessed` ≥0.30 / `unknown`), its `basis`, and a `resolver` naming what
+  evidence would settle it. `describe()` phrases each band honestly (a guess
+  reads as a guess); `is_actionable()` is the bar to clear before acting;
+  `update()` folds new evidence (noisy-OR when it agrees, discount when it
+  disagrees); `most_certain()` picks the strongest of a set.
+- **Pure / behaviour-preserving:** declared `pure` in the adoption matrix and
+  unit-tested (9 cases); nothing live produces `Uncertain` values yet
+  (perception / world-model / prediction wrap outputs in shadow, parity vs.
+  current confidences, enforce when a decision gates on the band). Re-exported
+  from `kernel/__init__`; Constitution ledger + adoption matrix regenerated.
+
+Audit + all four kernel gates green. (Part of #238.)
+
 ## [8.99.0] — Provenance primitive (Epistemic Fabric, pure)
 
 Another Epistemic Fabric primitive: every important piece of state can now be

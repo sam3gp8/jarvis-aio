@@ -92,6 +92,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `router` | ◐ shadow |
 | `situation` | ● enforce |
 | `token_telemetry` | · pure |
+| `uncertainty` | · pure |
 | `world_model` | ● enforce |
 <!-- END kernel-stage-ledger -->
 
