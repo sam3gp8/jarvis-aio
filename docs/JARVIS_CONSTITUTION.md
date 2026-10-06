@@ -80,6 +80,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `cycle` | · pure |
 | `event` | ◑ parity |
 | `event_bus` | ◐ shadow |
+| `identity_fabric` | · pure |
 | `journal` | ◐ shadow |
 | `ledger` | ◐ shadow |
 | `loop_detect` | ● enforce |

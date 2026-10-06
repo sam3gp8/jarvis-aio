@@ -394,7 +394,14 @@ the roadmap now:
   nothing, so the adoption stage stays `shadow` (observe-only) until I4 makes a
   resumption authoritative (enforce). Same kill-switch and fail-safe as I2.
 
-### Phase I½ — Identity & Trust Fabric (new, audit-added) ⏳
+### Phase I½ — Identity & Trust Fabric (new, audit-added) 🚧
+
+| # | Increment | Stage | Status | Release |
+| --- | --- | --- | --- | --- |
+| I½1 | `kernel/identity_fabric.py`: `IdentityAssertion` + confidence algebra + `resolve()` (fails toward confirmation) | pure | ✅ Shipped | 8.94.0 |
+| I½2 | recognizers (voice/camera/mobile) emit assertions alongside current identity reads | shadow | ⏳ Planned | — |
+| I½3 | assertion-derived identity compared to current `identity.py` reads | parity | ⏳ Planned | — |
+| I½4 | ≥1 identity-sensitive path consumes an assertion with confidence + expiry | enforce | ⏳ Planned | — |
 
 The single largest omission in the pre-audit roadmap. Authority already carries
 *actor*, *token*, *scope* and *confidence*, but identity deserves a dedicated

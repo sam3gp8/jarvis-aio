@@ -64,6 +64,7 @@ explicit per-flip owner go/no-go.
 | `cycle` | · pure | — |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
+| `identity_fabric` | · pure | — |
 | `journal` | ◐ shadow | `goals` |
 | `ledger` | ◐ shadow | `__init__` |
 | `loop_detect` | ● enforce | `actuation` |

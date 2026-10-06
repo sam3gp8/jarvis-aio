@@ -1,3 +1,27 @@
+## [8.94.0] — Identity & Trust Fabric primitive (roadmap Phase I½, pure)
+
+First increment of the audit-added **Phase I½**: a kernel primitive for identity
+that treats *who someone is* as a claim with provenance, confidence and expiry —
+not a boolean — before autonomy grows to depend on it.
+
+- New `kernel/identity_fabric.py` (pure, no HA import): an `IdentityAssertion`
+  carries `subject`, `source`, `authentication_method`, `confidence` (clamped
+  0–1), `asserted_ts`, `expires_ts`, `evidence` and `scope`. `resolve()` folds
+  many assertions into one verdict, corroborating same-subject evidence
+  (noisy-OR) and **failing toward confirmation** — when two subjects are within a
+  margin of each other the identity is `contested` and *not* established.
+- Encodes the rule **identity ≠ presence ≠ authority ≠ trust**: a presence
+  signal (`METHOD_PRESENCE`) can never establish *who* (only that *someone* is
+  there), an expired or low-confidence assertion never establishes identity, and
+  establishing identity is neither authorization nor earned trust.
+- **Pure / behaviour-preserving:** the primitive is declared `pure` in the
+  adoption matrix and unit-tested (10 cases); nothing live consumes it yet
+  (recognizers emit assertions in shadow, parity against the current
+  `identity.py` reads, enforce on one identity-sensitive path later). Re-exported
+  from `kernel/__init__`; Constitution ledger + adoption matrix regenerated.
+
+Audit + all four kernel gates green.
+
 ## [8.93.0] — Resident "📷 Snapshot now" from any camera (issue #140)
 
 Enrolling a resident's reference photo for best-effort recognition previously
