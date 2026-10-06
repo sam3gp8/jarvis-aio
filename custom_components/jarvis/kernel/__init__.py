@@ -39,6 +39,7 @@ from . import (
     loop_detect,
     outcome,
     plan,
+    provenance,
     priority,
     router,
     situation,
@@ -72,6 +73,7 @@ from .token_telemetry import (
     record_usage,
 )
 from .outcome import Outcome, OutcomeStats, record_outcome
+from .provenance import Provenance
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
 from .router import Provider, RouteResult, TaskRequirements, route
@@ -145,6 +147,8 @@ __all__ = [
     "Outcome",
     "OutcomeStats",
     "record_outcome",
+    "provenance",
+    "Provenance",
     "cycle",
     "priority",
     "loop_detect",
