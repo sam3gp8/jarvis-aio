@@ -1,3 +1,22 @@
+## [8.103.0] — Camera Watch remembers the chosen camera (issue #231)
+
+Selecting a camera in Camera Watch didn't stick: navigating away and back reset
+the view to the first camera in the list (which for some setups is a screensaver
+feed). The active camera lived only on the panel component instance, so it was
+lost whenever Home Assistant re-created the panel on tab navigation.
+
+- The explicit pick is now persisted to `localStorage` (`jarvis_active_cam`) on
+  selection and restored on setup — but only if it's still an **enabled**
+  camera; an unknown/removed entity falls back to the first, so a stale
+  preference can't leave the feed blank. Per-browser preference, wrapped in
+  try/catch so private-mode or blocked storage degrades silently to the old
+  first-camera default.
+- Frontend-only (`frontend/jarvis-panel.js`); no backend or safety change.
+
+tests: three new `scripts/smoke_panel.js` cases (selection persists; a fresh
+setup restores the remembered camera; an unknown stored camera falls back to the
+first). `node --check` + smoke clean; audit + bypass gate green.
+
 ## [8.102.0] — Token & cost telemetry runs in shadow on the provider layer (TC2)
 
 First wiring of the token/cost telemetry primitive (TC1, 8.95.0) into live code

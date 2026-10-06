@@ -286,6 +286,29 @@ setTimeout(async () => {
     ['camera auto-selected (no "NO CAMERA")', !/NO CAMERA SELECTED/.test(sr.querySelector("#cam-feed")?.innerHTML || "NO CAMERA SELECTED")],
     ["live MJPEG src wired with token", !!(sr.querySelector("#cam-feed img") && /camera_proxy_stream\/camera\.front\?token=tok123/.test(sr.querySelector("#cam-feed img").src))],
     ["camera native aspect (height:auto, no object-fit)", /\.cam-feed img\s*\{[^}]*height:\s*auto/.test(html) && !/\.cam-feed img\s*\{[^}]*object-fit/.test(html)],
+    // #231: the chosen camera persists across panel re-creation / tab nav.
+    ["selecting a camera persists it to localStorage (#231)", (() => {
+      try { window.localStorage.removeItem("jarvis_active_cam"); } catch (_) {}
+      el._selectCam("camera.back");
+      let stored = null;
+      try { stored = window.localStorage.getItem("jarvis_active_cam"); } catch (_) {}
+      return el._activeCam === "camera.back" && stored === "camera.back";
+    })()],
+    ["a fresh setup restores the remembered camera, not the first (#231)", (() => {
+      // Simulate navigating away and back: the component loses instance state.
+      el._activeCam = null; el._manualCam = null;
+      el._setupCameras();
+      return el._activeCam === "camera.back";
+    })()],
+    ["an unknown stored camera falls back to the first (#231)", (() => {
+      try { window.localStorage.setItem("jarvis_active_cam", "camera.gone"); } catch (_) {}
+      el._activeCam = null; el._manualCam = null;
+      el._setupCameras();
+      const ok = el._activeCam === "camera.front";
+      // restore a sane default for any later assertions
+      el._selectCam("camera.front");
+      return ok;
+    })()],
     ["system status rows live (RUNNING)", /RUNNING/.test(html)],
     ["Goals panel present", !!sr.querySelector(".goal-list")],
     ["both goals rendered", sr.querySelectorAll(".goal").length === 2],
