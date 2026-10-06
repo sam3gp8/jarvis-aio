@@ -1,3 +1,21 @@
+## [8.98.0] — Cognitive cycle parity check over the main loop (Phase J, J3)
+
+Advances Phase J from shadow to **parity**. The cognitive cycle in
+`cognitive_core._tick` now compares its own view of the pass to what the loop
+actually did: the cycle's DECIDE count must equal the number of actions the loop
+dispatched (ACT), and the agreement is logged (`parity … agree=…`), with a
+`parity MISS` line if they ever diverge.
+
+- Still **observe-only** — drives nothing, behaviour-identical, same
+  `COGNITIVE_CYCLE_SHADOW` + `cognitive_cycle_shadow` kill-switch and the whole
+  pass stays wrapped so it can never affect the loop or safety checks.
+- The dispatch loop now counts emitted actions so the parity check reflects what
+  truly fired, not just what was decided. `cycle` advances `shadow → parity` in
+  the adoption matrix; Constitution ledger regenerated.
+
+Audit (COMPILE/IMPORTS/NAMES) + all four kernel gates green; cognitive-core
+suite green.
+
 ## [8.97.0] — Cognitive cycle runs in shadow over the main loop (Phase J, J2)
 
 First wiring of the unified cognitive cycle (J1, 8.89.0) into a live subsystem —
