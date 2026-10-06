@@ -7746,6 +7746,13 @@ ${this._renderExcludedEntities(d)}
         const card = el.closest(".faces-card");
         if (card) this._labelFaceAs(card, el.getAttribute("data-faces-capture"));
       }));
+    // …or snapshot a fresh frame from a chosen camera right now (#140).
+    body.querySelectorAll("button[data-faces-snapshot]").forEach(el =>
+      el.addEventListener("click", () => {
+        const wrap = el.closest(".faces-card-snap");
+        const sel = wrap && wrap.querySelector("select.faces-snap-cam");
+        this._snapshotReferenceNow(el.getAttribute("data-faces-snapshot"), sel && sel.value);
+      }));
   }
 
   // Normalized name key, mirroring recognition._face_norm, so the panel can tell
@@ -7819,6 +7826,26 @@ ${this._renderExcludedEntities(d)}
     }
   }
 
+  // Snapshot-from-camera-now (#140): grab a fresh frame off the chosen camera
+  // and enroll it as a resident's reference photo. Unlike "From sighting" (which
+  // reuses the frame that last saw them), this works for a resident who has
+  // never been detected yet — so the matcher's dataset can be bootstrapped from
+  // a live camera, no prior sighting and no file upload required.
+  async _snapshotReferenceNow(name, cameraEntity) {
+    if (!name || !this._hass) return;
+    if (!cameraEntity) { this._toast("✗ pick a camera first", "err"); return; }
+    try {
+      const res = await this._hass.callWS({ type: "jarvis/camera_snapshot", entity_id: cameraEntity });
+      if (!res?.image) { this._toast("✗ no frame from that camera", "err"); return; }
+      const image = `data:image/jpeg;base64,${res.image}`;
+      await this._hass.callWS({ type: "jarvis/faces", action: "set_reference", name, image });
+      this._toast(`✓ reference photo set for ${name} from ${String(cameraEntity).replace(/^camera\./, "")}`, "ok");
+      await this._fetchFaces();
+    } catch (err) {
+      this._toast(`✗ ${err?.message || err}`, "err");
+    }
+  }
+
   // One face card: snapshot (or an initial placeholder) with the name under it.
   _faceCard({ name, camera_entity, camera, confidence, age_seconds, relation, actions,
               snapshot_url, low_conf, ref_name, has_ref, ref_hint, assignTargets, can_capture }) {
@@ -7856,6 +7883,20 @@ ${this._renderExcludedEntities(d)}
         refCtl += `<button class="faces-ref faces-cap" data-faces-capture="${this._esc(ref_name)}" title="Use this sighting as the reference photo">📷 From sighting</button>`;
       }
     }
+    // Snapshot-from-camera-now (#140): enroll a reference from a live frame off
+    // any chosen camera, right now — works even for a resident never seen yet,
+    // so the dataset can be bootstrapped without waiting for a sighting or a
+    // file upload. Only offered when at least one camera entity exists.
+    let snapCtl = "";
+    if (ref_name) {
+      const camOpts = this._cameraEntityOptions("");
+      if (camOpts.includes('value="camera.')) {
+        snapCtl = `<div class="faces-card-snap">`
+          + `<select class="faces-assign-sel faces-snap-cam" aria-label="Camera to snapshot ${safe} from">${camOpts}</select>`
+          + `<button class="faces-ref faces-cap faces-snapnow" data-faces-snapshot="${this._esc(ref_name)}" title="Grab a frame from the selected camera now and use it as the reference photo">📷 Snapshot now</button>`
+          + `</div>`;
+      }
+    }
     // On-the-fly labeling for Recently-Seen cards: assign the shown frame to a
     // household resident as their reference photo (#140).
     let assignCtl = "";
@@ -7871,6 +7912,7 @@ ${this._renderExcludedEntities(d)}
       <div class="faces-card-meta">${meta.join(" · ")}</div>
       ${acts ? `<div class="faces-card-act">${acts}</div>` : ""}
       ${refCtl ? `<div class="faces-card-ref">${refCtl}</div>` : ""}
+      ${snapCtl}
       ${assignCtl}
     </div>`;
   }
@@ -10613,6 +10655,9 @@ ${this._renderExcludedEntities(d)}
   .faces-ref:hover { border-color: var(--cyan, #00f2fe); }
   /* On-the-fly labeling (#140) */
   .faces-cap { background: transparent; margin-left: 6px; font-family: inherit; }
+  .faces-card-snap { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .faces-snap-cam { max-width: 140px; }
+  .faces-snapnow { margin-left: 0; }
   .faces-card-assign { margin-top: 4px; }
   .faces-assign-sel {
     font-size: 10px; font-family: var(--font-mono);

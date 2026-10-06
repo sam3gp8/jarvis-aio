@@ -1066,6 +1066,30 @@ setTimeout(async () => {
       !!_assignCall && _assignCall.name === "Sam"
       && /^data:image\//.test(String(_assignCall.image || ""))],
   );
+
+  // #140-c: snapshot-from-camera-now — enroll a resident's reference from a live
+  // frame off any chosen camera, so the dataset bootstraps without a prior
+  // sighting or a file upload.
+  const _samSnapBtn = _samCard?.querySelector('button[data-faces-snapshot="Sam"]');
+  const _samSnapSel = _samCard?.querySelector('select.faces-snap-cam');
+  let _snapGrab = null, _snapEnroll = null;
+  el._hass.callWS = async (m) => {
+    if (m && m.type === "jarvis/camera_snapshot") _snapGrab = m;
+    if (m && m.type === "jarvis/faces" && m.action === "set_reference") _snapEnroll = m;
+    return _origCallWS(m);
+  };
+  await el._snapshotReferenceNow("Sam", "camera.back");
+  el._hass.callWS = _origCallWS;
+  checks.push(
+    ["resident card offers a Snapshot-now button + camera picker",
+      !!_samSnapBtn && !!_samSnapSel && /value="camera\.front"/.test(_samSnapSel.innerHTML)],
+    ["snapshot-now grabs a fresh frame from the chosen camera",
+      !!_snapGrab && _snapGrab.entity_id === "camera.back"],
+    ["snapshot-now enrolls that frame as the resident's reference",
+      !!_snapEnroll && _snapEnroll.name === "Sam"
+      && /^data:image\/jpeg;base64,/.test(String(_snapEnroll.image || ""))],
+  );
+
   el._currentTab = "settings";
   el._render();
 
