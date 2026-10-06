@@ -495,6 +495,23 @@ These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and
 human override. *More capability never means less governance* is enforced here.
 
+### Cognitive token & cost telemetry (cross-cutting observability) 🚧
+
+Measurement is its own cross-cutting concern: JARVIS routes work across model
+tiers (classifier / reasoning / review / conversation / vision) and today
+reports cost and volume as *estimates*. This primitive records the **actual**
+per-call usage every provider returns — input, output and **cached** tokens —
+attributed to a tier and model, with an estimated cost from an explicit price
+book. It is what Phase Y (self-optimization) reads to tune *model spend* safely,
+and what a cost panel renders instead of a guess.
+
+| # | Increment | Stage | Status | Release |
+| --- | --- | --- | --- | --- |
+| TC1 | `kernel/token_telemetry.py`: `UsageRecord` + `PriceBook` + `summarize`/`by_tier`/`by_model` | pure | ✅ Shipped | 8.95.0 |
+| TC2 | the router / `llm_provider` emits a `UsageRecord` per call from the provider's own usage fields | shadow | ⏳ Planned | — |
+| TC3 | telemetry totals compared to the current estimates | parity | ⏳ Planned | — |
+| TC4 | the cost panel + Phase Y read telemetry instead of estimates | enforce | ⏳ Planned | — |
+
 ### Phase J — Cognitive OS (unified cognitive cycle) 🚧
 
 | # | Increment | Stage | Status | Release |

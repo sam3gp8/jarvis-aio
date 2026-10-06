@@ -73,6 +73,7 @@ explicit per-flip owner go/no-go.
 | `priority` | · pure | — |
 | `router` | ◐ shadow | `reasoning_loop` |
 | `situation` | ● enforce | `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
+| `token_telemetry` | · pure | — |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 
