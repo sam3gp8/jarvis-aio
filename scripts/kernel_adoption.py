@@ -56,6 +56,15 @@ _DECLARED: dict[str, dict] = {
     # — a subsystem runs a cycle alongside its loop in J2 (shadow), parity J3,
     # enforce J4.
     "cycle":        {"stage": "pure",    "owners": []},
+    # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
+    # An IdentityAssertion carries who / how-established / confidence / expiry /
+    # evidence / scope, and resolve() folds many into one verdict that FAILS
+    # TOWARD CONFIRMATION when two subjects are too close. Encodes identity ≠
+    # presence ≠ authority ≠ trust. PURE: the primitive exists and is
+    # unit-tested, nothing live consumes it yet — recognizers emit assertions in
+    # shadow, parity against current identity reads, enforce (owner-gated) on one
+    # identity-sensitive path.
+    "identity_fabric": {"stage": "pure", "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

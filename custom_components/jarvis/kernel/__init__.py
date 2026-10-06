@@ -34,6 +34,7 @@ from . import (
     budget,
     causal,
     cycle,
+    identity_fabric,
     journal,
     loop_detect,
     plan,
@@ -55,6 +56,12 @@ from .authority import (
     authorize,
 )
 from .beliefs import Belief, Evidence
+from .identity_fabric import (
+    IdentityAssertion,
+    IdentityResolution,
+    assert_identity,
+    resolve,
+)
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
 from .router import Provider, RouteResult, TaskRequirements, route
@@ -113,6 +120,11 @@ __all__ = [
     "causal",
     "CausalModel",
     "CausalHypothesis",
+    "identity_fabric",
+    "IdentityAssertion",
+    "IdentityResolution",
+    "assert_identity",
+    "resolve",
     "cycle",
     "priority",
     "loop_detect",
