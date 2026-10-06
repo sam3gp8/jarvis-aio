@@ -3027,25 +3027,29 @@ async def _tick():
         _LOGGER.debug("Goal tick error: %s", exc)
 
     # Process actions
+    emitted = 0
     for action in actions:
         await _emit_action(hass, config, action, sleeping)
+        emitted += 1
 
-    # ── Phase J (J2, shadow): unified cognitive cycle, observe-only ──────────
-    # Run the kernel CognitiveCycle over this same pass purely to record it:
-    # one cycle_id stamped across perceive→interpret→decide→act→reflect and a
-    # CycleTrace logged. It drives nothing (the real decisions above stand); it
-    # makes the pass reconstructable as one named cycle before a subsystem is
-    # actually driven by it (parity J3, enforce J4). Fully fail-safe + kill-
-    # switched; any error is swallowed so it can never affect the loop.
+    # ── Phase J (J3, parity): unified cognitive cycle, observe-only ──────────
+    # Run the kernel CognitiveCycle over this same pass and compare its view to
+    # what the loop actually did: the cycle's DECIDE count must equal the number
+    # of actions the loop dispatched (ACT). It still drives nothing — the real
+    # decisions above stand — but now it logs an AGREEMENT flag over real
+    # traffic, the parity bar before a subsystem's loop IS the cycle (enforce
+    # J4). Fully fail-safe + kill-switched; any error is swallowed so it can
+    # never affect the loop.
     try:
         _run_cognitive_cycle_shadow(
             anyone_home=anyone_home,
             sleeping=sleeping,
             people=len(_people),
             decided=len(actions),
+            emitted=emitted,
         )
     except Exception as exc:
-        _LOGGER.debug("cognitive-cycle shadow error: %s", exc)
+        _LOGGER.debug("cognitive-cycle parity error: %s", exc)
 
 
 # Phase J (J2): kill-switch for the observe-only cognitive cycle. A module
@@ -3055,13 +3059,15 @@ COGNITIVE_CYCLE_SHADOW = True
 
 
 def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
-                                people: int, decided: int) -> None:
-    """Run the kernel cognitive cycle alongside ``_tick``, observe-only (J2).
+                                people: int, decided: int,
+                                emitted: int) -> None:
+    """Run the kernel cognitive cycle alongside ``_tick`` (J3, parity).
 
     Builds a :class:`kernel.cycle.CycleTrace` over the canonical phases from
-    what this tick already computed and logs it; drives nothing. Kill-switched
-    via :data:`COGNITIVE_CYCLE_SHADOW` and the ``cognitive_cycle_shadow`` config
-    key. Never raises into the caller.
+    what this tick computed, then compares the cycle's DECIDE count against the
+    number of actions the loop actually dispatched (``emitted``) and logs the
+    AGREEMENT. Drives nothing. Kill-switched via :data:`COGNITIVE_CYCLE_SHADOW`
+    and the ``cognitive_cycle_shadow`` config key. Never raises into the caller.
     """
     if not COGNITIVE_CYCLE_SHADOW:
         return
@@ -3087,10 +3093,12 @@ def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
         ctx["decided"] = decided
 
     def _act(ctx):
-        ctx["emitted"] = decided
+        ctx["emitted"] = emitted
 
     def _reflect(ctx):
         ctx["autonomous_total"] = autonomous
+        # Parity: the cycle's decision count must match what the loop dispatched.
+        ctx["agree"] = (decided == emitted)
 
     trace = cycle.standard_cycle(
         {
@@ -3102,15 +3110,22 @@ def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
         }
     ).tick()
 
+    agree = decided == emitted
     try:
         from .websocket import jarvis_log
         jarvis_log(
             "CYCLE",
-            f"shadow {trace.cycle_id[:8]}: {'→'.join(trace.names)} "
-            f"ok={trace.ok} people={people} decided={decided}",
+            f"parity {trace.cycle_id[:8]}: {'→'.join(trace.names)} "
+            f"ok={trace.ok} agree={agree} decided={decided} emitted={emitted}",
         )
+        if not agree:
+            jarvis_log(
+                "CYCLE",
+                f"parity MISS {trace.cycle_id[:8]}: decided={decided} "
+                f"emitted={emitted}",
+            )
     except Exception:
-        _LOGGER.debug("cognitive cycle shadow trace: %s", trace.to_dict())
+        _LOGGER.debug("cognitive cycle parity trace: %s", trace.to_dict())
 
 
 def _provider_api_key(config: dict, provider_name: str) -> str:

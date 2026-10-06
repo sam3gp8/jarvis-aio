@@ -51,12 +51,13 @@ _DECLARED: dict[str, dict] = {
     "agency_state": {"stage": "shadow",  "owners": ["continuity"]},
     # cycle: unified cognitive cycle (roadmap Phase J). A CognitiveCycle runs
     # named injected steps (perceive→interpret→decide→act→reflect) as one
-    # instrumented pass with a per-tick correlation id and a CycleTrace. SHADOW
-    # (J2): cognitive_core._tick runs the cycle alongside its own loop,
-    # observe-only — it stamps one cycle_id across the pass and logs the trace,
-    # drives nothing (kill-switch COGNITIVE_CYCLE_SHADOW + config). Parity J3
-    # (per-tick decision compare), enforce J4 (a subsystem's loop IS the cycle).
-    "cycle":        {"stage": "shadow",  "owners": ["cognitive_core"]},
+    # instrumented pass with a per-tick correlation id and a CycleTrace. PARITY
+    # (J3): cognitive_core._tick runs the cycle alongside its own loop and logs
+    # an AGREEMENT flag — the cycle's DECIDE count vs the actions the loop
+    # actually dispatched (ACT) — over real traffic; still drives nothing
+    # (kill-switch COGNITIVE_CYCLE_SHADOW + config). Enforce J4 = a subsystem's
+    # loop IS the cycle.
+    "cycle":        {"stage": "parity",  "owners": ["cognitive_core"]},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS
