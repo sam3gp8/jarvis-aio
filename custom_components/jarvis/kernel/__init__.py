@@ -41,6 +41,7 @@ from . import (
     priority,
     router,
     situation,
+    token_telemetry,
 )
 from .actuator import ActuatorOutcome, ActuatorRequest, build_actuator_request
 from .loop_detect import LoopDetector, LoopVerdict
@@ -61,6 +62,13 @@ from .identity_fabric import (
     IdentityResolution,
     assert_identity,
     resolve,
+)
+from .token_telemetry import (
+    ModelPrice,
+    PriceBook,
+    UsageRecord,
+    UsageTotals,
+    record_usage,
 )
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
@@ -125,6 +133,12 @@ __all__ = [
     "IdentityResolution",
     "assert_identity",
     "resolve",
+    "token_telemetry",
+    "ModelPrice",
+    "PriceBook",
+    "UsageRecord",
+    "UsageTotals",
+    "record_usage",
     "cycle",
     "priority",
     "loop_detect",

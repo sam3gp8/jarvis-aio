@@ -65,6 +65,14 @@ _DECLARED: dict[str, dict] = {
     # shadow, parity against current identity reads, enforce (owner-gated) on one
     # identity-sensitive path.
     "identity_fabric": {"stage": "pure", "owners": []},
+    # token_telemetry: cognitive token & cost telemetry (cross-cutting
+    # observability, feeds Phase Y). A UsageRecord captures a call's actual
+    # input/output/cached tokens by tier + model, a PriceBook estimates cost,
+    # and summarize/by_tier/by_model roll it up. PURE: the primitive exists and
+    # is unit-tested, nothing live records usage yet — the router/llm_provider
+    # emits records in shadow, parity vs current estimates, enforce when the
+    # panel + Phase Y read it instead of estimates.
+    "token_telemetry": {"stage": "pure", "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

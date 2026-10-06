@@ -1,3 +1,26 @@
+## [8.95.0] — Cognitive token & cost telemetry primitive (pure)
+
+Foundation for reporting **actual** model usage and cost instead of estimates.
+JARVIS routes work across tiers (classifier / reasoning / review / conversation
+/ vision); this primitive captures what each call really spent.
+
+- New `kernel/token_telemetry.py` (pure, no HA import): a `UsageRecord`
+  (timestamp, tier, provider/model, input / output / **cached** tokens,
+  estimated cost, correlation id, ok); a `PriceBook` (per-model USD-per-1M rates
+  for input/output/cached, exact→substring→default lookup) that turns token
+  counts into an estimated cost; and pure roll-ups `summarize`, `by_tier`,
+  `by_model`. Cached tokens are first-class and billed at their own (reduced)
+  rate; an unknown model records tokens at zero cost rather than erroring.
+- **Pure / behaviour-preserving:** declared `pure` in the adoption matrix and
+  unit-tested (11 cases); nothing live records usage yet. Later releases wire it
+  on the ladder — the router/`llm_provider` emits a record per call from each
+  provider's own usage fields (shadow), telemetry totals compared to the current
+  estimates (parity), the cost panel + Phase Y self-optimization read it instead
+  of estimates (enforce). Re-exported from `kernel/__init__`; Constitution ledger
+  + adoption matrix regenerated.
+
+Audit + all four kernel gates green.
+
 ## [8.94.0] — Identity & Trust Fabric primitive (roadmap Phase I½, pure)
 
 First increment of the audit-added **Phase I½**: a kernel primitive for identity
