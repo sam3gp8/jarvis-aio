@@ -773,6 +773,7 @@ async def ws_get_panel_data(
                 "light_control_enabled": bool(_runtime_opt(hass, entry, "light_control_enabled", True)),
                 "appliance_power_guessing": bool(_runtime_opt(hass, entry, "appliance_power_guessing", False)),
                 "departure_alerts_enabled": bool(_runtime_opt(hass, entry, "departure_alerts_enabled", True)),
+                "departure_require_location": bool(_runtime_opt(hass, entry, "departure_require_location", True)),
                 "routine_alerts_enabled": bool(_runtime_opt(hass, entry, "routine_alerts_enabled", True)),
                 "door_window_alerts_enabled": bool(_runtime_opt(hass, entry, "door_window_alerts_enabled", True)),
                 "departure_lead_minutes": _runtime_opt(hass, entry, "departure_lead_minutes", 30),
@@ -1375,6 +1376,7 @@ PANEL_WRITABLE_KEYS = {
     "excluded_labels",             # JSON list: HA labels whose entities are removed from awareness
     "notify_service",
     "departure_alerts_enabled",
+    "departure_require_location",   # bool: only alert for events with a physical location (skip online meetings) — #233
     "routine_alerts_enabled",
     "door_window_alerts_enabled",   # bool: announce door/window/garage open-at-unusual-time (awareness kept either way)
     "departure_lead_minutes",

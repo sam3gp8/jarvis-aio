@@ -1,3 +1,26 @@
+## [8.105.0] — Departure alerts only for events with a location (issue #233)
+
+"Time to head out" nudges now fire only for calendar events you physically
+travel to — online meetings and events with no location set are skipped.
+
+- New **departure_require_location** config toggle (Proactive settings,
+  "↳ Only for events with a location"), **ON by default**. A location counts as
+  physical when it's non-empty and not a video-call link / "online" marker
+  (Zoom, Google Meet, Teams, Webex, a URL, "online/virtual/video call/phone
+  call/dial-in", …).
+- Turn the toggle **OFF** to restore the previous behaviour (alert for every
+  timed event, using travel time when a location is present else the default
+  lead).
+- Behaviour change on upgrade: location-less departure alerts stop by default,
+  per the requested behaviour. Everything else about the departure path (lead
+  computation, travel sensor/OSRM routing, per-event-per-day dedup) is
+  unchanged.
+
+tests: six new `tests/unit/test_departure.py` cases (physical/virtual
+classification; online + location-less events skipped; default-ON; physical
+event still fires; toggle-off restores) and two `scripts/smoke_panel.js` cases
+(toggle present/wired; defaults ON). audit + all four kernel gates green.
+
 ## [8.104.0] — Briefings are retrievable in the panel (issue #232)
 
 Long briefings get truncated in phone notifications; now the full text is always

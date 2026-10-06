@@ -4747,6 +4747,10 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             <button class="toggle-btn ${(d.config?.departure_alerts_enabled) ? 'on' : 'off'}" data-cfg-key="departure_alerts_enabled" data-cfg-val="${(d.config?.departure_alerts_enabled) ? 'false' : 'true'}">${(d.config?.departure_alerts_enabled) ? 'ON' : 'OFF'}</button>
           </div>
           <div class="cfg-row">
+            <label>&nbsp;&nbsp;↳ Only for events with a location<span class="cfg-hint">skip "time to head out" for online meetings &amp; events with no place set</span></label>
+            <button class="toggle-btn ${(d.config?.departure_require_location !== false) ? 'on' : 'off'}" data-cfg-key="departure_require_location" data-cfg-val="${(d.config?.departure_require_location !== false) ? 'false' : 'true'}">${(d.config?.departure_require_location !== false) ? 'ON' : 'OFF'}</button>
+          </div>
+          <div class="cfg-row">
             <label>Routine alerts</label>
             <button class="toggle-btn ${(d.config?.routine_alerts_enabled) ? 'on' : 'off'}" data-cfg-key="routine_alerts_enabled" data-cfg-val="${(d.config?.routine_alerts_enabled) ? 'false' : 'true'}">${(d.config?.routine_alerts_enabled) ? 'ON' : 'OFF'}</button>
           </div>
