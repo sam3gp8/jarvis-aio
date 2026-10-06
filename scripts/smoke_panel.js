@@ -90,6 +90,10 @@ const hass = {
       { id: 1, pattern_type: "time_routine", description: "office light turns on around 07:00 most days when Sam is home", confidence: 0.82, occurrences: 9, last_seen: "2026-07-13" },
     ] } };
     if (m.type === "jarvis/get_knowledge") return { facts: [], stats: {} };
+    if (m.type === "jarvis/briefings") return { briefings: [
+      { text: "Good morning, sir. The front door is unlocked and rain is expected by noon.", timestamp: "2026-10-06T07:30:00" },
+      { text: "Evening summary: all quiet, garage closed.", timestamp: "2026-10-05T21:00:00" },
+    ] };
     if (m.type === "jarvis/camera_snapshot") return { image: "/9j/dGVzdGpwZWc=" };
     if (m.type === "jarvis/biometrics") {
       if (m.action === "enable") _bioEnabled = true;
@@ -1111,6 +1115,20 @@ setTimeout(async () => {
     ["snapshot-now enrolls that frame as the resident's reference",
       !!_snapEnroll && _snapEnroll.name === "Sam"
       && /^data:image\/jpeg;base64,/.test(String(_snapEnroll.image || ""))],
+  );
+
+  // #232: briefings are retrievable in the Memory tab (full text, newest first).
+  el._currentTab = "memory";
+  el._render();
+  await el._fetchBriefings();
+  const _briefBody = el.shadowRoot.getElementById("briefings-list")?.innerHTML || "";
+  checks.push(
+    ["Memory tab has a Recent Briefings card (#232)",
+      !!el.shadowRoot.getElementById("briefings-list")],
+    ["briefings render full text, newest first (#232)",
+      /front door is unlocked and rain is expected/.test(_briefBody)
+      && _briefBody.indexOf("front door is unlocked") < _briefBody.indexOf("Evening summary")],
+    ["latest briefing is marked as such (#232)", /brief-latest/.test(_briefBody) && /latest/.test(_briefBody)],
   );
 
   el._currentTab = "settings";

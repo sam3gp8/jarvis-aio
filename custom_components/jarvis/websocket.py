@@ -62,6 +62,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_compute_camera_coverage)
         websocket_api.async_register_command(hass, ws_reload_appliances)
         websocket_api.async_register_command(hass, ws_search_memory)
+        websocket_api.async_register_command(hass, ws_get_briefings)
         websocket_api.async_register_command(hass, ws_get_debug_log)
         websocket_api.async_register_command(hass, ws_get_cognitive_status)
         websocket_api.async_register_command(hass, ws_run_analysis)
@@ -2296,6 +2297,42 @@ async def ws_search_memory(
     except Exception as exc:
         _LOGGER.warning("ws_search_memory failed: %s", exc)
         connection.send_error(msg["id"], "search_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/briefings",
+    vol.Optional("limit", default=10): int,
+})
+@websocket_api.async_response
+async def ws_get_briefings(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Recent briefings in full, newest first (#232).
+
+    Phone notifications truncate long briefings; this lets the panel show the
+    whole text. Briefings are persisted as conversation rows tagged
+    device_id="briefing" with a "[Briefing] " content prefix (by both
+    briefing.async_briefing and proactive_briefing)."""
+    try:
+        from .database import get_recent_messages
+        limit = max(1, min(int(msg.get("limit", 10) or 10), 50))
+        rows = await hass.async_add_executor_job(
+            lambda: get_recent_messages(hours=24 * 30, device_id="briefing", limit=limit)
+        )
+        prefix = "[Briefing] "
+        out = []
+        for r in rows:
+            text = str(r.get("content") or "")
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+            out.append({"text": text, "timestamp": r.get("timestamp")})
+        out.reverse()  # get_recent_messages is oldest-first; show newest first
+        connection.send_result(msg["id"], {"briefings": out})
+    except Exception as exc:
+        _LOGGER.warning("ws_get_briefings failed: %s", exc)
+        connection.send_error(msg["id"], "briefings_failed", str(exc))
 
 
 @websocket_api.websocket_command({
