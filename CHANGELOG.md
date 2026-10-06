@@ -1,3 +1,27 @@
+## [8.102.0] — Token & cost telemetry runs in shadow on the provider layer (TC2)
+
+First wiring of the token/cost telemetry primitive (TC1, 8.95.0) into live code
+— **observe-only**. Every LLM call through `llm_provider` (Groq, OpenAI, Ollama,
+Gemini, Anthropic) now emits a kernel `UsageRecord` built from that provider's
+**actual** usage fields — input / output / **cached** tokens — attributed to the
+provider and model.
+
+- **Records, drives nothing.** The record is logged (debug) and goes nowhere
+  else yet; responses and behaviour are unchanged. This is the shadow rung
+  before parity (telemetry totals vs. the current estimates) and enforce (the
+  cost panel + Phase Y read it).
+- **Defensive across provider shapes:** reads `prompt_tokens`/`completion_tokens`
+  + `prompt_tokens_details.cached_tokens` (OpenAI/Groq), `input_tokens`/
+  `output_tokens` + `cache_read_input_tokens` (Anthropic), and
+  `usage_metadata.*_token_count` (Gemini); cached is subtracted from the input
+  count so the cost estimate doesn't double-count. **Kill-switched**
+  (`TOKEN_TELEMETRY_SHADOW`) and fully wrapped so it can never disrupt or raise
+  into an LLM call.
+- `token_telemetry` advances `pure → shadow` in the adoption matrix (owner
+  `llm_provider`); Constitution ledger regenerated.
+
+Audit (COMPILE/IMPORTS/NAMES) + all four kernel gates green. (Part of #237.)
+
 ## [8.101.0] — Conflict-resolution primitive (Epistemic Fabric, pure)
 
 Completes the Epistemic Fabric's core: a formal rule for which source wins when

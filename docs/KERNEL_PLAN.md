@@ -522,7 +522,7 @@ and what a cost panel renders instead of a guess.
 | # | Increment | Stage | Status | Release |
 | --- | --- | --- | --- | --- |
 | TC1 | `kernel/token_telemetry.py`: `UsageRecord` + `PriceBook` + `summarize`/`by_tier`/`by_model` | pure | ✅ Shipped | 8.95.0 |
-| TC2 | the router / `llm_provider` emits a `UsageRecord` per call from the provider's own usage fields | shadow | ⏳ Planned | — |
+| TC2 | `llm_provider` emits a `UsageRecord` per call from the provider's own usage fields (observe-only, kill-switched) | shadow | ✅ Shipped | 8.102.0 |
 | TC3 | telemetry totals compared to the current estimates | parity | ⏳ Planned | — |
 | TC4 | the cost panel + Phase Y read telemetry instead of estimates | enforce | ⏳ Planned | — |
 
