@@ -1,3 +1,24 @@
+## [8.97.0] — Cognitive cycle runs in shadow over the main loop (Phase J, J2)
+
+First wiring of the unified cognitive cycle (J1, 8.89.0) into a live subsystem —
+**observe-only**. The main evaluation tick (`cognitive_core._tick`) now also runs
+a kernel `CognitiveCycle` over the same pass, stamping one `cycle_id` across
+perceive→interpret→decide→act→reflect and logging a `CycleTrace` of what each
+phase saw (people, home/sleeping, decisions, autonomous total).
+
+- **Drives nothing.** The real decisions in `_tick` stand unchanged; the cycle
+  only records the pass so it is reconstructable as one named cycle before any
+  subsystem is actually driven by it (parity J3, enforce J4). Behaviour-identical.
+- **Kill-switched + fail-safe:** gated by the `COGNITIVE_CYCLE_SHADOW` module
+  constant and the `cognitive_cycle_shadow` config key (either off disables it);
+  the whole shadow pass is wrapped so any error is swallowed and can never affect
+  the evaluation loop or safety checks.
+- `cycle` advances `pure → shadow` in the adoption matrix (owner
+  `cognitive_core`); Constitution ledger regenerated. The cycle primitive's own
+  unit tests (9) plus the full cognitive-core suite (94) stay green.
+
+Audit (COMPILE/IMPORTS/NAMES) + all four kernel gates green.
+
 ## [8.96.0] — Canonical outcome model primitive (Epistemic Fabric, pure)
 
 The structured record that must exist **before** closed-loop learning (Phase M):

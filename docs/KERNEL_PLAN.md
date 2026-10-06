@@ -519,7 +519,7 @@ and what a cost panel renders instead of a guess.
 | # | Increment | Stage | Status | Release |
 | --- | --- | --- | --- | --- |
 | J1 | `kernel/cycle.py`: `CognitiveCycle` + `CycleTrace` + `standard_cycle` | pure | ✅ Shipped | 8.89.0 |
-| J2 | a subsystem (e.g. `cognitive_core`) runs a cycle alongside its loop, logs the trace | shadow | ⏳ Planned | — |
+| J2 | `cognitive_core._tick` runs a cycle alongside its loop, logs the trace (observe-only, kill-switched) | shadow | ✅ Shipped | 8.97.0 |
 | J3 | per-tick cycle decision compared to the legacy loop's | parity | ⏳ Planned | — |
 | J4 | one subsystem's loop *is* the cycle; legacy path retired | enforce | ⏳ Planned | — |
 
