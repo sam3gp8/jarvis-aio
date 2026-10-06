@@ -68,6 +68,7 @@ explicit per-flip owner go/no-go.
 | `journal` | ◐ shadow | `goals` |
 | `ledger` | ◐ shadow | `__init__` |
 | `loop_detect` | ● enforce | `actuation` |
+| `outcome` | · pure | — |
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |

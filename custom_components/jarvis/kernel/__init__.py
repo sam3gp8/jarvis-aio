@@ -37,6 +37,7 @@ from . import (
     identity_fabric,
     journal,
     loop_detect,
+    outcome,
     plan,
     priority,
     router,
@@ -70,6 +71,7 @@ from .token_telemetry import (
     UsageTotals,
     record_usage,
 )
+from .outcome import Outcome, OutcomeStats, record_outcome
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
 from .router import Provider, RouteResult, TaskRequirements, route
@@ -139,6 +141,10 @@ __all__ = [
     "UsageRecord",
     "UsageTotals",
     "record_usage",
+    "outcome",
+    "Outcome",
+    "OutcomeStats",
+    "record_outcome",
     "cycle",
     "priority",
     "loop_detect",
