@@ -490,12 +490,16 @@ in beliefs); this tier makes them canonical and first-class.
   planning, authority and outcomes. Ladder: pure ✅ → shadow (perception /
   world-model / prediction wrap outputs) → parity → enforce (a decision gates on
   the band).
-- **Conflict Resolution** (`kernel/conflict.py`) — a formal rule for
-  contradictions between sources (camera says empty, phone says present, motion
-  fires): evidence ranking, source reliability, recency, confidence,
-  corroboration, identity, situation. Must exist **before** advanced world-model
-  reasoning so contradictions resolve by policy, not by whichever subsystem ran
-  last.
+- **Conflict Resolution** (`kernel/conflict.py`) — ✅ **pure shipped
+  (8.101.0)**. A formal rule for contradictions between sources (camera says
+  empty, phone says present, motion fires): `resolve` consumes `Provenance`
+  records, scores each by `confidence × source-reliability × recency ×
+  corroboration`, sums per value (agreeing sources reinforce), and returns the
+  winner — flagged **contested** when the runner-up is within a margin, so an
+  unclear conflict defers rather than picks blindly. Exists **before** advanced
+  world-model reasoning so contradictions resolve by policy, not by whichever
+  subsystem ran last. Ladder: pure ✅ → shadow (world-model / situation consult
+  it) → parity → enforce.
 - **Time / Temporal Validity** — more fundamental than Phase Q's space/time
   model: world-model facts and beliefs carry *valid-as-of* and *expires-at*, so
   JARVIS can reason *"this was true 30 min ago / is probably still true / expires

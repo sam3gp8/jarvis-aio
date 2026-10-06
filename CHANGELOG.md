@@ -1,3 +1,27 @@
+## [8.101.0] — Conflict-resolution primitive (Epistemic Fabric, pure)
+
+Completes the Epistemic Fabric's core: a formal rule for which source wins when
+evidence contradicts (camera says empty, phone says present, motion fires) —
+rather than "whichever subsystem ran last." Must exist before advanced
+world-model reasoning.
+
+- New `kernel/conflict.py` (pure, no HA import): `resolve` takes
+  `kernel.provenance.Provenance` candidates, scores each by
+  `confidence × source-reliability × recency × corroboration`, sums scores per
+  distinct value (independent agreeing sources reinforce), and returns the
+  winning value with the strongest supporting record. It flags **contested**
+  when the runner-up value is within a margin — so an unclear conflict defers to
+  confirmation instead of picking blindly — and drops stale candidates. Source
+  reliability is caller-supplied (default 0.5); recency uses a configurable
+  half-life.
+- **Pure / behaviour-preserving:** declared `pure` in the adoption matrix and
+  unit-tested (9 cases); nothing live routes decisions through it yet
+  (world-model / situation consult it in shadow, parity, then enforce).
+  Re-exported from `kernel/__init__` (as `ConflictResolution`); Constitution
+  ledger + adoption matrix regenerated.
+
+Audit + all four kernel gates green. (Completes #238.)
+
 ## [8.100.0] — Uncertainty primitive (Epistemic Fabric, pure)
 
 Makes uncertainty first-class: JARVIS can distinguish *"I believe the garage is

@@ -100,6 +100,15 @@ _DECLARED: dict[str, dict] = {
     # values yet — perception/world-model/prediction wrap outputs in shadow,
     # parity vs current confidences, enforce when a decision gates on the band.
     "uncertainty":  {"stage": "pure",    "owners": []},
+    # conflict: formal conflict resolution between contradictory evidence
+    # (Epistemic Fabric, audit-added). Consumes Provenance records; resolve()
+    # scores each (confidence × source-reliability × recency × corroboration),
+    # sums per value, returns the winner, flagging CONTESTED when the runner-up
+    # is within a margin so an unclear conflict defers. Must exist before
+    # advanced world-model reasoning. PURE: exists + unit-tested, nothing live
+    # routes decisions through it yet — world-model/situation consult it in
+    # shadow, parity, then enforce.
+    "conflict":     {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /
