@@ -40,6 +40,7 @@ from . import (
     outcome,
     plan,
     provenance,
+    uncertainty,
     priority,
     router,
     situation,
@@ -74,6 +75,7 @@ from .token_telemetry import (
 )
 from .outcome import Outcome, OutcomeStats, record_outcome
 from .provenance import Provenance
+from .uncertainty import Uncertain
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
 from .router import Provider, RouteResult, TaskRequirements, route
@@ -149,6 +151,8 @@ __all__ = [
     "record_outcome",
     "provenance",
     "Provenance",
+    "uncertainty",
+    "Uncertain",
     "cycle",
     "priority",
     "loop_detect",

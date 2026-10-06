@@ -481,11 +481,15 @@ in beliefs); this tier makes them canonical and first-class.
   trust and conflict resolution. Ladder: pure ✅ → shadow (world-model /
   situation / recognition attach provenance) → parity → enforce (a consumer
   reads the provenanced value).
-- **Uncertainty Fabric** (`kernel/uncertainty.py`) — first-class *"I believe the
-  garage is empty: 0.92"* vs. *"the garage is empty."* Spans perception,
-  identity, world-model, beliefs, prediction, planning, authority and outcomes.
-  An autonomous system must know what it knows, thinks, is guessing, and does not
-  know — and what evidence would resolve the gap.
+- **Uncertainty Fabric** (`kernel/uncertainty.py`) — ✅ **pure shipped
+  (8.100.0)**. First-class *"I believe the garage is empty: 0.92"* vs. *"the
+  garage is empty."* An `Uncertain` pairs a value with a confidence, a band
+  (known / believed / guessed / unknown), its basis and *what evidence would
+  resolve it*; `update` folds new evidence (noisy-OR on agreement, discount on
+  disagreement). Spans perception, identity, world-model, beliefs, prediction,
+  planning, authority and outcomes. Ladder: pure ✅ → shadow (perception /
+  world-model / prediction wrap outputs) → parity → enforce (a decision gates on
+  the band).
 - **Conflict Resolution** (`kernel/conflict.py`) — a formal rule for
   contradictions between sources (camera says empty, phone says present, motion
   fires): evidence ranking, source reliability, recency, confidence,

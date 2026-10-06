@@ -92,6 +92,14 @@ _DECLARED: dict[str, dict] = {
     # attaches provenance yet — world-model / situation / recognition attach it
     # in shadow, parity vs current reads, enforce when a consumer reads it.
     "provenance":   {"stage": "pure",    "owners": []},
+    # uncertainty: first-class "what do I know vs think vs guess" (Epistemic
+    # Fabric, audit-added). An Uncertain pairs a value with a confidence, a band
+    # (known/believed/guessed/unknown), its basis and what evidence would
+    # resolve it; update() folds new evidence (noisy-OR agree, discount
+    # disagree). PURE: exists + unit-tested, nothing live produces Uncertain
+    # values yet — perception/world-model/prediction wrap outputs in shadow,
+    # parity vs current confidences, enforce when a decision gates on the band.
+    "uncertainty":  {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /
