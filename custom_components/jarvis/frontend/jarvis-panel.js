@@ -7057,7 +7057,13 @@ ${this._renderExcludedEntities(d)}
     const cams = ((d && d.config && d.config.cameras) || []).filter(c => c.enabled !== false);
     this._cams = Array.isArray(cams) ? cams : [];
     if (!this._activeCam && this._cams.length) {
-      this._activeCam = this._cams[0].entity_id;
+      // Persist the chosen camera across tab navigation / panel re-creation
+      // (#231): restore the stored pick if it's still an enabled camera,
+      // otherwise fall back to the first.
+      let stored = null;
+      try { stored = window.localStorage.getItem("jarvis_active_cam"); } catch (_) {}
+      const remembered = stored && this._cams.some(c => c.entity_id === stored);
+      this._activeCam = remembered ? stored : this._cams[0].entity_id;
       this._manualCam = this._activeCam;
     }
     this._lastCamKey = "";  // a full render replaced the feed node — force re-attach
@@ -8688,6 +8694,9 @@ ${this._renderExcludedEntities(d)}
     this._activeCam = entity;
     this._manualCam = entity;
     this._camFocus = null;
+    // Remember the explicit pick so it survives tab navigation / panel
+    // re-creation (#231). Per-browser preference; safe to fail.
+    try { window.localStorage.setItem("jarvis_active_cam", entity); } catch (_) {}
     this._renderCamSelector();
     this._renderCameraFeed();
   }
