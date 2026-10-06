@@ -1,3 +1,26 @@
+## [8.93.0] — Resident "📷 Snapshot now" from any camera (issue #140)
+
+Enrolling a resident's reference photo for best-effort recognition previously
+needed either a file upload or a recent sighting to label. A resident who had
+never been detected yet — the common bootstrap case — had no way to seed their
+reference from a live camera.
+
+- Each resident card in the **Faces** tab now has a **camera picker + "📷
+  Snapshot now"** button: pick any `camera.*` entity, grab a fresh frame via
+  `jarvis/camera_snapshot`, and enroll it as that resident's reference
+  (`jarvis/faces set_reference`) — no prior sighting, no file upload. This
+  complements the existing file upload and the sighting-based "📷 From sighting"
+  button (which only appears once the person has been seen).
+- Frontend-only (`frontend/jarvis-panel.js`); the camera list comes from
+  `hass.states`, so it works in the Faces tab regardless of the Cameras tab.
+  No backend, safety, or recognition-path change — `resident_present` and
+  intrusion monitoring are untouched.
+
+tests: three new `scripts/smoke_panel.js` cases (the button + camera picker
+render on a resident card; snapshot-now grabs a frame from the chosen camera;
+that frame is enrolled as the reference). `node --check` + smoke clean; audit +
+all four kernel gates green.
+
 ## [8.92.0] — Fold the 2026-10 external audit into the kernel roadmap (docs)
 
 A second external gap audit reviewed the post-H roadmap itself (not just the
