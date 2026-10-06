@@ -1,3 +1,37 @@
+## [8.92.0] — Fold the 2026-10 external audit into the kernel roadmap (docs)
+
+A second external gap audit reviewed the post-H roadmap itself (not just the
+code). Its verdict: the roadmap is pointed the right way but describes *what
+capabilities* JARVIS should acquire when the master plan needs to describe *what
+information and authority flow between them.* `docs/KERNEL_PLAN.md` now folds in
+its five structural corrections:
+
+- **Progress is authoritative dependence, not existence.** A `kernel/foo.py`
+  existing isn't JARVIS *using* `foo`; the real metric stays the adoption
+  matrix's `pure < shadow < parity < enforce` axis, and every phase's "Done" is
+  an enforce claim about a live path.
+- **Identity & Trust becomes a first-class phase** (new **I½**) — an
+  `IdentityAssertion` (subject, source, method, confidence, expiry, evidence,
+  scope) before serious autonomy, with the rule *identity ≠ presence ≠ authority
+  ≠ trust*.
+- **Outcome · Provenance · Uncertainty · Conflict · Time become kernel
+  primitives** — a cross-cutting **Epistemic Fabric** that several later phases
+  depend on (Outcome Model required before learning; Conflict before advanced
+  world-model reasoning).
+- **World-model / space-time (T, Q) move ahead of prediction/learning (L, M)**
+  so prediction isn't built on fragmented legacy state and rebuilt later.
+- **R becomes an integration gate and AE the MCU certification gate** (with ten
+  explicit scenario classes); **O/AB** merge into one agency-orchestration
+  framework and **N/AC** into one autonomy engine, as the backlog recommended.
+
+Also: Phase H's definition of done expands to a full shared agency chain
+(`agency_id` / `correlation_id` / `causation_id` / `actor` / `identity` /
+`intent` / `authority` / `idempotency_key`); Phase I is split into **I-A
+commitment continuity** (shipped) and **I-B cognitive continuity** (net-new);
+and the single "definition of done" becomes three bars (**H** kernel foundation,
+**R** architecture, **AE** MCU system). Docs-only — no behaviour change; all four
+kernel gates + audit green.
+
 ## [8.91.0] — Unknown faces surface in Recently Seen so they're labelable (issue #140)
 
 On a backend-less, reference-less setup, walking past the camera left the Faces
