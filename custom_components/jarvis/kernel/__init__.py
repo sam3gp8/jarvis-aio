@@ -33,6 +33,7 @@ from . import (
     beliefs,
     budget,
     causal,
+    conflict,
     cycle,
     identity_fabric,
     journal,
@@ -76,6 +77,7 @@ from .token_telemetry import (
 from .outcome import Outcome, OutcomeStats, record_outcome
 from .provenance import Provenance
 from .uncertainty import Uncertain
+from .conflict import Resolution as ConflictResolution
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
 from .router import Provider, RouteResult, TaskRequirements, route
@@ -153,6 +155,8 @@ __all__ = [
     "Provenance",
     "uncertainty",
     "Uncertain",
+    "conflict",
+    "ConflictResolution",
     "cycle",
     "priority",
     "loop_detect",
