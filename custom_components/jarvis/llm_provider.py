@@ -27,6 +27,65 @@ from typing import Any, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
+# Phase TC2 (shadow): emit a kernel token-telemetry UsageRecord per provider
+# call, observe-only. A module constant gates it; off disables it entirely.
+# Shadow only — it never changes a response or raises into a call.
+TOKEN_TELEMETRY_SHADOW = True
+
+
+def _record_usage_shadow(resp: Any, provider_name: str, model: str) -> None:
+    """Emit a kernel ``token_telemetry.UsageRecord`` from a provider response.
+
+    Reads the actual input / output / cached token counts off the provider's
+    usage object — defensively across OpenAI/Groq (``prompt_tokens`` /
+    ``completion_tokens`` / ``prompt_tokens_details.cached_tokens``), Anthropic
+    (``input_tokens`` / ``output_tokens`` / ``cache_read_input_tokens``) and
+    Gemini (``usage_metadata.*_token_count``) shapes — and records them. Purely
+    observational (TC2): nothing consumes the record yet. Kill-switched via
+    :data:`TOKEN_TELEMETRY_SHADOW`; never raises into the caller.
+    """
+    if not TOKEN_TELEMETRY_SHADOW:
+        return
+    try:
+        from .kernel import token_telemetry as _tt
+
+        u = getattr(resp, "usage", None) or getattr(resp, "usage_metadata", None)
+        if u is None:
+            return
+
+        def _g(obj, *names):
+            for n in names:
+                v = getattr(obj, n, None)
+                if v is not None:
+                    try:
+                        return int(v)
+                    except (TypeError, ValueError):
+                        continue
+            return 0
+
+        inp = _g(u, "prompt_tokens", "input_tokens", "prompt_token_count")
+        out = _g(u, "completion_tokens", "output_tokens", "candidates_token_count")
+        cached = 0
+        details = getattr(u, "prompt_tokens_details", None)
+        if details is not None:
+            cached = _g(details, "cached_tokens")
+        if not cached:
+            cached = _g(u, "cache_read_input_tokens", "cached_content_token_count")
+        # cached is a subset of the prompt count on these APIs; subtract so input
+        # and cached don't double-count in the cost estimate.
+        inp = max(0, inp - cached)
+
+        rec = _tt.record_usage(
+            provider=str(provider_name or ""),
+            model=str(model or ""),
+            input_tokens=inp,
+            output_tokens=out,
+            cached_tokens=cached,
+        )
+        _LOGGER.debug("token telemetry (shadow): %s", rec.to_dict())
+    except Exception:  # pragma: no cover - observe-only, must never disrupt a call
+        pass
+
 
 # ─── Standard response shape ─────────────────────────────────────────────────
 #
@@ -131,6 +190,7 @@ class GroqProvider(LLMProvider):
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments or "{}"),
                 })
+        _record_usage_shadow(resp, self.name, model_override or self.model)
         return {
             "text": (choice.message.content or "").strip(),
             "tool_calls": tool_calls,
@@ -213,6 +273,7 @@ class OpenAIProvider(LLMProvider):
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments or "{}"),
                 })
+        _record_usage_shadow(resp, self.name, model_override or self.model)
         return {
             "text": (choice.message.content or "").strip(),
             "tool_calls": tool_calls,
@@ -414,6 +475,7 @@ class GeminiProvider(LLMProvider):
                     "name": getattr(step, "name", ""),
                     "args": getattr(step, "arguments", {}) or {},
                 })
+        _record_usage_shadow(resp, self.name, model_override or self.model)
         return {
             "text": (getattr(resp, "output_text", "") or "").strip(),
             "tool_calls": tool_calls,
@@ -669,6 +731,7 @@ class AnthropicProvider(LLMProvider):
                     "name": block.name,
                     "args": block.input,
                 })
+        _record_usage_shadow(resp, self.name, model_override or self.model)
         return {
             "text": "".join(text_parts).strip(),
             "tool_calls": tool_calls,

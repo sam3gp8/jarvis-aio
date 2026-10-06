@@ -70,11 +70,11 @@ _DECLARED: dict[str, dict] = {
     # token_telemetry: cognitive token & cost telemetry (cross-cutting
     # observability, feeds Phase Y). A UsageRecord captures a call's actual
     # input/output/cached tokens by tier + model, a PriceBook estimates cost,
-    # and summarize/by_tier/by_model roll it up. PURE: the primitive exists and
-    # is unit-tested, nothing live records usage yet — the router/llm_provider
-    # emits records in shadow, parity vs current estimates, enforce when the
-    # panel + Phase Y read it instead of estimates.
-    "token_telemetry": {"stage": "pure", "owners": []},
+    # and summarize/by_tier/by_model roll it up. SHADOW (TC2): llm_provider emits
+    # a UsageRecord per call from each provider's own usage fields, observe-only
+    # (kill-switch TOKEN_TELEMETRY_SHADOW); nothing consumes it yet. Parity vs
+    # current estimates, enforce when the panel + Phase Y read it.
+    "token_telemetry": {"stage": "shadow", "owners": ["llm_provider"]},
     # outcome: canonical outcome model (Epistemic Fabric, pre-Phase M). A
     # structured Outcome (intended/observed/success/confidence/deviation/cause/
     # side_effects/feedback) with a distilled learning_signal in [-1,1], so M
