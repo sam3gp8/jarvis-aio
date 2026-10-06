@@ -3030,6 +3030,88 @@ async def _tick():
     for action in actions:
         await _emit_action(hass, config, action, sleeping)
 
+    # ── Phase J (J2, shadow): unified cognitive cycle, observe-only ──────────
+    # Run the kernel CognitiveCycle over this same pass purely to record it:
+    # one cycle_id stamped across perceive→interpret→decide→act→reflect and a
+    # CycleTrace logged. It drives nothing (the real decisions above stand); it
+    # makes the pass reconstructable as one named cycle before a subsystem is
+    # actually driven by it (parity J3, enforce J4). Fully fail-safe + kill-
+    # switched; any error is swallowed so it can never affect the loop.
+    try:
+        _run_cognitive_cycle_shadow(
+            anyone_home=anyone_home,
+            sleeping=sleeping,
+            people=len(_people),
+            decided=len(actions),
+        )
+    except Exception as exc:
+        _LOGGER.debug("cognitive-cycle shadow error: %s", exc)
+
+
+# Phase J (J2): kill-switch for the observe-only cognitive cycle. A module
+# constant AND a config key ("cognitive_cycle_shadow") both gate it; either off
+# disables it. Shadow only — it never changes behaviour.
+COGNITIVE_CYCLE_SHADOW = True
+
+
+def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
+                                people: int, decided: int) -> None:
+    """Run the kernel cognitive cycle alongside ``_tick``, observe-only (J2).
+
+    Builds a :class:`kernel.cycle.CycleTrace` over the canonical phases from
+    what this tick already computed and logs it; drives nothing. Kill-switched
+    via :data:`COGNITIVE_CYCLE_SHADOW` and the ``cognitive_cycle_shadow`` config
+    key. Never raises into the caller.
+    """
+    if not COGNITIVE_CYCLE_SHADOW:
+        return
+    try:
+        if _CORE and _CORE.config and not _CORE.config.get("cognitive_cycle_shadow", True):
+            return
+    except Exception:
+        pass
+    from .kernel import cycle
+
+    tick_count = getattr(_CORE, "tick_count", 0)
+    autonomous = getattr(_CORE, "autonomous_actions", 0)
+
+    def _perceive(ctx):
+        ctx["people"] = people
+        ctx["anyone_home"] = anyone_home
+        ctx["sleeping"] = sleeping
+
+    def _interpret(ctx):
+        ctx["tick"] = tick_count
+
+    def _decide(ctx):
+        ctx["decided"] = decided
+
+    def _act(ctx):
+        ctx["emitted"] = decided
+
+    def _reflect(ctx):
+        ctx["autonomous_total"] = autonomous
+
+    trace = cycle.standard_cycle(
+        {
+            cycle.PERCEIVE: _perceive,
+            cycle.INTERPRET: _interpret,
+            cycle.DECIDE: _decide,
+            cycle.ACT: _act,
+            cycle.REFLECT: _reflect,
+        }
+    ).tick()
+
+    try:
+        from .websocket import jarvis_log
+        jarvis_log(
+            "CYCLE",
+            f"shadow {trace.cycle_id[:8]}: {'→'.join(trace.names)} "
+            f"ok={trace.ok} people={people} decided={decided}",
+        )
+    except Exception:
+        _LOGGER.debug("cognitive cycle shadow trace: %s", trace.to_dict())
+
 
 def _provider_api_key(config: dict, provider_name: str) -> str:
     """Each provider has its own credential field, read straight from
