@@ -1,3 +1,27 @@
+## [8.96.0] — Canonical outcome model primitive (Epistemic Fabric, pure)
+
+The structured record that must exist **before** closed-loop learning (Phase M):
+rather than letting "learning" become *an LLM re-reading logs*, every
+consequential action will eventually produce a canonical, structured outcome.
+
+- New `kernel/outcome.py` (pure, no HA import): an `Outcome` carrying
+  `intended_result`, `observed_result`, `success`, `confidence`, `deviation`,
+  `cause`, `side_effects`, `user_feedback`, `environmental_feedback`, and a
+  distilled `learning_signal` in `[-1, 1]` (`+confidence` on success,
+  `-confidence` on failure — a confident success reinforces, a confident failure
+  penalizes, a shaky result barely moves anything). `from_verification(...)`
+  derives one from a postcondition check and auto-records the deviation on
+  failure; `summarize` / `by_capability` roll up success rate and mean signal —
+  the per-capability track record Phase N autonomy and Phase M learning both
+  read.
+- **Pure / behaviour-preserving:** declared `pure` in the adoption matrix and
+  unit-tested (9 cases); nothing live produces outcomes yet. Ladder: the
+  actuation/verify path records one (shadow) → parity vs. current feedback →
+  learning (M) reads structured `Outcome`s, never raw logs (enforce). Re-exported
+  from `kernel/__init__`; Constitution ledger + adoption matrix regenerated.
+
+Audit + all four kernel gates green.
+
 ## [8.95.0] — Cognitive token & cost telemetry primitive (pure)
 
 Foundation for reporting **actual** model usage and cost instead of estimates.

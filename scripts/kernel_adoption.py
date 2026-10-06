@@ -73,6 +73,14 @@ _DECLARED: dict[str, dict] = {
     # emits records in shadow, parity vs current estimates, enforce when the
     # panel + Phase Y read it instead of estimates.
     "token_telemetry": {"stage": "pure", "owners": []},
+    # outcome: canonical outcome model (Epistemic Fabric, pre-Phase M). A
+    # structured Outcome (intended/observed/success/confidence/deviation/cause/
+    # side_effects/feedback) with a distilled learning_signal in [-1,1], so M
+    # reads structure rather than re-reading logs. PURE: the primitive exists
+    # and is unit-tested, nothing live produces outcomes yet — the actuation/
+    # verify path records one in shadow, parity vs current feedback, enforce
+    # when learning (M) reads them.
+    "outcome":      {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

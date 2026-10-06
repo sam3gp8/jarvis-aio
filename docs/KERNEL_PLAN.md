@@ -463,14 +463,16 @@ ladder as everything else, each pure first, and are consumed by J–M, N and R.
 Several already exist in pieces (correlation/causation ids on events, confidences
 in beliefs); this tier makes them canonical and first-class.
 
-- **Outcome Model** (`kernel/outcome.py`) — a canonical `Outcome`
-  (`intended_result`, `observed_result`, `success`, `confidence`, `deviation`,
-  `cause`, `side_effects`, `user_feedback`, `environmental_feedback`,
-  `learning_signal`), sitting between verification and learning. Without it,
-  "learning" degrades to *the LLM reads logs and decides what it learned.*
-  **Required before Phase M.** Ladder: pure → shadow (every verified actuation
-  produces a structured outcome, logged) → parity → enforce (M reads
-  `Outcome`, never raw logs).
+- **Outcome Model** (`kernel/outcome.py`) — ✅ **pure shipped (8.96.0)**. A
+  canonical `Outcome` (`intended_result`, `observed_result`, `success`,
+  `confidence`, `deviation`, `cause`, `side_effects`, `user_feedback`,
+  `environmental_feedback`, `learning_signal`), sitting between verification and
+  learning, with a distilled `learning_signal` in `[-1, 1]` (`+confidence` on
+  success, `-confidence` on failure) and per-capability roll-ups
+  (`summarize`/`by_capability`). Without it, "learning" degrades to *the LLM
+  reads logs and decides what it learned.* **Required before Phase M.** Ladder:
+  pure ✅ → shadow (every verified actuation produces a structured outcome,
+  logged) → parity → enforce (M reads `Outcome`, never raw logs).
 - **Provenance** (`kernel/provenance.py`) — every important piece of state can
   answer *where did this come from*: source, observed-at, confidence, model,
   corroboration, expiry. Essential for learning, debugging, explanations,
