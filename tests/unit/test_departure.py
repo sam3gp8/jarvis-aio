@@ -25,7 +25,11 @@ def cal(cog, load, monkeypatch):
     jc = load("jarvis_config")
     holder = {"list": []}
     monkeypatch.setattr(comms, "gather_events", lambda hass: holder["list"])
-    cfg = {"departure_alerts_enabled": True, "departure_lead_minutes": 30}
+    # The location gate (#233) defaults ON; these mechanic tests exercise the
+    # lead/travel/dedup logic with location-less events, so turn it off here.
+    # Dedicated gate behaviour is covered by the test_require_location_* cases.
+    cfg = {"departure_alerts_enabled": True, "departure_lead_minutes": 30,
+           "departure_require_location": False}
     monkeypatch.setattr(jc, "get", lambda k, d=None: cfg.get(k, d))
     return holder, cfg
 
@@ -155,3 +159,62 @@ async def test_dedup_only_after_executor_logging_finishes(cog, cal, fake_hass, m
         await cog.predict_departure(fake_hass, now)
 
     assert "depart:Dentist:%s" % (now_dt.strftime("%Y%m%d%H%M")) not in cog._RECUR_ALERTED
+
+
+# ── location gate (#233): only alert for events you physically travel to ──
+
+def test_has_physical_location_classifies(cog):
+    # real places → travel-worthy
+    for loc in ("123 Main St", "Dentist, 5 Oak Ave", "Central Park", "Office HQ"):
+        assert cog._has_physical_location(loc) is True
+    # empty / virtual → skip
+    for loc in (None, "", "   ",
+                "https://zoom.us/j/123", "https://meet.google.com/abc",
+                "Microsoft Teams Meeting", "Google Meet",
+                "Online", "virtual", "Video Call", "phone call", "Dial-in"):
+        assert cog._has_physical_location(loc) is False
+
+
+async def test_require_location_skips_online_event(cog, cal, fake_hass):
+    holder, cfg = cal
+    cfg["departure_require_location"] = True            # the default
+    now, now_dt = _now()
+    holder["list"] = [_ev(now_dt + datetime.timedelta(minutes=20),
+                          location="https://zoom.us/j/999")]
+    assert await cog.predict_departure(fake_hass, now) == []
+
+
+async def test_require_location_skips_locationless_event(cog, cal, fake_hass):
+    holder, cfg = cal
+    cfg["departure_require_location"] = True
+    now, now_dt = _now()
+    holder["list"] = [_ev(now_dt + datetime.timedelta(minutes=20))]   # no location
+    assert await cog.predict_departure(fake_hass, now) == []
+
+
+async def test_require_location_default_is_on(cog, cal, fake_hass):
+    """With the key unset, the gate is ON — a location-less event stays quiet."""
+    holder, cfg = cal
+    del cfg["departure_require_location"]               # fall back to the default
+    now, now_dt = _now()
+    holder["list"] = [_ev(now_dt + datetime.timedelta(minutes=20))]
+    assert await cog.predict_departure(fake_hass, now) == []
+
+
+async def test_require_location_still_alerts_physical(cog, cal, fake_hass, load, monkeypatch):
+    holder, cfg = cal
+    cfg["departure_require_location"] = True
+    now, now_dt = _now()
+    holder["list"] = [_ev(now_dt + datetime.timedelta(minutes=20), location="123 Main St")]
+    # no origin/route available → falls back to the default lead and still fires
+    monkeypatch.setattr(cog, "_current_origin", lambda hass: None)
+    preds = await cog.predict_departure(fake_hass, now)
+    assert len(preds) == 1 and "123 Main St" in preds[0]["message"]
+
+
+async def test_require_location_off_restores_locationless_alert(cog, cal, fake_hass):
+    holder, cfg = cal
+    cfg["departure_require_location"] = False           # opt back into old behaviour
+    now, now_dt = _now()
+    holder["list"] = [_ev(now_dt + datetime.timedelta(minutes=20))]
+    assert len(await cog.predict_departure(fake_hass, now)) == 1

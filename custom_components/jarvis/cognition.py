@@ -26,6 +26,7 @@ import asyncio
 import datetime
 import logging
 import math
+import re
 import time
 from collections import deque, namedtuple
 
@@ -773,6 +774,27 @@ DEFAULT_DEPART_LEAD_MIN = 30    # prep+travel lead when no travel sensor is set
 DEPART_PREP_BUFFER_MIN = 5      # added to the computed travel-time minutes
 DEPART_LOOKAHEAD_H = 3          # only consider events starting within N hours
 
+# A "time to head out" alert only makes sense for events you physically travel
+# to. These markers identify a location that is really a video/phone call (or an
+# explicit "online" note) rather than a place — those are skipped when the
+# departure_require_location gate is on (issue #233).
+_VIRTUAL_LOCATION_RE = re.compile(
+    r"https?://|zoom\.us|meet\.google|teams\.microsoft|teams\.live|"
+    r"webex\.|gotomeet|whereby\.com|\bgoogle meet\b|\bmicrosoft teams\b|"
+    r"\bonline\b|\bvirtual\b|\bvideo ?call\b|\bphone ?call\b|\bdial-?in\b",
+    re.IGNORECASE,
+)
+
+
+def _has_physical_location(loc) -> bool:
+    """True when a calendar event's location looks like a real place to travel
+    to — non-empty and not a video-call link / 'online' marker. Departure
+    ('time to head out') alerts are only meaningful for physical locations."""
+    s = str(loc or "").strip()
+    if not s:
+        return False
+    return _VIRTUAL_LOCATION_RE.search(s) is None
+
 
 def _current_origin(hass):
     """Where the user is now, for travel time: a configured origin entity, else
@@ -817,6 +839,9 @@ async def predict_departure(hass, now: float = None) -> list:
                                DEFAULT_DEPART_LEAD_MIN) or DEFAULT_DEPART_LEAD_MIN)
         except Exception:
             lead_default = DEFAULT_DEPART_LEAD_MIN
+        # only nudge for events you actually travel to — online meetings and
+        # location-less events are skipped unless the gate is turned off (#233)
+        require_loc = bool(jarvis_config.get("departure_require_location", True))
         # optional explicit travel-time sensor override (minutes)
         sensor_min = None
         travel_entity = str(jarvis_config.get("departure_travel_sensor", "") or "").strip()
@@ -843,9 +868,11 @@ async def predict_departure(hass, now: float = None) -> list:
                 continue
             if (start_dt - now_dt) > datetime.timedelta(hours=DEPART_LOOKAHEAD_H):
                 break  # sorted — nothing closer beyond the horizon
+            loc = ev.get("location")
+            if require_loc and not _has_physical_location(loc):
+                continue  # online / location-less event — no "time to head out"
             # travel minutes: explicit sensor > OSS route(origin -> location) > default
             travel_min = sensor_min
-            loc = ev.get("location")
             if travel_min is None and origin and loc:
                 from . import travel
                 travel_min = await travel.travel_minutes(hass, origin, loc, osrm_url)

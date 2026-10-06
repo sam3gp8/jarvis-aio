@@ -923,6 +923,20 @@ setTimeout(async () => {
     ["button-learning toggle present",
       !!el.shadowRoot.querySelector('[data-cfg-key="pattern_learn_buttons"][data-cfg-val]')],
     ["anticipation numeric config wired", !!el.shadowRoot.querySelector('[data-cfg-key="departure_lead_minutes"]')],
+    ["departure location gate toggle present + wired (#233)",
+      !!el.shadowRoot.querySelector('button[data-cfg-key="departure_require_location"][data-cfg-val]')],
+    ["departure location gate defaults ON when unset (#233)", (() => {
+      try {
+        const prev = el._currentTab; el._currentTab = 'settings';
+        const cfg = el._liveData.config; const had = 'departure_require_location' in cfg;
+        const old = cfg.departure_require_location; delete cfg.departure_require_location;
+        const h = el._html();
+        if (had) cfg.departure_require_location = old;
+        el._currentTab = prev;
+        // default-ON: the toggle reads ON and offers to turn OFF (data-cfg-val="false")
+        return /data-cfg-key="departure_require_location" data-cfg-val="false">ON</.test(h);
+      } catch (e) { return false; }
+    })()],
     ["anticipation toggles carry data-cfg-val", !!el.shadowRoot.querySelector('[data-cfg-key="routine_alerts_enabled"][data-cfg-val]')],
     ["door/window/garage alert toggle present + wired",
       !!el.shadowRoot.querySelector('button[data-cfg-key="door_window_alerts_enabled"][data-cfg-val]')],
