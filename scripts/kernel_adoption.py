@@ -83,6 +83,15 @@ _DECLARED: dict[str, dict] = {
     # verify path records one in shadow, parity vs current feedback, enforce
     # when learning (M) reads them.
     "outcome":      {"stage": "pure",    "owners": []},
+    # provenance: where a piece of state came from (Epistemic Fabric, audit-
+    # added). A Provenance pairs a value with source / observed-at / confidence /
+    # model / corroboration / expiry; select_authoritative picks the freshest
+    # best record and corroborate() merges agreeing records (noisy-OR). Essential
+    # for learning, debugging, explanations, security, trust and conflict
+    # resolution. PURE: the primitive exists and is unit-tested, nothing live
+    # attaches provenance yet — world-model / situation / recognition attach it
+    # in shadow, parity vs current reads, enforce when a consumer reads it.
+    "provenance":   {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

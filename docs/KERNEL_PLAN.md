@@ -473,10 +473,14 @@ in beliefs); this tier makes them canonical and first-class.
   reads logs and decides what it learned.* **Required before Phase M.** Ladder:
   pure ✅ → shadow (every verified actuation produces a structured outcome,
   logged) → parity → enforce (M reads `Outcome`, never raw logs).
-- **Provenance** (`kernel/provenance.py`) — every important piece of state can
-  answer *where did this come from*: source, observed-at, confidence, model,
-  corroboration, expiry. Essential for learning, debugging, explanations,
-  security, trust and conflict resolution.
+- **Provenance** (`kernel/provenance.py`) — ✅ **pure shipped (8.99.0)**. Every
+  important piece of state can answer *where did this come from*: source,
+  observed-at, confidence, model, corroboration, expiry. `select_authoritative`
+  picks the freshest high-confidence record; `corroborate` merges agreeing
+  records (noisy-OR). Essential for learning, debugging, explanations, security,
+  trust and conflict resolution. Ladder: pure ✅ → shadow (world-model /
+  situation / recognition attach provenance) → parity → enforce (a consumer
+  reads the provenanced value).
 - **Uncertainty Fabric** (`kernel/uncertainty.py`) — first-class *"I believe the
   garage is empty: 0.92"* vs. *"the garage is empty."* Spans perception,
   identity, world-model, beliefs, prediction, planning, authority and outcomes.

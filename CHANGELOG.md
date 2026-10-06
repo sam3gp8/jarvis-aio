@@ -1,3 +1,24 @@
+## [8.99.0] — Provenance primitive (Epistemic Fabric, pure)
+
+Another Epistemic Fabric primitive: every important piece of state can now be
+wrapped so it answers *where did this come from*.
+
+- New `kernel/provenance.py` (pure, no HA import): a `Provenance` pairs a value
+  with `source`, `observed_ts`, `confidence` (clamped 0–1), `model`,
+  `corroboration` and an optional `expires_ts`. `select_authoritative` returns
+  the freshest high-confidence non-expired record; `corroborate` merges two
+  records of the same value with noisy-OR (independent agreement reinforces) and
+  folds the other source into `corroboration`, while conflicting values return
+  the higher-confidence record unchanged (conflict resolution is separate).
+  `summary` renders a one-line origin description.
+- **Pure / behaviour-preserving:** declared `pure` in the adoption matrix and
+  unit-tested (8 cases); nothing live attaches provenance yet (world-model /
+  situation / recognition attach it in shadow, parity vs. current reads, enforce
+  when a consumer reads the provenanced value). Re-exported from `kernel/__init__`;
+  Constitution ledger + adoption matrix regenerated.
+
+Audit + all four kernel gates green.
+
 ## [8.98.0] — Cognitive cycle parity check over the main loop (Phase J, J3)
 
 Advances Phase J from shadow to **parity**. The cognitive cycle in
