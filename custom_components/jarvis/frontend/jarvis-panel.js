@@ -5482,8 +5482,87 @@ ${this._renderExcludedEntities(d)}
 
   <!-- AREA DETAIL (drill-down) -->
   ${this._renderAreaDetail(d)}
+
+  <!-- ROOM LIGHTS (per-light list + toggles, #234) -->
+  ${this._renderAreaLightsPopover()}
 </div>
     `;
+  }
+
+  _renderAreaLightsPopover() {
+    const p = this._lightsPopover;
+    if (!p) return '';
+    const rows = (() => {
+      if (p.lights === null) {
+        return `<div class="alp-loading">Loading lights…</div>`;
+      }
+      if (!p.lights.length) {
+        return `<div class="alp-loading">No controllable lights in this room.</div>`;
+      }
+      return p.lights.map(l => `
+        <button class="alp-row ${l.on ? 'on' : ''}" data-light-eid="${this._esc(l.entity_id)}" data-light-on="${l.on ? '1' : '0'}">
+          <span class="alp-dot"></span>
+          <span class="alp-name">${this._esc(l.name)}</span>
+          <span class="alp-state">${l.on ? 'ON' : 'OFF'}</span>
+        </button>`).join('');
+    })();
+    const anyOn = Array.isArray(p.lights) && p.lights.some(l => l.on);
+    return `
+      <div class="area-lights-overlay" id="area-lights-overlay">
+        <div class="area-lights-card">
+          <div class="alp-head">
+            <span class="alp-title">${this._esc(p.name || 'Lights')}</span>
+            <button class="alp-close" aria-label="Close">✕</button>
+          </div>
+          <div class="alp-list">${rows}</div>
+          <div class="alp-foot">
+            <button class="alp-all-off" ${anyOn ? '' : 'disabled'}>Turn all off</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async _openAreaLights(areaId, name) {
+    if (!this._hass || !areaId) return;
+    this._lightsPopover = { areaId, name, lights: null };
+    this._render();
+    try {
+      const res = await this._hass.callWS({ type: 'jarvis/area_lights', area_id: areaId });
+      // Ignore if the user already closed it or opened a different room.
+      if (this._lightsPopover && this._lightsPopover.areaId === areaId) {
+        this._lightsPopover.lights = Array.isArray(res?.lights) ? res.lights : [];
+        if (res?.name) this._lightsPopover.name = res.name;
+        this._render();
+      }
+    } catch (err) {
+      if (this._lightsPopover && this._lightsPopover.areaId === areaId) {
+        this._lightsPopover.lights = [];
+        this._render();
+      }
+      this._toast('✗ lights — ' + (err && err.message || err), 'err');
+    }
+  }
+
+  _closeAreaLights() {
+    this._lightsPopover = null;
+    this._render();
+  }
+
+  async _toggleOneLight(entityId, isOn) {
+    if (!this._hass || !entityId) return;
+    try {
+      await this._hass.callService('light', isOn ? 'turn_off' : 'turn_on', { entity_id: entityId });
+      // Optimistic local flip so the row updates immediately.
+      const p = this._lightsPopover;
+      if (p && Array.isArray(p.lights)) {
+        const row = p.lights.find(l => l.entity_id === entityId);
+        if (row) row.on = !isOn;
+        this._render();
+      }
+      setTimeout(() => { try { this._fetchLiveData(); } catch (e) {} }, 500);
+    } catch (err) {
+      this._toast('✗ light — ' + (err && err.message || err), 'err');
+    }
   }
 
   // ─── Event wiring ────────────────────────────────────────────────────────
@@ -5783,10 +5862,41 @@ ${this._renderExcludedEntities(d)}
           ev.stopPropagation();
           const areaId = btn.getAttribute('data-light-area');
           const name = btn.getAttribute('data-area-name') || 'Area';
-          const isOn = btn.classList.contains('on');
-          this._toggleAreaLights(areaId, name, isOn);
+          // #234: open the per-light list instead of blindly turning them all
+          // off — the popover lists each light with its own toggle and keeps a
+          // "turn all off" action.
+          this._openAreaLights(areaId, name);
         });
       });
+    }
+
+    // Room lights popover (#234): per-light toggles + turn-all-off + close.
+    const lightsOverlay = this.shadowRoot.querySelector('#area-lights-overlay');
+    if (lightsOverlay) {
+      lightsOverlay.addEventListener('click', (ev) => {
+        if (ev.target === lightsOverlay) this._closeAreaLights();   // backdrop only
+      });
+      lightsOverlay.querySelector('.alp-close')?.addEventListener('click', () => this._closeAreaLights());
+      lightsOverlay.querySelectorAll('.alp-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const eid = row.getAttribute('data-light-eid');
+          const isOn = row.getAttribute('data-light-on') === '1';
+          this._toggleOneLight(eid, isOn);
+        });
+      });
+      const allOff = lightsOverlay.querySelector('.alp-all-off');
+      if (allOff) {
+        allOff.addEventListener('click', async () => {
+          const p = this._lightsPopover;
+          if (!p) return;
+          await this._toggleAreaLights(p.areaId, p.name, true);  // isOn=true → turn_off
+          // Reflect the all-off locally, then close.
+          if (this._lightsPopover && Array.isArray(this._lightsPopover.lights)) {
+            this._lightsPopover.lights.forEach(l => { l.on = false; });
+          }
+          this._closeAreaLights();
+        });
+      }
     }
 
     // Area tiles: click (or Enter/Space) opens the drill-down detail card.
@@ -9884,6 +9994,63 @@ ${this._renderExcludedEntities(d)}
   .adm-row:first-child { border-top: none; }
   .adm-row span:last-child { color: var(--text); }
   .area-light.adl { margin: 0; }
+
+  /* ROOM LIGHTS popover — per-light list + toggles (#234) */
+  .area-lights-overlay {
+    position: fixed; inset: 0; z-index: 42;
+    background: rgba(2, 6, 10, 0.75);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .area-lights-card {
+    width: 100%; max-width: 380px;
+    max-height: 70vh; display: flex; flex-direction: column;
+    background: var(--bg-panel);
+    border: 1px solid var(--line-hot);
+    border-radius: 12px;
+    box-shadow: 0 0 40px rgba(255,196,96,0.15);
+    padding: 16px 18px 18px;
+  }
+  .alp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .alp-title {
+    flex: 1; font-family: var(--font-display); font-size: 15px;
+    letter-spacing: 0.08em; color: #ffce6b; text-transform: uppercase;
+  }
+  .alp-close {
+    background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+    border-radius: 4px; width: 22px; height: 22px; cursor: pointer; line-height: 1;
+  }
+  .alp-close:hover { border-color: var(--red); color: var(--red); }
+  .alp-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .alp-loading {
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+    padding: 14px 2px; text-align: center;
+  }
+  .alp-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px; cursor: pointer; text-align: left;
+    background: transparent; border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text-dim); font-family: var(--font-mono); font-size: 12px;
+  }
+  .alp-row:hover { border-color: rgba(255,200,110,0.6); color: #fff; }
+  .alp-dot {
+    width: 9px; height: 9px; border-radius: 50%; flex: none;
+    background: var(--text-dim); box-shadow: none;
+  }
+  .alp-row.on { color: #ffce6b; border-color: rgba(255,196,96,0.5); }
+  .alp-row.on .alp-dot { background: #ffce6b; box-shadow: 0 0 8px rgba(255,196,96,0.8); }
+  .alp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .alp-state { font-size: 9px; letter-spacing: 0.1em; }
+  .alp-foot { margin-top: 12px; display: flex; justify-content: flex-end; }
+  .alp-all-off {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .alp-all-off:hover:not([disabled]) { border-color: var(--red); color: var(--red); }
+  .alp-all-off[disabled] { opacity: 0.4; cursor: default; }
 
   /* CAMERA DIAGNOSTICS (v7.94.0) */
   .cam-diag-btn {

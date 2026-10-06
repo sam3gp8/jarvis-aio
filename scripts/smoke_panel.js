@@ -396,6 +396,43 @@ setTimeout(async () => {
     ["area detail overlay closes on ✕", !el.shadowRoot.getElementById("area-detail-overlay")],
   );
 
+  // ── #234: clicking the room light pill lists the lights with per-light toggles ──
+  const _cwLights = hass.callWS;
+  hass.callWS = async (m) => {
+    if (m.type === "jarvis/area_lights") return { area_id: m.area_id, name: "Garage", lights: [
+      { entity_id: "light.garage_main",  name: "Garage Main",  on: true },
+      { entity_id: "light.garage_bench", name: "Garage Bench", on: false },
+    ] };
+    return _cwLights(m);
+  };
+  let _svcCall = null;
+  const _svc = hass.callService;
+  hass.callService = async (domain, service, data, target) => { _svcCall = { domain, service, data, target }; };
+  garageLightBtn()?.click();
+  await new Promise(r => setTimeout(r, 25));
+  const lpov = () => el.shadowRoot.getElementById("area-lights-overlay");
+  checks.push(
+    ["clicking the light pill opens the lights popover, not turn-all-off (#234)", !!lpov() && _svcCall === null],
+    ["lights popover lists each light as its own row (#234)", el.shadowRoot.querySelectorAll("#area-lights-overlay .alp-row").length === 2],
+    ["lights popover marks per-light on/off state (#234)", (() => {
+      const rows = [...el.shadowRoot.querySelectorAll("#area-lights-overlay .alp-row")];
+      return rows[0]?.classList.contains("on") === true && rows[1]?.classList.contains("on") === false;
+    })()],
+    ["lights popover keeps a 'turn all off' action (#234)", !!el.shadowRoot.querySelector("#area-lights-overlay .alp-all-off")],
+  );
+  el.shadowRoot.querySelector('#area-lights-overlay .alp-row[data-light-eid="light.garage_main"]')?.click();
+  await new Promise(r => setTimeout(r, 15));
+  checks.push(
+    ["clicking a light row toggles just that light (#234)",
+      !!_svcCall && _svcCall.domain === "light" && _svcCall.service === "turn_off" && _svcCall.data?.entity_id === "light.garage_main"],
+  );
+  el.shadowRoot.querySelector("#area-lights-overlay .alp-close")?.click();
+  checks.push(
+    ["lights popover closes on ✕ (#234)", !el.shadowRoot.getElementById("area-lights-overlay")],
+  );
+  hass.callWS = _cwLights;
+  hass.callService = _svc;
+
   // ── switch to Residence tab and re-check ──
   el._currentTab = "residence";
   el._render();

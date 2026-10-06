@@ -63,6 +63,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_reload_appliances)
         websocket_api.async_register_command(hass, ws_search_memory)
         websocket_api.async_register_command(hass, ws_get_briefings)
+        websocket_api.async_register_command(hass, ws_area_lights)
         websocket_api.async_register_command(hass, ws_get_debug_log)
         websocket_api.async_register_command(hass, ws_get_cognitive_status)
         websocket_api.async_register_command(hass, ws_run_analysis)
@@ -2335,6 +2336,54 @@ async def ws_get_briefings(
     except Exception as exc:
         _LOGGER.warning("ws_get_briefings failed: %s", exc)
         connection.send_error(msg["id"], "briefings_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/area_lights",
+    vol.Required("area_id"): str,
+})
+@websocket_api.async_response
+async def ws_area_lights(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """The individual light entities in an area, with on/off state (#234).
+
+    Lets the panel's room light pill list the lights and toggle them one at a
+    time, instead of only turning them all off. Resolved through the same
+    _entities_in_area path the room light count uses (one source of truth,
+    respects excluded entities). Read-only — toggling is a plain HA service
+    call from the frontend."""
+    try:
+        area_id = str(msg.get("area_id") or "")
+
+        def _collect():
+            lights = []
+            for eid in _entities_in_area(hass, area_id):
+                if not eid.startswith("light."):
+                    continue
+                st = hass.states.get(eid)
+                if st is None:
+                    continue
+                name = str(st.attributes.get("friendly_name") or eid)
+                lights.append({
+                    "entity_id": eid,
+                    "name": name,
+                    "on": st.state == "on",
+                })
+            lights.sort(key=lambda x: x["name"].lower())
+            return lights
+
+        lights = await hass.async_add_executor_job(_collect)
+        connection.send_result(msg["id"], {
+            "area_id": area_id,
+            "name": _area_name(hass, area_id),
+            "lights": lights,
+        })
+    except Exception as exc:
+        _LOGGER.warning("ws_area_lights failed: %s", exc)
+        connection.send_error(msg["id"], "area_lights_failed", str(exc))
 
 
 @websocket_api.websocket_command({

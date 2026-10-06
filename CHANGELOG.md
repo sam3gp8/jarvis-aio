@@ -1,3 +1,24 @@
+## [8.106.0] — Room light pill lists the lights before toggling (issue #234)
+
+Clicking a room's "N lights on" pill used to turn every light in the room off.
+Now it opens a popover listing each light with its own toggle — and keeps a
+"Turn all off" action.
+
+- New `jarvis/area_lights` WS endpoint returns the individual light entities in
+  an area with on/off state, resolved through the same `_entities_in_area` path
+  the room light count uses (one source of truth; respects excluded entities).
+- The pill now opens a **per-light popover**: each light is a row that toggles
+  just that light (`light.toggle` via its own `entity_id`), with a **Turn all
+  off** button at the foot that preserves the old one-tap behaviour.
+- Fetched on demand at click time (not added to the 5s panel poll), so the list
+  is fresh and the poll stays lean. Read-only endpoint; toggles are plain HA
+  service calls from the frontend.
+
+tests: ten `scripts/smoke_panel.js` cases (pill opens the popover instead of
+turning all off; per-light rows render; per-light on/off state; "turn all off"
+preserved; a row toggles only its light; closes on ✕). `node --check` + smoke
+clean; audit + all four kernel gates green.
+
 ## [8.105.0] — Departure alerts only for events with a location (issue #233)
 
 "Time to head out" nudges now fire only for calendar events you physically
