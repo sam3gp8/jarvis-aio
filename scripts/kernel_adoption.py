@@ -78,11 +78,11 @@ _DECLARED: dict[str, dict] = {
     # outcome: canonical outcome model (Epistemic Fabric, pre-Phase M). A
     # structured Outcome (intended/observed/success/confidence/deviation/cause/
     # side_effects/feedback) with a distilled learning_signal in [-1,1], so M
-    # reads structure rather than re-reading logs. PURE: the primitive exists
-    # and is unit-tested, nothing live produces outcomes yet — the actuation/
-    # verify path records one in shadow, parity vs current feedback, enforce
-    # when learning (M) reads them.
-    "outcome":      {"stage": "pure",    "owners": []},
+    # reads structure rather than re-reading logs. SHADOW (#237): actuation.
+    # outcome() emits a kernel.outcome.Outcome (via from_verification) alongside
+    # the canonical ActuatorOutcome on every verified actuation — log-only,
+    # nothing reads it yet. Parity vs current feedback next, enforce when M reads.
+    "outcome":      {"stage": "shadow",  "owners": ["actuation"]},
     # provenance: where a piece of state came from (Epistemic Fabric, audit-
     # added). A Provenance pairs a value with source / observed-at / confidence /
     # model / corroboration / expiry; select_authoritative picks the freshest

@@ -1,3 +1,22 @@
+## [8.107.0] — Outcome primitive wired to shadow (kernel #237)
+
+The Epistemic-Fabric **outcome** primitive earns its **shadow** rung: every
+verified actuation now also emits a structured `kernel.outcome.Outcome`.
+
+- `actuation.outcome()` builds an `Outcome` via `from_verification` alongside
+  the canonical `ActuatorOutcome` — same verdict, with intended end-state
+  (`expected_outcome`), observed read-back, actor/capability/correlation, and a
+  distilled `learning_signal` in `[-1, 1]`. **Log-only**; nothing reads it yet
+  (Phase M will). One-line kill-switch `OUTCOME_SHADOW` silences it.
+- Adoption stage flipped `pure → shadow` (owner `actuation`); Constitution
+  ledger regenerated.
+- Observe-only and behaviour-preserving: the existing `ActuatorOutcome`
+  recording and every actuation path are unchanged.
+
+tests: four new `tests/unit/test_actuation.py` cases (success verdict emits;
+failure verdict → non-positive learning signal; kill-switch silences; a `None`
+request never raises). audit + all four kernel gates green.
+
 ## [8.106.0] — Room light pill lists the lights before toggling (issue #234)
 
 Clicking a room's "N lights on" pill used to turn every light in the room off.

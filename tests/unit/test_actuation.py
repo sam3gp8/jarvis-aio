@@ -67,3 +67,55 @@ def test_emit_event_publishes_when_bus_present(actuation, load, fake_hass, monke
     assert sink[0].type == "control.actuation"
     assert sink[0].data["request_id"] == req.id
     assert sink[0].location == "den"
+
+
+# ── #237: outcome() emits a kernel.outcome.Outcome in shadow ──────────────
+
+def test_outcome_emits_shadow_kernel_outcome(actuation, load, fake_hass, monkeypatch):
+    koutcome = load("kernel.outcome")
+    captured = []
+    real = koutcome.from_verification
+    monkeypatch.setattr(koutcome, "from_verification",
+                        lambda **kw: captured.append(real(**kw)) or captured[-1])
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    assert len(captured) == 1
+    oc = captured[0]
+    assert oc.success is True
+    assert oc.capability == "light.turn_on"
+    assert oc.observed_result == "on"
+    assert oc.intended_result == "state:on"
+
+
+def test_outcome_shadow_records_failure_verdict(actuation, load, fake_hass, monkeypatch):
+    koutcome = load("kernel.outcome")
+    captured = []
+    real = koutcome.from_verification
+    monkeypatch.setattr(koutcome, "from_verification",
+                        lambda **kw: captured.append(real(**kw)) or captured[-1])
+    req = actuation.request("lock.lock", "lock.front", action="lock",
+                            expected=("locked",))
+    fake_hass.states.set("lock.front", "unlocked", area="hall")
+    actuation.outcome(req, "mismatch", fake_hass, "lock.front", detail="still unlocked")
+    assert len(captured) == 1 and captured[0].success is False
+    assert captured[0].learning_signal <= 0.0
+
+
+def test_outcome_shadow_kill_switch_silences(actuation, load, fake_hass, monkeypatch):
+    koutcome = load("kernel.outcome")
+    called = {"n": 0}
+    monkeypatch.setattr(koutcome, "from_verification",
+                        lambda **kw: called.__setitem__("n", called["n"] + 1))
+    monkeypatch.setattr(actuation, "OUTCOME_SHADOW", False)
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    actuation.outcome(req, "verified", fake_hass, "light.den")
+    assert called["n"] == 0        # kill-switch off → no shadow emission
+
+
+def test_outcome_never_raises_on_bad_request(actuation, fake_hass):
+    # Defensive: a None request must not raise from the shadow path.
+    actuation.outcome(None, "verified", fake_hass, "light.ghost")

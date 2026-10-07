@@ -290,21 +290,65 @@ def emit_event(hass, capability: str, entity_id: str, *, action: str = "",
         pass
 
 
+# SHADOW: the Epistemic-Fabric outcome primitive (kernel.outcome) is emitted
+# alongside the canonical ActuatorOutcome below — observe-only, nothing reads it
+# yet (Phase M will). Flip OUTCOME_SHADOW to False to silence it instantly. The
+# kernel.actuator ActuatorOutcome recording is unchanged either way. (#237)
+OUTCOME_SHADOW = True
+
+
+def _record_outcome_shadow(request, status: str, observed, detail: str) -> None:
+    """Emit a structured kernel.outcome.Outcome for a verified actuation (shadow).
+
+    Derived from the same verification verdict that drives the ActuatorOutcome:
+    ``status == "verified"`` is the success verdict; the intended end-state comes
+    from the request's postconditions, the observed state from the read-back.
+    Log-only, defensive, never raises — a learning (Phase M) consumer will read
+    these once the primitive earns parity, not this path."""
+    try:
+        from .kernel import outcome as _koutcome
+        try:
+            from .kernel.actuator import VERIFIED
+        except Exception:   # pragma: no cover - defensive
+            VERIFIED = "verified"
+        expected = getattr(request, "expected_outcome", None)
+        intended = (f"state:{expected}" if expected
+                    else (detail or getattr(request, "capability", "") or ""))
+        observed_str = str(observed) if observed is not None else (detail or "")
+        oc = _koutcome.from_verification(
+            intended_result=intended,
+            observed_result=observed_str,
+            verified=(status == VERIFIED),
+            confidence=1.0,                      # direct read-back, not inferred
+            actor=str(getattr(request, "actor", "") or ""),
+            capability=str(getattr(request, "capability", "") or ""),
+            correlation_id=str(getattr(request, "correlation_id", "") or ""),
+        )
+        _LOGGER.debug("outcome(shadow): %s", oc.to_dict())
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 def outcome(request, status: str, hass, entity_id: str, detail: str = "") -> None:
     """Record the canonical ActuatorOutcome for a verified actuation (the
     audit's point 18 — "the service returned success" is not "the world reached
     the expected state"). Best-effort; never raises."""
+    observed = None
     try:
         from .kernel.actuator import ActuatorOutcome
         st = hass.states.get(entity_id)
+        observed = (str(st.state) if st is not None else None)
         oc = ActuatorOutcome(
             request_id=(request.id if request is not None else f"{entity_id}:actuation"),
             status=status,
-            observed=(str(st.state) if st is not None else None),
+            observed=observed,
             detail=detail)
         _LOGGER.debug("actuator(outcome): %s", oc.to_dict())
     except Exception:   # pragma: no cover - defensive
         pass
+    # #237: emit the Epistemic-Fabric Outcome in shadow alongside the above.
+    if OUTCOME_SHADOW:
+        _record_outcome_shadow(request, status, observed, detail)
 
 
 async def execute_actuator(hass, *, capability: str, entity_id: str,
