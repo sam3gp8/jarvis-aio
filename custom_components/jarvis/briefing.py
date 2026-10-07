@@ -85,13 +85,31 @@ def _gather_weather(hass: HomeAssistant) -> str:
 
 
 def _gather_open_things(hass: HomeAssistant) -> list[str]:
-    """Doors, windows, locks that are currently open/unlocked."""
+    """Doors, windows, locks that are currently open/unlocked.
+
+    Each item is annotated with whether JARVIS can actually *act* on it, so the
+    briefing LLM never offers control it does not have (#247): a door/window
+    reported by a `binary_sensor` is read-only — JARVIS can report it is open but
+    has no service to close it; a `cover` (motorised window/garage) can be closed;
+    a `lock` can be locked. A `cover`/`lock` entity with the SAME friendly name as
+    a sensor means the sensor is in fact controllable, so we don't mislabel it.
+    """
+    # Names that DO have a controllable actuator behind them.
+    controllable_names = set()
+    for state in hass.states.async_all("cover"):
+        controllable_names.add(state.attributes.get("friendly_name", state.entity_id))
+    for state in hass.states.async_all("lock"):
+        controllable_names.add(state.attributes.get("friendly_name", state.entity_id))
+
     items = []
     for state in hass.states.async_all("binary_sensor"):
         dc = state.attributes.get("device_class")
         if dc in ("door", "window", "garage_door") and state.state == "on":
             name = state.attributes.get("friendly_name", state.entity_id)
-            items.append(f"{name} is open")
+            if name in controllable_names:
+                items.append(f"{name} is open")
+            else:
+                items.append(f"{name} is open (monitored only — no actuator to close it)")
     for state in hass.states.async_all("lock"):
         if state.state == "unlocked":
             name = state.attributes.get("friendly_name", state.entity_id)

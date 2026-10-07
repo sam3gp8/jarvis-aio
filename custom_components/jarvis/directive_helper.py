@@ -64,6 +64,24 @@ def build_system_prompt(
     persona = JARVIS_PERSONA
 
     combined = f"{directive}\n\n---\n\n{persona}"
+
+    # Capability honesty (#247): proactive messages (briefings, arrival greetings,
+    # camera notes, …) must not offer to perform a physical action JARVIS has no
+    # way to carry out. Offer an action only when a matching Home Assistant
+    # actuator exists; a door/window reported by a sensor is read-only — report it
+    # is open, but never offer to close, open, lock or unlock something with no
+    # actuator behind it. When in doubt, state the fact and suggest the person act.
+    combined = (
+        f"{combined}\n\n---\n\n"
+        "CAPABILITY HONESTY: Only offer to perform a physical action (close, open, "
+        "lock, unlock, turn on/off, arm, disarm, …) when Home Assistant actually "
+        "has a device/service to do it. A door, window or garage shown only by a "
+        "sensor is read-only: you may report it is open, but must NOT offer to "
+        "close, open, lock or unlock it — you have no actuator for it. Never offer "
+        "control you do not have; report the state and, at most, suggest the person "
+        "do it themselves."
+    )
+
     if task_context:
         combined = f"{combined}\n\n---\n\n{task_context.strip()}"
 

@@ -72,7 +72,11 @@ def test_gather_weather_open_things_calendar_and_energy(b, fake_hass):
                    friendly_name="Dryer", unit_of_measurement="W")
 
     assert "cloudy" in b._gather_weather(hass)
-    assert "Front Door is open" in b._gather_open_things(hass)
+    # #247: sensor-only openings are annotated non-actionable so the briefing
+    # never offers to close them; the lock stays plainly actionable.
+    open_things = b._gather_open_things(hass)
+    assert "Front Door is open (monitored only — no actuator to close it)" in open_things
+    assert "Front Gate is unlocked" in open_things
     assert "Team standup at 09:00" in b._gather_calendar(hass)[0]
     assert "Main Panel is drawing 750W" in b._gather_energy_anomalies(hass)[0]
 

@@ -1,3 +1,25 @@
+## [8.112.0] — Don't offer control JARVIS doesn't have (issue #247)
+
+JARVIS no longer offers to close a window or unlock a door it has no actuator
+for (e.g. a window shown only by a `binary_sensor`, or an "unlock" when there is
+no `lock.*` entity).
+
+- Every task system prompt (briefings, arrival greetings, camera notes, …) now
+  carries a **capability-honesty** directive: offer a physical action only when
+  Home Assistant actually has a device/service for it; a door/window shown only
+  by a sensor is read-only — report it, never offer to close/open/lock/unlock it.
+- The briefing's open-things list is annotated truthfully: a `binary_sensor`
+  door/window/garage is marked *"monitored only — no actuator to close it"*
+  unless a real `cover`/`lock` of the same name backs it; locks stay actionable.
+- Behaviour-preserving otherwise: the same items are still reported; only the
+  framing/offers change.
+
+tests: new `tests/unit/test_capability_offers_247.py` (4 cases — sensor-only
+marked non-actionable, lock stays actionable, cover-backed sensor stays
+actionable, closed/locked things absent) + a `build_system_prompt` capability
+assertion; existing plain-briefing test updated to the annotated output. audit +
+all four kernel gates green.
+
 ## [8.111.0] — Cognitive continuity schema (kernel Phase I-B, pure)
 
 Opens Phase I-B (cognitive continuity): the agency snapshot can now carry what
