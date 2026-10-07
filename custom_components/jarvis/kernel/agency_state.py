@@ -84,12 +84,63 @@ class Commitment:
 
 
 @dataclass(frozen=True)
+class CognitiveContext:
+    """The *cognitive* half of continuity (Phase I-B): what JARVIS was thinking,
+    not just what it committed to. Every field is optional and defaults empty, so
+    a commitment-only snapshot (I-A) round-trips unchanged and a capture site adds
+    only the subsystems that exist yet. Scalars are short summary strings; the
+    tuple fields are lists of short summary strings. Pure — callers pass already
+    extracted summaries, so no HA import and nothing here raises."""
+
+    identity: str = ""                       # who JARVIS believes it is serving
+    intent: str = ""                         # the current intent
+    plan: str = ""                           # chosen-plan summary
+    authority: str = ""                      # authority context summary
+    autonomy: str = ""                       # autonomy state summary
+    execution: str = ""                      # execution state summary
+    learning: str = ""                       # learning state summary
+    beliefs: Tuple[str, ...] = ()            # salient belief summaries
+    attention: Tuple[str, ...] = ()          # attention / working-memory focus
+    delegations: Tuple[str, ...] = ()        # open delegations
+    pending_verifications: Tuple[str, ...] = ()
+    uncertainty: Tuple[str, ...] = ()        # unresolved uncertainty
+    causality: Tuple[str, ...] = ()          # recent causal links
+
+    _SCALARS = ("identity", "intent", "plan", "authority", "autonomy",
+                "execution", "learning")
+    _LISTS = ("beliefs", "attention", "delegations", "pending_verifications",
+              "uncertainty", "causality")
+
+    def is_empty(self) -> bool:
+        return not (
+            any(getattr(self, s) for s in self._SCALARS)
+            or any(getattr(self, l) for l in self._LISTS)
+        )
+
+    def to_dict(self) -> dict:
+        d = {s: getattr(self, s) for s in self._SCALARS if getattr(self, s)}
+        for l in self._LISTS:
+            v = getattr(self, l)
+            if v:
+                d[l] = list(v)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Mapping) -> "CognitiveContext":
+        kw = {s: str(d.get(s, "") or "") for s in cls._SCALARS}
+        for l in cls._LISTS:
+            kw[l] = tuple(str(x) for x in (d.get(l) or ()))
+        return cls(**kw)
+
+
+@dataclass(frozen=True)
 class AgencyState:
     """A point-in-time snapshot of JARVIS's ongoing agency."""
 
     captured_ts: float
     mode: Optional[str] = None
     commitments: Tuple[Commitment, ...] = ()
+    cognitive: Optional[CognitiveContext] = None
     schema_version: int = SCHEMA_VERSION
 
     def of_kind(self, kind: str) -> List[Commitment]:
@@ -104,16 +155,17 @@ class AgencyState:
         return self.of_kind(SITUATION)
 
     def to_json(self) -> str:
-        return json.dumps(
-            {
-                "schema_version": self.schema_version,
-                "captured_ts": self.captured_ts,
-                "mode": self.mode,
-                "commitments": [c.to_dict() for c in self.commitments],
-            },
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+        payload = {
+            "schema_version": self.schema_version,
+            "captured_ts": self.captured_ts,
+            "mode": self.mode,
+            "commitments": [c.to_dict() for c in self.commitments],
+        }
+        # Additive + backward-compatible: only present when there is cognitive
+        # content, so a commitment-only snapshot serializes byte-identically to I-A.
+        if self.cognitive is not None and not self.cognitive.is_empty():
+            payload["cognitive"] = self.cognitive.to_dict()
+        return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
     @classmethod
     def from_json(cls, raw: str) -> "AgencyState":
@@ -122,10 +174,14 @@ class AgencyState:
             Commitment.from_dict(c) for c in (d.get("commitments") or [])
             if isinstance(c, Mapping)
         )
+        cog_raw = d.get("cognitive")
+        cognitive = (CognitiveContext.from_dict(cog_raw)
+                     if isinstance(cog_raw, Mapping) else None)
         return cls(
             captured_ts=float(d.get("captured_ts", 0.0)),
             mode=d.get("mode"),
             commitments=comms,
+            cognitive=cognitive,
             schema_version=int(d.get("schema_version", SCHEMA_VERSION)),
         )
 
@@ -156,25 +212,30 @@ def capture(
     goals: Iterable[Mapping] = (),
     situations: Iterable[Mapping] = (),
     extra: Iterable[Commitment] = (),
+    cognitive: Optional[CognitiveContext] = None,
     now: Optional[Callable[[], float]] = None,
 ) -> AgencyState:
     """Build an :class:`AgencyState` from plain, already-extracted data.
 
     ``goals`` / ``situations`` are iterables of mappings with an ``id`` (required;
     rows without one are skipped) and optional ``label`` / ``status`` / ``detail``.
-    ``extra`` lets a caller add commitments of other kinds directly. Pure: the
-    caller does the HA-side extraction, so this stays unit-testable and never
-    raises into a capture path.
+    ``extra`` lets a caller add commitments of other kinds directly. ``cognitive``
+    optionally attaches the Phase I-B cognitive context (identity / intent / plan /
+    beliefs / …); an empty or omitted one is dropped so the snapshot stays
+    commitment-only. Pure: the caller does the HA-side extraction, so this stays
+    unit-testable and never raises into a capture path.
     """
     clock = now or time.time
     commitments: List[Commitment] = []
     commitments.extend(_commitments_from(GOAL, goals))
     commitments.extend(_commitments_from(SITUATION, situations))
     commitments.extend(c for c in extra if isinstance(c, Commitment))
+    cog = cognitive if (cognitive is not None and not cognitive.is_empty()) else None
     return AgencyState(
         captured_ts=float(clock()),
         mode=(str(mode) if mode is not None else None),
         commitments=tuple(commitments),
+        cognitive=cog,
     )
 
 
@@ -191,6 +252,14 @@ def continuity_summary(state: Optional[AgencyState], *, now: Optional[Callable[[
         parts.append(f"{ng} goal{'s' if ng != 1 else ''}")
     if ns:
         parts.append(f"{ns} open situation{'s' if ns != 1 else ''}")
+    cog = state.cognitive
+    if cog is not None and not cog.is_empty():
+        # Surface the headline cognitive facts (I-B) when present — intent and
+        # chosen plan are what "resume what I was thinking" most needs.
+        if cog.intent:
+            parts.append(f"intent={cog.intent}")
+        if cog.plan:
+            parts.append(f"plan={cog.plan}")
     if not parts:
         parts.append("nothing in flight")
     age = max(0, int(clock() - state.captured_ts))
