@@ -1,3 +1,37 @@
+## [8.113.0] — Presence requires a person, not a parked car (issue #254)
+
+A parked car (or a passing animal, or a delivered package) seen by a Frigate /
+ONVIF camera no longer marks an area as occupied by a *human*. Those cameras
+expose a per-object-class `binary_sensor` for every label
+(`binary_sensor.garage_car_occupancy`, `…_dog_motion`, `…_package_detected`)
+alongside the per-person one; they turn `on` for the object, not for a person,
+so counting them as presence made JARVIS treat the garage as "occupied"
+whenever a car was parked there (reported in discussion #221 by
+@televisorsaal-ai).
+
+- New conservative classifier `entity_filter.is_nonperson_object_sensor` — it
+  recognises a camera object-class sensor for a **non-person** object (vehicle /
+  animal / package) only when a known label sits in the Frigate/ONVIF sensor
+  shape (the label token right before an occupancy/motion/presence suffix, or as
+  the final token). An ordinary room sensor (`binary_sensor.kitchen_presence`),
+  an mmWave presence sensor, or anything naming `person` is never matched.
+- The **human-presence** paths skip those sensors: `presence.get_presence_summary`
+  room detection and `audio_routing` (`presence_entities_in_area`,
+  `all_areas_with_presence`, `anyone_home`). The person case and real room
+  occupancy are unchanged.
+- Deliberately scoped: the pattern-learning / automation-suggestion engine still
+  sees car sensors (learning "when the car is in the bay, …" is legitimate), and
+  the safety/intrusion motion path is untouched (presence must fail toward
+  alerting). The raw-camera-motion symptom (`binary_sensor.*_motion` tripping on
+  a leaf) is a follow-up — it is genuinely config-policy (some homes use PIR
+  motion as presence) and will land as its own opt-in toggle.
+
+tests: new `tests/unit/test_presence_person_254.py` (classifier matrix + car
+excluded / person kept in `get_presence_summary`, and `anyone_home` ignoring a
+parked car while still true for real presence or a person entity). audit + all
+four kernel gates green; the suggestion-engine tests that rely on car sensors
+still pass unchanged.
+
 ## [8.112.0] — Don't offer control JARVIS doesn't have (issue #247)
 
 JARVIS no longer offers to close a window or unlock a door it has no actuator

@@ -213,6 +213,10 @@ def presence_entities_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
         from .entity_filter import is_excluded as _excl
     except Exception:
         _excl = lambda _h, _e: False
+    try:
+        from .entity_filter import is_nonperson_object_sensor as _nonperson
+    except Exception:
+        _nonperson = lambda _e, _n=None: False
     out = []
     for e in all_bs:
         if _excl(hass, e):
@@ -223,6 +227,8 @@ def presence_entities_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
         dc = state.attributes.get("device_class")
         if dc not in occupancy_classes:
             continue
+        if _nonperson(e, state.attributes.get("friendly_name")):
+            continue  # #254: a car/animal/package detector is not a human being present
         if entity_area(hass, e) == area_id:
             out.append(e)
     return out
@@ -246,6 +252,10 @@ def all_areas_with_presence(hass: HomeAssistant) -> set[str]:
         from .entity_filter import is_excluded as _excl
     except Exception:
         _excl = lambda _h, _e: False
+    try:
+        from .entity_filter import is_nonperson_object_sensor as _nonperson
+    except Exception:
+        _nonperson = lambda _e, _n=None: False
     out = set()
     for s in hass.states.async_all("binary_sensor"):
         if _excl(hass, s.entity_id):
@@ -253,6 +263,8 @@ def all_areas_with_presence(hass: HomeAssistant) -> set[str]:
         dc = s.attributes.get("device_class")
         if dc not in occupancy_classes:
             continue
+        if _nonperson(s.entity_id, s.attributes.get("friendly_name")):
+            continue  # #254: a car/animal/package detector is not a human being present
         area = entity_area(hass, s.entity_id)
         if area:
             out.add(area)
@@ -287,9 +299,15 @@ def anyone_home(hass: HomeAssistant) -> bool:
     'while no one is home' announcement clause and medium/high fallback routing."""
     occ_classes = ("occupancy", "motion", "presence")
     on_states = ("on", "home", "detected", "true", "occupied")
+    try:
+        from .entity_filter import is_nonperson_object_sensor as _nonperson
+    except Exception:
+        _nonperson = lambda _e, _n=None: False
     for s in hass.states.async_all("binary_sensor"):
         if (s.attributes.get("device_class") in occ_classes
-                and str(s.state).lower() in on_states):
+                and str(s.state).lower() in on_states
+                # #254: a parked car / passing animal is not a human being home
+                and not _nonperson(s.entity_id, s.attributes.get("friendly_name"))):
             return True
     for s in hass.states.async_all("person"):
         if str(s.state).lower() == "home":

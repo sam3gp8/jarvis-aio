@@ -74,6 +74,10 @@ def get_presence_summary(hass: HomeAssistant) -> dict:
         from .entity_filter import is_excluded as _excl
     except Exception:
         _excl = lambda _h, _e: False
+    try:
+        from .entity_filter import is_nonperson_object_sensor as _nonperson
+    except Exception:
+        _nonperson = lambda _e, _n=None: False
     for state in hass.states.async_all("binary_sensor"):
         if state.state != "on":
             continue
@@ -82,6 +86,9 @@ def get_presence_summary(hass: HomeAssistant) -> dict:
         if _excl(hass, state.entity_id):
             continue  # user excluded this sensor (e.g. a virtual occupancy sensor)
         name = state.attributes.get("friendly_name", state.entity_id)
+        if _nonperson(state.entity_id, name):
+            continue  # #254: a car/animal/package detector is not a human being present
+
         # Try to extract the room from the name (e.g. "Kitchen Presence")
         room = name.lower().replace("presence", "").replace("occupancy", "").strip()
         if room:
