@@ -6,7 +6,10 @@ Bridges the pure ``kernel.agency_state`` primitive to the live integration:
   JARVIS was in the middle of before the restart — observe only;
 * on a periodic tick (and at boot), :func:`capture_now` reads the live goals,
   open situations and mode and writes a fresh snapshot, so the next boot has
-  something to resume from.
+  something to resume from. It also captures the Phase I-B *cognitive context*
+  (``intent`` + chosen ``plan``, from the primary active goal) so the boot
+  continuity line can say what JARVIS was thinking, not just what it had
+  committed to.
 
 **Shadow:** it reads live state and writes its own snapshot DB + a log line; it
 drives nothing and changes no behaviour. Everything is defensive (a read failure
@@ -66,6 +69,58 @@ def _live_mode() -> Optional[str]:
         return None
 
 
+_DONE_STEP_STATES = frozenset({"done", "complete", "completed", "skipped", "cancelled"})
+
+
+def _plan_summary(goal: dict) -> str:
+    """A compact 'chosen-plan' line for a goal: progress + the next pending step.
+    Empty when the goal carries no steps. Never raises."""
+    try:
+        steps = goal.get("steps") or []
+        if not steps:
+            return ""
+        total = len(steps)
+        done = sum(1 for s in steps
+                   if str((s or {}).get("status", "")).lower() in _DONE_STEP_STATES)
+        nxt = next((str((s or {}).get("step", "")).strip() for s in steps
+                    if str((s or {}).get("status", "")).lower() not in _DONE_STEP_STATES), "")
+        return f"{done}/{total} done; next: {nxt}" if nxt else f"{done}/{total} done"
+    except Exception:
+        return ""
+
+
+def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
+    """Build the Phase I-B cognitive context from live subsystems (I-B — shadow).
+
+    Only the fields with an unambiguous live source are populated: ``intent`` and
+    ``plan`` from JARVIS's primary active goal (a goal *is* an outcome pursued
+    across time). The remaining CognitiveContext fields map to subsystems that
+    are still pure / not yet built (delegations → Phase O, uncertainty → pure,
+    …), so they are left empty and dropped by ``capture``. Returns None when
+    there is no active goal, so a commitment-only snapshot stays byte-identical
+    to before (behaviour-preserving). Never raises.
+    """
+    try:
+        from . import goals
+    except Exception:
+        return None
+    try:
+        active = goals.active()
+    except Exception:
+        return None
+    if not active:
+        return None
+    try:
+        primary = active[0] or {}
+        intent = (primary.get("outcome") or primary.get("title") or "").strip()
+        if not intent:
+            return None
+        cog = agency_state.CognitiveContext(intent=intent, plan=_plan_summary(primary))
+        return cog if cog and not cog.is_empty() else None
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
 def _live_situations(hass=None) -> List[dict]:
     """Open kernel situations as plain capture rows; empty on any failure."""
     try:
@@ -89,6 +144,7 @@ def capture_now(hass=None) -> Optional[agency_state.AgencyState]:
             mode=_live_mode(),
             goals=_live_goals(),
             situations=_live_situations(hass),
+            cognitive=_live_cognitive(hass),  # I-B: intent + plan, dropped if empty
         )
         _store(hass).save(state)
         return state

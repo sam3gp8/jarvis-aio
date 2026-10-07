@@ -1,3 +1,30 @@
+## [8.114.0] — Continuity captures what JARVIS was thinking (kernel Phase I-B)
+
+After a restart, JARVIS's boot continuity line can now say what it was *thinking*,
+not just what it had committed to. The periodic/boot snapshot
+(`continuity.capture_now`) now builds the Phase I-B **cognitive context** — the
+`intent` and chosen `plan` — from JARVIS's primary active goal and attaches it
+to the agency snapshot, so `boot_summary` surfaces e.g.
+`intent=house is warm by 7am · plan=1/2 done; next: close the blinds`.
+
+- New `continuity._live_cognitive` (and `_plan_summary`): reads the soonest-due
+  active goal and fills `CognitiveContext.intent` (its outcome, or title) and
+  `.plan` (step progress + next pending step). Only those two fields are
+  sourced; the rest of the context maps to subsystems that are still pure or
+  not yet built (delegations → Phase O, uncertainty → pure, …) and stay empty.
+- **Shadow / observe-only, behaviour-preserving:** `agency_state` stays at the
+  `shadow` adoption stage (it drives nothing). When there is no active goal the
+  cognitive context is dropped, so a commitment-only snapshot is byte-identical
+  to before. Every read is defensive — a failing goal reader yields no context,
+  never an exception into the capture or boot path. Kill-switch
+  `AGENCY_CAPTURE_ENABLED` still disables the whole binder.
+
+tests: `tests/unit/test_continuity.py` gains the I-B cases — intent/plan built
+from the primary goal (outcome preferred, title fallback), `_plan_summary`
+shapes, defensive-on-reader-failure, the snapshot attaching + persisting the
+context through the store and reaching the boot line, and the no-goal snapshot
+staying commitment-only. audit + all four kernel gates green.
+
 ## [8.113.0] — Presence requires a person, not a parked car (issue #254)
 
 A parked car (or a passing animal, or a delivered package) seen by a Frigate /
