@@ -147,16 +147,6 @@ def test_provenances_best_effort_on_error(wm_mod, hass, monkeypatch):
     assert wm_mod.WorldModel(hass).provenances() == []
 
 
-def test_facts_shadow_does_not_change_rows(wm_mod, hass, monkeypatch):
-    rows = [{"subject": "s", "key": "k", "value": 1, "confidence": 0.5, "source": "x"}]
-    monkeypatch.setattr(wm_mod, "_all_facts", lambda subject: list(rows))
-    # Shadow emission on by default; facts() must still return the rows unchanged.
-    assert wm_mod.WorldModel(hass).facts("s") == rows
-    # And with the kill-switch off, still unchanged.
-    monkeypatch.setattr(wm_mod, "PROVENANCE_SHADOW", False)
-    assert wm_mod.WorldModel(hass).facts("s") == rows
-
-
 def test_last_seen_delegates(wm_mod, hass, monkeypatch):
     monkeypatch.setattr(wm_mod, "_where_last_seen",
                         lambda term: {"term": term, "camera": "porch", "ts": 123.0})

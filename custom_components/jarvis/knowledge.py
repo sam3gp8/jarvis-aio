@@ -32,6 +32,35 @@ from .paths import config_path_str
 
 _LOGGER = logging.getLogger(__name__)
 
+# SHADOW (#237): all_facts() also packages each curated fact as a
+# kernel.provenance.Provenance (value / source / confidence / model) and logs a
+# one-line summary — observe-only, nothing consumes it yet (conflict resolution
+# and authoritative reads attach once it earns parity). Flip PROVENANCE_SHADOW
+# to False to silence it; all_facts() returns exactly the same rows either way.
+PROVENANCE_SHADOW = True
+
+
+def _emit_provenance_shadow(facts: list) -> None:
+    """Log the provenance view of a fact set (shadow). Best-effort, never raises —
+    the knowledge store itself is unchanged whether this runs or not."""
+    try:
+        from .kernel import provenance as P
+        recs = []
+        for f in (facts or []):
+            if not isinstance(f, dict):
+                continue
+            recs.append(P.record(
+                f.get("value"),
+                source=str(f.get("source") or "knowledge"),
+                confidence=float(f.get("confidence", 1.0) or 1.0),
+                model=str(f.get("model") or ""),
+            ))
+        if recs:
+            _LOGGER.debug("provenance(shadow): %d fact record(s); e.g. %s",
+                          len(recs), P.summary(recs[0]))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
 DB_PATH = config_path_str("jarvis", "knowledge.db")
 
 KINDS = ("fact", "preference", "event", "profile")
@@ -336,6 +365,8 @@ def all_facts(subject: Optional[str] = None, now: Optional[float] = None,
         rows = _live_rows(conn, subject, now, subjects)
         facts = [_row_to_fact(r) for r in rows]
         facts.sort(key=lambda f: f["updated_at"], reverse=True)
+        if PROVENANCE_SHADOW:
+            _emit_provenance_shadow(facts)   # #237: observe-only
         return facts
     except Exception as exc:
         _LOGGER.warning("knowledge: all_facts failed: %s", exc)

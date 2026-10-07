@@ -73,7 +73,7 @@ explicit per-flip owner go/no-go.
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
-| `provenance` | ◐ shadow | — |
+| `provenance` | ◐ shadow | `knowledge` |
 | `router` | ◐ shadow | `reasoning_loop` |
 | `situation` | ● enforce | `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |
