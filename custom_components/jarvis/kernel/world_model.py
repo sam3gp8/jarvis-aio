@@ -25,6 +25,45 @@ from typing import Any, Dict, List, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
+# SHADOW (#237): WorldModel.facts() also packages each curated fact as a
+# kernel.provenance.Provenance (value / source / confidence / model) and logs a
+# one-line summary — observe-only, nothing consumes it yet (conflict resolution
+# and authoritative reads attach once it earns parity). Flip PROVENANCE_SHADOW
+# to False to silence it; facts() returns exactly the same rows either way.
+PROVENANCE_SHADOW = True
+
+
+def _provenances_from_facts(rows) -> List[Any]:
+    """Map curated fact dicts to kernel.provenance.Provenance records. Pure-ish
+    (no I/O here); defensive — a bad row is skipped, never raised."""
+    from . import provenance as P
+    out: List[Any] = []
+    for f in (rows or []):
+        if not isinstance(f, dict):
+            continue
+        try:
+            out.append(P.record(
+                f.get("value"),
+                source=str(f.get("source") or "knowledge"),
+                confidence=float(f.get("confidence", 1.0) or 1.0),
+                model=str(f.get("model") or ""),
+            ))
+        except Exception:   # pragma: no cover - defensive
+            continue
+    return out
+
+
+def _emit_provenance_shadow(rows) -> None:
+    """Log the provenance view of a fact set (shadow). Best-effort, never raises."""
+    try:
+        recs = _provenances_from_facts(rows)
+        if recs:
+            from . import provenance as P
+            _LOGGER.debug("provenance(shadow): %d record(s); e.g. %s",
+                          len(recs), P.summary(recs[0]))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
 
 # ── source seams (lazy, patchable) ──────────────────────────────────────────────
 # Each wraps one underlying module so WorldModel never imports them at module load
@@ -169,10 +208,28 @@ class WorldModel:
     def facts(self, subject: Optional[str] = None) -> List[dict]:
         """Live curated facts, optionally about one subject. SYNC (DB-backed)."""
         try:
-            return _all_facts(subject) or []
+            rows = _all_facts(subject) or []
         except Exception as exc:
             _LOGGER.debug("world_model.facts failed: %s", exc)
             return []
+        if PROVENANCE_SHADOW:
+            _emit_provenance_shadow(rows)   # #237: observe-only
+        return rows
+
+    def provenances(self, subject: Optional[str] = None) -> List[Any]:
+        """Curated facts as kernel ``Provenance`` records (Epistemic Fabric, #237).
+
+        Each fact becomes a Provenance pairing its value with where it came from
+        (``source``), how sure we are (``confidence``) and the producing model.
+        SHADOW: built on demand (and logged alongside ``facts()``), but nothing
+        consumes it yet — conflict resolution / authoritative reads attach once it
+        earns parity. Best-effort → empty list on any failure."""
+        try:
+            rows = _all_facts(subject) or []
+        except Exception as exc:
+            _LOGGER.debug("world_model.provenances failed: %s", exc)
+            return []
+        return _provenances_from_facts(rows)
 
     def beliefs(self, subject: Optional[str] = None) -> List[Any]:
         """Curated knowledge facts as kernel ``Belief`` values (MCU Phase E/E1).

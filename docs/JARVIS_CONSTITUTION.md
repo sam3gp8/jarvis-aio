@@ -89,7 +89,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `persistence` | · pure |
 | `plan` | ◑ parity |
 | `priority` | · pure |
-| `provenance` | · pure |
+| `provenance` | ◐ shadow |
 | `router` | ◐ shadow |
 | `situation` | ● enforce |
 | `token_telemetry` | ◐ shadow |
