@@ -150,3 +150,50 @@ def test_reconcile_keeps_unknown_kinds_live(ag):
 def test_reconcile_none_is_empty(ag):
     rep = ag.reconcile(None, live_goal_ids=["g1"])
     assert rep.still_live == () and rep.vanished == () and rep.resumable is False
+
+
+# ── I-B: cognitive context (pure schema extension) ────────────────────────────
+
+def test_cognitive_context_round_trips(ag):
+    cog = ag.CognitiveContext(
+        identity="sam", intent="dim the office", plan="light.turn_off office",
+        beliefs=("office occupied",), attention=("office",),
+        pending_verifications=("office lights off?",))
+    st = ag.capture(mode="home", goals=[{"id": "g1"}], cognitive=cog, now=lambda: 9.0)
+    back = ag.AgencyState.from_json(st.to_json())
+    assert back == st
+    assert back.cognitive is not None
+    assert back.cognitive.intent == "dim the office"
+    assert back.cognitive.beliefs == ("office occupied",)
+
+
+def test_empty_cognitive_is_dropped_and_byte_identical_to_commitment_only(ag):
+    # An empty CognitiveContext must not change the serialized payload (I-A compat).
+    plain = ag.capture(mode="away", goals=[{"id": "g1"}], now=lambda: 1.0)
+    withempty = ag.capture(mode="away", goals=[{"id": "g1"}],
+                           cognitive=ag.CognitiveContext(), now=lambda: 1.0)
+    assert withempty.cognitive is None
+    assert withempty.to_json() == plain.to_json()
+    assert "cognitive" not in plain.to_json()
+
+
+def test_old_commitment_only_snapshot_still_loads(ag):
+    # A payload written before I-B (no "cognitive" key) loads with cognitive=None.
+    import json
+    raw = json.dumps({"schema_version": 1, "captured_ts": 2.0, "mode": "home",
+                      "commitments": [{"kind": "goal", "id": "g1"}]})
+    st = ag.AgencyState.from_json(raw)
+    assert st.cognitive is None and st.goals[0].id == "g1"
+
+
+def test_continuity_summary_surfaces_intent_and_plan(ag):
+    cog = ag.CognitiveContext(intent="dim the office", plan="turn_off office")
+    st = ag.capture(cognitive=cog, now=lambda: 10.0)
+    line = ag.continuity_summary(st, now=lambda: 10.0)
+    assert "intent=dim the office" in line and "plan=turn_off office" in line
+
+
+def test_cognitive_context_is_empty(ag):
+    assert ag.CognitiveContext().is_empty() is True
+    assert ag.CognitiveContext(intent="x").is_empty() is False
+    assert ag.CognitiveContext(beliefs=("b",)).is_empty() is False

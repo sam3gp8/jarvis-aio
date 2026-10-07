@@ -1,3 +1,24 @@
+## [8.111.0] — Cognitive continuity schema (kernel Phase I-B, pure)
+
+Opens Phase I-B (cognitive continuity): the agency snapshot can now carry what
+JARVIS was *thinking*, not just what it committed to.
+
+- New pure `kernel.agency_state.CognitiveContext` — optional, all-empty-default
+  fields for identity / intent / plan / authority / autonomy / execution /
+  learning (scalars) and beliefs / attention / delegations /
+  pending-verifications / uncertainty / causality (lists). `AgencyState` gains an
+  optional `cognitive` slot; `capture(cognitive=…)` attaches it and
+  `continuity_summary()` surfaces intent + plan when present.
+- **Backward-compatible / behaviour-preserving:** an empty or omitted context is
+  dropped, so a commitment-only snapshot serializes **byte-identically** to I-A,
+  pre-I-B snapshots load with `cognitive=None`, and `continuity.py` still captures
+  commitment-only (nothing populates the cognitive half yet — that is the I-B
+  shadow rung). No adoption-stage change.
+
+tests: five new `tests/unit/test_agency_state.py` cases (round-trip; empty
+dropped + byte-identical; old snapshot still loads; summary surfaces intent/plan;
+`is_empty`). audit + all four kernel gates green.
+
 ## [8.110.0] — Identity Fabric earns parity (kernel #237, Phase I½2)
 
 The Identity & Trust Fabric moves `shadow → parity`: the kernel verdict is now
