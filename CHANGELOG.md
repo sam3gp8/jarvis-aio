@@ -1,3 +1,30 @@
+## [8.109.0] — Identity Fabric wired to shadow (kernel #237, Phase I½2)
+
+The Identity & Trust Fabric primitive earns its **shadow** rung — the last of
+the three #237 shadow-wirings. The identity resolver now packages its verdict as
+a structured assertion.
+
+- `identity.resolve()` emits a `kernel.identity_fabric.IdentityAssertion` for its
+  best-guess person (subject, method, confidence, expiry, evidence) and logs it —
+  **log-only**, nothing consumes it yet (parity against the current identity read
+  next, then enforce on one identity-sensitive path, owner-gated). One-line
+  kill-switch `IDENTITY_FABRIC_SHADOW`.
+- **Encodes identity ≠ presence**: only a recent **face** or **voiceprint**
+  maps to an identifying method; sole-occupant / room / proximity map to
+  `METHOD_PRESENCE`, so they are emitted as *someone is here*, never *who* —
+  such an assertion can never `establishes_identity`.
+- Adoption stage flipped `pure → shadow` (owner `identity`); Constitution ledger
+  / adoption matrix regenerated.
+- Observe-only and behaviour-preserving: `resolve()` returns exactly the same
+  `Identification` either way.
+
+tests: four new `tests/unit/test_identity.py` cases (face → identifying +
+establishes identity; presence-only → not identity; kill-switch silences;
+resolution unchanged either way). audit + all four kernel gates green.
+
+With this, all three #237 shadow-wirings (`outcome`, `provenance`,
+`identity_fabric`) are live and observe-only.
+
 ## [8.108.0] — Provenance primitive wired to shadow (kernel #237)
 
 The Epistemic-Fabric **provenance** primitive earns its **shadow** rung: the

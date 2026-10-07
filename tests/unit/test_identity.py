@@ -321,3 +321,57 @@ def test_quick_identify_disabled_and_exception(identity, cfg, fake_hass, monkeyp
     monkeypatch.setattr(identity, "_home_people",
                         lambda hass: (_ for _ in ()).throw(RuntimeError("boom")))
     assert identity.quick_identify(fake_hass).method == "no_signal"
+
+
+# ── identity_fabric shadow (#237, I½2) ─────────────────────────────────────────
+
+@pytest.fixture
+def fabric_capture(load, monkeypatch):
+    """Capture the IdentityAssertion that resolve() emits in shadow."""
+    IF = load("kernel.identity_fabric")
+    got = []
+    real = IF.assert_identity
+    monkeypatch.setattr(IF, "assert_identity",
+                        lambda subject, **kw: got.append(real(subject, **kw)) or got[-1])
+    return got
+
+
+def test_fabric_shadow_face_is_identifying(identity, cfg, sigs, fake_hass, fabric_capture):
+    sigs["home"] = ["Sam", "Alex"]
+    _face(sigs, "camera.office", "Alex", confidence=0.95, age_seconds=3)
+    identity.resolve(fake_hass)
+    assert len(fabric_capture) == 1
+    a = fabric_capture[0]
+    assert a.subject == "alex"
+    assert a.authentication_method == "face"
+    assert a.establishes_identity(a.asserted_ts) is True
+
+
+def test_fabric_shadow_presence_only_is_not_identity(identity, cfg, sigs, fake_hass, fabric_capture):
+    sigs["home"] = ["Sam"]            # sole-occupant → presence, not "who"
+    identity.resolve(fake_hass)
+    assert len(fabric_capture) == 1
+    a = fabric_capture[0]
+    assert a.authentication_method == "presence"
+    # Presence can never establish identity — the hard rule, in code.
+    assert a.establishes_identity(a.asserted_ts) is False
+
+
+def test_fabric_shadow_kill_switch_silences(identity, cfg, sigs, fake_hass, fabric_capture, monkeypatch):
+    monkeypatch.setattr(identity, "IDENTITY_FABRIC_SHADOW", False)
+    sigs["home"] = ["Sam"]
+    identity.resolve(fake_hass)
+    assert fabric_capture == []
+
+
+def test_fabric_shadow_does_not_change_resolution(identity, cfg, sigs, fake_hass):
+    # The verdict is identical whether the shadow emission runs or not.
+    sigs["home"] = ["Sam", "Alex"]
+    _face(sigs, "camera.office", "Alex", confidence=0.95, age_seconds=3)
+    a = identity.resolve(fake_hass)
+    identity.IDENTITY_FABRIC_SHADOW = False
+    try:
+        b = identity.resolve(fake_hass)
+    finally:
+        identity.IDENTITY_FABRIC_SHADOW = True
+    assert (a.person, a.confidence, a.method) == (b.person, b.confidence, b.method)
