@@ -40,14 +40,16 @@ _LOGGER = logging.getLogger(__name__)
 
 UNKNOWN = "unknown"
 
-# SHADOW (#237, Phase I½2): resolve() also packages its verdict as a
-# kernel.identity_fabric.IdentityAssertion and logs it — observe-only, nothing
-# consumes it yet (parity against the current identity read next, then enforce on
-# one identity-sensitive path, owner-gated). The fabric encodes
-# identity ≠ presence: only face / voiceprint establish *who*; sole-occupant,
-# room and proximity are presence, so they map to METHOD_PRESENCE and can never
-# `establishes_identity`. Flip IDENTITY_FABRIC_SHADOW to False to silence it;
-# resolve() returns exactly the same Identification either way.
+# PARITY (#237, Phase I½2): resolve() packages its verdict as a
+# kernel.identity_fabric.IdentityAssertion, runs the fabric resolver over it, and
+# logs an AGREEMENT/DIVERGENCE flag against the legacy "known person" decision —
+# observe-only, drives nothing (enforce on one identity-sensitive path is the next
+# rung, owner-gated). The fabric encodes identity ≠ presence: only face /
+# voiceprint establish *who*; sole-occupant, room and proximity are presence, so
+# they map to METHOD_PRESENCE and can never `establishes_identity` — which is
+# exactly where the fabric is EXPECTED to diverge from the legacy resolver (it
+# treats a confident presence prior as "known"). Flip IDENTITY_FABRIC_SHADOW to
+# False to silence it; resolve() returns exactly the same Identification either way.
 IDENTITY_FABRIC_SHADOW = True
 
 # How long a resolved identity assertion stays fresh (seconds) — matches the
@@ -55,13 +57,15 @@ IDENTITY_FABRIC_SHADOW = True
 _IDENTITY_TTL_SECS = 300.0
 
 
-def _emit_identity_fabric_shadow(person: str, confidence: float, methods, now: float) -> None:
-    """Log the IdentityAssertion view of a resolve() verdict (shadow).
+def _emit_identity_fabric_parity(person: str, confidence: float, methods, now: float,
+                                 legacy_known: bool) -> None:
+    """Build the IdentityAssertion view of a resolve() verdict, run it through the
+    fabric resolver, and log agreement vs the legacy "known person" decision.
 
-    Picks the strongest *identifying* method present (face > voice); if the
-    verdict rests only on presence-class signals (sole-occupant / room /
-    proximity / home-prior) it is emitted as METHOD_PRESENCE — present, not
-    identified. Best-effort, never raises."""
+    Picks the strongest *identifying* method present (face > voice); a verdict
+    resting only on presence-class signals (sole-occupant / room / proximity /
+    home-prior) is METHOD_PRESENCE — present, not identified. Observe-only,
+    best-effort, never raises."""
     try:
         from .kernel import identity_fabric as IF
         ms = set(methods or ())
@@ -80,9 +84,20 @@ def _emit_identity_fabric_shadow(person: str, confidence: float, methods, now: f
             evidence=tuple(sorted(ms)),
             now=(lambda: now),
         )
-        _LOGGER.debug("identity_fabric(shadow): subject=%s method=%s conf=%.2f "
-                      "establishes_identity=%s", a.subject, a.authentication_method,
-                      a.confidence, a.establishes_identity(now))
+        res = IF.resolve([a], now=now)
+        fabric_subject = res.subject if res.established else None
+        legacy_subject = normalize(person) if legacy_known else None
+        agree = fabric_subject == legacy_subject
+        _LOGGER.debug(
+            "identity_fabric(parity): %s legacy=%s fabric=%s (method=%s conf=%.2f)",
+            "AGREEMENT" if agree else "DIVERGENCE",
+            legacy_subject, fabric_subject, a.authentication_method, a.confidence)
+        if not agree and legacy_subject and fabric_subject is None \
+                and method == IF.METHOD_PRESENCE:
+            # The expected, instructive divergence — the identity ≠ presence rule.
+            _LOGGER.debug("identity_fabric(parity): legacy treated presence as "
+                          "identity for %s; fabric withholds (not identifying)",
+                          legacy_subject)
     except Exception:   # pragma: no cover - defensive
         pass
 DEFAULT_PERSONAL_SUBJECT = "primary"  # fallback knowledge subject when unresolved
@@ -342,11 +357,13 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
     confidence = min(1.0, top) * (0.5 + 0.5 * decisiveness)
     candidates = {k: round(v, 3) for k, v in ranked}
 
-    if IDENTITY_FABRIC_SHADOW:
-        _emit_identity_fabric_shadow(person, confidence, methods, now)  # #237
-
     min_conf = float(_cfg("identity_min_confidence", 0.45))
-    if confidence < min_conf:
+    legacy_known = confidence >= min_conf
+
+    if IDENTITY_FABRIC_SHADOW:
+        _emit_identity_fabric_parity(person, confidence, methods, now, legacy_known)  # #237
+
+    if not legacy_known:
         return Identification(UNKNOWN, round(confidence, 3), "low_confidence", candidates)
 
     return Identification(person, round(confidence, 3),

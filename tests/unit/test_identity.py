@@ -375,3 +375,26 @@ def test_fabric_shadow_does_not_change_resolution(identity, cfg, sigs, fake_hass
     finally:
         identity.IDENTITY_FABRIC_SHADOW = True
     assert (a.person, a.confidence, a.method) == (b.person, b.confidence, b.method)
+
+
+# ── identity_fabric PARITY (#237, I½2): fabric verdict vs legacy "known" ───────
+
+def test_fabric_parity_agrees_on_face(identity, cfg, sigs, fake_hass, caplog):
+    import logging
+    sigs["home"] = ["Sam", "Alex"]
+    _face(sigs, "camera.office", "Alex", confidence=0.95, age_seconds=3)
+    with caplog.at_level(logging.DEBUG):
+        ident = identity.resolve(fake_hass)
+    assert ident.person == "alex" or ident.person == "Alex"
+    assert any("identity_fabric(parity): AGREEMENT" in r.message for r in caplog.records)
+
+
+def test_fabric_parity_diverges_on_presence_only(identity, cfg, sigs, fake_hass, caplog):
+    import logging
+    sigs["home"] = ["Sam"]            # sole-occupant → legacy "known", presence only
+    with caplog.at_level(logging.DEBUG):
+        ident = identity.resolve(fake_hass)
+    assert ident.known                # legacy still resolves Sam
+    # Fabric withholds identity from presence → logged divergence (identity≠presence).
+    assert any("identity_fabric(parity): DIVERGENCE" in r.message for r in caplog.records)
+    assert any("presence as identity" in r.message for r in caplog.records)

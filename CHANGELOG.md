@@ -1,3 +1,31 @@
+## [8.110.0] — Identity Fabric earns parity (kernel #237, Phase I½2)
+
+The Identity & Trust Fabric moves `shadow → parity`: the kernel verdict is now
+computed alongside the legacy identity read and checked for agreement.
+
+- `identity.resolve()` runs the fabric resolver over its emitted
+  `IdentityAssertion` and logs an **AGREEMENT / DIVERGENCE** flag against the
+  legacy "known person" decision — still **observe-only**, drives nothing,
+  kill-switched (`IDENTITY_FABRIC_SHADOW`).
+- The fabric is **expected to diverge** exactly where the legacy resolver calls
+  a confident *presence* prior (sole-occupant / room / proximity) "known": the
+  fabric withholds identity from presence (**identity ≠ presence**), and that
+  divergence is logged explicitly. This is the pre-enforce evidence that the
+  legacy path over-trusts presence as identity.
+- Adoption stage flipped `shadow → parity` (owner `identity`); adoption matrix /
+  Constitution ledger regenerated.
+- Behaviour-preserving: `resolve()` returns exactly the same `Identification`.
+
+tests: two new `tests/unit/test_identity.py` parity cases (face → AGREEMENT;
+presence-only → DIVERGENCE with the identity≠presence note). audit + all four
+kernel gates green.
+
+Note on the other Fabric primitives: `outcome` and `provenance` shadow values
+are derived identically to the legacy read, so a meaningful parity check needs
+an independent consumer (Phase M for outcome; conflict-resolution for
+provenance) — their parity rungs are deferred to those phases rather than
+logging trivial always-agreement.
+
 ## [8.109.0] — Identity Fabric wired to shadow (kernel #237, Phase I½2)
 
 The Identity & Trust Fabric primitive earns its **shadow** rung — the last of

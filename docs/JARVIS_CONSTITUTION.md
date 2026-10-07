@@ -81,7 +81,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `cycle` | ◑ parity |
 | `event` | ◑ parity |
 | `event_bus` | ◐ shadow |
-| `identity_fabric` | ◐ shadow |
+| `identity_fabric` | ◑ parity |
 | `journal` | ◐ shadow |
 | `ledger` | ◐ shadow |
 | `loop_detect` | ● enforce |
