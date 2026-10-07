@@ -26,6 +26,28 @@ from typing import Any, Dict, List, Optional
 _LOGGER = logging.getLogger(__name__)
 
 
+def _provenances_from_facts(rows) -> List[Any]:
+    """Map curated fact dicts to kernel.provenance.Provenance records. Pure-ish
+    (no I/O here); defensive — a bad row is skipped, never raised. The live
+    shadow emission lives in the non-kernel ``knowledge`` module (#237); this is
+    the reusable facade view exposed via :meth:`WorldModel.provenances`."""
+    from . import provenance as P
+    out: List[Any] = []
+    for f in (rows or []):
+        if not isinstance(f, dict):
+            continue
+        try:
+            out.append(P.record(
+                f.get("value"),
+                source=str(f.get("source") or "knowledge"),
+                confidence=float(f.get("confidence", 1.0) or 1.0),
+                model=str(f.get("model") or ""),
+            ))
+        except Exception:   # pragma: no cover - defensive
+            continue
+    return out
+
+
 # ── source seams (lazy, patchable) ──────────────────────────────────────────────
 # Each wraps one underlying module so WorldModel never imports them at module load
 # and tests can monkeypatch a single function.
@@ -173,6 +195,21 @@ class WorldModel:
         except Exception as exc:
             _LOGGER.debug("world_model.facts failed: %s", exc)
             return []
+
+    def provenances(self, subject: Optional[str] = None) -> List[Any]:
+        """Curated facts as kernel ``Provenance`` records (Epistemic Fabric, #237).
+
+        Each fact becomes a Provenance pairing its value with where it came from
+        (``source``), how sure we are (``confidence``) and the producing model.
+        SHADOW: built on demand (and logged alongside ``facts()``), but nothing
+        consumes it yet — conflict resolution / authoritative reads attach once it
+        earns parity. Best-effort → empty list on any failure."""
+        try:
+            rows = _all_facts(subject) or []
+        except Exception as exc:
+            _LOGGER.debug("world_model.provenances failed: %s", exc)
+            return []
+        return _provenances_from_facts(rows)
 
     def beliefs(self, subject: Optional[str] = None) -> List[Any]:
         """Curated knowledge facts as kernel ``Belief`` values (MCU Phase E/E1).

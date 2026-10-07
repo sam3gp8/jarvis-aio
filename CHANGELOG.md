@@ -1,3 +1,23 @@
+## [8.108.0] — Provenance primitive wired to shadow (kernel #237)
+
+The Epistemic-Fabric **provenance** primitive earns its **shadow** rung: the
+world model now packages where each fact came from.
+
+- `knowledge.all_facts()` builds a `kernel.provenance.Provenance` per curated
+  fact (value + `source` + `confidence` + `model`) and logs a one-line summary —
+  **log-only**, nothing consumes it yet (conflict resolution and authoritative
+  reads attach once it earns parity). `WorldModel.provenances()` exposes the
+  same view on demand. One-line kill-switch `PROVENANCE_SHADOW`.
+- Adoption stage flipped `pure → shadow` (owner `knowledge`); Constitution
+  ledger / adoption matrix regenerated.
+- Observe-only and behaviour-preserving: `all_facts()` returns exactly the same
+  rows as before, kill-switch on or off.
+
+tests: four new `tests/unit/test_kernel_world_model.py` cases (facts wrap to
+Provenance with value/source/confidence; bad rows skipped + default source;
+best-effort empty on DB error; `facts()` rows unchanged either way). audit +
+all four kernel gates green.
+
 ## [8.107.0] — Outcome primitive wired to shadow (kernel #237)
 
 The Epistemic-Fabric **outcome** primitive earns its **shadow** rung: every

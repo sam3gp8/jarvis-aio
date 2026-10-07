@@ -88,10 +88,11 @@ _DECLARED: dict[str, dict] = {
     # model / corroboration / expiry; select_authoritative picks the freshest
     # best record and corroborate() merges agreeing records (noisy-OR). Essential
     # for learning, debugging, explanations, security, trust and conflict
-    # resolution. PURE: the primitive exists and is unit-tested, nothing live
-    # attaches provenance yet — world-model / situation / recognition attach it
-    # in shadow, parity vs current reads, enforce when a consumer reads it.
-    "provenance":   {"stage": "pure",    "owners": []},
+    # resolution. SHADOW (#237): knowledge.all_facts() packages each curated fact
+    # as a Provenance (value/source/confidence/model) and logs it — observe-only,
+    # nothing consumes it yet (WorldModel.provenances() exposes the same view).
+    # Parity vs current reads next, enforce when a consumer reads it authoritatively.
+    "provenance":   {"stage": "shadow",  "owners": ["knowledge"]},
     # uncertainty: first-class "what do I know vs think vs guess" (Epistemic
     # Fabric, audit-added). An Uncertain pairs a value with a confidence, a band
     # (known/believed/guessed/unknown), its basis and what evidence would

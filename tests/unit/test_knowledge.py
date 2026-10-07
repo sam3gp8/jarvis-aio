@@ -183,3 +183,26 @@ def test_stats_counts_live_only(knowledge):
     s = knowledge.stats(now=2000.0)
     assert s["total"] == 2
     assert s["by_kind"].get("preference") == 1
+
+
+# ── provenance shadow (#237) ───────────────────────────────────────────────────
+
+def test_all_facts_emits_provenance_shadow_without_changing_rows(knowledge):
+    knowledge.remember("coffee", "oat milk", subject="Sam",
+                       source="stated", confidence=0.9, now=1000.0)
+    facts = knowledge.all_facts(now=1000.0)
+    assert len(facts) == 1 and facts[0]["value"] == "oat milk"
+    # Kill-switch off → still exactly the same rows (shadow is observe-only).
+    knowledge.PROVENANCE_SHADOW = False
+    try:
+        assert knowledge.all_facts(now=1000.0) == facts
+    finally:
+        knowledge.PROVENANCE_SHADOW = True
+
+
+def test_emit_provenance_shadow_is_defensive(knowledge):
+    # Mixed good/bad rows must never raise from the log-only shadow path.
+    knowledge._emit_provenance_shadow(
+        [{"value": 1, "source": "x", "confidence": 0.5}, "not-a-dict", None])
+    knowledge._emit_provenance_shadow([])
+    knowledge._emit_provenance_shadow(None)

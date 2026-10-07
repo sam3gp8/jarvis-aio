@@ -116,6 +116,37 @@ def test_relationships_best_effort_on_error(wm_mod, hass, monkeypatch):
     assert wm_mod.WorldModel(hass).relationships("Sam") == []
 
 
+# ── provenance shadow (#237) ───────────────────────────────────────────────────
+
+def test_provenances_wrap_facts(wm_mod, hass, monkeypatch):
+    monkeypatch.setattr(wm_mod, "_all_facts", lambda subject: [
+        {"subject": "garage", "key": "occupied", "value": False,
+         "confidence": 0.8, "source": "camera"},
+        {"subject": "Sam", "key": "coffee", "value": "oat milk",
+         "confidence": 1.0, "source": "stated"},
+    ])
+    recs = wm_mod.WorldModel(hass).provenances()
+    assert len(recs) == 2
+    assert recs[0].value is False and recs[0].source == "camera"
+    assert abs(recs[0].confidence - 0.8) < 1e-9
+    assert recs[1].value == "oat milk" and recs[1].source == "stated"
+
+
+def test_provenances_skip_bad_rows_and_default_source(wm_mod, hass, monkeypatch):
+    monkeypatch.setattr(wm_mod, "_all_facts", lambda subject: [
+        "not-a-dict", {"key": "k", "value": 1},   # no source → "knowledge"
+    ])
+    recs = wm_mod.WorldModel(hass).provenances()
+    assert len(recs) == 1 and recs[0].source == "knowledge"
+
+
+def test_provenances_best_effort_on_error(wm_mod, hass, monkeypatch):
+    def _boom(subject):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(wm_mod, "_all_facts", _boom)
+    assert wm_mod.WorldModel(hass).provenances() == []
+
+
 def test_last_seen_delegates(wm_mod, hass, monkeypatch):
     monkeypatch.setattr(wm_mod, "_where_last_seen",
                         lambda term: {"term": term, "camera": "porch", "ts": 123.0})
