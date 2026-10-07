@@ -62,11 +62,12 @@ _DECLARED: dict[str, dict] = {
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS
     # TOWARD CONFIRMATION when two subjects are too close. Encodes identity ≠
-    # presence ≠ authority ≠ trust. PURE: the primitive exists and is
-    # unit-tested, nothing live consumes it yet — recognizers emit assertions in
-    # shadow, parity against current identity reads, enforce (owner-gated) on one
-    # identity-sensitive path.
-    "identity_fabric": {"stage": "pure", "owners": []},
+    # presence ≠ authority ≠ trust. SHADOW (#237, I½2): identity.resolve() emits
+    # an IdentityAssertion for its verdict (face/voice = identifying;
+    # sole-occupant/room/proximity = METHOD_PRESENCE) and logs it — observe-only,
+    # nothing consumes it yet. Parity against the current identity read next,
+    # enforce (owner-gated) on one identity-sensitive path.
+    "identity_fabric": {"stage": "shadow", "owners": ["identity"]},
     # token_telemetry: cognitive token & cost telemetry (cross-cutting
     # observability, feeds Phase Y). A UsageRecord captures a call's actual
     # input/output/cached tokens by tier + model, a PriceBook estimates cost,

@@ -39,6 +39,52 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 UNKNOWN = "unknown"
+
+# SHADOW (#237, Phase I½2): resolve() also packages its verdict as a
+# kernel.identity_fabric.IdentityAssertion and logs it — observe-only, nothing
+# consumes it yet (parity against the current identity read next, then enforce on
+# one identity-sensitive path, owner-gated). The fabric encodes
+# identity ≠ presence: only face / voiceprint establish *who*; sole-occupant,
+# room and proximity are presence, so they map to METHOD_PRESENCE and can never
+# `establishes_identity`. Flip IDENTITY_FABRIC_SHADOW to False to silence it;
+# resolve() returns exactly the same Identification either way.
+IDENTITY_FABRIC_SHADOW = True
+
+# How long a resolved identity assertion stays fresh (seconds) — matches the
+# face-recency window so a stale recognition expires rather than lingering.
+_IDENTITY_TTL_SECS = 300.0
+
+
+def _emit_identity_fabric_shadow(person: str, confidence: float, methods, now: float) -> None:
+    """Log the IdentityAssertion view of a resolve() verdict (shadow).
+
+    Picks the strongest *identifying* method present (face > voice); if the
+    verdict rests only on presence-class signals (sole-occupant / room /
+    proximity / home-prior) it is emitted as METHOD_PRESENCE — present, not
+    identified. Best-effort, never raises."""
+    try:
+        from .kernel import identity_fabric as IF
+        ms = set(methods or ())
+        if "face" in ms:
+            method, source = IF.METHOD_FACE, IF.SOURCE_CAMERA
+        elif "voice" in ms:
+            method, source = IF.METHOD_VOICEPRINT, IF.SOURCE_VOICE
+        else:
+            method, source = IF.METHOD_PRESENCE, IF.SOURCE_CAMERA
+        a = IF.assert_identity(
+            normalize(person),
+            source=source,
+            method=method,
+            confidence=confidence,
+            ttl=_IDENTITY_TTL_SECS,
+            evidence=tuple(sorted(ms)),
+            now=(lambda: now),
+        )
+        _LOGGER.debug("identity_fabric(shadow): subject=%s method=%s conf=%.2f "
+                      "establishes_identity=%s", a.subject, a.authentication_method,
+                      a.confidence, a.establishes_identity(now))
+    except Exception:   # pragma: no cover - defensive
+        pass
 DEFAULT_PERSONAL_SUBJECT = "primary"  # fallback knowledge subject when unresolved
 
 # Tier weights (the most a tier can contribute toward a single person).
@@ -295,6 +341,9 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
     decisiveness = (top - second) / top if top > 0 else 0.0
     confidence = min(1.0, top) * (0.5 + 0.5 * decisiveness)
     candidates = {k: round(v, 3) for k, v in ranked}
+
+    if IDENTITY_FABRIC_SHADOW:
+        _emit_identity_fabric_shadow(person, confidence, methods, now)  # #237
 
     min_conf = float(_cfg("identity_min_confidence", 0.45))
     if confidence < min_conf:
