@@ -125,6 +125,22 @@ def test_build_system_prompt_appends_language_for_non_english():
             sys.modules.pop("jc.directive_helper", None)
 
 
+def test_build_system_prompt_includes_capability_honesty():
+    # #247: every task prompt must carry the capability-honesty rule so proactive
+    # messages never offer control JARVIS lacks — regardless of language.
+    mod, stub = _load_real_directive_helper()
+    try:
+        for lang in ("en", "de"):
+            prompt = mod.build_system_prompt(_hass(lang), "sir", "Give a status brief.")
+            assert "CAPABILITY HONESTY" in prompt
+            assert "read-only" in prompt
+    finally:
+        if stub is not None:
+            sys.modules["jc.directive_helper"] = stub
+        else:
+            sys.modules.pop("jc.directive_helper", None)
+
+
 def test_configured_language_strips_region_and_lowercases(language):
     assert language.configured_language(_hass("de-DE")) == "de"
     assert language.configured_language(_hass("EN")) == "en"
