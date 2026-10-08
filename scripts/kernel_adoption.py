@@ -58,6 +58,15 @@ _DECLARED: dict[str, dict] = {
     # (kill-switch COGNITIVE_CYCLE_SHADOW + config). Enforce J4 = a subsystem's
     # loop IS the cycle.
     "cycle":        {"stage": "parity",  "owners": ["cognitive_core"]},
+    # graph: typed, queryable knowledge graph (roadmap Phase T, Deep World
+    # Model). Entities (nodes with attributes) + typed directed relations, built
+    # from plain knowledge.py fact/relation rows with a small pure query surface
+    # (entity / relate / neighbors). PURE: the structure + queries exist and are
+    # unit-tested, nothing live consumes it yet. Shadow wires a graph view onto
+    # world_model (entities/relations/query), parity vs the current semantic
+    # recall, enforce behind KNOWLEDGE_GRAPH_ENFORCE with present recall as the
+    # fail-safe.
+    "graph":        {"stage": "pure",    "owners": []},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS
