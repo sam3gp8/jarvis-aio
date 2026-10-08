@@ -159,6 +159,17 @@ _DECLARED: dict[str, dict] = {
     # per-capability trust store behind LEARNING_ENFORCE (clamped + audited),
     # fail-safe = frozen weights; the trust store itself is a Phase N concern.
     "learning":     {"stage": "parity",  "owners": ["actuation"]},
+    # autonomy: graduated per-capability trust (roadmap Phase N). Replaces the
+    # single autonomy flag with an EARNED autonomy level — a pure function of a
+    # capability's verified track record (kernel.outcome.OutcomeStats) and its
+    # risk class (authority.sensitivity). Ladder suggest -> confirm -> act; SAFE
+    # reads are pinned at act, SENSITIVE actuation earns up from suggest, and
+    # SECURITY actuation is pinned at confirm and NEVER auto-promotes. Transitions
+    # are bounded (one rung per evaluation) and reversible. PURE: the primitive
+    # exists and is unit-tested; nothing live consumes it yet. Shadow will log the
+    # would-be level per capability; enforce (owner-gated) replaces the global
+    # flag, fail-safe = the current single setting.
+    "autonomy":     {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /
