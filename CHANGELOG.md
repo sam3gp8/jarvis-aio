@@ -1,3 +1,34 @@
+## [8.129.0] — Learning & adaptation primitive (kernel Phase M, pure)
+
+Opens roadmap **Phase M — Learning & Adaptation** at its first rung: a pure
+kernel primitive that turns structured `Outcome` records into **bounded,
+reversible** weight adjustments. Additive and observe-only — nothing live
+consumes it yet, so this release changes nothing.
+
+- New `kernel/learning.py`:
+  - `adjust(key, prior, outcomes, *, step_cap, floor, ceil, protected)` nudges a
+    prior weight toward the mean `learning_signal` of the outcomes, scaled so a
+    single adjustment moves it by at most `step_cap` and never leaves
+    `[floor, ceil]`. Returns a `WeightAdjustment(prior, proposed, delta, signal,
+    samples, protected, clamped)` that always retains the prior, so `applied()` /
+    `reverted()` are both pure and lossless (nothing is learned irreversibly).
+  - `plan_adjustments(priors, outcomes_by_key, …)` does several at once,
+    strongest-change first.
+  - **Governance invariant, enforced in the math:** a `protected` weight — an
+    authority gate or safety threshold — can only *tighten*, never be relaxed
+    (clamped to `delta >= 0`), no matter how negative the outcomes' signal is.
+- Reuses `kernel.outcome.summarize`; no I/O. **PURE** (Phase M, first rung):
+  declared `pure` in `kernel_adoption`, registered in `kernel/__init__.py`
+  (`WeightAdjustment`, `adjust_weight`, `plan_adjustments`). Later rungs compute
+  would-be adjustments in shadow, compare offline (parity), then update belief
+  confidences behind `LEARNING_ENFORCE` (clamped + audited), fail-safe = frozen
+  weights.
+
+tests: `tests/unit/test_kernel_learning.py` pins the no-op/totality, the capped
+nudge and signal scaling, floor/ceil clamping, the protected never-relax guard
+(and that protected weights may still tighten), reversibility, and batch ranking.
+audit + all four kernel gates green.
+
 ## [8.128.0] — Causal prediction parity on real contingency (kernel Phase L, parity)
 
 Advances Phase L to the **parity** rung (owner-chosen **Option A — event-window**):

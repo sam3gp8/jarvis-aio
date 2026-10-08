@@ -38,6 +38,7 @@ from . import (
     graph,
     identity_fabric,
     journal,
+    learning,
     loop_detect,
     outcome,
     plan,
@@ -79,6 +80,7 @@ from .token_telemetry import (
     record_usage,
 )
 from .outcome import Outcome, OutcomeStats, record_outcome
+from .learning import WeightAdjustment, adjust as adjust_weight, plan_adjustments
 from .provenance import Provenance
 from .uncertainty import Uncertain
 from .conflict import Resolution as ConflictResolution
@@ -167,6 +169,10 @@ __all__ = [
     "Outcome",
     "OutcomeStats",
     "record_outcome",
+    "learning",
+    "WeightAdjustment",
+    "adjust_weight",
+    "plan_adjustments",
     "provenance",
     "Provenance",
     "uncertainty",

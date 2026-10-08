@@ -142,6 +142,17 @@ _DECLARED: dict[str, dict] = {
     # routes decisions through it yet — world-model/situation consult it in
     # shadow, parity, then enforce.
     "conflict":     {"stage": "pure",    "owners": []},
+    # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
+    # structured kernel.outcome.Outcome records into bounded, reversible
+    # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
+    # per step and clamped to [floor, ceil], with the prior retained so apply/undo
+    # are lossless. Governance invariant (enforced in the math): a protected
+    # weight (authority gate / safety threshold) can only tighten, never be
+    # relaxed. PURE: exists + unit-tested, nothing live consumes it yet — shadow
+    # computes would-be adjustments, parity compares offline, enforce updates
+    # belief confidences behind LEARNING_ENFORCE (clamped + audited), fail-safe =
+    # frozen weights.
+    "learning":     {"stage": "pure",    "owners": []},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /
