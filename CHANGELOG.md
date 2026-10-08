@@ -1,3 +1,37 @@
+## [8.128.0] — Causal prediction parity on real contingency (kernel Phase L, parity)
+
+Advances Phase L to the **parity** rung (owner-chosen **Option A — event-window**):
+the causal predictor is now scored against the **real** cause/effect contingency
+reconstructed from state history, replacing the shadow's placeholder baseline.
+Observe-only, so this release changes nothing JARVIS does.
+
+- `pattern_analyzer._emit_causal_parity` (run on each `analyze()` pass, on the
+  executor thread with the DB open): for the top detected sequence patterns, it
+  reconstructs the 2×2 contingency from `state_changes` —
+  - **cause-present trials** = each trigger firing; **effect-present** when the
+    action fires within the pairing window (`_CAUSAL_PARITY_WINDOW_S`, 600 s);
+  - **cause-absent trials** = window-sized bins with no trigger firing;
+    **effect-present** when the action fires in that bin —
+  builds a `kernel.causal.CausalHypothesis(n11,n10,n01,n00)`, and logs
+  `causal(parity): N sequence pattern(s) re-scored on real contingency;
+  causal-confirms=C, diverges=D … pattern-conf=… causal-ΔP-conf=…`. The divergence
+  count is the signal: patterns that are strong co-occurrences but are explained
+  away by the effect's base rate (ΔP ≈ 0) are the ones the predictor should *not*
+  trust. Behind the `CAUSAL_PREDICT_PARITY` kill-switch (default on); best-effort,
+  never raises.
+- New pure helper `_causal_contingency(cause_epochs, effect_epochs, window)` does
+  the event-window tally; `_causal_firing_epochs` reads a `(entity, state)`
+  firing series from history.
+- Adoption: `causal` advances **shadow → parity** (owner `pattern_analyzer`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Enforce
+  (`CAUSAL_PREDICT_ENFORCE`, gating a proactive path, fail-safe = reactive only)
+  stays owner-gated.
+
+tests: `tests/unit/test_causal_shadow.py` gains parity cases — the event-window
+contingency tally (incl. empty/total), and `_emit_causal_parity` re-scoring a
+genuine cause from a seeded in-memory history with the kill-switch / no-sequence
+paths silent. audit + all four kernel gates green.
+
 ## [8.127.0] — Camera + sensor coverage parity (kernel Phase Q, parity)
 
 Broadens the Phase Q **parity** evidence to the **camera↔sensor mapping**, per the

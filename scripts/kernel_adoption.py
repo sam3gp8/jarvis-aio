@@ -201,13 +201,18 @@ _DECLARED: dict[str, dict] = {
     # hypotheses (cause → effect) with a prediction surface — predict(context) /
     # explain(effect). SHADOW (Phase L): pattern_analyzer.analyze() folds the
     # sequence patterns it detects ("<trigger> then <action>") into a CausalModel
-    # and logs a one-line "causal(shadow)" summary (hypotheses built, effects the
-    # predictor surfaces, strongest cause→effect) — observe-only (kill-switch
-    # CAUSAL_PREDICT_SHADOW); nothing reads the model, and the cause-absent side is
-    # a shadow-only placeholder. Parity next (real per-trial contingency + accuracy
-    # over traffic), then enforce behind CAUSAL_PREDICT_ENFORCE gating a proactive
-    # path, fail-safe = reactive only.
-    "causal":       {"stage": "shadow",  "owners": ["pattern_analyzer"]},
+    # and logs a one-line "causal(shadow)" summary. PARITY (Phase L): on each
+    # analyze() pass, _emit_causal_parity reconstructs the REAL cause/effect
+    # contingency for the top sequence patterns from state history (Option A —
+    # event-window: each trigger firing a cause-present trial, effect present if
+    # the action follows within the pairing window; cause-absent trials are
+    # window-bins with no firing), builds a kernel CausalHypothesis and logs a
+    # "causal(parity)" line comparing the ΔP verdict against pattern_analyzer's
+    # co-occurrence confidence (how many patterns survive the base-rate correction
+    # vs are explained away) — observe-only (kill-switches CAUSAL_PREDICT_SHADOW /
+    # CAUSAL_PREDICT_PARITY), driving nothing. Enforce behind CAUSAL_PREDICT_ENFORCE
+    # (gating a proactive path, fail-safe = reactive only) is the owner-gated rung.
+    "causal":       {"stage": "parity",  "owners": ["pattern_analyzer"]},
     "priority":     {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
