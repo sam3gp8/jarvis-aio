@@ -12,10 +12,15 @@ import pytest
 @pytest.fixture
 def cont(load, tmp_path, monkeypatch):
     mod = load("continuity")
-    # Redirect the snapshot DB to a tmp file (the binder resolves it via
-    # config_path_str); keep every call pointing at the same path.
-    db = str(tmp_path / "agency.db")
-    monkeypatch.setattr(mod, "config_path_str", lambda *a, **k: db)
+    # Redirect each DB the binder resolves via config_path_str to its own tmp
+    # file, keyed by the filename arg (config_path_str("jarvis", "<name>.db")),
+    # exactly as production keeps agency.db / journal.db / situations.db apart —
+    # each kernel.persistence DB has its own schema-version row, so they must not
+    # collide on one file.
+    def _path(*a, **k):
+        name = a[1] if len(a) > 1 else "agency.db"
+        return str(tmp_path / name)
+    monkeypatch.setattr(mod, "config_path_str", _path)
     return mod
 
 
@@ -273,3 +278,69 @@ def test_capture_attaches_beliefs_even_without_a_goal(cont, load, monkeypatch):
     # survives the store round-trip
     assert cont._store().load_latest().cognitive.beliefs == (
         "front_door.locked=true (p=0.95)",)
+
+
+# ── Phase I-B (enrichment): in-flight execution from the kernel journal ──────
+
+class _FakeStep:
+    def __init__(self, action, status="running"):
+        self.action = action
+        self.status = status
+
+
+def _patch_journal(load, monkeypatch, in_flight):
+    jr_mod = load("kernel.journal")
+
+    class _FakeJournal:
+        def __init__(self, db_path, **k):
+            pass
+
+        def in_flight(self):
+            return list(in_flight)
+
+    monkeypatch.setattr(jr_mod, "ExecutionJournal", _FakeJournal)
+    return jr_mod
+
+
+def test_live_execution_single_step(cont, load, monkeypatch):
+    _patch_journal(load, monkeypatch, [_FakeStep("lock front_door")])
+    assert cont._live_execution() == "running: lock front_door"
+
+
+def test_live_execution_multiple_steps(cont, load, monkeypatch):
+    _patch_journal(load, monkeypatch, [
+        _FakeStep("lock front_door"), _FakeStep("arm alarm"), _FakeStep("close garage")])
+    assert cont._live_execution() == "3 steps running; e.g. lock front_door"
+
+
+def test_live_execution_empty_when_nothing_in_flight(cont, load, monkeypatch):
+    _patch_journal(load, monkeypatch, [])
+    assert cont._live_execution() == ""
+
+
+def test_live_execution_defensive_on_failure(cont, load, monkeypatch):
+    jr_mod = load("kernel.journal")
+
+    class _BoomJournal:
+        def __init__(self, db_path, **k):
+            raise RuntimeError("journal db down")
+
+    monkeypatch.setattr(jr_mod, "ExecutionJournal", _BoomJournal)
+    assert cont._live_execution() == ""
+
+
+def test_capture_attaches_execution(cont, load, monkeypatch):
+    # No goal, no beliefs, but a step mid-flight → cognitive captures execution.
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    _patch_goals(load, monkeypatch, [])
+    _patch_worldmodel(load, monkeypatch, [])
+    _patch_journal(load, monkeypatch, [_FakeStep("lock front_door")])
+    state = cont.capture_now()
+    assert state is not None and state.cognitive is not None
+    assert state.cognitive.execution == "running: lock front_door"
+    assert state.cognitive.intent == "" and state.cognitive.beliefs == ()
+    # reaches the boot continuity line and persists
+    assert "running: lock front_door" not in cont.boot_summary()  # summary omits execution
+    assert cont._store().load_latest().cognitive.execution == "running: lock front_door"

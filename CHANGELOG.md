@@ -1,3 +1,31 @@
+## [8.116.0] — Continuity remembers what was mid-execution (kernel Phase I-B)
+
+Extends the Phase I-B cognitive snapshot with the `execution` field: what JARVIS
+was *mid-doing* at snapshot time, read from the kernel execution journal (H4) —
+the steps that were started but not finished, which is exactly what a restart
+would need to resume.
+
+- New `continuity._live_execution`: reads `ExecutionJournal.in_flight()` and
+  renders a short line — `running: <action>` for a single step, or
+  `N steps running; e.g. <action>` for several. `_live_cognitive` now fills
+  `CognitiveContext.execution`.
+- **Shadow / observe-only, behaviour-preserving.** `agency_state` stays at the
+  `shadow` adoption stage. The journal read runs only on the executor thread
+  (`capture_now` is dispatched via `async_add_executor_job`), so the sqlite read
+  never touches the event loop; it is empty when nothing is in flight and on any
+  failure. With no goal, beliefs *and* nothing in flight, the context is still
+  dropped, so a bare snapshot stays byte-identical to before.
+- `continuity` now appears as a `journal` reader in the adoption matrix
+  (regenerated via `kernel_docs_sync --write`); no `_DECLARED` stage change.
+
+tests: `tests/unit/test_continuity.py` gains the execution cases (single step,
+multiple steps, empty when nothing in flight, defensive on a failing journal,
+and the snapshot capturing + persisting execution). The `cont` fixture now
+resolves each kernel DB (`agency.db` / `journal.db` / `situations.db`) to its
+own tmp file, matching production — each `kernel.persistence` DB keeps its own
+schema-version row, so they must not share one file. audit + all four kernel
+gates green.
+
 ## [8.115.0] — Continuity remembers its salient beliefs too (kernel Phase I-B)
 
 Extends the Phase I-B cognitive snapshot: alongside `intent` + `plan`, the
