@@ -1,3 +1,29 @@
+## [8.124.0] — Space/time breach-depth parity (kernel Phase Q, parity)
+
+Advances Phase Q to the **parity** rung for the spatial model: the intrusion
+investigator now computes the breach-depth map from the kernel `SpatialGraph`
+alongside its incumbent `residence_graph.hops_from_breach` and logs whether they
+agree — observe-only, so this release changes nothing JARVIS does.
+
+- `cognitive_core._emit_space_time_parity`: for a breach area, builds the kernel
+  `SpatialGraph` over the same floor-plan adjacency and compares its
+  `hops_from(breach)` (room-slug → depth) against the incumbent's result, logging
+  `space_time(parity): breach-depth agree=… (kernel=N room(s), legacy=M room(s))`.
+  Behind the `SPACE_TIME_PARITY` kill-switch (default on); best-effort, never
+  raises. Called from the intrusion path right after `hops_from_breach` — the
+  investigation is unchanged whether it runs or not.
+- This isolates the kernel BFS (`SpatialGraph.hops_from`) as a faithful
+  re-implementation of the incumbent before any enforce rung reads the model. It
+  deliberately does **not** touch the camera↔sensor mapping (cf. #140): that
+  parity and the `SPACE_TIME_ENFORCE` flip (presence/coverage/routing reading the
+  model authoritatively, fail-safe = present mapping) are later, owner-gated rungs.
+- Adoption: `space_time` advances **shadow → parity** (owner `cognitive_core`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+
+tests: `test_space_time_shadow.py` gains parity cases — agreement logged,
+divergence logged, and the kill-switch / no-breach paths stay silent. audit +
+all four kernel gates green.
+
 ## [8.123.0] — Space/time view + shadow (kernel Phase Q, shadow)
 
 Advances Phase Q to the **shadow** rung: the kernel space/time primitive now has

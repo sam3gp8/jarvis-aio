@@ -93,7 +93,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `provenance` | ◐ shadow |
 | `router` | ◐ shadow |
 | `situation` | ● enforce |
-| `space_time` | ◐ shadow |
+| `space_time` | ◑ parity |
 | `token_telemetry` | ◐ shadow |
 | `uncertainty` | · pure |
 | `world_model` | ● enforce |

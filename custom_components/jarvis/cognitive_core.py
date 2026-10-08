@@ -859,6 +859,9 @@ class SafetyManager:
                     self.hass, self.config, breach_area)
             except Exception:
                 pass
+            # Phase Q (parity): check the kernel SpatialGraph reproduces the same
+            # breach-depth map — observe-only, drives nothing.
+            _emit_space_time_parity(self.hass, self.config, breach_area, hops)
             connected.discard(None)
             # ONE alert, then investigate. An intentionally-open window is still
             # a valid entry point — alert once and watch, rather than ignore it.
@@ -2815,6 +2818,45 @@ def _on_state_changed(event: Event) -> None:
 # (camera↔sensor mapping, cf. #140) then enforce behind SPACE_TIME_ENFORCE is a
 # later rung and the household's call.
 SPACE_TIME_SHADOW = True
+
+# Phase Q parity: alongside the intrusion investigator's existing
+# residence_graph.hops_from_breach, compute the same breach-depth map from the
+# kernel SpatialGraph and log whether they AGREE — observe-only, drives nothing.
+# Both derive from the same floor-plan adjacency (residence_graph.room_adjacency),
+# so this isolates the kernel BFS (SpatialGraph.hops_from) as a faithful
+# re-implementation of the incumbent before any enforce rung reads the model. Set
+# SPACE_TIME_PARITY = False to silence it. (It deliberately does NOT touch the
+# camera↔sensor mapping, cf. #140 — that parity + the SPACE_TIME_ENFORCE flip are
+# later, owner-gated rungs.)
+SPACE_TIME_PARITY = True
+
+
+def _emit_space_time_parity(hass, config, breach_area, legacy_hops) -> None:
+    """Phase Q — parity. Compare the kernel SpatialGraph's breach-depth BFS with
+    the incumbent ``residence_graph.hops_from_breach`` result (``legacy_hops``,
+    ``{area_id: hops}``) at the room-slug level, and log AGREEMENT/DIVERGENCE.
+    Best-effort, never raises; the investigation is unchanged either way."""
+    if not SPACE_TIME_PARITY or not breach_area:
+        return
+    try:
+        from . import residence_graph
+        from .kernel.world_model import WorldModel
+        g = WorldModel(hass, config or {}).spatial_graph()
+        if g.is_empty():
+            return
+        start = residence_graph._area_slug(hass, breach_area)
+        kernel_slug_hops = g.hops_from(start)           # {slug: depth}
+        legacy_slug_hops = {
+            residence_graph._area_slug(hass, aid): d
+            for aid, d in (legacy_hops or {}).items()
+        }
+        agree = kernel_slug_hops == legacy_slug_hops
+        _LOGGER.debug(
+            "space_time(parity): breach-depth agree=%s "
+            "(kernel=%d room(s), legacy=%d room(s))",
+            agree, len(kernel_slug_hops), len(legacy_slug_hops))
+    except Exception:   # pragma: no cover - defensive
+        pass
 
 
 def _emit_space_time_shadow(hass, config) -> None:

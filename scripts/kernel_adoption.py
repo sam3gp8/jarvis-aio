@@ -76,15 +76,18 @@ _DECLARED: dict[str, dict] = {
     # pure SpatialGraph (areas + undirected adjacency, built from a floor-plan
     # adjacency map like residence_graph.room_adjacency, with neighbor / adjacent
     # / BFS hops / distance / within queries) and a TemporalFrame (an hour+weekday
-    # resolved to a coarse daypart, is_weekend / is_daytime). SHADOW (Phase Q):
-    # world_model exposes a space/time view (spatial_graph() built from the
-    # floor-plan adjacency + temporal_frame() from the clock), and the
-    # cognitive_core tick builds both and logs a one-line "space_time(shadow)"
-    # summary — observe-only (kill-switch SPACE_TIME_SHADOW); nothing reads the
-    # model authoritatively yet. Parity next (camera↔sensor mapping, cf. #140),
-    # then enforce behind SPACE_TIME_ENFORCE with the current per-feature mapping
-    # as the fail-safe.
-    "space_time":   {"stage": "shadow",  "owners": ["cognitive_core"]},
+    # resolved to a coarse daypart, is_weekend / is_daytime). PARITY (Phase Q):
+    # world_model exposes a space/time view (spatial_graph() + temporal_frame());
+    # the cognitive_core tick logs a one-line "space_time(shadow)" summary, and
+    # the intrusion investigator now computes the breach-depth map from the kernel
+    # SpatialGraph alongside the incumbent residence_graph.hops_from_breach and
+    # logs AGREEMENT/DIVERGENCE ("space_time(parity)") — observe-only (kill-
+    # switches SPACE_TIME_SHADOW / SPACE_TIME_PARITY), driving nothing. This
+    # parity isolates the kernel BFS as a faithful re-implementation of the
+    # incumbent; the camera↔sensor mapping (cf. #140) and the enforce flip
+    # (SPACE_TIME_ENFORCE — presence/coverage/routing reading the model
+    # authoritatively, fail-safe = present mapping) are later, owner-gated rungs.
+    "space_time":   {"stage": "parity",  "owners": ["cognitive_core"]},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS
