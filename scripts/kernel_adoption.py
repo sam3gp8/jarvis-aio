@@ -148,11 +148,14 @@ _DECLARED: dict[str, dict] = {
     # per step and clamped to [floor, ceil], with the prior retained so apply/undo
     # are lossless. Governance invariant (enforced in the math): a protected
     # weight (authority gate / safety threshold) can only tighten, never be
-    # relaxed. PURE: exists + unit-tested, nothing live consumes it yet — shadow
-    # computes would-be adjustments, parity compares offline, enforce updates
-    # belief confidences behind LEARNING_ENFORCE (clamped + audited), fail-safe =
-    # frozen weights.
-    "learning":     {"stage": "pure",    "owners": []},
+    # relaxed. SHADOW (Phase M): actuation keeps a bounded window of recent
+    # kernel.outcome.Outcomes and, per verified actuation, logs the would-be
+    # per-capability trust WeightAdjustment learning.adjust() would compute from
+    # that capability's track record (a neutral 0.5 prior) — observe-only
+    # (kill-switch LEARNING_SHADOW); nothing consumes the adjustment. Parity
+    # compares offline, enforce updates real per-capability trust behind
+    # LEARNING_ENFORCE (clamped + audited), fail-safe = frozen weights.
+    "learning":     {"stage": "shadow",  "owners": ["actuation"]},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

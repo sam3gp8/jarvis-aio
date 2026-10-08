@@ -103,6 +103,40 @@ def test_outcome_shadow_records_failure_verdict(actuation, load, fake_hass, monk
     assert captured[0].learning_signal <= 0.0
 
 
+# ── Phase M (shadow): per-capability trust learning adjustment ────────────────
+
+def test_learning_shadow_logs_would_be_trust_adjustment(actuation, load, fake_hass,
+                                                         monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "LEARNING_SHADOW", True)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        # three successful verified actuations of the same capability
+        for _ in range(3):
+            actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    msgs = [r.message for r in caplog.records if "learning(shadow):" in r.message]
+    assert msgs, "expected a learning(shadow) log line"
+    last = msgs[-1]
+    assert "capability=light.turn_on" in last
+    # success signals push the would-be trust ABOVE the 0.5 neutral prior
+    assert "trust 0.50 ->" in last and "n=3" in last
+
+
+def test_learning_shadow_kill_switch(actuation, load, fake_hass, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "LEARNING_SHADOW", False)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    assert not any("learning(shadow)" in r.message for r in caplog.records)
+
+
 def test_outcome_shadow_kill_switch_silences(actuation, load, fake_hass, monkeypatch):
     koutcome = load("kernel.outcome")
     called = {"n": 0}
