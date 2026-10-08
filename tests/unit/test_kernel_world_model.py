@@ -166,3 +166,35 @@ def test_person_home_detection_parity(wm_mod, hass):
     # raw-source parity
     raw_home = any(s.state == "home" for s in hass.states.async_all("person"))
     assert any(d["state"] == "home" for d in people) == raw_home
+
+
+# ── knowledge-graph view (roadmap Phase T — shadow) ───────────────────────────
+# The facade folds facts()+relationships() into a typed kernel.graph view.
+# Shadow: available + unit-tested, consumed by nothing.
+
+def test_knowledge_graph_view(wm_mod, hass, monkeypatch):
+    monkeypatch.setattr(wm_mod, "_all_facts", lambda subj: [
+        {"subject": "Front Door", "key": "material", "value": "oak",
+         "confidence": 0.9, "source": "user"}])
+    monkeypatch.setattr(wm_mod, "_related", lambda s, o, p: [
+        {"subject": "Front Door", "predicate": "leads_to", "object": "Hallway"}])
+    wm = wm_mod.WorldModel(hass)
+    g = wm.knowledge_graph()
+    assert not g.is_empty()
+    assert {e.name for e in wm.entities()} == {"Front Door", "Hallway"}
+    rels = wm.relations("Front Door")
+    assert len(rels) == 1 and rels[0].predicate == "leads_to"
+    assert wm.query(predicate="leads_to")[0].object == "Hallway"
+    # the Front Door node carries its attribute
+    fd = g.entity("front door")
+    assert fd is not None and fd.get("material") == "oak"
+
+
+def test_knowledge_graph_best_effort_on_error(wm_mod, hass, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("store down")
+    monkeypatch.setattr(wm_mod, "_all_facts", boom)
+    monkeypatch.setattr(wm_mod, "_related", boom)
+    wm = wm_mod.WorldModel(hass)
+    assert wm.knowledge_graph().is_empty()
+    assert wm.entities() == [] and wm.relations() == [] and wm.query() == []

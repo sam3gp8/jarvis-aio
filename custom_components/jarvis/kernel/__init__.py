@@ -35,6 +35,7 @@ from . import (
     causal,
     conflict,
     cycle,
+    graph,
     identity_fabric,
     journal,
     loop_detect,
@@ -61,6 +62,7 @@ from .authority import (
     authorize,
 )
 from .beliefs import Belief, Evidence
+from .graph import Attribute, Entity, KnowledgeGraph, Relation
 from .identity_fabric import (
     IdentityAssertion,
     IdentityResolution,
@@ -123,6 +125,11 @@ __all__ = [
     "beliefs",
     "Belief",
     "Evidence",
+    "graph",
+    "KnowledgeGraph",
+    "Entity",
+    "Relation",
+    "Attribute",
     "attention",
     "arbitrate",
     "AttentionRequest",

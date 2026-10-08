@@ -60,13 +60,15 @@ _DECLARED: dict[str, dict] = {
     "cycle":        {"stage": "parity",  "owners": ["cognitive_core"]},
     # graph: typed, queryable knowledge graph (roadmap Phase T, Deep World
     # Model). Entities (nodes with attributes) + typed directed relations, built
-    # from plain knowledge.py fact/relation rows with a small pure query surface
-    # (entity / relate / neighbors). PURE: the structure + queries exist and are
-    # unit-tested, nothing live consumes it yet. Shadow wires a graph view onto
-    # world_model (entities/relations/query), parity vs the current semantic
-    # recall, enforce behind KNOWLEDGE_GRAPH_ENFORCE with present recall as the
-    # fail-safe.
-    "graph":        {"stage": "pure",    "owners": []},
+    # from plain knowledge.py fact/relation rows with a small query surface
+    # (entity / relate / neighbors). SHADOW (Phase T): world_model exposes a
+    # graph view (knowledge_graph / entities / relations / query) built from the
+    # facts()+relationships() it already reads, and knowledge.all_facts() folds
+    # the live facts + relations into a KnowledgeGraph and logs a one-line
+    # summary — observe-only (kill-switch GRAPH_SHADOW); nothing reads the graph
+    # authoritatively yet. Parity vs the current semantic recall next, enforce
+    # behind KNOWLEDGE_GRAPH_ENFORCE (fail-safe = present recall), owner-gated.
+    "graph":        {"stage": "shadow",  "owners": ["knowledge"]},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS

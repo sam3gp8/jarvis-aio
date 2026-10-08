@@ -1,3 +1,31 @@
+## [8.120.0] — Knowledge-graph view + shadow (kernel Phase T, shadow)
+
+Advances Phase T to the **shadow** rung: a graph view over the curated knowledge
+is now available and exercised, but nothing reads it authoritatively yet.
+
+- **`kernel/world_model.py`** gains the graph view the plan calls for:
+  `knowledge_graph(subject)` folds the `facts()` + `relationships()` it already
+  reads into a `kernel.graph.KnowledgeGraph`, and `entities()` / `relations()` /
+  `query()` answer context queries over it. Best-effort (empty graph on any
+  failure). SHADOW — available + unit-tested, consumed by nothing.
+- **`knowledge.all_facts()`** now also folds the live facts + relation edges into
+  a `KnowledgeGraph` and logs a one-line summary (`_emit_graph_shadow`,
+  kill-switch `GRAPH_SHADOW`) — observe-only, exactly like the provenance shadow
+  beside it. The returned fact rows are unchanged whether it runs or not, so
+  behaviour is preserved.
+- `graph` adoption flips `pure → shadow` (owner `knowledge`); `kernel/__init__.py`
+  exports it (and `KnowledgeGraph`/`Entity`/`Relation`/`Attribute`);
+  KERNEL_ADOPTION.md + the Constitution ledger regenerated.
+- Still **no authoritative read** of the graph: parity (graph vs current
+  semantic recall) is next, and the enforce flip is gated behind
+  `KNOWLEDGE_GRAPH_ENFORCE` with present recall as the fail-safe.
+
+tests: `tests/unit/test_kernel_world_model.py` gains the graph-view cases
+(entities / relations / query, attribute lookup, best-effort on a failing
+store); `tests/unit/test_knowledge.py` gains the shadow cases (all_facts
+behaviour-preserving + logs the summary, and a failing relations read never
+breaks all_facts). audit + all four kernel gates green.
+
 ## [8.119.0] — Knowledge-graph kernel primitive (kernel Phase T, pure)
 
 Opens roadmap **Phase T — Deep World Model** at the first rung of the ladder

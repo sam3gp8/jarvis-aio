@@ -206,3 +206,25 @@ def test_emit_provenance_shadow_is_defensive(knowledge):
         [{"value": 1, "source": "x", "confidence": 0.5}, "not-a-dict", None])
     knowledge._emit_provenance_shadow([])
     knowledge._emit_provenance_shadow(None)
+
+
+# ── knowledge-graph shadow (roadmap Phase T) ──────────────────────────────────
+# all_facts() also folds facts (+ relations) into a kernel.graph.KnowledgeGraph
+# and logs a one-line summary. Observe-only: the returned rows are unchanged.
+
+def test_all_facts_graph_shadow_is_behaviour_preserving(knowledge, caplog):
+    import logging
+    knowledge.remember("trash day", "Tuesday", kind="fact", now=1000.0)
+    with caplog.at_level(logging.DEBUG):
+        facts = knowledge.all_facts()
+    assert len(facts) == 1 and facts[0]["key"] == "trash day"   # rows unchanged
+    assert any("graph(shadow)" in r.message for r in caplog.records)
+
+
+def test_graph_shadow_never_breaks_all_facts(knowledge, monkeypatch):
+    # A failing relations read inside the shadow emit must not affect all_facts.
+    def boom(*a, **k):
+        raise RuntimeError("related down")
+    monkeypatch.setattr(knowledge, "related", boom)
+    knowledge.remember("k", "v", kind="fact", now=1000.0)
+    assert len(knowledge.all_facts()) == 1
