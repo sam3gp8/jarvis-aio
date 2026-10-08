@@ -1,3 +1,29 @@
+## [8.119.0] — Knowledge-graph kernel primitive (kernel Phase T, pure)
+
+Opens roadmap **Phase T — Deep World Model** at the first rung of the ladder
+(pure): a typed, queryable knowledge graph as a kernel primitive.
+
+- New `kernel/graph.py` — a pure, immutable `KnowledgeGraph` of **entities**
+  (nodes with attributes) and typed directed **relations** (edges). Built from
+  plain `knowledge.py`-shaped rows (`{subject,key,value,confidence,source}`
+  facts, `{subject,predicate,object,confidence}` relations) via
+  `KnowledgeGraph.from_rows`, with a small case-insensitive query surface:
+  `entity()`, `relate(subject/predicate/object)`, `neighbors()`, `is_empty()`.
+  Construction is total (messy rows skipped, duplicate edges de-duped, bad
+  confidences defaulted) and does no I/O.
+- **PURE — nothing live consumes it yet, so behaviour is entirely unchanged.**
+  The later rungs wire a graph view onto `kernel/world_model.py`
+  (`entities`/`relations`/`query`) in shadow, then parity against the current
+  semantic recall, then enforce behind a `KNOWLEDGE_GRAPH_ENFORCE` kill-switch
+  with the present recall as the fail-safe — none of which lands here.
+- Declared `graph: pure` in `scripts/kernel_adoption.py`; KERNEL_ADOPTION.md
+  regenerated.
+
+tests: new `tests/unit/test_kernel_graph.py` — construction (entities, implied
+relation endpoints, attribute sort), totality on messy input, de-dup, the
+query surface (relate / neighbors / entity, all case-insensitive), empty graph,
+and frozen/hashable invariants. audit + all four kernel gates green.
+
 ## [8.118.0] — Continuity records who JARVIS was serving (kernel Phase I-B)
 
 Adds the `identity` cognitive field — the **last-identified principal** — so the
