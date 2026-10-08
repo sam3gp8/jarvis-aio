@@ -228,3 +228,60 @@ def test_graph_shadow_never_breaks_all_facts(knowledge, monkeypatch):
     monkeypatch.setattr(knowledge, "related", boom)
     knowledge.remember("k", "v", kind="fact", now=1000.0)
     assert len(knowledge.all_facts()) == 1
+
+
+# ── knowledge-graph enforce path (roadmap Phase T, gated off by default) ──────
+# _graph_expand_facts does 1-hop relation expansion; prompt_block_async uses it
+# only when KNOWLEDGE_GRAPH_ENFORCE is on (default off = plain recall).
+
+def test_graph_expand_facts_pulls_related_entity(knowledge):
+    knowledge.remember("role", "resident", subject="sam", now=1000.0)
+    knowledge.remember("color", "red", subject="car", now=1000.0)
+    knowledge.relate("sam", "owns", "car", now=1000.0)
+    seed = [f for f in knowledge.all_facts() if f["subject"] == "sam"]
+    out = knowledge._graph_expand_facts(seed)
+    subjects = {f["subject"] for f in out}
+    assert "sam" in subjects and "car" in subjects    # 1-hop expansion over the edge
+    assert out[0]["subject"] == "sam"                 # seed first, preserved
+
+
+def test_graph_expand_facts_respects_cap(knowledge, monkeypatch):
+    monkeypatch.setattr(knowledge, "_GRAPH_EXPAND_CAP", 1)
+    knowledge.remember("role", "resident", subject="sam", now=1000.0)
+    knowledge.remember("a", "1", subject="car", now=1000.0)
+    knowledge.remember("b", "2", subject="car", now=1001.0)
+    knowledge.relate("sam", "owns", "car", now=1000.0)
+    seed = [f for f in knowledge.all_facts() if f["subject"] == "sam"]
+    out = knowledge._graph_expand_facts(seed)
+    assert len([f for f in out if f["subject"] == "car"]) == 1   # capped
+
+
+def test_graph_expand_facts_defensive(knowledge, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("related down")
+    monkeypatch.setattr(knowledge, "related", boom)
+    seed = [{"subject": "sam", "key": "role", "value": "resident",
+             "source": "stated", "confidence": 1.0}]
+    assert knowledge._graph_expand_facts(seed) == seed           # unchanged, no raise
+
+
+def test_prompt_block_enforce_off_is_plain_recall(knowledge):
+    import asyncio
+    from fakes import FakeHass
+    knowledge.remember("role", "resident", subject="sam", now=1000.0)
+    knowledge.remember("color", "red", subject="car", now=1000.0)
+    knowledge.relate("sam", "owns", "car", now=1000.0)
+    # default KNOWLEDGE_GRAPH_ENFORCE is False → block is plain recall, no expansion
+    block = asyncio.run(knowledge.prompt_block_async(FakeHass(), "", subject="sam"))
+    assert "resident" in block and "red" not in block
+
+
+def test_prompt_block_enforce_on_expands_one_hop(knowledge, monkeypatch):
+    import asyncio
+    from fakes import FakeHass
+    monkeypatch.setattr(knowledge, "KNOWLEDGE_GRAPH_ENFORCE", True)
+    knowledge.remember("role", "resident", subject="sam", now=1000.0)
+    knowledge.remember("color", "red", subject="car", now=1000.0)
+    knowledge.relate("sam", "owns", "car", now=1000.0)
+    block = asyncio.run(knowledge.prompt_block_async(FakeHass(), "", subject="sam"))
+    assert "resident" in block and "red" in block     # car facts pulled in 1 hop

@@ -46,6 +46,20 @@ PROVENANCE_SHADOW = True
 # way. (world_model.knowledge_graph() exposes the same view as a facade.)
 GRAPH_SHADOW = True
 
+# ENFORCE (Phase T, Deep World Model) — OFF by default. When True, the curated-
+# knowledge prompt block becomes graph-authoritative: the recall-seeded facts are
+# expanded one hop through the knowledge graph (facts about directly-related
+# entities are pulled in too), so JARVIS's injected context reasons over the
+# graph, not just flat recall. Fail-safe: any failure (or an empty graph result)
+# falls back to exactly the current recall block, so flipping this can only add
+# context, never lose the present behaviour. Owner-gated: left False here; the
+# household flips it when ready to run the live context read graph-authoritative.
+KNOWLEDGE_GRAPH_ENFORCE = False
+
+# Cap on how many related-entity facts the 1-hop expansion may add, so the block
+# stays compact.
+_GRAPH_EXPAND_CAP = 6
+
 
 def _emit_provenance_shadow(facts: list) -> None:
     """Log the provenance view of a fact set (shadow). Best-effort, never raises —
@@ -86,6 +100,58 @@ def _emit_graph_shadow(facts: list) -> None:
                           len(g.entities), len(g.relations))
     except Exception:   # pragma: no cover - defensive
         pass
+
+
+def _graph_expand_facts(seed_facts: list) -> list:
+    """Graph-authoritative 1-hop expansion of a recall-seeded fact set (Phase T
+    enforce). Builds the knowledge graph from the live facts + relations and, for
+    each subject present in the seed, appends facts about directly-related
+    entities (one hop, in or out edges), de-duped by (subject, key) and capped at
+    ``_GRAPH_EXPAND_CAP``. The seed facts always come first and are never dropped.
+    Best-effort → the seed facts unchanged on any failure (the fail-safe for the
+    enforce path). SYNC — call via executor."""
+    seed = list(seed_facts or [])
+    try:
+        from .kernel import graph as G
+        all_rows = all_facts() or []
+        relations = related() or []
+    except Exception:
+        return seed
+    try:
+        g = G.KnowledgeGraph.from_rows(all_rows, relations)
+        by_subject: dict = {}
+        for f in all_rows:
+            by_subject.setdefault(str(f.get("subject", "")).lower(), []).append(f)
+        seen = {(str(f.get("subject", "")).lower(), str(f.get("key", "")))
+                for f in seed}
+        seed_subjects = {str(f.get("subject", "")).lower()
+                         for f in seed if f.get("subject")}
+        out = list(seed)
+        added = 0
+        for subj in sorted(seed_subjects):
+            if added >= _GRAPH_EXPAND_CAP:
+                break
+            neighbours = set()
+            for r in g.relate(subj):            # out-edges: subj -> X
+                neighbours.add(str(r.object).lower())
+            for r in g.relate(object=subj):     # in-edges:  Y -> subj
+                neighbours.add(str(r.subject).lower())
+            neighbours.discard(subj)
+            for n in sorted(neighbours):
+                for f in by_subject.get(n, []):
+                    key = (n, str(f.get("key", "")))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append(f)
+                    added += 1
+                    if added >= _GRAPH_EXPAND_CAP:
+                        break
+                if added >= _GRAPH_EXPAND_CAP:
+                    break
+        return out
+    except Exception:   # pragma: no cover - defensive
+        return seed
 
 DB_PATH = config_path_str("jarvis", "knowledge.db")
 
@@ -504,6 +570,16 @@ async def prompt_block_async(hass, query: str = "", *, subject: Optional[str] = 
     else:
         facts = await hass.async_add_executor_job(
             lambda: all_facts(subject=subject, now=now, subjects=subjects)[:limit])
+    # Phase T enforce (owner-gated, default off): make the block graph-authoritative
+    # by expanding the recall-seeded facts one hop through the knowledge graph.
+    # Fail-safe: any failure or empty result keeps the recall block exactly.
+    if KNOWLEDGE_GRAPH_ENFORCE and facts:
+        try:
+            expanded = await hass.async_add_executor_job(_graph_expand_facts, facts)
+            if expanded:
+                facts = expanded
+        except Exception:   # pragma: no cover - defensive
+            pass
     return _format_block(facts)
 
 
