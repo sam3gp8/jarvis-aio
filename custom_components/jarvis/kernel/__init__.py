@@ -53,7 +53,7 @@ from .actuator import ActuatorOutcome, ActuatorRequest, build_actuator_request
 from .loop_detect import LoopDetector, LoopVerdict
 from .journal import ExecutionJournal, JournaledStep, RecoveryReport, recover
 from .budget import AgencyBudget, BudgetLimits, BudgetVerdict
-from .causal import CausalHypothesis, CausalModel
+from .causal import CausalHypothesis, CausalModel, Explanation, Prediction
 from .attention import AttentionContext, AttentionDecision, AttentionRequest, arbitrate
 from .authority import (
     AuthorityDecision,
@@ -150,6 +150,8 @@ __all__ = [
     "causal",
     "CausalModel",
     "CausalHypothesis",
+    "Prediction",
+    "Explanation",
     "identity_fabric",
     "IdentityAssertion",
     "IdentityResolution",

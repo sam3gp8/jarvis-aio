@@ -14,11 +14,19 @@ effect that happens just as often without the cause. Confidence shrinks ΔP towa
 Pure: no Home Assistant import, no I/O — a `CausalHypothesis` is immutable and
 ``observed()`` returns a new one; the `CausalModel` is a thin in-memory tally.
 Phase 7 ships it additively; the learning modules adopt it later.
+
+Prediction (roadmap Phase L): the same tally answers two forward questions, as
+pure reads — ``predict(context)`` (which effects the currently-present causes
+make likely) and ``explain(effect)`` (which causes best account for an observed
+effect). PURE: the query surface exists and is unit-tested, but nothing live
+consumes it yet. Later rungs log predicted-vs-actual (shadow), measure accuracy
+over real traffic (parity), then gate a proactive path on prediction confidence
+behind ``CAUSAL_PREDICT_ENFORCE`` with reactive-only as the fail-safe.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 # Shrinkage constant: ΔP is scaled by trials / (trials + _PRIOR) so a handful of
 # observations can't assert strong causation. ~5 balanced trials → half strength.
@@ -90,6 +98,24 @@ class CausalHypothesis:
         return "none"
 
 
+@dataclass(frozen=True)
+class Prediction:
+    """A predicted effect given the current context — the strongest causal
+    confidence behind it and the present causes that drive it (strongest first)."""
+
+    effect: str
+    confidence: float
+    causes: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Explanation:
+    """A candidate cause for an observed effect, with its causal confidence."""
+
+    cause: str
+    confidence: float
+
+
 class CausalModel:
     """An in-memory tally of causal hypotheses keyed by (cause, effect)."""
 
@@ -116,3 +142,41 @@ class CausalModel:
         """Hypotheses by strongest absolute causal confidence first."""
         out = [h for h in self._h.values() if abs(h.confidence) >= min_abs_confidence]
         return sorted(out, key=lambda h: abs(h.confidence), reverse=True)
+
+    # ── prediction surface (roadmap Phase L) ──────────────────────────────────
+    def predict(self, context: Iterable[str] = (), *,
+                min_confidence: float = 0.05) -> List["Prediction"]:
+        """Effects the causes present in ``context`` make likely.
+
+        ``context`` is an iterable of currently-present cause names. Every
+        hypothesis whose cause is present and positively causal (confidence ≥
+        ``min_confidence``) predicts its effect; when several present causes drive
+        the same effect the strongest confidence wins and every contributing cause
+        is listed (strongest first). Pure read over the tally; predictions are
+        returned strongest-first. Never raises on messy input."""
+        present = {str(c) for c in (context or ())}
+        by_effect: Dict[str, List[Tuple[float, str]]] = {}
+        for h in self._h.values():
+            if h.cause in present and h.confidence >= min_confidence:
+                by_effect.setdefault(h.effect, []).append((h.confidence, h.cause))
+        preds: List[Prediction] = []
+        for effect, contribs in by_effect.items():
+            contribs.sort(reverse=True)
+            preds.append(Prediction(
+                effect=effect,
+                confidence=contribs[0][0],
+                causes=tuple(cause for _, cause in contribs),
+            ))
+        return sorted(preds, key=lambda p: p.confidence, reverse=True)
+
+    def explain(self, effect: str, *,
+                min_confidence: float = 0.05) -> List["Explanation"]:
+        """Candidate causes that best account for an observed ``effect`` —
+        hypotheses with this effect and positive causal confidence ≥
+        ``min_confidence``, strongest first. Pure; never raises."""
+        out = [
+            Explanation(cause=h.cause, confidence=h.confidence)
+            for h in self._h.values()
+            if h.effect == effect and h.confidence >= min_confidence
+        ]
+        return sorted(out, key=lambda e: e.confidence, reverse=True)
