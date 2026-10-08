@@ -180,11 +180,96 @@ def test_capture_attaches_and_persists_cognitive(cont, load, monkeypatch):
 
 
 def test_capture_without_goal_stays_commitment_only(cont, load, monkeypatch):
-    # No active goal → cognitive dropped → snapshot stays commitment-only
-    # (byte-identical to the pre-I-B behaviour).
+    # No active goal and no hass (so no belief view) → cognitive dropped →
+    # snapshot stays commitment-only (byte-identical to the pre-I-B behaviour).
     monkeypatch.setattr(cont, "_live_mode", lambda: "home")
     monkeypatch.setattr(cont, "_live_goals", lambda: [])
     monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
     _patch_goals(load, monkeypatch, [])
     state = cont.capture_now()
     assert state is not None and state.cognitive is None
+
+
+# ── Phase I-B (enrichment): salient beliefs from the WorldModel belief view ──
+
+class _FakeBelief:
+    def __init__(self, proposition, probability):
+        self.proposition = proposition
+        self.probability = probability
+
+
+def _patch_worldmodel(load, monkeypatch, beliefs):
+    wm_mod = load("kernel.world_model")
+
+    class _FakeWM:
+        def __init__(self, hass, config=None):
+            pass
+
+        def beliefs(self, subject=None):
+            return list(beliefs)
+
+    monkeypatch.setattr(wm_mod, "WorldModel", _FakeWM)
+    return wm_mod
+
+
+def test_live_beliefs_drops_identity_ranks_and_renders(cont, load, monkeypatch):
+    _patch_worldmodel(load, monkeypatch, [
+        _FakeBelief("I am JARVIS", 0.99),              # leading identity → dropped
+        _FakeBelief("kitchen.temperature=21", 0.60),
+        _FakeBelief("front_door.locked=true", 0.95),
+        _FakeBelief("garage.open=false", 0.80),
+    ])
+    out = cont._live_beliefs(hass=object())
+    # Identity dropped; ranked by confidence desc; each rendered with p=.
+    assert out[0] == "front_door.locked=true (p=0.95)"
+    assert out == (
+        "front_door.locked=true (p=0.95)",
+        "garage.open=false (p=0.80)",
+        "kitchen.temperature=21 (p=0.60)",
+    )
+    assert all("JARVIS" not in b for b in out)
+
+
+def test_live_beliefs_caps_count(cont, load, monkeypatch):
+    many = [_FakeBelief("identity", 0.99)] + [
+        _FakeBelief(f"f{i}=x", 0.9 - i * 0.01) for i in range(20)]
+    _patch_worldmodel(load, monkeypatch, many)
+    assert len(cont._live_beliefs(hass=object())) == cont._MAX_BELIEFS
+
+
+def test_live_beliefs_empty_without_hass(cont):
+    assert cont._live_beliefs(None) == ()
+
+
+def test_live_beliefs_defensive_on_failure(cont, load, monkeypatch):
+    wm_mod = load("kernel.world_model")
+
+    class _BoomWM:
+        def __init__(self, hass, config=None):
+            pass
+
+        def beliefs(self, subject=None):
+            raise RuntimeError("knowledge store down")
+
+    monkeypatch.setattr(wm_mod, "WorldModel", _BoomWM)
+    assert cont._live_beliefs(hass=object()) == ()
+
+
+def test_capture_attaches_beliefs_even_without_a_goal(cont, load, monkeypatch):
+    # With a live hass and salient beliefs but no active goal, the cognitive
+    # context is still captured (beliefs alone), and persists.
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    _patch_goals(load, monkeypatch, [])
+    _patch_worldmodel(load, monkeypatch, [
+        _FakeBelief("I am JARVIS", 0.99),
+        _FakeBelief("front_door.locked=true", 0.95),
+    ])
+    state = cont.capture_now(hass=object())
+    assert state is not None and state.cognitive is not None
+    assert state.cognitive.intent == ""     # no active goal
+    assert state.cognitive.beliefs == ("front_door.locked=true (p=0.95)",)
+    # survives the store round-trip
+    assert cont._store().load_latest().cognitive.beliefs == (
+        "front_door.locked=true (p=0.95)",)
