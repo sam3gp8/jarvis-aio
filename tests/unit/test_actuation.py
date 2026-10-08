@@ -137,6 +137,58 @@ def test_learning_shadow_kill_switch(actuation, load, fake_hass, monkeypatch, ca
     assert not any("learning(shadow)" in r.message for r in caplog.records)
 
 
+# ── Phase N (shadow): would-be graduated-autonomy level per capability ────────
+
+def test_autonomy_shadow_logs_would_be_level(actuation, load, fake_hass,
+                                             monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "AUTONOMY_SHADOW", True)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        for _ in range(3):
+            actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    msgs = [r.message for r in caplog.records if "autonomy(shadow):" in r.message]
+    assert msgs, "expected an autonomy(shadow) log line"
+    last = msgs[-1]
+    # light.turn_on is a SENSITIVE capability; 3 clean samples is short of the
+    # CONFIRM bar (>=5) so it still reads as 'suggest', risk=sensitive.
+    assert "capability=light.turn_on" in last
+    assert "risk=sensitive" in last and "level=suggest" in last and "n=3" in last
+
+
+def test_autonomy_shadow_security_capability_pinned(actuation, load, fake_hass,
+                                                    monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "AUTONOMY_SHADOW", True)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("lock.unlock", "lock.front", action="unlock",
+                            expected=("unlocked",))
+    fake_hass.states.set("lock.front", "unlocked", area="hall")
+    with caplog.at_level(logging.DEBUG):
+        for _ in range(6):
+            actuation.outcome(req, "verified", fake_hass, "lock.front", detail="ok")
+    msgs = [r.message for r in caplog.records if "autonomy(shadow):" in r.message]
+    assert msgs, "expected an autonomy(shadow) log line"
+    last = msgs[-1]
+    # a security capability stays pinned at confirm even on a clean streak.
+    assert "risk=security" in last and "level=confirm" in last and "[pinned]" in last
+
+
+def test_autonomy_shadow_kill_switch(actuation, load, fake_hass, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "AUTONOMY_SHADOW", False)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    assert not any("autonomy(shadow)" in r.message for r in caplog.records)
+
+
 # ── Phase M (parity): learned trust vs realized success rate ──────────────────
 
 def test_learning_parity_agrees_on_consistent_success(actuation, load, fake_hass,
