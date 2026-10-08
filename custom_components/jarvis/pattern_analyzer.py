@@ -122,6 +122,66 @@ class DetectedPattern:
     details: dict = field(default_factory=dict)
 
 
+# ── causal prediction shadow (roadmap Phase L) ──────────────────────────────────
+# Observe-only: fold the sequence patterns this analyzer already detects
+# ("<trigger> then <action>") into the kernel causal model and log a one-line
+# summary — the predictor running over real learned relationships. Nothing reads
+# the model; the detected patterns and their suggestions are unchanged. Set
+# CAUSAL_PREDICT_SHADOW = False to silence it. NOTE (first rung): a sequence
+# pattern only carries the co-occurrence count, not the full cause-present/absent
+# × effect-present/absent contingency, so the shadow pairs each co-occurrence with
+# an equal "effect does not occur without the cause" baseline purely so ΔP is
+# defined and predict() can be exercised. That baseline is a shadow-only
+# placeholder; the PARITY rung replaces it with the real per-trial contingency
+# computed from state history. Confidence here is therefore provisional and drives
+# nothing.
+CAUSAL_PREDICT_SHADOW = True
+_CAUSAL_SHADOW_CAP = 20   # cap trials per pattern so a huge count can't dominate
+
+
+def _emit_causal_shadow(patterns: list) -> None:
+    """Phase L — shadow. Build the kernel causal model from the detected sequence
+    patterns and log a one-line summary (hypotheses built, effects the predictor
+    surfaces, strongest cause→effect). Best-effort, never raises; drives nothing."""
+    if not CAUSAL_PREDICT_SHADOW:
+        return
+    try:
+        from .kernel import causal
+        model = causal.CausalModel()
+        seqs = 0
+        for p in (patterns or []):
+            if getattr(p, "pattern_type", None) != "sequence":
+                continue
+            details = getattr(p, "details", None) or {}
+            trig = details.get("trigger") or {}
+            act = details.get("action") or {}
+            te, te_s = trig.get("entity"), trig.get("state")
+            ae, ae_s = act.get("entity"), act.get("state")
+            if not te or not ae:
+                continue
+            cause = f"{te}={te_s}"
+            effect = f"{ae}={ae_s}"
+            n = max(1, min(int(getattr(p, "occurrences", 0) or 0), _CAUSAL_SHADOW_CAP))
+            for _ in range(n):
+                model.observe(cause, effect, cause_present=True, effect_present=True)
+                # shadow-only baseline (see module note): effect absent without cause
+                model.observe(cause, effect, cause_present=False, effect_present=False)
+            seqs += 1
+        ranked = model.ranked(min_abs_confidence=0.05)
+        if not ranked:
+            return
+        # exercise the Phase L predict() surface over the learned causes
+        causes = {h.cause for h in ranked}
+        recovered = sum(1 for c in causes if model.predict([c]))
+        top = ranked[0]
+        _LOGGER.debug(
+            "causal(shadow): %d hypothesis(es) from %d sequence pattern(s); "
+            "predict() surfaces %d cause(s); strongest %s -> %s (conf %.2f)",
+            len(ranked), seqs, recovered, top.cause, top.effect, top.confidence)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 # Domains that expose only observable state and no actuating service — an
 # "action" that targets one of these can never turn into a real automation step.
 _READ_ONLY_ACTION_DOMAINS = frozenset({
@@ -1019,6 +1079,10 @@ class PatternAnalyzer:
                 p.description = _humanize_entities(p.description, name_map)
             except Exception:
                 pass
+
+        # Phase L (shadow): fold the detected sequence patterns into the kernel
+        # causal model and log a one-line summary — observe-only, drives nothing.
+        _emit_causal_shadow(patterns)
 
         # Clear any pending suggestions that aren't actionable automations —
         # legacy rows stored before the actionability filter, so the review list

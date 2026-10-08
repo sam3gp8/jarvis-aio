@@ -59,7 +59,7 @@ explicit per-flip owner go/no-go.
 | `authority` | ● enforce | `authority_bridge` |
 | `beliefs` | ◐ shadow | `agent` |
 | `budget` | ● enforce | `actuation` |
-| `causal` | · pure | — |
+| `causal` | ◐ shadow | `pattern_analyzer` |
 | `conflict` | · pure | — |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `cycle` | ◑ parity | `cognitive_core` |
