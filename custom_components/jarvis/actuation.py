@@ -18,6 +18,7 @@ gate it. Promoting any of this to enforcement is a separate, owner-gated step.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Any, Dict, Optional, Sequence
 
 _LOGGER = logging.getLogger(__name__)
@@ -325,6 +326,47 @@ def _record_outcome_shadow(request, status: str, observed, detail: str) -> None:
             correlation_id=str(getattr(request, "correlation_id", "") or ""),
         )
         _LOGGER.debug("outcome(shadow): %s", oc.to_dict())
+        # Phase M (shadow): feed the outcome into the learning loop and log the
+        # would-be per-capability trust adjustment — observe-only, drives nothing.
+        _emit_learning_shadow(oc)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+# SHADOW (Phase M — Learning & Adaptation): keep a bounded window of recent
+# kernel.outcome.Outcomes and, per verified actuation, log the *would-be*
+# per-capability trust adjustment the learning primitive (kernel.learning) would
+# compute from that capability's track record. Observe-only — nothing consumes
+# the adjustment; the real per-capability trust store arrives with Phase N, and
+# applying adjustments is the owner-gated LEARNING_ENFORCE rung. The prior is a
+# neutral 0.5 until that store exists. Set LEARNING_SHADOW = False to silence it.
+LEARNING_SHADOW = True
+_LEARN_WINDOW = 50                 # recent outcomes retained for the rollup
+_CAP_TRUST_PRIOR = 0.5             # neutral prior (no real trust store until Phase N)
+_recent_outcomes: deque = deque(maxlen=_LEARN_WINDOW)
+
+
+def _emit_learning_shadow(oc) -> None:
+    """Phase M shadow: roll up recent outcomes for this outcome's capability and
+    log the would-be trust WeightAdjustment. Best-effort, never raises."""
+    if not LEARNING_SHADOW:
+        return
+    try:
+        _recent_outcomes.append(oc)
+        cap = getattr(oc, "capability", "") or ""
+        if not cap:
+            return
+        from .kernel import learning
+        cap_outcomes = [o for o in _recent_outcomes
+                        if (getattr(o, "capability", "") or "") == cap]
+        adj = learning.adjust(cap, _CAP_TRUST_PRIOR, cap_outcomes)
+        if adj.samples == 0:
+            return
+        _LOGGER.debug(
+            "learning(shadow): capability=%s trust %.2f -> %.2f "
+            "(delta %+.2f, signal %.2f, n=%d)%s",
+            cap, adj.prior, adj.proposed, adj.delta, adj.signal, adj.samples,
+            " [clamped]" if adj.clamped else "")
     except Exception:   # pragma: no cover - defensive
         pass
 

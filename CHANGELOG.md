@@ -1,3 +1,28 @@
+## [8.130.0] — Per-capability trust learning shadow (kernel Phase M, shadow)
+
+Advances Phase M to the **shadow** rung (owner-chosen: per-capability trust from
+actuation outcomes). On each verified actuation, JARVIS now logs the *would-be*
+per-capability trust adjustment the learning primitive would compute — observe-only,
+so this release changes nothing JARVIS does.
+
+- `actuation` keeps a bounded window (`_LEARN_WINDOW`, 50) of the recent
+  `kernel.outcome.Outcome` records it already emits (the #237 outcome shadow), and
+  `_emit_learning_shadow` rolls up the just-acted capability's track record and logs
+  `learning(shadow): capability=<cap> trust 0.50 -> X.XX (delta ±…, signal …, n=…)`
+  via `kernel.learning.adjust` (neutral `0.5` prior — the real per-capability trust
+  store arrives with Phase N). Behind the `LEARNING_SHADOW` kill-switch (default on);
+  best-effort, never raises; nothing consumes the adjustment.
+- The learning primitive's guards carry through: adjustments are bounded, reversible,
+  and a protected weight could never be relaxed (trust weights here are unprotected).
+- Adoption: `learning` advances **pure → shadow** (owner `actuation`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Parity (offline
+  accuracy) next; enforce updates a real per-capability trust store behind
+  `LEARNING_ENFORCE` (clamped + audited), fail-safe = frozen weights.
+
+tests: `tests/unit/test_actuation.py` gains learning-shadow cases — three verified
+actuations push the would-be trust above the neutral prior and log `n=3`, and the
+kill-switch silences it. audit + all four kernel gates green.
+
 ## [8.129.0] — Learning & adaptation primitive (kernel Phase M, pure)
 
 Opens roadmap **Phase M — Learning & Adaptation** at its first rung: a pure

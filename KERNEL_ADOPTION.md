@@ -68,7 +68,7 @@ explicit per-flip owner go/no-go.
 | `graph` | ◐ shadow | `knowledge` |
 | `identity_fabric` | ◑ parity | `identity` |
 | `journal` | ◐ shadow | `continuity`, `goals` |
-| `learning` | · pure | — |
+| `learning` | ◐ shadow | `actuation` |
 | `ledger` | ◐ shadow | `__init__` |
 | `loop_detect` | ● enforce | `actuation` |
 | `outcome` | ◐ shadow | `actuation` |
