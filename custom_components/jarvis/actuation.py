@@ -331,9 +331,11 @@ def _record_outcome_shadow(request, status: str, observed, detail: str) -> None:
         # realized success rate — both observe-only, drive nothing.
         _emit_learning_shadow(oc)
         _emit_learning_parity(oc)
-        # Phase N (shadow): log the would-be graduated-autonomy level this
-        # capability has earned from the same rolling window — observe-only.
+        # Phase N (shadow + parity): log the would-be graduated-autonomy level
+        # this capability has earned from the same rolling window, then compare
+        # whether it would auto-execute with the blanket mode flag — observe-only.
         _emit_autonomy_shadow(oc)
+        _emit_autonomy_parity(oc)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -441,6 +443,49 @@ def _emit_autonomy_shadow(oc) -> None:
             "autonomy(shadow): capability=%s risk=%s level=%s "
             "(n=%d, rate=%.2f)%s", cap, g.risk, g.level, g.samples,
             g.success_rate, " [pinned]" if g.pinned else "")
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+# PARITY (Phase N): offline-compare whether the would-be *earned* autonomy level
+# for this capability would auto-execute (``AutonomyGrant.may_act``) against the
+# single blanket incumbent it refines — the active mode's auto-actions flag
+# (``modes.mode_allows_auto_actions``, "whether autonomy graduations may
+# auto-execute"). A divergence flags a capability whose per-capability earned
+# trust disagrees with the one-size-fits-all flag — exactly the resolution the
+# owner-gated GRADUATED_AUTONOMY_ENFORCE rung buys by replacing the flag with the
+# earned level. Per-proactive-pattern trust stays with cognitive_core's
+# AutonomyManager; this axis is the blanket flag only. Observe-only; nothing
+# consumes it. Set AUTONOMY_PARITY = False to silence it.
+AUTONOMY_PARITY = True
+
+
+def _emit_autonomy_parity(oc) -> None:
+    """Phase N parity: compare the would-be earned autonomy level's auto-execute
+    verdict for this capability against the blanket mode auto-actions flag and log
+    agreement. Best-effort, never raises; reads the same window, drives nothing."""
+    if not AUTONOMY_PARITY:
+        return
+    try:
+        cap = getattr(oc, "capability", "") or ""
+        if not cap:
+            return
+        from .kernel import autonomy, outcome as _koutcome
+        cap_outcomes = [o for o in _recent_outcomes
+                        if (getattr(o, "capability", "") or "") == cap]
+        stats = _koutcome.summarize(cap_outcomes)
+        g = autonomy.grant(cap, stats)
+        try:
+            from . import modes
+            auto_flag = bool(modes.mode_allows_auto_actions())
+        except Exception:   # pragma: no cover - defensive
+            return
+        earned_auto = g.may_act
+        agree = (earned_auto == auto_flag)
+        _LOGGER.debug(
+            "autonomy(parity): capability=%s earned=%s earned_auto=%s "
+            "mode_auto_flag=%s agree=%s (n=%d)", cap, g.level, earned_auto,
+            auto_flag, agree, g.samples)
     except Exception:   # pragma: no cover - defensive
         pass
 

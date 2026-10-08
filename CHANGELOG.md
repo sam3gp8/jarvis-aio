@@ -1,3 +1,32 @@
+## [8.134.0] — Graduated autonomy parity (kernel Phase N, parity)
+
+Advances Phase N to the **parity** rung: alongside the would-be per-capability
+autonomy level (shadow, 8.133.0), JARVIS now logs whether that level's
+auto-execute verdict agrees with the single blanket incumbent it refines — the
+active mode's auto-actions flag. Observe-only, so this release changes nothing
+JARVIS does.
+
+- `actuation._emit_autonomy_parity`: for the just-acted capability it computes the
+  earned level (`kernel.autonomy.grant`) and compares its auto-execute verdict
+  (`AutonomyGrant.may_act`) against `modes.mode_allows_auto_actions()` — *"whether
+  autonomy graduations may auto-execute under the active mode"* — logging
+  `autonomy(parity): capability=<cap> earned=<level> earned_auto=<bool>
+  mode_auto_flag=<bool> agree=<bool> (n=…)`. A **divergence** flags a capability
+  whose per-capability earned trust disagrees with the one-size-fits-all flag —
+  precisely the resolution the enforce rung buys by replacing the blanket flag
+  with the earned level. Behind the `AUTONOMY_PARITY` kill-switch (default on);
+  best-effort, never raises; drives nothing.
+- Per-proactive-pattern trust stays with `cognitive_core`'s `AutonomyManager`
+  (acceptance-earned, per pattern); this axis is the blanket mode flag only.
+- Adoption: `autonomy` advances **shadow → parity** (owner `actuation`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Enforce
+  (`GRADUATED_AUTONOMY_ENFORCE` replacing the blanket flag with the earned level,
+  fail-safe = the current single setting) stays **owner-gated**.
+
+tests: `tests/unit/test_actuation.py` gains parity cases — flag on + unearned logs
+`agree=False` (divergence), flag off + unearned logs `agree=True`, and the
+kill-switch silences it. audit + all four kernel gates green.
+
 ## [8.133.0] — Graduated autonomy shadow (kernel Phase N, shadow)
 
 Advances Phase N to the **shadow** rung: on each verified actuation JARVIS now
