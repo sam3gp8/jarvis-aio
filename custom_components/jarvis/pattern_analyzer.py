@@ -182,6 +182,133 @@ def _emit_causal_shadow(patterns: list) -> None:
         pass
 
 
+# ── causal prediction parity (roadmap Phase L) ──────────────────────────────────
+# Observe-only: for the top detected sequence patterns, reconstruct the REAL
+# cause-present/absent × effect-present/absent contingency from state history
+# (Option A — event-window: every trigger firing is a cause-present trial, effect
+# present if the action follows within the pairing window; cause-absent trials are
+# window-sized bins with no trigger firing). Feed that into a kernel
+# CausalHypothesis and compare its ΔP verdict against pattern_analyzer's own
+# co-occurrence confidence — logging how many patterns survive the base-rate
+# correction (AGREEMENT) vs are explained away by the effect's base rate
+# (DIVERGENCE). Nothing reads the model; detected patterns/suggestions are
+# unchanged. Set CAUSAL_PREDICT_PARITY = False to silence it. This replaces the
+# shadow's placeholder baseline with real contingency; enforce
+# (CAUSAL_PREDICT_ENFORCE gating a proactive path) stays owner-gated.
+CAUSAL_PREDICT_PARITY = True
+_CAUSAL_PARITY_WINDOW_S = 600.0   # match _find_sequence_patterns' pairing window
+_CAUSAL_PARITY_CAP = 10           # top sequence patterns to reconstruct per pass
+
+
+def _causal_firing_epochs(conn, entity: str, state: str) -> list:
+    """Sorted epochs (last 30 days) of ``entity`` transitioning to ``state``."""
+    out: list = []
+    try:
+        rows = conn.execute(
+            "SELECT timestamp FROM state_changes "
+            "WHERE entity_id=? AND new_state=? "
+            "AND timestamp > datetime('now', '-30 days') ORDER BY timestamp",
+            (entity, state)).fetchall()
+    except Exception:
+        return out
+    for r in rows:
+        try:
+            out.append(datetime.fromisoformat(r["timestamp"]).timestamp())
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def _causal_contingency(cause_epochs: list, effect_epochs: list,
+                        window_s: float = _CAUSAL_PARITY_WINDOW_S) -> tuple:
+    """Event-window 2×2 ``(n11, n10, n01, n00)`` for cause→effect (Option A). Pure.
+
+    Cause-present trials are the cause firings themselves: effect-present when an
+    effect firing falls in ``(t, t+window]``. Cause-absent trials are the
+    window-sized bins (over the observed span) that contain no cause firing:
+    effect-present when an effect firing lands in that bin."""
+    import bisect
+    eff = sorted(effect_epochs or [])
+    causes = sorted(cause_epochs or [])
+    n11 = n10 = 0
+    for t in causes:
+        j = bisect.bisect_right(eff, t)          # first effect strictly after t
+        if j < len(eff) and eff[j] <= t + window_s:
+            n11 += 1
+        else:
+            n10 += 1
+    # cause-absent bins over the span covered by either series
+    allt = causes + eff
+    if not allt or window_s <= 0:
+        return (n11, n10, 0, 0)
+    start, end = min(allt), max(allt)
+    total_bins = int((end - start) // window_s) + 1
+    cause_bins = {int((t - start) // window_s) for t in causes}
+    effect_bins = {int((t - start) // window_s) for t in eff}
+    n01 = n00 = 0
+    for b in range(total_bins):
+        if b in cause_bins:
+            continue                              # cause-present handled per-firing
+        if b in effect_bins:
+            n01 += 1
+        else:
+            n00 += 1
+    return (n11, n10, n01, n00)
+
+
+def _emit_causal_parity(conn, patterns: list) -> None:
+    """Phase L — parity. Reconstruct the real contingency for the top sequence
+    patterns from state history and compare the kernel causal ΔP verdict against
+    pattern_analyzer's co-occurrence confidence; log AGREEMENT/DIVERGENCE.
+    Best-effort, never raises; runs on the executor thread (DB access), drives
+    nothing."""
+    if not CAUSAL_PREDICT_PARITY:
+        return
+    try:
+        from .kernel import causal
+        seqs = [p for p in (patterns or [])
+                if getattr(p, "pattern_type", None) == "sequence"][:_CAUSAL_PARITY_CAP]
+        if not seqs:
+            return
+        confirms = diverges = 0
+        example = None
+        for p in seqs:
+            details = getattr(p, "details", None) or {}
+            trig = details.get("trigger") or {}
+            act = details.get("action") or {}
+            te, te_s = trig.get("entity"), trig.get("state")
+            ae, ae_s = act.get("entity"), act.get("state")
+            if not te or not ae:
+                continue
+            cause_ep = _causal_firing_epochs(conn, te, te_s)
+            effect_ep = _causal_firing_epochs(conn, ae, ae_s)
+            n11, n10, n01, n00 = _causal_contingency(cause_ep, effect_ep)
+            hyp = causal.CausalHypothesis(
+                cause=f"{te}={te_s}", effect=f"{ae}={ae_s}",
+                n11=n11, n10=n10, n01=n01, n00=n00)
+            # pattern_analyzer flagged it (it's a detected sequence); does the
+            # real causal contrast agree it's a genuine cause?
+            if hyp.direction == "causes":
+                confirms += 1
+            else:
+                diverges += 1
+            if example is None:
+                example = (p, hyp)
+        if confirms == 0 and diverges == 0:
+            return
+        msg = ("causal(parity): %d sequence pattern(s) re-scored on real "
+               "contingency; causal-confirms=%d, diverges=%d") % (
+            confirms + diverges, confirms, diverges)
+        if example is not None:
+            p, hyp = example
+            msg += (" e.g. %s -> %s pattern-conf=%.2f causal-ΔP-conf=%.2f" % (
+                hyp.cause, hyp.effect, float(getattr(p, "confidence", 0.0) or 0.0),
+                hyp.confidence))
+        _LOGGER.debug(msg)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 # Domains that expose only observable state and no actuating service — an
 # "action" that targets one of these can never turn into a real automation step.
 _READ_ONLY_ACTION_DOMAINS = frozenset({
@@ -1028,6 +1155,10 @@ class PatternAnalyzer:
                     patterns.extend(finder())
                 except Exception as exc:
                     _LOGGER.warning("Pattern finder %s failed: %s", name, exc)
+            # Phase L (parity): re-score the detected sequence patterns on the real
+            # cause/effect contingency from history and log agreement/divergence —
+            # observe-only, needs the open conn, drives nothing.
+            _emit_causal_parity(conn, patterns)
         finally:
             conn.close()
         return patterns
