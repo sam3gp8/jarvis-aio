@@ -1,3 +1,29 @@
+## [8.127.0] — Camera + sensor coverage parity (kernel Phase Q, parity)
+
+Broadens the Phase Q **parity** evidence to the **camera↔sensor mapping**, per the
+owner decision to corroborate area coverage with **both cameras and sensors**.
+Observe-only, so this release changes nothing JARVIS does.
+
+- `cognitive_core._emit_space_time_coverage_parity`: each cognitive tick, for the
+  areas the space/time model knows (the floor-plan `SpatialGraph`), counts how
+  many a camera covers (static, `camera_coverage.camera_for_area`) and how many a
+  presence sensor reports occupied right now (live,
+  `audio_routing.currently_occupied_areas`), plus the overlap where a
+  sensor-occupied area is also camera-corroborated. Logs a one-line
+  `space_time(parity): model=N area(s), cam-covered=C; occupied-now=K (in-model=M,
+  cam-corroborated=X)`. Behind the `SPACE_TIME_COVERAGE_PARITY` kill-switch
+  (default on); best-effort, never raises.
+- This is the camera↔sensor side of Phase Q parity (cf. #140): it surfaces how
+  well the two observation sources corroborate the spatial model's areas, as
+  evidence toward enforce. `space_time` stays at **parity** — nothing reads the
+  model, the current per-feature mapping stays authoritative, and the
+  `SPACE_TIME_ENFORCE` behaviour flip remains the household's call.
+
+tests: `tests/unit/test_space_time_shadow.py` gains coverage-parity cases — the
+combined cam+sensor summary is logged with the right counts, and the kill-switch /
+empty-model paths stay silent. audit + all four kernel gates green (no adoption or
+doc change — `space_time` was already parity).
+
 ## [8.126.0] — Causal prediction shadow via pattern_analyzer (kernel Phase L, shadow)
 
 Advances Phase L to the **shadow** rung: the pattern analyzer now feeds the
