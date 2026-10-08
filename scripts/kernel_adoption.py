@@ -151,11 +151,14 @@ _DECLARED: dict[str, dict] = {
     # relaxed. SHADOW (Phase M): actuation keeps a bounded window of recent
     # kernel.outcome.Outcomes and, per verified actuation, logs the would-be
     # per-capability trust WeightAdjustment learning.adjust() would compute from
-    # that capability's track record (a neutral 0.5 prior) — observe-only
-    # (kill-switch LEARNING_SHADOW); nothing consumes the adjustment. Parity
-    # compares offline, enforce updates real per-capability trust behind
-    # LEARNING_ENFORCE (clamped + audited), fail-safe = frozen weights.
-    "learning":     {"stage": "shadow",  "owners": ["actuation"]},
+    # that capability's track record (a neutral 0.5 prior). PARITY (Phase M):
+    # actuation also logs a "learning(parity)" line comparing that learned trust
+    # against the capability's realized success_rate (outcome.summarize) and
+    # whether they agree on direction — observe-only (kill-switches
+    # LEARNING_SHADOW / LEARNING_PARITY), driving nothing. Enforce updates a real
+    # per-capability trust store behind LEARNING_ENFORCE (clamped + audited),
+    # fail-safe = frozen weights; the trust store itself is a Phase N concern.
+    "learning":     {"stage": "parity",  "owners": ["actuation"]},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

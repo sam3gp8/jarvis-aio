@@ -326,9 +326,11 @@ def _record_outcome_shadow(request, status: str, observed, detail: str) -> None:
             correlation_id=str(getattr(request, "correlation_id", "") or ""),
         )
         _LOGGER.debug("outcome(shadow): %s", oc.to_dict())
-        # Phase M (shadow): feed the outcome into the learning loop and log the
-        # would-be per-capability trust adjustment — observe-only, drives nothing.
+        # Phase M (shadow + parity): feed the outcome into the learning loop and
+        # log the would-be per-capability trust adjustment, then compare it to the
+        # realized success rate — both observe-only, drive nothing.
         _emit_learning_shadow(oc)
+        _emit_learning_parity(oc)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -367,6 +369,42 @@ def _emit_learning_shadow(oc) -> None:
             "(delta %+.2f, signal %.2f, n=%d)%s",
             cap, adj.prior, adj.proposed, adj.delta, adj.signal, adj.samples,
             " [clamped]" if adj.clamped else "")
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+# PARITY (Phase M): offline-compare the learned per-capability trust against the
+# capability's realized success rate and log AGREEMENT/DIVERGENCE — observe-only.
+# The learned trust (confidence-weighted learning signal, nudged from the 0.5
+# prior) should point the same way as the raw success rate; a divergence flags a
+# capability whose confidence-weighting disagrees with its hit rate, which is
+# exactly what the enforce rung would need to get right before it trusts the
+# learned value. Nothing consumes it; set LEARNING_PARITY = False to silence it.
+LEARNING_PARITY = True
+
+
+def _emit_learning_parity(oc) -> None:
+    """Phase M parity: compare the would-be learned trust for this outcome's
+    capability against its realized success rate and log agreement. Best-effort,
+    never raises; reads the same rolling window, drives nothing."""
+    if not LEARNING_PARITY:
+        return
+    try:
+        cap = getattr(oc, "capability", "") or ""
+        if not cap:
+            return
+        from .kernel import learning, outcome as _koutcome
+        cap_outcomes = [o for o in _recent_outcomes
+                        if (getattr(o, "capability", "") or "") == cap]
+        stats = _koutcome.summarize(cap_outcomes)
+        if stats.count == 0:
+            return
+        trust = learning.adjust(cap, _CAP_TRUST_PRIOR, cap_outcomes).proposed
+        success_rate = stats.success_rate
+        agree = (trust >= _CAP_TRUST_PRIOR) == (success_rate >= 0.5)
+        _LOGGER.debug(
+            "learning(parity): capability=%s trust=%.2f success_rate=%.2f "
+            "agree=%s (n=%d)", cap, trust, success_rate, agree, stats.count)
     except Exception:   # pragma: no cover - defensive
         pass
 
