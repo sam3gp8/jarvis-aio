@@ -7,9 +7,10 @@ Bridges the pure ``kernel.agency_state`` primitive to the live integration:
 * on a periodic tick (and at boot), :func:`capture_now` reads the live goals,
   open situations and mode and writes a fresh snapshot, so the next boot has
   something to resume from. It also captures the Phase I-B *cognitive context*
-  (``intent`` + chosen ``plan`` from the primary active goal, and the salient
-  ``beliefs`` from the WorldModel belief view) so the boot continuity line can
-  say what JARVIS was thinking, not just what it had committed to.
+  (``intent`` + chosen ``plan`` from the primary active goal, the salient
+  ``beliefs`` from the WorldModel belief view, and the in-flight ``execution``
+  from the kernel journal) so the boot continuity line can say what JARVIS was
+  thinking and doing, not just what it had committed to.
 
 **Shadow:** it reads live state and writes its own snapshot DB + a log line; it
 drives nothing and changes no behaviour. Everything is defensive (a read failure
@@ -121,6 +122,32 @@ def _live_beliefs(hass=None) -> tuple:
         return ()
 
 
+def _live_execution(hass=None) -> str:
+    """A short summary of what JARVIS was mid-executing — the kernel journal's
+    in-flight steps (H4): steps started but not finished, which is exactly what a
+    restart would need to resume. Empty when nothing is in flight or on any
+    failure. Never raises. Runs only on the executor thread (capture_now is
+    dispatched there), so the journal read never touches the event loop.
+    """
+    try:
+        from .kernel.journal import ExecutionJournal
+        jr = ExecutionJournal(config_path_str("jarvis", "journal.db", hass=hass))
+        flight = jr.in_flight() or []
+    except Exception:
+        return ""
+    try:
+        if not flight:
+            return ""
+        actions = [str(getattr(s, "action", "") or "").strip() for s in flight]
+        first = next((a for a in actions if a), "")
+        n = len(flight)
+        if n == 1:
+            return f"running: {first}" if first else "1 step running"
+        return f"{n} steps running; e.g. {first}" if first else f"{n} steps running"
+    except Exception:  # pragma: no cover - defensive
+        return ""
+
+
 def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
     """Build the Phase I-B cognitive context from live subsystems (I-B — shadow).
 
@@ -129,7 +156,8 @@ def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
     * ``intent`` / ``plan`` — JARVIS's primary active goal (a goal *is* an
       outcome pursued across time);
     * ``beliefs`` — the most confident salient knowledge beliefs, from the
-      WorldModel belief view (E1).
+      WorldModel belief view (E1);
+    * ``execution`` — what was mid-flight, from the kernel execution journal (H4).
 
     The remaining CognitiveContext fields map to subsystems that are still pure /
     not yet built (delegations → Phase O, uncertainty → pure, …), so they are
@@ -148,8 +176,10 @@ def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
     except Exception:
         intent, plan = "", ""
     beliefs = _live_beliefs(hass)
+    execution = _live_execution(hass)
     try:
-        cog = agency_state.CognitiveContext(intent=intent, plan=plan, beliefs=beliefs)
+        cog = agency_state.CognitiveContext(
+            intent=intent, plan=plan, beliefs=beliefs, execution=execution)
         return cog if (cog is not None and not cog.is_empty()) else None
     except Exception:  # pragma: no cover - defensive
         return None
