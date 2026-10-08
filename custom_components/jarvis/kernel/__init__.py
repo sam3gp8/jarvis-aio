@@ -46,6 +46,7 @@ from . import (
     priority,
     router,
     situation,
+    space_time,
     token_telemetry,
 )
 from .actuator import ActuatorOutcome, ActuatorRequest, build_actuator_request
@@ -63,6 +64,7 @@ from .authority import (
 )
 from .beliefs import Belief, Evidence
 from .graph import Attribute, Entity, KnowledgeGraph, Relation
+from .space_time import Area, SpatialGraph, TemporalFrame, daypart_of
 from .identity_fabric import (
     IdentityAssertion,
     IdentityResolution,
@@ -130,6 +132,11 @@ __all__ = [
     "Entity",
     "Relation",
     "Attribute",
+    "space_time",
+    "SpatialGraph",
+    "TemporalFrame",
+    "Area",
+    "daypart_of",
     "attention",
     "arbitrate",
     "AttentionRequest",

@@ -1,3 +1,34 @@
+## [8.122.0] — Spatial & temporal model primitive (kernel Phase Q, pure)
+
+Opens roadmap **Phase Q — Embodied JARVIS** at its first rung: a pure kernel
+primitive for first-class **space** and **time**. Additive and observe-only —
+nothing in the live integration consumes it yet, so this release changes nothing.
+
+- New `kernel/space_time.py`:
+  - `SpatialGraph` — an immutable floor-plan graph of areas and undirected
+    adjacency, built from an adjacency map (`{area: iterable(neighbor)}`, the
+    exact shape `residence_graph.room_adjacency` already emits), with a small
+    pure, case-insensitive query surface: `neighbors`, `adjacent`, `hops_from`
+    (BFS distance by area, the pure counterpart of
+    `residence_graph.hops_from_breach`), `distance`, and `within(radius)`.
+    `from_adjacency` is total — it drops blank names, self-loops and duplicate
+    edges and never raises on messy input.
+  - `TemporalFrame` — an hour+weekday resolved to a coarse `daypart` (night /
+    morning / midday / afternoon / evening / late_night, boundaries matching the
+    integration's existing daypart sense), with `is_weekend` / `is_daytime` and a
+    standalone `daypart_of(hour)` helper. Unknown input yields an explicit
+    "unknown" frame rather than a false value.
+- **PURE** (Phase Q, first rung): declared `pure` in `kernel_adoption` and
+  registered in `kernel/__init__.py`; exempt from the live-owner check because
+  nothing consumes it yet. Later rungs wire a space/time view onto `world_model`
+  in shadow, then parity (camera↔sensor mapping, cf. #140), then enforce behind
+  `SPACE_TIME_ENFORCE` with the current per-feature mapping as the fail-safe.
+
+tests: `tests/unit/test_kernel_space_time.py` pins the daypart boundaries, the
+temporal frame (including total-on-garbage), undirected/de-duped graph
+construction, the case-insensitive queries, BFS hops/distance/radius, and that
+both structures are frozen and hashable. audit + all four kernel gates green.
+
 ## [8.121.0] — Graph-authoritative context, gated off (kernel Phase T, enforce wiring)
 
 Wires the Phase T **enforce** path — the knowledge graph becoming authoritative
