@@ -2806,6 +2806,39 @@ def _on_state_changed(event: Event) -> None:
         )
 
 
+# ── Space & time shadow (roadmap Phase Q, Embodied JARVIS) ──────────────────
+# Observe-only: build the kernel space/time model (floor-plan graph + current
+# daypart) alongside the tick and log a one-line summary. Nothing reads the
+# model yet — the current per-feature mapping (residence_graph, camera_coverage,
+# the briefing schedule) stays authoritative. Set SPACE_TIME_SHADOW = False to
+# silence it; the tick behaves identically either way. Advancing it to parity
+# (camera↔sensor mapping, cf. #140) then enforce behind SPACE_TIME_ENFORCE is a
+# later rung and the household's call.
+SPACE_TIME_SHADOW = True
+
+
+def _emit_space_time_shadow(hass, config) -> None:
+    """Phase Q — shadow. Build the ``WorldModel`` space/time views (the floor-plan
+    ``SpatialGraph`` + the current ``TemporalFrame``) and log a one-line summary.
+    Best-effort, never raises; the tick is unchanged whether this runs or not."""
+    if not SPACE_TIME_SHADOW:
+        return
+    try:
+        from .kernel.world_model import WorldModel
+        from .kernel import space_time as ST  # Phase Q owner reference
+        wm = WorldModel(hass, config or {})
+        g = wm.spatial_graph()
+        frame = wm.temporal_frame()
+        daypart = frame.daypart or ST.daypart_of(frame.hour) or "unknown"
+        if g.is_empty() and not frame.is_known:
+            return
+        _LOGGER.debug(
+            "space_time(shadow): %d area(s), %d adjacency(ies); daypart=%s",
+            len(g.areas), len(g.edges), daypart)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 # ── Main Evaluation Loop ───────────────────────────────────────────────────
 
 async def _tick():
@@ -2828,6 +2861,10 @@ async def _tick():
     else:
         anyone_home = any(
             s.state == "home" for s in hass.states.async_all("person"))
+
+    # Phase Q (shadow): observe the kernel space/time model alongside the tick.
+    # Observe-only, kill-switched — nothing reads it yet.
+    _emit_space_time_shadow(hass, config)
 
     from . import sleep_detection
     bedroom_areas = config.get("bedroom_areas", []) or []

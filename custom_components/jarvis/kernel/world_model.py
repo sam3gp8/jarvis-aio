@@ -82,6 +82,21 @@ def _where_last_seen(term: str) -> Optional[dict]:
     return scene_memory.where_last_seen(term)
 
 
+def _room_adjacency(config: dict) -> dict:
+    from .. import residence_graph
+    return residence_graph.room_adjacency(config or {})
+
+
+def _now():
+    """Local wall-clock now (HA-aware when available), for the temporal frame."""
+    try:
+        from homeassistant.util import dt as dt_util
+        return dt_util.now()
+    except Exception:
+        import datetime
+        return datetime.datetime.now()
+
+
 # ── area resolution ─────────────────────────────────────────────────────────────
 
 def _area_of(hass, entity_id: str, state: Any = None) -> Optional[str]:
@@ -298,6 +313,41 @@ class WorldModel:
         shadow/parity/enforce ladder builds on; nothing reads it authoritatively
         yet."""
         return self.relations(subject, predicate=predicate, obj=obj)
+
+    # ── space & time view (roadmap Phase Q, Embodied JARVIS) ─────────────────────
+    def spatial_graph(self, config: Optional[dict] = None) -> Any:
+        """The home's floor plan as a ``kernel.space_time.SpatialGraph`` — areas
+        and their adjacency, built from the same floor-plan adjacency the
+        intrusion investigator already derives (``residence_graph.room_adjacency``).
+
+        SHADOW (Phase Q): this view is available and unit-tested, but no live
+        decision consumes it yet; the current per-feature mapping stays
+        authoritative. Shadow → parity (camera↔sensor mapping, cf. #140) →
+        enforce (presence/coverage/routing read the model behind
+        ``SPACE_TIME_ENFORCE``, fail-safe = present mapping). Uses ``config`` when
+        given, else the config this facade was built with. Best-effort → an empty
+        graph on any failure."""
+        from . import space_time as ST
+        try:
+            adjacency = _room_adjacency(config if config is not None else self._config)
+            return ST.SpatialGraph.from_adjacency(adjacency)
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug("world_model.spatial_graph failed: %s", exc)
+            return ST.SpatialGraph()
+
+    def temporal_frame(self, now: Any = None) -> Any:
+        """The current moment as a ``kernel.space_time.TemporalFrame`` — the hour
+        and weekday resolved to a coarse daypart. SHADOW (Phase Q): available and
+        unit-tested, nothing reads it authoritatively yet. ``now`` is a
+        ``datetime`` (defaults to local wall-clock). Best-effort → an "unknown"
+        frame on any failure."""
+        from . import space_time as ST
+        try:
+            dt = now if now is not None else _now()
+            return ST.TemporalFrame.at(dt.hour, getattr(dt, "weekday", lambda: None)())
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug("world_model.temporal_frame failed: %s", exc)
+            return ST.TemporalFrame()
 
     # ── scene memory ────────────────────────────────────────────────────────────
     def last_seen(self, term: str) -> Optional[dict]:
