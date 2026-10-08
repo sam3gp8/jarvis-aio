@@ -1,3 +1,30 @@
+## [8.121.0] — Graph-authoritative context, gated off (kernel Phase T, enforce wiring)
+
+Wires the Phase T **enforce** path — the knowledge graph becoming authoritative
+for the conversation's injected knowledge — but ships it **OFF**, so this
+release changes nothing until the household flips the switch.
+
+- New `knowledge._graph_expand_facts`: 1-hop relation expansion — for each
+  subject in the recall-seeded facts, it pulls in facts about directly-related
+  entities (in/out edges) through the knowledge graph, de-duped and capped
+  (`_GRAPH_EXPAND_CAP`, 6). The seed facts always come first and are never
+  dropped; any failure returns the seed unchanged.
+- `knowledge.prompt_block_async` consults it **only when `KNOWLEDGE_GRAPH_ENFORCE`
+  is True** (default **False**): then the curated-knowledge block the LLM sees
+  is graph-authoritative with 1-hop expansion; otherwise it is byte-for-byte the
+  current recall block. Fail-safe: an empty or failed expansion falls back to the
+  recall block, so flipping the switch can only add context, never lose today's.
+- **Owner-gated, behaviour-preserving as shipped.** The kill-switch is off, so
+  the `graph` adoption stays `shadow`; flipping `KNOWLEDGE_GRAPH_ENFORCE` to True
+  is what advances it to `enforce` (and is the household's call — it's a live
+  change to what JARVIS knows per turn). No kernel-primitive/actuation path is
+  touched; the bypass gate is unaffected.
+
+tests: `tests/unit/test_knowledge.py` gains the enforce cases — `_graph_expand_facts`
+pulls a related entity's facts one hop, respects the cap, and is defensive on a
+failing relations read; and `prompt_block_async` is plain recall with the switch
+off but expands one hop with it on. audit + all four kernel gates green.
+
 ## [8.120.0] — Knowledge-graph view + shadow (kernel Phase T, shadow)
 
 Advances Phase T to the **shadow** rung: a graph view over the curated knowledge

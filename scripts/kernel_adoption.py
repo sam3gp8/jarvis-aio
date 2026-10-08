@@ -66,8 +66,11 @@ _DECLARED: dict[str, dict] = {
     # facts()+relationships() it already reads, and knowledge.all_facts() folds
     # the live facts + relations into a KnowledgeGraph and logs a one-line
     # summary — observe-only (kill-switch GRAPH_SHADOW); nothing reads the graph
-    # authoritatively yet. Parity vs the current semantic recall next, enforce
-    # behind KNOWLEDGE_GRAPH_ENFORCE (fail-safe = present recall), owner-gated.
+    # authoritatively yet. The ENFORCE path is wired but gated OFF
+    # (KNOWLEDGE_GRAPH_ENFORCE=False): when the household flips it, the curated-
+    # knowledge prompt block becomes graph-authoritative with 1-hop relation
+    # expansion and the current recall as the fail-safe; that flip advances this
+    # row to "enforce". Until then the live state is shadow.
     "graph":        {"stage": "shadow",  "owners": ["knowledge"]},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
