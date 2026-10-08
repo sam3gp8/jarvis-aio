@@ -344,3 +344,79 @@ def test_capture_attaches_execution(cont, load, monkeypatch):
     # reaches the boot continuity line and persists
     assert "running: lock front_door" not in cont.boot_summary()  # summary omits execution
     assert cont._store().load_latest().cognitive.execution == "running: lock front_door"
+
+
+# ── Phase I-B (enrichment): autonomy posture + learning suggestions ──────────
+
+def _patch_modes(load, monkeypatch, allow_auto):
+    modes = load("modes")
+    monkeypatch.setattr(modes, "mode_allows_auto_actions", lambda: allow_auto)
+    return modes
+
+
+def _patch_learning(load, monkeypatch, pending):
+    import types
+    pa = load("pattern_analyzer")
+    monkeypatch.setattr(pa, "get_analyzer", lambda: types.SimpleNamespace(
+        get_pending_suggestions=lambda: list(pending)))
+    return pa
+
+
+def test_live_autonomy_only_when_restricted(cont, load, monkeypatch):
+    _patch_modes(load, monkeypatch, allow_auto=False)
+    assert cont._live_autonomy() == "auto-actions suppressed"
+
+
+def test_live_autonomy_empty_when_permissive(cont, load, monkeypatch):
+    _patch_modes(load, monkeypatch, allow_auto=True)
+    assert cont._live_autonomy() == ""
+
+
+def test_live_autonomy_defensive(cont, load, monkeypatch):
+    modes = load("modes")
+
+    def boom():
+        raise RuntimeError("modes down")
+    monkeypatch.setattr(modes, "mode_allows_auto_actions", boom)
+    assert cont._live_autonomy() == ""
+
+
+def test_live_learning_counts_pending(cont, load, monkeypatch):
+    _patch_learning(load, monkeypatch, [{"id": 1}, {"id": 2}, {"id": 3}])
+    assert cont._live_learning() == "3 suggestions pending review"
+
+
+def test_live_learning_singular(cont, load, monkeypatch):
+    _patch_learning(load, monkeypatch, [{"id": 1}])
+    assert cont._live_learning() == "1 suggestion pending review"
+
+
+def test_live_learning_empty_when_none(cont, load, monkeypatch):
+    _patch_learning(load, monkeypatch, [])
+    assert cont._live_learning() == ""
+
+
+def test_live_learning_defensive(cont, load, monkeypatch):
+    pa = load("pattern_analyzer")
+
+    def boom():
+        raise RuntimeError("analyzer down")
+    monkeypatch.setattr(pa, "get_analyzer", boom)
+    assert cont._live_learning() == ""
+
+
+def test_capture_attaches_autonomy_and_learning(cont, load, monkeypatch):
+    monkeypatch.setattr(cont, "_live_mode", lambda: "guest")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    _patch_goals(load, monkeypatch, [])                 # no active goal
+    _patch_modes(load, monkeypatch, allow_auto=False)   # restricted
+    _patch_learning(load, monkeypatch, [{"id": 1}, {"id": 2}])
+    state = cont.capture_now()   # no hass → beliefs empty; empty journal → execution empty
+    assert state is not None and state.cognitive is not None
+    assert state.cognitive.autonomy == "auto-actions suppressed"
+    assert state.cognitive.learning == "2 suggestions pending review"
+    # persists through the store
+    reloaded = cont._store().load_latest().cognitive
+    assert reloaded.autonomy == "auto-actions suppressed"
+    assert reloaded.learning == "2 suggestions pending review"

@@ -7,10 +7,11 @@ Bridges the pure ``kernel.agency_state`` primitive to the live integration:
 * on a periodic tick (and at boot), :func:`capture_now` reads the live goals,
   open situations and mode and writes a fresh snapshot, so the next boot has
   something to resume from. It also captures the Phase I-B *cognitive context*
-  (``intent`` + chosen ``plan`` from the primary active goal, the salient
-  ``beliefs`` from the WorldModel belief view, and the in-flight ``execution``
-  from the kernel journal) so the boot continuity line can say what JARVIS was
-  thinking and doing, not just what it had committed to.
+  — ``intent`` + chosen ``plan`` (primary active goal), salient ``beliefs``
+  (WorldModel belief view), in-flight ``execution`` (kernel journal), a
+  restricted ``autonomy`` posture (modes) and ``learning`` suggestions pending
+  review (pattern_analyzer) — so the boot continuity line can say what JARVIS
+  was thinking and doing, not just what it had committed to.
 
 **Shadow:** it reads live state and writes its own snapshot DB + a log line; it
 drives nothing and changes no behaviour. Everything is defensive (a read failure
@@ -148,6 +149,37 @@ def _live_execution(hass=None) -> str:
         return ""
 
 
+def _live_autonomy() -> str:
+    """The active mode's autonomy posture, surfaced only when it is RESTRICTED —
+    autonomy graduations may not auto-execute right now. That is the notable case
+    worth resuming; in the default/permissive case (and on failure) this is
+    empty, so an otherwise-bare snapshot stays byte-identical to before. Never
+    raises."""
+    try:
+        from . import modes
+        if not modes.mode_allows_auto_actions():
+            return "auto-actions suppressed"
+    except Exception:
+        return ""
+    return ""
+
+
+def _live_learning() -> str:
+    """How many learned automation suggestions are waiting on the user's review
+    (pattern_analyzer). Empty when none or on failure. Never raises. Runs only on
+    the executor thread (capture_now is dispatched there), so the sqlite read
+    never touches the event loop."""
+    try:
+        from . import pattern_analyzer
+        pending = pattern_analyzer.get_analyzer().get_pending_suggestions() or []
+    except Exception:
+        return ""
+    n = len(pending)
+    if not n:
+        return ""
+    return f"{n} suggestion{'s' if n != 1 else ''} pending review"
+
+
 def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
     """Build the Phase I-B cognitive context from live subsystems (I-B — shadow).
 
@@ -157,10 +189,13 @@ def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
       outcome pursued across time);
     * ``beliefs`` — the most confident salient knowledge beliefs, from the
       WorldModel belief view (E1);
-    * ``execution`` — what was mid-flight, from the kernel execution journal (H4).
+    * ``execution`` — what was mid-flight, from the kernel execution journal (H4);
+    * ``autonomy`` — the active mode's auto-action posture (``modes``);
+    * ``learning`` — automation suggestions pending review (``pattern_analyzer``).
 
     The remaining CognitiveContext fields map to subsystems that are still pure /
-    not yet built (delegations → Phase O, uncertainty → pure, …), so they are
+    not yet built (delegations → Phase O, uncertainty → pure, …) or need an
+    owner decision on their source of truth (identity, attention), so they are
     left empty and dropped by ``capture``. Returns None when nothing is
     populated, so a commitment-only snapshot stays byte-identical to before
     (behaviour-preserving). Never raises.
@@ -177,9 +212,12 @@ def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
         intent, plan = "", ""
     beliefs = _live_beliefs(hass)
     execution = _live_execution(hass)
+    autonomy = _live_autonomy()
+    learning = _live_learning()
     try:
         cog = agency_state.CognitiveContext(
-            intent=intent, plan=plan, beliefs=beliefs, execution=execution)
+            intent=intent, plan=plan, beliefs=beliefs, execution=execution,
+            autonomy=autonomy, learning=learning)
         return cog if (cog is not None and not cog.is_empty()) else None
     except Exception:  # pragma: no cover - defensive
         return None

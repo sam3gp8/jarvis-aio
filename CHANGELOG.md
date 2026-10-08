@@ -1,3 +1,28 @@
+## [8.117.0] — Continuity records autonomy posture + pending learning (kernel Phase I-B)
+
+Completes the cleanly-sourced Phase I-B cognitive fields: the snapshot now also
+captures a *restricted* `autonomy` posture and the count of `learning`
+suggestions waiting on review — the last two I-B fields with an unambiguous live
+source. (The remaining fields — `identity`, `attention` — need an owner decision
+on their source of truth and are intentionally left for later.)
+
+- New `continuity._live_autonomy`: surfaces `auto-actions suppressed` **only**
+  when the active mode forbids autonomy graduations (`modes.mode_allows_auto_actions`
+  is False); empty in the default/permissive case, so an otherwise-bare snapshot
+  stays byte-identical to before.
+- New `continuity._live_learning`: `N suggestion(s) pending review` from
+  `pattern_analyzer.get_analyzer().get_pending_suggestions()`; empty when none.
+- `_live_cognitive` now fills `CognitiveContext.autonomy` and `.learning`.
+- **Shadow / observe-only, behaviour-preserving.** `agency_state` stays at the
+  `shadow` adoption stage. Both reads are defensive (empty on any failure); the
+  learning read (sqlite) runs only on the executor thread via `capture_now`. No
+  kernel-primitive owners changed (`modes` / `pattern_analyzer` are non-kernel),
+  so the adoption matrix is unchanged.
+
+tests: `tests/unit/test_continuity.py` gains autonomy (restricted / permissive /
+defensive) and learning (count / singular / none / defensive) cases, plus a
+capture test attaching + persisting both. audit + all four kernel gates green.
+
 ## [8.116.0] — Continuity remembers what was mid-execution (kernel Phase I-B)
 
 Extends the Phase I-B cognitive snapshot with the `execution` field: what JARVIS
