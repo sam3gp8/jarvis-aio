@@ -1,3 +1,31 @@
+## [8.123.0] — Space/time view + shadow (kernel Phase Q, shadow)
+
+Advances Phase Q to the **shadow** rung: the kernel space/time primitive now has
+a live view on the world-model facade and is observed on every cognitive tick —
+still observe-only, so this release changes nothing JARVIS does.
+
+- `kernel/world_model.py` gains a space/time view:
+  - `spatial_graph(config=None)` — the home's floor plan as a
+    `kernel.space_time.SpatialGraph`, built from the same floor-plan adjacency the
+    intrusion investigator already derives (`residence_graph.room_adjacency`).
+  - `temporal_frame(now=None)` — the current moment as a
+    `kernel.space_time.TemporalFrame` (hour + weekday → coarse daypart), from the
+    local wall clock by default. Both best-effort: an empty graph / unknown frame
+    on any failure.
+- `cognitive_core._tick` builds both views each tick and logs a one-line
+  `space_time(shadow): N area(s), M adjacency(ies); daypart=…` summary, behind the
+  `SPACE_TIME_SHADOW` kill-switch (default on). Observe-only — nothing reads the
+  model authoritatively; the current per-feature mapping (`residence_graph`,
+  `camera_coverage`, the briefing schedule) stays the source of truth.
+- Adoption: `space_time` advances **pure → shadow** (owner `cognitive_core`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Parity next
+  (camera↔sensor mapping, cf. #140), then enforce behind `SPACE_TIME_ENFORCE`.
+
+tests: `test_kernel_world_model.py` gains the space/time view cases
+(`spatial_graph`/`temporal_frame`, incl. best-effort-on-error); new
+`test_space_time_shadow.py` pins the tick summary, the kill-switch, and that the
+emitter never raises. audit + all four kernel gates green.
+
 ## [8.122.0] — Spatial & temporal model primitive (kernel Phase Q, pure)
 
 Opens roadmap **Phase Q — Embodied JARVIS** at its first rung: a pure kernel

@@ -198,3 +198,45 @@ def test_knowledge_graph_best_effort_on_error(wm_mod, hass, monkeypatch):
     wm = wm_mod.WorldModel(hass)
     assert wm.knowledge_graph().is_empty()
     assert wm.entities() == [] and wm.relations() == [] and wm.query() == []
+
+
+# ── space & time view (roadmap Phase Q) ───────────────────────────────────────
+def test_spatial_graph_view(wm_mod, hass, monkeypatch):
+    # residence_graph.room_adjacency shape: {area: set(neighbors)}
+    monkeypatch.setattr(wm_mod, "_room_adjacency", lambda cfg: {
+        "kitchen": {"hall"}, "hall": {"kitchen", "living"}, "living": {"hall"}})
+    wm = wm_mod.WorldModel(hass)
+    g = wm.spatial_graph()
+    assert not g.is_empty()
+    assert [a.name for a in g.areas] == ["hall", "kitchen", "living"]
+    assert g.adjacent("kitchen", "hall") and not g.adjacent("kitchen", "living")
+    assert g.distance("kitchen", "living") == 2
+
+
+def test_spatial_graph_best_effort_on_error(wm_mod, hass, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("no floor plan")
+    monkeypatch.setattr(wm_mod, "_room_adjacency", boom)
+    assert wm_mod.WorldModel(hass).spatial_graph().is_empty()
+
+
+def test_temporal_frame_view(wm_mod, hass, monkeypatch):
+    import datetime
+    # a fixed Saturday-evening clock
+    monkeypatch.setattr(wm_mod, "_now",
+                        lambda: datetime.datetime(2026, 10, 10, 19, 30))
+    frame = wm_mod.WorldModel(hass).temporal_frame()
+    assert frame.is_known and frame.hour == 19
+    assert frame.daypart == "evening" and frame.is_weekend
+    # an explicit time overrides the clock
+    weekday_noon = datetime.datetime(2026, 10, 7, 12, 0)
+    f2 = wm_mod.WorldModel(hass).temporal_frame(weekday_noon)
+    assert f2.daypart == "midday" and f2.is_daytime and not f2.is_weekend
+
+
+def test_temporal_frame_best_effort_on_error(wm_mod, hass, monkeypatch):
+    def boom():
+        raise RuntimeError("no clock")
+    monkeypatch.setattr(wm_mod, "_now", boom)
+    frame = wm_mod.WorldModel(hass).temporal_frame()
+    assert not frame.is_known and frame.daypart == ""

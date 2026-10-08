@@ -76,12 +76,15 @@ _DECLARED: dict[str, dict] = {
     # pure SpatialGraph (areas + undirected adjacency, built from a floor-plan
     # adjacency map like residence_graph.room_adjacency, with neighbor / adjacent
     # / BFS hops / distance / within queries) and a TemporalFrame (an hour+weekday
-    # resolved to a coarse daypart, is_weekend / is_daytime). PURE (Phase Q first
-    # rung): exists + unit-tested, nothing live consumes it yet. Later rungs wire a
-    # space/time view onto world_model in shadow, parity (camera↔sensor mapping,
-    # cf. #140), then enforce behind SPACE_TIME_ENFORCE with the current
-    # per-feature mapping as the fail-safe.
-    "space_time":   {"stage": "pure",    "owners": []},
+    # resolved to a coarse daypart, is_weekend / is_daytime). SHADOW (Phase Q):
+    # world_model exposes a space/time view (spatial_graph() built from the
+    # floor-plan adjacency + temporal_frame() from the clock), and the
+    # cognitive_core tick builds both and logs a one-line "space_time(shadow)"
+    # summary — observe-only (kill-switch SPACE_TIME_SHADOW); nothing reads the
+    # model authoritatively yet. Parity next (camera↔sensor mapping, cf. #140),
+    # then enforce behind SPACE_TIME_ENFORCE with the current per-feature mapping
+    # as the fail-safe.
+    "space_time":   {"stage": "shadow",  "owners": ["cognitive_core"]},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS
