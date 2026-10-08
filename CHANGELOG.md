@@ -1,3 +1,31 @@
+## [8.126.0] — Causal prediction shadow via pattern_analyzer (kernel Phase L, shadow)
+
+Advances Phase L to the **shadow** rung: the pattern analyzer now feeds the
+causal model from the sequence patterns it already detects and logs a one-line
+summary — observe-only, so this release changes nothing JARVIS does.
+
+- `pattern_analyzer._emit_causal_shadow`: at the end of `analyze()`, each detected
+  **sequence** pattern (`<trigger> then <action>`) is folded into a
+  `kernel.causal.CausalModel` as a `cause → effect` hypothesis (cause = the
+  trigger entity/state, effect = the action entity/state), and a one-line
+  `causal(shadow): N hypothesis(es) from M sequence pattern(s); predict() surfaces
+  K cause(s); strongest … -> … (conf …)` summary is logged. Behind the
+  `CAUSAL_PREDICT_SHADOW` kill-switch (default on); best-effort, never raises.
+- This exercises the Phase L `predict()` surface over real learned relationships.
+  **First-rung caveat:** a sequence pattern carries only the co-occurrence count,
+  not the full cause-present/absent × effect-present/absent contingency, so the
+  shadow pairs each co-occurrence with an equal "effect does not occur without the
+  cause" baseline purely so ΔP is defined. That baseline is a shadow-only
+  placeholder and the confidence is provisional; the **parity** rung replaces it
+  with the real per-trial contingency from state history. Nothing reads the model.
+- Adoption: `causal` advances **pure → shadow** (owner `pattern_analyzer`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+
+tests: new `tests/unit/test_causal_shadow.py` pins the summary line, the
+kill-switch, and defensiveness (non-sequence patterns ignored, malformed/empty
+input never raises); the existing `pattern_analyzer` suite still passes. audit +
+all four kernel gates green.
+
 ## [8.125.0] — Causal prediction surface (kernel Phase L, pure)
 
 Opens roadmap **Phase L — Prediction & Causal Reasoning** at its first rung: the

@@ -197,7 +197,17 @@ _DECLARED: dict[str, dict] = {
     # alongside its live cloud/local-Mind breaker decision and logs divergence
     # (E3) — shadow.
     "router":       {"stage": "shadow",  "owners": ["reasoning_loop"]},
-    "causal":       {"stage": "pure",    "owners": []},
+    # causal: causal learning + prediction (roadmap Phase L). ΔP contingency
+    # hypotheses (cause → effect) with a prediction surface — predict(context) /
+    # explain(effect). SHADOW (Phase L): pattern_analyzer.analyze() folds the
+    # sequence patterns it detects ("<trigger> then <action>") into a CausalModel
+    # and logs a one-line "causal(shadow)" summary (hypotheses built, effects the
+    # predictor surfaces, strongest cause→effect) — observe-only (kill-switch
+    # CAUSAL_PREDICT_SHADOW); nothing reads the model, and the cause-absent side is
+    # a shadow-only placeholder. Parity next (real per-trial contingency + accuracy
+    # over traffic), then enforce behind CAUSAL_PREDICT_ENFORCE gating a proactive
+    # path, fail-safe = reactive only.
+    "causal":       {"stage": "shadow",  "owners": ["pattern_analyzer"]},
     "priority":     {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
