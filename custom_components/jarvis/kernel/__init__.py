@@ -30,6 +30,7 @@ from . import (
     agency_state,
     attention,
     authority,
+    autonomy,
     beliefs,
     budget,
     causal,
@@ -63,6 +64,7 @@ from .authority import (
     CapabilityToken,
     authorize,
 )
+from .autonomy import AutonomyGrant, earned_level, grant as autonomy_grant, step_toward
 from .beliefs import Belief, Evidence
 from .graph import Attribute, Entity, KnowledgeGraph, Relation
 from .space_time import Area, SpatialGraph, TemporalFrame, daypart_of
@@ -173,6 +175,11 @@ __all__ = [
     "WeightAdjustment",
     "adjust_weight",
     "plan_adjustments",
+    "autonomy",
+    "AutonomyGrant",
+    "autonomy_grant",
+    "earned_level",
+    "step_toward",
     "provenance",
     "Provenance",
     "uncertainty",

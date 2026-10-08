@@ -1,3 +1,30 @@
+## [8.132.0] — Graduated autonomy primitive (kernel Phase N, pure)
+
+Opens roadmap **Phase N — Graduated Autonomy** at its **pure** rung: a new pure
+primitive that replaces the single autonomy flag with a per-capability autonomy
+*level* a capability **earns** on its verified track record. Nothing live consumes
+it yet, so this release changes nothing JARVIS does.
+
+- `kernel/autonomy.py`: the level is a pure function of a capability's success
+  history (`kernel.outcome.OutcomeStats`) and its risk class
+  (`kernel.authority.sensitivity`, reused so there is one risk taxonomy). Ladder
+  least → most autonomous: **SUGGEST → CONFIRM → ACT**.
+  - `earned_level(stats, risk)` / `grant(capability, stats, *, current=None)`:
+    SAFE reads are pinned at ACT; SENSITIVE actuation earns up from SUGGEST on a
+    verified record (≥5 outcomes ≥0.60 → CONFIRM; ≥20 ≥0.90 → ACT); **SECURITY
+    actuation is pinned at CONFIRM and NEVER auto-promotes** — a flawless streak
+    can't earn it the right to act unattended.
+  - `step_toward(current, target)`: transitions are **bounded** (one rung per
+    evaluation) and **reversible** (a lapse demotes the same way it promoted).
+- Adoption: `autonomy` is declared **pure** (no live owner); `KERNEL_ADOPTION.md`
+  + `docs/JARVIS_CONSTITUTION.md` regenerated. Shadow (log the would-be level per
+  capability) is next; enforce (replace the global flag, fail-safe = the current
+  single setting) is **owner-gated**.
+
+tests: `tests/unit/test_kernel_autonomy.py` pins the ladder, the risk
+floor/ceiling (safe→act, security→confirm-pinned), the earning thresholds, and the
+bounded/reversible transition. audit + all four kernel gates green.
+
 ## [8.131.0] — Learned-trust vs success-rate parity (kernel Phase M, parity)
 
 Advances Phase M to the **parity** rung: alongside the would-be per-capability
