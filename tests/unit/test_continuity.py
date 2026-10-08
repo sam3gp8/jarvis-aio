@@ -420,3 +420,74 @@ def test_capture_attaches_autonomy_and_learning(cont, load, monkeypatch):
     reloaded = cont._store().load_latest().cognitive
     assert reloaded.autonomy == "auto-actions suppressed"
     assert reloaded.learning == "2 suggestions pending review"
+
+
+# ── Phase I-B (enrichment): last-identified principal (identity) ─────────────
+
+def _patch_recognition(load, monkeypatch, rows):
+    rec = load("recognition")
+    monkeypatch.setattr(rec, "recent_faces", lambda hass, limit=20: list(rows))
+    return rec
+
+
+def test_live_identity_picks_newest_known(cont, load, monkeypatch):
+    _patch_recognition(load, monkeypatch, [
+        {"name": "Sam", "is_unknown": False, "is_resident": True,
+         "is_low_confidence": False, "age_seconds": 42},
+        {"name": "Alex", "is_unknown": False, "is_resident": False,
+         "is_low_confidence": False, "age_seconds": 600},
+    ])
+    assert cont._live_identity(hass=object()) == "Sam (resident) (seen 42s ago)"
+
+
+def test_live_identity_skips_unknown_and_lowconf(cont, load, monkeypatch):
+    _patch_recognition(load, monkeypatch, [
+        {"name": "Unknown", "is_unknown": True, "age_seconds": 5},
+        {"name": "Maybe-Sam", "is_unknown": False, "is_low_confidence": True,
+         "age_seconds": 10},
+        {"name": "Alex", "is_unknown": False, "is_resident": False,
+         "is_low_confidence": False, "age_seconds": 300},
+    ])
+    assert cont._live_identity(hass=object()) == "Alex (seen 5m ago)"
+
+
+def test_live_identity_omits_sentinel_age(cont, load, monkeypatch):
+    # Frigate sensor rows carry a sentinel age (no timestamp) → name only.
+    _patch_recognition(load, monkeypatch, [
+        {"name": "Sam", "is_unknown": False, "is_resident": False,
+         "is_low_confidence": False, "age_seconds": 10 ** 9},
+    ])
+    assert cont._live_identity(hass=object()) == "Sam"
+
+
+def test_live_identity_empty_without_hass(cont):
+    assert cont._live_identity(None) == ""
+
+
+def test_live_identity_empty_when_only_unknown(cont, load, monkeypatch):
+    _patch_recognition(load, monkeypatch, [
+        {"name": "Unknown", "is_unknown": True, "age_seconds": 5}])
+    assert cont._live_identity(hass=object()) == ""
+
+
+def test_live_identity_defensive(cont, load, monkeypatch):
+    rec = load("recognition")
+
+    def boom(hass, limit=20):
+        raise RuntimeError("recognition down")
+    monkeypatch.setattr(rec, "recent_faces", boom)
+    assert cont._live_identity(hass=object()) == ""
+
+
+def test_capture_attaches_identity(cont, load, monkeypatch):
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    _patch_goals(load, monkeypatch, [])
+    _patch_recognition(load, monkeypatch, [
+        {"name": "Sam", "is_unknown": False, "is_resident": True,
+         "is_low_confidence": False, "age_seconds": 30}])
+    state = cont.capture_now(hass=object())
+    assert state is not None and state.cognitive is not None
+    assert state.cognitive.identity == "Sam (resident) (seen 30s ago)"
+    assert cont._store().load_latest().cognitive.identity == "Sam (resident) (seen 30s ago)"
