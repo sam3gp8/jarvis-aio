@@ -1,3 +1,31 @@
+## [8.118.0] — Continuity records who JARVIS was serving (kernel Phase I-B)
+
+Adds the `identity` cognitive field — the **last-identified principal** — so the
+agency snapshot records who JARVIS was serving, not just what it was thinking.
+This is the owner-chosen source of truth for `identity` (last identified, per the
+decision to use "last identified" rather than "currently present"). With it,
+Phase I-B's cognitive capture is complete for every field that has a defined
+source; `attention` is deliberately deferred to Phase K (Attention & Working
+Memory), which will build a durable focus model.
+
+- New `continuity._live_identity`: the most recently recognised **known** person
+  from `recognition.recent_faces` (newest first), skipping unknown sightings and
+  best-effort low-confidence guesses (a guess must never stand in for who JARVIS
+  is serving — the same safety posture used elsewhere). Rendered as the name
+  (+ ` (resident)` for a flagged household resident) with a `(seen …)` recency
+  suffix when a real timestamp exists; sensor rows with a sentinel age show the
+  name alone. New `_ago` helper formats the recency.
+- `_live_cognitive` now fills `CognitiveContext.identity`.
+- **Shadow / observe-only, behaviour-preserving.** `agency_state` stays at the
+  `shadow` adoption stage. The read is defensive (empty without a live `hass`
+  and on any failure) and runs only on the executor thread via `capture_now`.
+  `recognition` is a non-kernel module, so the adoption matrix is unchanged.
+
+tests: `tests/unit/test_continuity.py` gains identity cases — newest known
+picked, unknown / low-confidence skipped, sentinel age omitted, empty without
+hass / when only unknown, defensive on failure, and a capture test attaching +
+persisting the identity. audit + all four kernel gates green.
+
 ## [8.117.0] — Continuity records autonomy posture + pending learning (kernel Phase I-B)
 
 Completes the cleanly-sourced Phase I-B cognitive fields: the snapshot now also

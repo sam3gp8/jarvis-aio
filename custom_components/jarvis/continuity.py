@@ -9,9 +9,10 @@ Bridges the pure ``kernel.agency_state`` primitive to the live integration:
   something to resume from. It also captures the Phase I-B *cognitive context*
   — ``intent`` + chosen ``plan`` (primary active goal), salient ``beliefs``
   (WorldModel belief view), in-flight ``execution`` (kernel journal), a
-  restricted ``autonomy`` posture (modes) and ``learning`` suggestions pending
-  review (pattern_analyzer) — so the boot continuity line can say what JARVIS
-  was thinking and doing, not just what it had committed to.
+  restricted ``autonomy`` posture (modes), ``learning`` suggestions pending
+  review (pattern_analyzer) and the last-identified ``identity`` (recognition)
+  — so the boot continuity line can say who JARVIS was serving and what it was
+  thinking and doing, not just what it had committed to.
 
 **Shadow:** it reads live state and writes its own snapshot DB + a log line; it
 drives nothing and changes no behaviour. Everything is defensive (a read failure
@@ -180,6 +181,52 @@ def _live_learning() -> str:
     return f"{n} suggestion{'s' if n != 1 else ''} pending review"
 
 
+def _ago(age_seconds) -> str:
+    """A compact ' (seen …)' suffix for a recency in seconds, or '' when there is
+    no sane timestamp (sensor rows carry a sentinel age)."""
+    try:
+        age = int(age_seconds or 0)
+    except Exception:
+        return ""
+    if age <= 0 or age >= 86400:   # no/implausible timestamp → omit
+        return ""
+    if age < 90:
+        return f" (seen {age}s ago)"
+    if age < 5400:
+        return f" (seen {age // 60}m ago)"
+    return f" (seen {age // 3600}h ago)"
+
+
+def _live_identity(hass=None) -> str:
+    """The last-identified principal — the most recently recognised KNOWN person
+    (``recognition.recent_faces``, newest first), skipping unknown sightings and
+    best-effort low-confidence guesses (a guess must never stand in for who
+    JARVIS believes it is serving, matching the safety posture elsewhere).
+    Rendered as the name (+ ' (resident)' when a flagged household resident),
+    with a recency suffix when known. Empty without a live hass or when there is
+    no known identification, and on any failure. Never raises. Runs only on the
+    executor thread (capture_now is dispatched there)."""
+    if hass is None:
+        return ""
+    try:
+        from . import recognition
+        rows = recognition.recent_faces(hass) or []
+    except Exception:
+        return ""
+    try:
+        for r in rows:  # newest first
+            if r.get("is_unknown") or r.get("is_low_confidence"):
+                continue
+            name = str(r.get("name", "")).strip()
+            if not name:
+                continue
+            tag = " (resident)" if r.get("is_resident") else ""
+            return f"{name}{tag}{_ago(r.get('age_seconds'))}"
+        return ""
+    except Exception:  # pragma: no cover - defensive
+        return ""
+
+
 def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
     """Build the Phase I-B cognitive context from live subsystems (I-B — shadow).
 
@@ -191,14 +238,15 @@ def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
       WorldModel belief view (E1);
     * ``execution`` — what was mid-flight, from the kernel execution journal (H4);
     * ``autonomy`` — the active mode's auto-action posture (``modes``);
-    * ``learning`` — automation suggestions pending review (``pattern_analyzer``).
+    * ``learning`` — automation suggestions pending review (``pattern_analyzer``);
+    * ``identity`` — the last-identified principal (``recognition.recent_faces``).
 
-    The remaining CognitiveContext fields map to subsystems that are still pure /
-    not yet built (delegations → Phase O, uncertainty → pure, …) or need an
-    owner decision on their source of truth (identity, attention), so they are
-    left empty and dropped by ``capture``. Returns None when nothing is
-    populated, so a commitment-only snapshot stays byte-identical to before
-    (behaviour-preserving). Never raises.
+    ``attention`` is deliberately left for Phase K (Attention & Working Memory),
+    which will build a durable focus model; the remaining fields map to
+    subsystems that are still pure / not yet built (delegations → Phase O,
+    uncertainty → pure, …). Those stay empty and are dropped by ``capture``.
+    Returns None when nothing is populated, so a commitment-only snapshot stays
+    byte-identical to before (behaviour-preserving). Never raises.
     """
     intent, plan = "", ""
     try:
@@ -214,10 +262,11 @@ def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
     execution = _live_execution(hass)
     autonomy = _live_autonomy()
     learning = _live_learning()
+    identity = _live_identity(hass)
     try:
         cog = agency_state.CognitiveContext(
             intent=intent, plan=plan, beliefs=beliefs, execution=execution,
-            autonomy=autonomy, learning=learning)
+            autonomy=autonomy, learning=learning, identity=identity)
         return cog if (cog is not None and not cog.is_empty()) else None
     except Exception:  # pragma: no cover - defensive
         return None
