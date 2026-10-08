@@ -1,3 +1,31 @@
+## [8.125.0] — Causal prediction surface (kernel Phase L, pure)
+
+Opens roadmap **Phase L — Prediction & Causal Reasoning** at its first rung: the
+causal primitive (`kernel/causal.py`) gains a pure forward-looking query surface.
+Additive and observe-only — nothing live consumes it yet, so this release changes
+nothing.
+
+- `kernel/causal.py` — two pure reads over the existing ΔP contingency tally:
+  - `CausalModel.predict(context)` — the effects the causes present in `context`
+    make likely. Each present, positively-causal hypothesis predicts its effect;
+    when several present causes drive one effect the strongest confidence wins and
+    every contributing cause is listed. Returns `Prediction(effect, confidence,
+    causes)` strongest-first.
+  - `CausalModel.explain(effect)` — the candidate causes that best account for an
+    observed effect, as `Explanation(cause, confidence)` strongest-first.
+  - Both filter by a `min_confidence` threshold (default 0.05, matching the
+    causal-direction threshold) and never raise on messy/empty input.
+- **PURE** (Phase L, first rung): `causal` stays `pure` in `kernel_adoption`
+  (nothing consumes the predictor yet); `Prediction` / `Explanation` are exported
+  from `kernel/__init__.py`. Later rungs log predicted-vs-actual (shadow), measure
+  accuracy over real traffic (parity), then gate a proactive path on prediction
+  confidence behind `CAUSAL_PREDICT_ENFORCE` with reactive-only as the fail-safe.
+
+tests: `tests/unit/test_kernel_causal.py` gains predictor cases — `predict` ranks
+present causes and excludes absent ones, merges multiple causes for one effect,
+respects the threshold and empty context; `explain` ranks an effect's causes. audit
++ all four kernel gates green.
+
 ## [8.124.0] — Space/time breach-depth parity (kernel Phase Q, parity)
 
 Advances Phase Q to the **parity** rung for the spatial model: the intrusion

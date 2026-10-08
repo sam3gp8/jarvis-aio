@@ -77,3 +77,53 @@ def test_model_confidence_accessor(C):
     assert m.confidence("missing", "e") == 0.0   # unknown hypothesis → 0
     _feed(C, m, "c", "e", [(True, True)] * 20 + [(False, False)] * 20)
     assert m.confidence("c", "e") > 0.8
+
+
+# ── prediction surface (roadmap Phase L) ───────────────────────────────────────
+def test_predict_ranks_present_causes(C):
+    m = C.CausalModel()
+    # strong driver of "cold", weaker driver of "stuffy"
+    _feed(C, m, "door_open", "cold", [(True, True)] * 30 + [(False, False)] * 30)
+    _feed(C, m, "heater_off", "stuffy",
+          [(True, True)] * 6 + [(True, False)] * 2 + [(False, False)] * 8)
+    # a cause NOT in the context must not predict
+    _feed(C, m, "window_open", "cold", [(True, True)] * 20 + [(False, False)] * 20)
+
+    preds = m.predict(["door_open", "heater_off"])
+    effects = [p.effect for p in preds]
+    assert effects[0] == "cold"                 # strongest first
+    assert set(effects) == {"cold", "stuffy"}   # window_open not present → excluded
+    cold = next(p for p in preds if p.effect == "cold")
+    assert cold.causes == ("door_open",) and cold.confidence > 0.8
+
+
+def test_predict_merges_causes_for_one_effect(C):
+    m = C.CausalModel()
+    _feed(C, m, "door_open", "cold", [(True, True)] * 30 + [(False, False)] * 30)
+    _feed(C, m, "window_open", "cold", [(True, True)] * 6 + [(False, False)] * 10)
+    p = m.predict(["door_open", "window_open"])
+    assert len(p) == 1 and p[0].effect == "cold"
+    # both present causes listed, strongest first; confidence is the max
+    assert p[0].causes == ("door_open", "window_open")
+    assert p[0].confidence == pytest.approx(
+        m.confidence("door_open", "cold"))
+
+
+def test_predict_threshold_and_empty_context(C):
+    m = C.CausalModel()
+    # no real relationship → confidence ~0, filtered by min_confidence
+    _feed(C, m, "noise", "e",
+          [(True, True), (True, False), (False, True), (False, False)] * 5)
+    assert m.predict(["noise"]) == []
+    assert m.predict([]) == [] and m.predict() == []
+
+
+def test_explain_ranks_causes_of_effect(C):
+    m = C.CausalModel()
+    _feed(C, m, "door_open", "cold", [(True, True)] * 30 + [(False, False)] * 30)
+    _feed(C, m, "window_open", "cold", [(True, True)] * 6 + [(False, False)] * 10)
+    _feed(C, m, "door_open", "bright", [(True, True)] * 20 + [(False, False)] * 20)
+    ex = m.explain("cold")
+    assert [e.cause for e in ex] == ["door_open", "window_open"]  # strongest first
+    assert ex[0].confidence >= ex[1].confidence
+    assert m.explain("nonexistent") == []
