@@ -251,6 +251,54 @@ class WorldModel:
             _LOGGER.debug("world_model.relationships failed: %s", exc)
             return []
 
+    # ── knowledge graph view (roadmap Phase T) ───────────────────────────────────
+    def knowledge_graph(self, subject: Optional[str] = None) -> Any:
+        """The curated knowledge as a typed ``kernel.graph.KnowledgeGraph`` — the
+        same facts()/relationships() this facade already reads, folded into
+        entities + typed relations (MCU Phase T).
+
+        SHADOW: this view is available and unit-tested, but no live decision
+        consumes it yet; the knowledge store stays authoritative. Shadow →
+        parity (graph vs current semantic recall) → enforce (a context read goes
+        graph-authoritative behind KNOWLEDGE_GRAPH_ENFORCE, fail-safe = present
+        recall). Best-effort → an empty graph on any failure."""
+        from . import graph as G
+        try:
+            return G.KnowledgeGraph.from_rows(
+                self.facts(subject), self.relationships(subject))
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug("world_model.knowledge_graph failed: %s", exc)
+            return G.KnowledgeGraph()
+
+    def entities(self, subject: Optional[str] = None) -> List[Any]:
+        """Graph entities (nodes) for the curated knowledge. SHADOW (Phase T)."""
+        return list(self.knowledge_graph(subject).entities)
+
+    def relations(
+        self,
+        subject: Optional[str] = None,
+        *,
+        predicate: Optional[str] = None,
+        obj: Optional[str] = None,
+    ) -> List[Any]:
+        """Typed graph relations (edges), optionally filtered by subject /
+        predicate / object. SHADOW (Phase T)."""
+        return self.knowledge_graph(subject).relate(
+            subject, predicate=predicate, object=obj)
+
+    def query(
+        self,
+        subject: Optional[str] = None,
+        *,
+        predicate: Optional[str] = None,
+        obj: Optional[str] = None,
+    ) -> List[Any]:
+        """Answer a context query against the knowledge graph — the relations
+        matching the given ends. SHADOW (Phase T): the context-query surface the
+        shadow/parity/enforce ladder builds on; nothing reads it authoritatively
+        yet."""
+        return self.relations(subject, predicate=predicate, obj=obj)
+
     # ── scene memory ────────────────────────────────────────────────────────────
     def last_seen(self, term: str) -> Optional[dict]:
         """Where an object/person was last seen by the cameras, or None. SYNC."""

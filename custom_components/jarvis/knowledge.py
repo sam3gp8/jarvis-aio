@@ -39,6 +39,13 @@ _LOGGER = logging.getLogger(__name__)
 # to False to silence it; all_facts() returns exactly the same rows either way.
 PROVENANCE_SHADOW = True
 
+# SHADOW (Phase T, Deep World Model): all_facts() also folds the curated facts +
+# their relation edges into a typed kernel.graph.KnowledgeGraph and logs a
+# one-line summary — observe-only, nothing reads the graph yet. Flip
+# GRAPH_SHADOW to False to silence it; all_facts() returns the same rows either
+# way. (world_model.knowledge_graph() exposes the same view as a facade.)
+GRAPH_SHADOW = True
+
 
 def _emit_provenance_shadow(facts: list) -> None:
     """Log the provenance view of a fact set (shadow). Best-effort, never raises —
@@ -58,6 +65,25 @@ def _emit_provenance_shadow(facts: list) -> None:
         if recs:
             _LOGGER.debug("provenance(shadow): %d fact record(s); e.g. %s",
                           len(recs), P.summary(recs[0]))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_graph_shadow(facts: list) -> None:
+    """Build the typed knowledge-graph view of the current facts + relations and
+    log a one-line summary (Phase T — shadow). Best-effort, never raises — the
+    knowledge store is unchanged whether this runs or not, and nothing reads the
+    graph yet."""
+    try:
+        from .kernel import graph as G
+        try:
+            relations = related() or []
+        except Exception:
+            relations = []
+        g = G.KnowledgeGraph.from_rows(facts or [], relations)
+        if not g.is_empty():
+            _LOGGER.debug("graph(shadow): %d entit(ies), %d relation(s)",
+                          len(g.entities), len(g.relations))
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -367,6 +393,8 @@ def all_facts(subject: Optional[str] = None, now: Optional[float] = None,
         facts.sort(key=lambda f: f["updated_at"], reverse=True)
         if PROVENANCE_SHADOW:
             _emit_provenance_shadow(facts)   # #237: observe-only
+        if GRAPH_SHADOW:
+            _emit_graph_shadow(facts)        # Phase T: observe-only
         return facts
     except Exception as exc:
         _LOGGER.warning("knowledge: all_facts failed: %s", exc)
