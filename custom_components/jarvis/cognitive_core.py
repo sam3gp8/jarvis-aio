@@ -2881,6 +2881,52 @@ def _emit_space_time_shadow(hass, config) -> None:
         pass
 
 
+# Phase Q camera↔sensor coverage parity (owner decision: corroborate with BOTH
+# cameras AND sensors). Observe-only: for the areas the space_time model knows,
+# count how many a camera covers (static, camera_coverage) and how many a
+# presence sensor reports occupied right now (live, audio_routing), plus the
+# overlap where a sensor-occupied area is also camera-corroborated. Nothing reads
+# it; the current per-feature mapping stays authoritative and space_time stays at
+# parity. Set SPACE_TIME_COVERAGE_PARITY = False to silence it. The
+# SPACE_TIME_ENFORCE behaviour flip remains the household's call.
+SPACE_TIME_COVERAGE_PARITY = True
+
+
+def _emit_space_time_coverage_parity(hass, config) -> None:
+    """Phase Q — parity (camera↔sensor mapping). Corroborate the space_time
+    model's areas against the combined camera + presence-sensor mapping and log a
+    one-line coverage summary. Best-effort, never raises; drives nothing."""
+    if not SPACE_TIME_COVERAGE_PARITY:
+        return
+    try:
+        from .kernel.world_model import WorldModel
+        from . import camera_coverage, audio_routing, residence_graph
+        g = WorldModel(hass, config or {}).spatial_graph()
+        if g.is_empty():
+            return
+        model_slugs = {residence_graph.slug(a.name) for a in g.areas}
+
+        def _has_cam(slug: str) -> bool:
+            # the camera matcher is name-based + substring, so de-slug first
+            return bool(camera_coverage.camera_for_area(hass, slug.replace("_", " ")))
+
+        cam_covered = {s for s in model_slugs if _has_cam(s)}
+        try:
+            occupied = audio_routing.currently_occupied_areas(hass) or []
+        except Exception:
+            occupied = []
+        occ_slugs = {residence_graph._area_slug(hass, a) for a in occupied}
+        occ_in_model = occ_slugs & model_slugs
+        occ_cam = {s for s in occ_in_model if _has_cam(s)}
+        _LOGGER.debug(
+            "space_time(parity): model=%d area(s), cam-covered=%d; "
+            "occupied-now=%d (in-model=%d, cam-corroborated=%d)",
+            len(model_slugs), len(cam_covered),
+            len(occ_slugs), len(occ_in_model), len(occ_cam))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 # ── Main Evaluation Loop ───────────────────────────────────────────────────
 
 async def _tick():
@@ -2907,6 +2953,9 @@ async def _tick():
     # Phase Q (shadow): observe the kernel space/time model alongside the tick.
     # Observe-only, kill-switched — nothing reads it yet.
     _emit_space_time_shadow(hass, config)
+    # Phase Q (parity): corroborate the model's areas against the combined
+    # camera + presence-sensor mapping — observe-only, drives nothing.
+    _emit_space_time_coverage_parity(hass, config)
 
     from . import sleep_detection
     bedroom_areas = config.get("bedroom_areas", []) or []

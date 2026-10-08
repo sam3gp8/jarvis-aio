@@ -143,3 +143,63 @@ def test_parity_kill_switch_and_no_breach(cc, fake_hass, monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG):
         cc._emit_space_time_parity(fake_hass, {}, None, {})
     assert not any("space_time(parity)" in r.message for r in caplog.records)
+
+
+# ── Phase Q camera↔sensor coverage parity ──────────────────────────────────────
+def test_coverage_parity_combines_cam_and_sensors(cc, fake_hass, monkeypatch, caplog):
+    from jc.kernel import world_model as wm_mod
+    from jc.kernel import space_time as ST
+    from jc import camera_coverage as cov
+    from jc import audio_routing as ar
+
+    g = ST.SpatialGraph.from_adjacency(
+        {"kitchen": ["hall"], "hall": ["kitchen", "living_room"],
+         "living_room": ["hall"]})
+
+    class _WM:
+        def __init__(self, hass, config):
+            pass
+
+        def spatial_graph(self):
+            return g
+
+    # cameras cover kitchen + living room; hall has none
+    def _cam(hass, name):
+        return "camera.x" if name in ("kitchen", "living room") else None
+
+    monkeypatch.setattr(cc, "SPACE_TIME_COVERAGE_PARITY", True)
+    monkeypatch.setattr(wm_mod, "WorldModel", _WM)
+    monkeypatch.setattr(cov, "camera_for_area", _cam)
+    monkeypatch.setattr(ar, "currently_occupied_areas", lambda h: ["kitchen"])
+
+    with caplog.at_level(logging.DEBUG):
+        cc._emit_space_time_coverage_parity(fake_hass, {})
+    msgs = [r.message for r in caplog.records if "space_time(parity):" in r.message]
+    assert msgs, "expected a coverage parity log line"
+    m = msgs[0]
+    assert "model=3 area(s), cam-covered=2" in m
+    assert "occupied-now=1 (in-model=1, cam-corroborated=1)" in m
+
+
+def test_coverage_parity_kill_switch_and_empty(cc, fake_hass, monkeypatch, caplog):
+    monkeypatch.setattr(cc, "SPACE_TIME_COVERAGE_PARITY", False)
+    with caplog.at_level(logging.DEBUG):
+        cc._emit_space_time_coverage_parity(fake_hass, {})
+    assert not any("space_time(parity)" in r.message for r in caplog.records)
+
+    # switch on but an empty model → silent (nothing to corroborate)
+    from jc.kernel import world_model as wm_mod
+    from jc.kernel import space_time as ST
+
+    class _EmptyWM:
+        def __init__(self, hass, config):
+            pass
+
+        def spatial_graph(self):
+            return ST.SpatialGraph()
+
+    monkeypatch.setattr(cc, "SPACE_TIME_COVERAGE_PARITY", True)
+    monkeypatch.setattr(wm_mod, "WorldModel", _EmptyWM)
+    with caplog.at_level(logging.DEBUG):
+        cc._emit_space_time_coverage_parity(fake_hass, {})
+    assert not any("space_time(parity)" in r.message for r in caplog.records)
