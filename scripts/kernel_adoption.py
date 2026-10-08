@@ -165,11 +165,15 @@ _DECLARED: dict[str, dict] = {
     # risk class (authority.sensitivity). Ladder suggest -> confirm -> act; SAFE
     # reads are pinned at act, SENSITIVE actuation earns up from suggest, and
     # SECURITY actuation is pinned at confirm and NEVER auto-promotes. Transitions
-    # are bounded (one rung per evaluation) and reversible. PURE: the primitive
-    # exists and is unit-tested; nothing live consumes it yet. Shadow will log the
-    # would-be level per capability; enforce (owner-gated) replaces the global
-    # flag, fail-safe = the current single setting.
-    "autonomy":     {"stage": "pure",    "owners": []},
+    # are bounded (one rung per evaluation) and reversible. SHADOW (Phase N):
+    # actuation rolls up the same bounded outcome window it already keeps and, per
+    # verified actuation, logs the would-be autonomy level kernel.autonomy.grant()
+    # computes for that capability ("autonomy(shadow): capability=… risk=… level=…
+    # (n=…, rate=…)") — observe-only (AUTONOMY_SHADOW kill-switch), driving nothing;
+    # the global autonomy flag is untouched. Enforce (owner-gated
+    # GRADUATED_AUTONOMY_ENFORCE) replaces that flag with the earned level,
+    # fail-safe = the current single setting.
+    "autonomy":     {"stage": "shadow",  "owners": ["actuation"]},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

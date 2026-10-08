@@ -1,3 +1,28 @@
+## [8.133.0] — Graduated autonomy shadow (kernel Phase N, shadow)
+
+Advances Phase N to the **shadow** rung: on each verified actuation JARVIS now
+logs the *would-be* per-capability autonomy level the primitive grants from that
+capability's track record — observe-only, so this release changes nothing JARVIS
+does and the global autonomy flag is untouched.
+
+- `actuation._emit_autonomy_shadow`: rolls up the same bounded outcome window the
+  learning shadow already keeps (`_recent_outcomes`), summarizes the just-acted
+  capability's record (`kernel.outcome.summarize`), and logs
+  `autonomy(shadow): capability=<cap> risk=<class> level=<suggest|confirm|act>
+  (n=…, rate=…)` via `kernel.autonomy.grant`. A SENSITIVE capability reads
+  `suggest` until it earns up; a SECURITY capability reads `confirm [pinned]`
+  however clean its streak. Behind the `AUTONOMY_SHADOW` kill-switch (default on);
+  best-effort, never raises; nothing consumes the level.
+- Adoption: `autonomy` advances **pure → shadow** (owner `actuation`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Enforce
+  (`GRADUATED_AUTONOMY_ENFORCE` replacing the global autonomy flag with the earned
+  level, fail-safe = the current single setting) stays **owner-gated**.
+
+tests: `tests/unit/test_actuation.py` gains shadow cases — a sensitive capability
+logs `risk=sensitive level=suggest`, a security capability logs
+`risk=security level=confirm [pinned]`, and the kill-switch silences it. audit +
+all four kernel gates green.
+
 ## [8.132.0] — Graduated autonomy primitive (kernel Phase N, pure)
 
 Opens roadmap **Phase N — Graduated Autonomy** at its **pure** rung: a new pure

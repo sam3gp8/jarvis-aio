@@ -331,6 +331,9 @@ def _record_outcome_shadow(request, status: str, observed, detail: str) -> None:
         # realized success rate — both observe-only, drive nothing.
         _emit_learning_shadow(oc)
         _emit_learning_parity(oc)
+        # Phase N (shadow): log the would-be graduated-autonomy level this
+        # capability has earned from the same rolling window — observe-only.
+        _emit_autonomy_shadow(oc)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -405,6 +408,39 @@ def _emit_learning_parity(oc) -> None:
         _LOGGER.debug(
             "learning(parity): capability=%s trust=%.2f success_rate=%.2f "
             "agree=%s (n=%d)", cap, trust, success_rate, agree, stats.count)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+# SHADOW (Phase N — Graduated Autonomy): per verified actuation, log the *would-be*
+# autonomy level this capability has earned from the same rolling outcome window —
+# a pure function of its track record (kernel.outcome.summarize) and its risk class
+# (kernel.autonomy.grant). Observe-only: nothing consumes the level, and the global
+# autonomy flag is untouched. Replacing that flag with the earned level is the
+# owner-gated GRADUATED_AUTONOMY_ENFORCE rung (fail-safe = the current single
+# setting). Set AUTONOMY_SHADOW = False to silence it.
+AUTONOMY_SHADOW = True
+
+
+def _emit_autonomy_shadow(oc) -> None:
+    """Phase N shadow: roll up recent outcomes for this outcome's capability and
+    log the would-be graduated-autonomy level kernel.autonomy would grant. Reads
+    the same rolling window, drives nothing. Best-effort, never raises."""
+    if not AUTONOMY_SHADOW:
+        return
+    try:
+        cap = getattr(oc, "capability", "") or ""
+        if not cap:
+            return
+        from .kernel import autonomy, outcome as _koutcome
+        cap_outcomes = [o for o in _recent_outcomes
+                        if (getattr(o, "capability", "") or "") == cap]
+        stats = _koutcome.summarize(cap_outcomes)
+        g = autonomy.grant(cap, stats)
+        _LOGGER.debug(
+            "autonomy(shadow): capability=%s risk=%s level=%s "
+            "(n=%d, rate=%.2f)%s", cap, g.risk, g.level, g.samples,
+            g.success_rate, " [pinned]" if g.pinned else "")
     except Exception:   # pragma: no cover - defensive
         pass
 
