@@ -69,3 +69,77 @@ def test_emit_is_defensive(cc, fake_hass, monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG):
         cc._emit_space_time_shadow(fake_hass, {})
     assert not any("space_time(shadow)" in r.message for r in caplog.records)
+
+
+# ── Phase Q parity ─────────────────────────────────────────────────────────────
+def _fake_spatial_graph(adjacency):
+    """A kernel SpatialGraph over the given adjacency, for the parity fake."""
+    from jc.kernel import space_time as ST
+    return ST.SpatialGraph.from_adjacency(adjacency)
+
+
+def test_parity_agreement_logged(cc, fake_hass, monkeypatch, caplog):
+    from jc.kernel import world_model as wm_mod
+    from jc import residence_graph as rg
+
+    # kernel graph: kitchen — hall — living (slugs, as room_adjacency emits)
+    g = _fake_spatial_graph({"kitchen": {"hall"}, "hall": {"kitchen", "living"},
+                             "living": {"hall"}})
+
+    class _WM:
+        def __init__(self, hass, config):
+            pass
+
+        def spatial_graph(self):
+            return g
+
+    monkeypatch.setattr(cc, "SPACE_TIME_PARITY", True)
+    monkeypatch.setattr(wm_mod, "WorldModel", _WM)
+    # breach area_id -> slug identity, so legacy area_ids are already slugs here
+    monkeypatch.setattr(rg, "_area_slug", lambda hass, aid: aid)
+
+    # legacy hops (area_id -> depth) that MATCH the kernel BFS from "kitchen"
+    legacy = {"kitchen": 0, "hall": 1, "living": 2}
+    with caplog.at_level(logging.DEBUG):
+        cc._emit_space_time_parity(fake_hass, {}, "kitchen", legacy)
+    assert any("space_time(parity):" in r.message and "agree=True" in r.message
+               for r in caplog.records)
+
+
+def test_parity_divergence_logged(cc, fake_hass, monkeypatch, caplog):
+    from jc.kernel import world_model as wm_mod
+    from jc import residence_graph as rg
+
+    g = _fake_spatial_graph({"kitchen": {"hall"}, "hall": {"kitchen", "living"},
+                             "living": {"hall"}})
+
+    class _WM:
+        def __init__(self, hass, config):
+            pass
+
+        def spatial_graph(self):
+            return g
+
+    monkeypatch.setattr(cc, "SPACE_TIME_PARITY", True)
+    monkeypatch.setattr(wm_mod, "WorldModel", _WM)
+    monkeypatch.setattr(rg, "_area_slug", lambda hass, aid: aid)
+
+    # legacy disagrees (living at depth 5)
+    legacy = {"kitchen": 0, "hall": 1, "living": 5}
+    with caplog.at_level(logging.DEBUG):
+        cc._emit_space_time_parity(fake_hass, {}, "kitchen", legacy)
+    assert any("space_time(parity):" in r.message and "agree=False" in r.message
+               for r in caplog.records)
+
+
+def test_parity_kill_switch_and_no_breach(cc, fake_hass, monkeypatch, caplog):
+    monkeypatch.setattr(cc, "SPACE_TIME_PARITY", False)
+    with caplog.at_level(logging.DEBUG):
+        cc._emit_space_time_parity(fake_hass, {}, "kitchen", {"kitchen": 0})
+    # switch off → silent
+    assert not any("space_time(parity)" in r.message for r in caplog.records)
+    # and with the switch on but no breach area → still silent
+    monkeypatch.setattr(cc, "SPACE_TIME_PARITY", True)
+    with caplog.at_level(logging.DEBUG):
+        cc._emit_space_time_parity(fake_hass, {}, None, {})
+    assert not any("space_time(parity)" in r.message for r in caplog.records)
