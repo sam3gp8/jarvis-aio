@@ -7,9 +7,9 @@ Bridges the pure ``kernel.agency_state`` primitive to the live integration:
 * on a periodic tick (and at boot), :func:`capture_now` reads the live goals,
   open situations and mode and writes a fresh snapshot, so the next boot has
   something to resume from. It also captures the Phase I-B *cognitive context*
-  (``intent`` + chosen ``plan``, from the primary active goal) so the boot
-  continuity line can say what JARVIS was thinking, not just what it had
-  committed to.
+  (``intent`` + chosen ``plan`` from the primary active goal, and the salient
+  ``beliefs`` from the WorldModel belief view) so the boot continuity line can
+  say what JARVIS was thinking, not just what it had committed to.
 
 **Shadow:** it reads live state and writes its own snapshot DB + a log line; it
 drives nothing and changes no behaviour. Everything is defensive (a read failure
@@ -89,34 +89,68 @@ def _plan_summary(goal: dict) -> str:
         return ""
 
 
+_MAX_BELIEFS = 5
+
+
+def _live_beliefs(hass=None) -> tuple:
+    """The most confident salient knowledge beliefs as short summaries, from the
+    WorldModel belief view (E1). Drops the generic identity self-belief, ranks
+    the rest by confidence and caps the count. Empty when there is no hass (the
+    belief view needs live HA state) or on any failure — defensive, never raises.
+    Runs only on the executor thread (capture_now is dispatched there), so the
+    knowledge-store read never touches the event loop.
+    """
+    if hass is None:
+        return ()
+    try:
+        from .kernel.world_model import WorldModel
+        raw = WorldModel(hass).beliefs() or []
+    except Exception:
+        return ()
+    try:
+        # beliefs() always leads with JARVIS's identity self-assertion; the
+        # salient knowledge facts follow. Rank those by confidence, highest first.
+        facts = [b for b in raw[1:] if getattr(b, "proposition", "")]
+        facts.sort(key=lambda b: float(getattr(b, "probability", 0.0) or 0.0),
+                   reverse=True)
+        return tuple(
+            f"{b.proposition} (p={float(getattr(b, 'probability', 0.0) or 0.0):.2f})"
+            for b in facts[:_MAX_BELIEFS]
+        )
+    except Exception:  # pragma: no cover - defensive
+        return ()
+
+
 def _live_cognitive(hass=None) -> Optional["agency_state.CognitiveContext"]:
     """Build the Phase I-B cognitive context from live subsystems (I-B — shadow).
 
-    Only the fields with an unambiguous live source are populated: ``intent`` and
-    ``plan`` from JARVIS's primary active goal (a goal *is* an outcome pursued
-    across time). The remaining CognitiveContext fields map to subsystems that
-    are still pure / not yet built (delegations → Phase O, uncertainty → pure,
-    …), so they are left empty and dropped by ``capture``. Returns None when
-    there is no active goal, so a commitment-only snapshot stays byte-identical
-    to before (behaviour-preserving). Never raises.
+    Populated fields, each from an unambiguous live source:
+
+    * ``intent`` / ``plan`` — JARVIS's primary active goal (a goal *is* an
+      outcome pursued across time);
+    * ``beliefs`` — the most confident salient knowledge beliefs, from the
+      WorldModel belief view (E1).
+
+    The remaining CognitiveContext fields map to subsystems that are still pure /
+    not yet built (delegations → Phase O, uncertainty → pure, …), so they are
+    left empty and dropped by ``capture``. Returns None when nothing is
+    populated, so a commitment-only snapshot stays byte-identical to before
+    (behaviour-preserving). Never raises.
     """
+    intent, plan = "", ""
     try:
         from . import goals
-    except Exception:
-        return None
-    try:
         active = goals.active()
+        if active:
+            primary = active[0] or {}
+            intent = (primary.get("outcome") or primary.get("title") or "").strip()
+            plan = _plan_summary(primary)
     except Exception:
-        return None
-    if not active:
-        return None
+        intent, plan = "", ""
+    beliefs = _live_beliefs(hass)
     try:
-        primary = active[0] or {}
-        intent = (primary.get("outcome") or primary.get("title") or "").strip()
-        if not intent:
-            return None
-        cog = agency_state.CognitiveContext(intent=intent, plan=_plan_summary(primary))
-        return cog if cog and not cog.is_empty() else None
+        cog = agency_state.CognitiveContext(intent=intent, plan=plan, beliefs=beliefs)
+        return cog if (cog is not None and not cog.is_empty()) else None
     except Exception:  # pragma: no cover - defensive
         return None
 

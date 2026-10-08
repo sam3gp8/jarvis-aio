@@ -1,3 +1,30 @@
+## [8.115.0] — Continuity remembers its salient beliefs too (kernel Phase I-B)
+
+Extends the Phase I-B cognitive snapshot: alongside `intent` + `plan`, the
+agency snapshot now also captures JARVIS's **salient beliefs** — the most
+confident knowledge facts, from the WorldModel belief view (E1) — so after a
+restart the boot continuity line can reflect not just what JARVIS intended but
+what it believed about the home.
+
+- New `continuity._live_beliefs`: reads `WorldModel(hass).beliefs()`, drops the
+  generic identity self-belief, ranks the rest by confidence and caps the count
+  (top 5), rendering each as `"<proposition> (p=0.87)"`. `_live_cognitive` now
+  fills `CognitiveContext.beliefs` from it and builds the context whenever
+  *either* a goal (intent/plan) *or* beliefs are present.
+- **Shadow / observe-only, behaviour-preserving.** `agency_state` stays at the
+  `shadow` adoption stage. The belief read runs only on the executor thread
+  (`capture_now` is dispatched via `async_add_executor_job`), so the
+  knowledge-store read never touches the event loop; it is empty without a live
+  `hass` and on any failure. With neither a goal nor beliefs, the cognitive
+  context is still dropped, so a bare snapshot stays byte-identical to before.
+- `continuity` now appears as a `world_model` reader in the adoption matrix
+  (regenerated via `kernel_docs_sync --write`); no `_DECLARED` stage change.
+
+tests: `tests/unit/test_continuity.py` gains the belief cases — identity
+dropped + ranked + rendered, count capped at `_MAX_BELIEFS`, empty without hass,
+defensive on a failing belief view, and the snapshot capturing + persisting
+beliefs with no active goal. audit + all four kernel gates green.
+
 ## [8.114.0] — Continuity captures what JARVIS was thinking (kernel Phase I-B)
 
 After a restart, JARVIS's boot continuity line can now say what it was *thinking*,
