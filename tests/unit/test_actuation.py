@@ -137,6 +137,39 @@ def test_learning_shadow_kill_switch(actuation, load, fake_hass, monkeypatch, ca
     assert not any("learning(shadow)" in r.message for r in caplog.records)
 
 
+# ── Phase M (parity): learned trust vs realized success rate ──────────────────
+
+def test_learning_parity_agrees_on_consistent_success(actuation, load, fake_hass,
+                                                       monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "LEARNING_PARITY", True)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        for _ in range(4):
+            actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    msgs = [r.message for r in caplog.records if "learning(parity):" in r.message]
+    assert msgs, "expected a learning(parity) log line"
+    last = msgs[-1]
+    # all verified → success_rate 1.0, trust above prior → they agree
+    assert "capability=light.turn_on" in last
+    assert "success_rate=1.00" in last and "agree=True" in last
+
+
+def test_learning_parity_kill_switch(actuation, load, fake_hass, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "LEARNING_PARITY", False)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    assert not any("learning(parity)" in r.message for r in caplog.records)
+
+
 def test_outcome_shadow_kill_switch_silences(actuation, load, fake_hass, monkeypatch):
     koutcome = load("kernel.outcome")
     called = {"n": 0}

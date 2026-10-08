@@ -1,3 +1,27 @@
+## [8.131.0] — Learned-trust vs success-rate parity (kernel Phase M, parity)
+
+Advances Phase M to the **parity** rung: alongside the would-be per-capability
+trust, JARVIS now logs whether that learned trust agrees with the capability's
+realized success rate. Observe-only, so this release changes nothing JARVIS does.
+
+- `actuation._emit_learning_parity`: for the just-acted capability it computes the
+  learned trust (`kernel.learning.adjust`, 0.5 prior) and the realized success rate
+  (`kernel.outcome.summarize`), and logs
+  `learning(parity): capability=<cap> trust=X.XX success_rate=Y.YY agree=<bool>
+  (n=…)`. Agreement = the learned trust and the raw success rate point the same way
+  about the 0.5 midpoint; a divergence flags a capability whose confidence-weighted
+  signal disagrees with its hit rate — the case the enforce rung must get right
+  before trusting the learned value. Behind the `LEARNING_PARITY` kill-switch
+  (default on); best-effort, never raises; drives nothing.
+- Adoption: `learning` advances **shadow → parity** (owner `actuation`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Enforce
+  (`LEARNING_ENFORCE` updating a real per-capability trust store — itself a Phase N
+  concern) stays owner-gated.
+
+tests: `tests/unit/test_actuation.py` gains parity cases — consistent successes log
+`success_rate=1.00 agree=True`, and the kill-switch silences it. audit + all four
+kernel gates green.
+
 ## [8.130.0] — Per-capability trust learning shadow (kernel Phase M, shadow)
 
 Advances Phase M to the **shadow** rung (owner-chosen: per-capability trust from
