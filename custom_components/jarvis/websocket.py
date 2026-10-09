@@ -779,6 +779,7 @@ async def ws_get_panel_data(
                 "departure_require_location": bool(_runtime_opt(hass, entry, "departure_require_location", True)),
                 "routine_alerts_enabled": bool(_runtime_opt(hass, entry, "routine_alerts_enabled", True)),
                 "door_window_alerts_enabled": bool(_runtime_opt(hass, entry, "door_window_alerts_enabled", True)),
+                "arrival_push_enabled": bool(_runtime_opt(hass, entry, "arrival_push_enabled", False)),
                 "departure_lead_minutes": _runtime_opt(hass, entry, "departure_lead_minutes", 30),
                 "departure_origin_entity": str(_runtime_opt(hass, entry, "departure_origin_entity", "") or ""),
                 "departure_osrm_url": str(_runtime_opt(hass, entry, "departure_osrm_url", "") or ""),
@@ -1487,6 +1488,7 @@ PANEL_WRITABLE_KEYS = {
     "briefing_include_events",
     "briefing_include_energy",
     "briefing_include_hazards",
+    "arrival_push_enabled",         # bool: also PUSH the "heading home" anticipation alert to phones (#265); default off, spoken either way
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
     "llm_provider",

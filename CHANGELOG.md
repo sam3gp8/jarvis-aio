@@ -1,3 +1,31 @@
+## [8.173.0] — opt-in "heading home" push notification (issue #265)
+
+The reporter asked to be **notified on their phone** when someone is heading
+home — not just hear it spoken at the (possibly empty) house. The
+`anticipation_arriving` alert was already produced (deduped per person in
+8.166.0) but, being low-urgency, was spoken only. This adds an opt-in push.
+
+- `cognition.py`: the `anticipation_arriving` action is now flagged
+  `"push": True` (push-eligible).
+- `cognitive_core.py`: new pure `_awareness_push_wanted(action, pushed, routed,
+  enabled)` — a push-eligible low-urgency action also reaches the phone **only**
+  when the household opts in and no earlier branch already pushed/routed it (so
+  it is default-off and never double-notifies). `_emit_action` tracks a `_pushed`
+  flag across its existing push sites (driving-mode / quiet-hours / critical-high)
+  and consults the helper, pushing via the existing `_push_notification` /
+  `_notify_all_devices` when enabled.
+- `websocket.py`: `arrival_push_enabled` (default **False**) added to the
+  settings get-block and the settable-keys allowlist, so it is toggleable from
+  the panel like the other alert switches.
+
+Behaviour-preserving by default: with `arrival_push_enabled` off (the default),
+the arriving alert is spoken exactly as before and nothing new is pushed. Tests:
+new `test_arrival_push.py` (the pure helper — pushes when enabled, default-off,
+no double-push when already pushed, not when routed to the car, and never for a
+non-push-eligible action) + `test_cognition_proximity_dedup.py` asserts the
+arriving action is push-eligible. Audit + four kernel gates green. Version
+8.172.0 → 8.173.0.
+
 ## [8.172.0] — environment parity over the live energy picture (Phase X)
 
 Advances `kernel.environment` from **shadow → parity**: over real proactive

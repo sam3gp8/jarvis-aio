@@ -3368,6 +3368,19 @@ def _make_followup_runner(hass, config):
     return _run
 
 
+def _awareness_push_wanted(action, *, pushed, routed, enabled):
+    """Issue #265 — whether a push-eligible low-urgency action should ALSO reach
+    the phone as an awareness push.
+
+    True only when the household opted in (``enabled``), the action declares
+    itself push-eligible (``action["push"]``), and no earlier branch already
+    pushed (``pushed``) or routed it to the car (``routed``). So it is default-off
+    (behaviour-preserving) and can never double-notify. Pure — no I/O — so the
+    guarantee is unit-testable.
+    """
+    return bool(action.get("push")) and bool(enabled) and not pushed and not routed
+
+
 async def _emit_action(hass, config, action, sleeping):
     """Announce / push a single cognitive action via the standard routing."""
     _CORE.actions_taken += 1
@@ -3387,6 +3400,8 @@ async def _emit_action(hass, config, action, sleeping):
     # instead, and by default skip the home announcement. Only fires when the
     # feature is on, this category is opted in, and a head-unit sensor is live.
     _routed = False
+    _pushed = False   # tracks whether this action already reached a phone, so the
+                      # opt-in awareness push (issue #265) never double-notifies.
     try:
         from . import driving_mode
         if driving_mode.should_route(hass, config, driving_mode.category_for(action_type)):
@@ -3396,6 +3411,7 @@ async def _emit_action(hass, config, action, sleeping):
                 await _notify_all_devices(hass, config, message, action_type, _snap)
             else:
                 await _push_notification(hass, config, message, action_type, _snap)
+            _pushed = True
             if driving_mode.suppress_home_audio(config):
                 return
     except Exception as exc:
@@ -3425,6 +3441,7 @@ async def _emit_action(hass, config, action, sleeping):
                 await _notify_all_devices(hass, config, message, action_type, _snap_url)
             else:
                 await _push_notification(hass, config, message, action_type, _snap_url)
+            _pushed = True
         else:
             # Get announcement speakers from config
             ann_speakers = None
@@ -3471,6 +3488,26 @@ async def _emit_action(hass, config, action, sleeping):
                     await _notify_all_devices(hass, config, message, action_type, _snap_url)
                 else:
                     await _push_notification(hass, config, message, action_type, _snap_url)
+                _pushed = True
+
+        # ── Opt-in awareness push (issue #265) ──────────────────────────────
+        # A low-urgency action flagged push-eligible — "someone is heading home"
+        # being the motivating case — reaches the phone when the household opts
+        # in, even while awake: the whole point is to know before you're home.
+        # Default OFF (behaviour-preserving); `_awareness_push_wanted` also guards
+        # against a double notification when a branch above already pushed/routed.
+        try:
+            from . import jarvis_config
+            _arrival_on = bool(jarvis_config.get("arrival_push_enabled", False))
+        except Exception:
+            _arrival_on = False
+        if _awareness_push_wanted(action, pushed=_pushed, routed=_routed,
+                                  enabled=_arrival_on):
+            _snap_url = action.get("snapshot_url")
+            if notify_all:
+                await _notify_all_devices(hass, config, message, action_type, _snap_url)
+            else:
+                await _push_notification(hass, config, message, action_type, _snap_url)
 
     except Exception as exc:
         _LOGGER.warning("Cognitive: action routing failed: %s", exc)
