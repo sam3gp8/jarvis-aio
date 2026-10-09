@@ -914,6 +914,8 @@ async def ws_get_panel_data(
                 "dormers_rear":         _runtime_opt(hass, entry, "dormers_rear", 1),
                 "garage_bays":          _runtime_opt(hass, entry, "garage_bays", 3),
                 "chimney_side":         str(_runtime_opt(hass, entry, "chimney_side", "right") or "right"),
+                "chimney_count":        _runtime_opt(hass, entry, "chimney_count", 1),
+                "basement_entrance":    str(_runtime_opt(hass, entry, "basement_entrance", "bulkhead") or "bulkhead"),
                 "home_bedrooms":        _runtime_opt(hass, entry, "home_bedrooms", ""),
                 "home_bathrooms":       _runtime_opt(hass, entry, "home_bathrooms", ""),
             },
@@ -1420,7 +1422,7 @@ PANEL_WRITABLE_KEYS = {
     "dormers_front",             # int: front dormer count override
     "dormers_rear",              # int: rear dormer count override
     "garage_bays",               # int: garage bay count
-    "chimney_side",              # str: chimney placement (left/right)
+    "chimney_side",              # str: chimney placement (left/right/center/none)
     "home_bedrooms",             # int: bedroom count (Residence stats)
     "home_bathrooms",            # int: bathroom count (Residence stats)
     "door_mapping",              # JSON: {model door slot -> entity_id}
@@ -1488,6 +1490,8 @@ PANEL_WRITABLE_KEYS = {
     "briefing_include_events",
     "briefing_include_energy",
     "briefing_include_hazards",
+    "chimney_count",                # int: number of chimneys (1-4), spaced along the ridge (#324)
+    "basement_entrance",            # str: cellar entry — bulkhead|interior (#324)
     "arrival_push_enabled",         # bool: also PUSH the "heading home" anticipation alert to phones (#265); default off, spoken either way
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)
