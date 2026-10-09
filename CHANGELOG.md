@@ -1,3 +1,32 @@
+## [8.164.0] — Long-horizon agency primitive (pure) — opens Phase V
+
+Lands the foundation of Phase V (Long-Horizon Agency): a durable, resumable,
+progress-tracked goal model — the direct payoff of Phase I (continuity of self).
+
+- `kernel/long_horizon.py` (NEW, **pure**): a `LongHorizonGoal` is an ordered set
+  of `Milestone`s (lifecycle `pending` / `active` / `done` / `blocked` /
+  `skipped`) with a stable id. Pure derivations: `progress` (resolved fraction),
+  `next_milestone` (active preferred, else first unresolved), `is_stalled(now, *,
+  max_idle)`, `is_complete`, `resolved` / `achieved` counts. Total transitions:
+  `advance(milestone_id, status, now)` returns a **new** goal (the receiver is
+  never mutated; an unknown id or invalid status is a no-op). Builder `plan_goal`
+  coerces `Milestone` objects / `{label,status,id}` mappings / bare label strings,
+  drops malformed entries and makes ids unique; `summarize` rolls a set up by
+  state. No persistence, no clock, no Home Assistant import, no raises.
+- Exported from `kernel/__init__.py` (`LongHorizonGoal`, `LongHorizonStats`,
+  `Milestone`, `plan_long_horizon_goal`).
+- `scripts/kernel_adoption.py`: new `long_horizon` primitive declared **pure**
+  (no live caller yet); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md`
+  regenerated. `docs/KERNEL_PLAN.md`: Phase V status → pure shipped.
+
+No behaviour, actuation, or safety path changes — nothing consumes it yet. The
+durable ledger + restart-resume wiring land at shadow (a live binder persists
+these, resumed from `agency_state`, a natural fit for the existing `continuity`
+binder). Ladder from here: pure → shadow → parity → enforce (owner-gated,
+`LONG_HORIZON_ENFORCE`, fail-safe = session-scoped goals). Tests:
+`test_kernel_long_horizon.py`. Audit + four kernel gates green. Version 8.163.0 →
+8.164.0.
+
 ## [8.163.0] — Self-model shadow on the cognitive-status read (Phase S)
 
 Advances `kernel.self_model` from **pure → shadow**: JARVIS's self-picture is now
