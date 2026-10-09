@@ -2156,6 +2156,57 @@ class ProactiveManager:
 
 # ── Graduated Autonomy (v5.9.07) ────────────────────────────────────────────
 
+# Phase N — kernel.autonomy ENFORCE (owner-gated, opt-in via the panel's
+# confirmation screen → `autonomy_enforce`). When on, JARVIS's graduated-autonomy
+# auto-execute gate is governed by the kernel autonomy ladder's hard ceiling: a
+# granted pattern whose capability is SECURITY-class (unlock, disarm, lockdown
+# off) NEVER auto-acts — it always falls back to asking — no matter how often it
+# was approved. Default OFF (behaviour-preserving); fail-safe — any error leaves
+# the legacy gate (grant + mode flag) untouched. Safety (intrusion / freeze /
+# lockdown) never routes through this gate in the first place.
+GRADUATED_AUTONOMY_ENFORCE = False
+
+# Proactive-pattern key prefix → the kernel capability it actuates, for the
+# kernel risk-class lookup. Unknown prefixes fail safe (treated as non-security;
+# the per-pattern grant + mode flag still gate).
+_PATTERN_CAPABILITY = {
+    "lights_on_when_dark": "light",
+    "lights_off_when_empty": "light",
+    "hvac_eco_when_away": "climate",
+}
+
+
+def _graduated_autonomy_enforce_on() -> bool:
+    """True when the household has opted into kernel-governed autonomy
+    (`GRADUATED_AUTONOMY_ENFORCE` or the `autonomy_enforce` config key, the latter
+    written only after the panel's confirmation screen). Never raises."""
+    if GRADUATED_AUTONOMY_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("autonomy_enforce", False))
+    except Exception:
+        return False
+
+
+def _pattern_is_security(pattern_key: str) -> bool:
+    """True when a proactive pattern's capability is SECURITY-class per the kernel
+    (it must never auto-act). Fail-safe: an unknown / underivable capability
+    returns False, so the legacy grant + mode flag still gate it. Never raises."""
+    try:
+        cap = _PATTERN_CAPABILITY.get(str(pattern_key or "").split(":")[0])
+        if not cap:
+            return False
+        from .kernel import autonomy
+        # A SECURITY-class capability is pinned at CONFIRM by the kernel autonomy
+        # ladder — pinned with may_act False, regardless of track record — so it
+        # can never auto-act. (SAFE is pinned at ACT: pinned but may_act True.)
+        g = autonomy.grant(cap)
+        return bool(g.pinned and not g.may_act)
+    except Exception:
+        return False
+
+
 class AutonomyManager:
     """
     Tracks which proactive offers the user trusts JARVIS to perform alone.
@@ -2284,7 +2335,13 @@ class AutonomyManager:
         """True if JARVIS may perform this convenience action without asking.
         The active operational mode can suppress convenience auto-actions
         (party/movie/lab) — this only affects graduated convenience patterns;
-        safety events never route through here, so they act regardless of mode."""
+        safety events never route through here, so they act regardless of mode.
+
+        Phase N enforce (opt-in): when the household has explicitly enabled
+        kernel-governed autonomy (`autonomy_enforce`, confirmed in the panel), a
+        granted pattern whose capability is SECURITY-class never auto-acts — the
+        kernel autonomy ladder's hard ceiling — and always falls back to asking.
+        Default OFF (behaviour-preserving); fail-safe."""
         g = self._grants.get(pattern_key)
         if not (g and g.get("granted")):
             return False
@@ -2294,6 +2351,8 @@ class AutonomyManager:
                 return False
         except Exception:
             pass
+        if _graduated_autonomy_enforce_on() and _pattern_is_security(pattern_key):
+            return False
         return True
 
     def revoke(self, pattern_key: str, *, persist: bool = True) -> bool:

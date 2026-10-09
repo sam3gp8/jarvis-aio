@@ -4981,6 +4981,16 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             </button>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Act without asking (kernel-governed)</span>
+            <span class="toggle-desc">⚠️ Lets JARVIS carry out automations you've already approved enough times WITHOUT asking each time — governed by the kernel's graduated-autonomy ladder. Security &amp; safety capabilities (unlock, disarm, garage/lockdown off) NEVER auto-act; they always ask. Off by default; turn it off here anytime.</span>
+            <button class="toggle-btn ${(d.config?.autonomy_enforce === true) ? 'on' : 'off'}"
+              data-cfg-key="autonomy_enforce"
+              data-cfg-val="${(d.config?.autonomy_enforce === true) ? 'false' : 'true'}"
+              data-confirm="Let JARVIS act without asking?&#10;&#10;When ON, JARVIS will perform convenience automations it has learned you approve (e.g. lights on at dusk) on its own, without a prompt each time — governed by the kernel's per-capability trust ladder.&#10;&#10;It will NEVER auto-act security- or safety-critical capabilities: unlocking doors, disarming the alarm, opening the garage, or turning lockdown off ALWAYS ask first, no matter how often approved.&#10;&#10;You can turn this back off here at any time. Enable kernel-governed autonomy?">
+              ${(d.config?.autonomy_enforce === true) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Proximity TTS volume</span>
             <span class="toggle-desc">Soften announcements when mmWave distance sensors show you're close to the speaker. No effect in rooms without distance sensors; never dampens critical alerts.</span>
             <button class="toggle-btn ${(d.config?.proximity_volume !== false) ? 'on' : 'off'}"

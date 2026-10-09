@@ -780,6 +780,7 @@ async def ws_get_panel_data(
                 "routine_alerts_enabled": bool(_runtime_opt(hass, entry, "routine_alerts_enabled", True)),
                 "door_window_alerts_enabled": bool(_runtime_opt(hass, entry, "door_window_alerts_enabled", True)),
                 "arrival_push_enabled": bool(_runtime_opt(hass, entry, "arrival_push_enabled", False)),
+                "autonomy_enforce": bool(_runtime_opt(hass, entry, "autonomy_enforce", False)),
                 "departure_lead_minutes": _runtime_opt(hass, entry, "departure_lead_minutes", 30),
                 "departure_origin_entity": str(_runtime_opt(hass, entry, "departure_origin_entity", "") or ""),
                 "departure_osrm_url": str(_runtime_opt(hass, entry, "departure_osrm_url", "") or ""),
@@ -1492,6 +1493,7 @@ PANEL_WRITABLE_KEYS = {
     "briefing_include_hazards",
     "chimney_count",                # int: number of chimneys (1-4), spaced along the ridge (#324)
     "basement_entrance",            # str: cellar entry — bulkhead|interior (#324)
+    "autonomy_enforce",             # bool: opt-in — kernel-governed graduated autonomy (security never auto-acts); confirmed in-panel
     "arrival_push_enabled",         # bool: also PUSH the "heading home" anticipation alert to phones (#265); default off, spoken either way
     "document_watch_folders",    # str/list: extra folders to auto-ingest new docs from
     # AI model selection (Settings → AI Models live-fetched dropdowns)

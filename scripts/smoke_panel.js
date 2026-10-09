@@ -1342,6 +1342,19 @@ setTimeout(async () => {
     ["#324 pt2 openings editor renders without error", _op324ok && _op324.length > 0],
   );
 
+  // Phase N: the "act without asking" (autonomy_enforce) toggle must carry a
+  // full-explanation confirmation, and must state security/safety never auto-act.
+  const _autoHtml = (() => {
+    const prev = el._currentTab; el._currentTab = "settings"; const h = el._html(); el._currentTab = prev; return h;
+  })();
+  checks.push(
+    ["autonomy_enforce toggle present", /data-cfg-key="autonomy_enforce"/.test(_autoHtml)],
+    ["autonomy_enforce requires a confirmation", (() => {
+      const m = _autoHtml.match(/data-cfg-key="autonomy_enforce"[\s\S]{0,400}?data-confirm="([^"]+)"/);
+      return !!m && /never|security|safety/i.test(m[1]);
+    })()],
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();
