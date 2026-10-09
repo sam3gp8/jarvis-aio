@@ -1104,6 +1104,11 @@ class JarvisPanel extends HTMLElement {
     this._activityData = null;   // populated by _fetchActivityLog()
     this._currentTab = "dashboard"; // "dashboard" or "settings"
     this._settingsSection = "general"; // active sub-section within Settings
+    // Chat tab (issue #322) — type-to-JARVIS, session-local history. Messages
+    // are {role:'user'|'jarvis'|'error', text}. Not persisted across reloads.
+    this._chatMessages = [];
+    this._chatBusy = false;         // a request is in flight (disables send)
+    this._chatConvId = null;        // HA conversation_id, for multi-turn context
     this._knowledge = { facts: [], stats: {} }; // curated memory tab state
     this._knowledgeLoaded = false;
     this._logFilter = "all";       // log category filter
@@ -1652,6 +1657,7 @@ class JarvisPanel extends HTMLElement {
   _searchIndex() {
     return [
       { label: "Command Center", tab: "dashboard", kw: "dashboard home status overview" },
+      { label: "Chat", tab: "chat", kw: "chat message talk type text assistant ask conversation" },
       { label: "Residence", tab: "residence", kw: "rooms areas floor plan" },
       { label: "Intrusion", tab: "intrusion", kw: "security alarm breach lockdown" },
       { label: "Faces", tab: "faces", kw: "face recognition household residents" },
@@ -2032,6 +2038,104 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       });
     } catch (_) {}
   }
+
+  // ── Chat tab (issue #322) ─────────────────────────────────────────────────
+  // A type-to-JARVIS window so users who'd rather write than talk (or who are
+  // up late with others asleep) don't have to leave the panel for HA's Assist
+  // box. It routes through JARVIS's own HA conversation entity, so it's the
+  // exact same brain as voice — questions and home control both work. Purely
+  // additive and frontend-only: no new backend command, no kernel surface.
+
+  /** The JARVIS conversation entity_id, or null to let HA pick its default
+   *  agent. State-scan only (the panel is not admin-gated, so the entity
+   *  registry WS isn't available to every user). Cached per hass object. */
+  _jarvisAgentId() {
+    const st = this._hass?.states || {};
+    if (st["conversation.jarvis"]) return "conversation.jarvis";
+    for (const id of Object.keys(st)) {
+      if (!id.startsWith("conversation.")) continue;
+      const fn = (st[id].attributes?.friendly_name || "").toLowerCase();
+      if (id.includes("jarvis") || fn.includes("jarvis")) return id;
+    }
+    return null;  // fall back to HA's default conversation agent
+  }
+
+  _chatAgentLabel() {
+    return this._jarvisAgentId() ? "JARVIS AGENT" : "HA DEFAULT AGENT";
+  }
+
+  _renderChatMessages() {
+    if (!this._chatMessages.length) {
+      return `<div class="chat-empty">Ask JARVIS anything — "is the garage open?", "turn off the lab lights", "what's on my calendar tomorrow?"</div>`;
+    }
+    const rows = this._chatMessages.map((m) => {
+      const cls = m.role === "user" ? "chat-msg chat-user"
+                : m.role === "error" ? "chat-msg chat-error"
+                : "chat-msg chat-jarvis";
+      const who = m.role === "user" ? "YOU" : m.role === "error" ? "ERROR" : "JARVIS";
+      return `<div class="${cls}"><span class="chat-who">${who}</span><span class="chat-text">${this._esc(m.text)}</span></div>`;
+    }).join("");
+    const typing = this._chatBusy
+      ? `<div class="chat-msg chat-jarvis chat-typing"><span class="chat-who">JARVIS</span><span class="chat-text">…</span></div>`
+      : "";
+    return rows + typing;
+  }
+
+  /** Repaint only the chat log + compose controls — never a full _render(), so
+   *  the input keeps focus and the message history isn't torn down mid-type. */
+  _refreshChat() {
+    const log = this.shadowRoot?.getElementById("chat-log");
+    if (log) {
+      log.innerHTML = this._renderChatMessages();
+      log.scrollTop = log.scrollHeight;
+    }
+    const input = this.shadowRoot?.getElementById("chat-input");
+    const send  = this.shadowRoot?.getElementById("chat-send");
+    if (input) input.disabled = this._chatBusy;
+    if (send)  { send.disabled = this._chatBusy; send.textContent = this._chatBusy ? "…" : "SEND"; }
+  }
+
+  _clearChat() {
+    this._chatMessages = [];
+    this._chatConvId = null;
+    this._refreshChat();
+  }
+
+  async _sendChat() {
+    if (this._chatBusy) return;
+    const input = this.shadowRoot?.getElementById("chat-input");
+    const text = (input?.value || "").trim();
+    if (!text) return;
+    if (input) input.value = "";
+    this._chatMessages.push({ role: "user", text });
+    this._chatBusy = true;
+    this._refreshChat();
+    try {
+      const payload = {
+        type: "conversation/process",
+        text,
+        language: this._hass?.language || undefined,
+      };
+      const agent = this._jarvisAgentId();
+      if (agent) payload.agent_id = agent;
+      if (this._chatConvId) payload.conversation_id = this._chatConvId;
+      const res = await this._hass.callWS(payload);
+      this._chatConvId = res?.conversation_id || this._chatConvId;
+      const reply = res?.response?.speech?.plain?.speech
+        || "(JARVIS returned no text.)";
+      this._chatMessages.push({ role: "jarvis", text: reply });
+    } catch (err) {
+      this._chatMessages.push({
+        role: "error",
+        text: "Couldn't reach JARVIS — " + (err?.message || String(err)),
+      });
+    } finally {
+      this._chatBusy = false;
+      this._refreshChat();
+      this.shadowRoot?.getElementById("chat-input")?.focus();
+    }
+  }
+
   _render() {
     let body;
     try {
@@ -4347,6 +4451,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   <!-- TAB NAV -->
   <div class="tab-bar">
     <button class="tab ${this._currentTab === 'dashboard' ? 'active' : ''}" data-tab="dashboard">Command Center</button>
+    <button class="tab ${this._currentTab === 'chat' ? 'active' : ''}" data-tab="chat">Chat</button>
     <button class="tab ${this._currentTab === 'residence' ? 'active' : ''}" data-tab="residence">Residence</button>
     <button class="tab ${this._currentTab === 'intrusion' ? 'active' : ''}" data-tab="intrusion">Intrusion</button>
     <button class="tab ${this._currentTab === 'faces' ? 'active' : ''}" data-tab="faces">Faces</button>
@@ -5563,6 +5668,24 @@ ${this._renderExcludedEntities(d)}
   </div>
   ` : ''}
 
+  ${this._currentTab === 'chat' ? `
+  <!-- ═══ CHAT TAB (issue #322) ═══ -->
+  <div class="chat-tab">
+    <div class="panel chat-panel">
+      <div class="head">
+        <span>Talk to JARVIS</span>
+        <span class="side">${this._chatAgentLabel()}</span>
+      </div>
+      <div id="chat-log" class="chat-log">${this._renderChatMessages()}</div>
+      <div class="chat-compose">
+        <textarea id="chat-input" class="chat-input" rows="1" placeholder="Type a message — Enter to send, Shift+Enter for a new line" ${this._chatBusy ? 'disabled' : ''} autocomplete="off"></textarea>
+        <button id="chat-send" class="chat-send" ${this._chatBusy ? 'disabled' : ''} title="Send">${this._chatBusy ? '…' : 'SEND'}</button>
+      </div>
+      <div class="chat-hint">Same brain as voice &amp; the HA Assist box — it can answer questions and control the home. History clears on reload. <button id="chat-clear" class="chat-clear">clear</button></div>
+    </div>
+  </div>
+  ` : ''}
+
   <!-- FOOTER -->
   <div class="footer">
     <div>NODE: <span class="hl">HOMEASSISTANT.LOCAL</span></div>
@@ -5759,9 +5882,26 @@ ${this._renderExcludedEntities(d)}
           this._render();
           if (newTab === "logs") this._fetchDebugLog();
           if (newTab === "memory") { this._fetchKnowledge(); this._fetchPersonRoutines(); this._fetchBriefings(); }
+          if (newTab === "chat") this.shadowRoot?.getElementById("chat-input")?.focus();
         }
       });
     });
+
+    // Chat tab (issue #322) — send on button click or Enter (Shift+Enter = newline).
+    const chatSend = this.shadowRoot.querySelector("#chat-send");
+    if (chatSend) chatSend.addEventListener("click", () => this._sendChat());
+    const chatInput = this.shadowRoot.querySelector("#chat-input");
+    if (chatInput) {
+      chatInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this._sendChat(); }
+      });
+      if (this._currentTab === "chat") {
+        const log = this.shadowRoot.getElementById("chat-log");
+        if (log) log.scrollTop = log.scrollHeight;
+      }
+    }
+    const chatClear = this.shadowRoot.querySelector("#chat-clear");
+    if (chatClear) chatClear.addEventListener("click", () => this._clearChat());
 
     // Settings sub-navigation: switch section without a full re-render (cards
     // stay in the DOM; we just show the active section's cards).
@@ -11563,6 +11703,98 @@ ${this._renderExcludedEntities(d)}
     border-color: var(--red); color: var(--red);
     background: rgba(255, 77, 109, 0.1);
   }
+
+  /* ── Chat tab (issue #322) ──────────────────────────────────────────── */
+  .chat-tab { padding: 4px 0 16px; }
+  .chat-panel { display: flex; flex-direction: column; }
+  .chat-log {
+    flex: 1 1 auto;
+    min-height: 240px;
+    max-height: 56vh;
+    overflow-y: auto;
+    padding: 12px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .chat-empty {
+    color: var(--text-dim); font-size: 13px; font-style: italic;
+    text-align: center; padding: 32px 16px; line-height: 1.6;
+  }
+  .chat-msg {
+    display: flex; flex-direction: column; gap: 3px;
+    max-width: 82%; padding: 8px 12px; border-radius: var(--radius);
+    font-size: 13px; line-height: 1.5; word-wrap: break-word;
+    white-space: pre-wrap;
+  }
+  .chat-who {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em;
+    opacity: 0.7;
+  }
+  .chat-user {
+    align-self: flex-end;
+    background: var(--cyan-faint);
+    border: 1px solid var(--line-hot);
+    color: var(--text);
+  }
+  .chat-user .chat-who { color: var(--cyan-dim); text-align: right; }
+  .chat-jarvis {
+    align-self: flex-start;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    color: var(--text);
+  }
+  .chat-jarvis .chat-who { color: var(--cyan); }
+  .chat-error {
+    align-self: flex-start;
+    background: rgba(255, 77, 109, 0.08);
+    border: 1px solid var(--red);
+    color: var(--red);
+  }
+  .chat-error .chat-who { color: var(--red); }
+  .chat-typing .chat-text { letter-spacing: 2px; opacity: 0.6; }
+  .chat-compose {
+    display: flex; gap: 8px; align-items: flex-end;
+    padding-top: 10px; border-top: 1px solid var(--line);
+  }
+  .chat-input {
+    flex: 1 1 auto;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--line-hot);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-family: var(--font-body); font-size: 13px; line-height: 1.4;
+    resize: none; max-height: 140px; min-height: 40px;
+    outline: none;
+  }
+  .chat-input::placeholder { color: var(--text-faint); }
+  .chat-input:focus { border-color: var(--cyan); }
+  .chat-input:disabled { opacity: 0.5; }
+  .chat-send {
+    flex: 0 0 auto;
+    background: var(--cyan-faint);
+    border: 1px solid var(--line-hot);
+    color: var(--cyan);
+    border-radius: var(--radius);
+    padding: 0 18px; height: 40px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+    cursor: pointer; transition: all 0.18s;
+  }
+  .chat-send:hover:not(:disabled) {
+    background: var(--cyan); color: var(--bg); border-color: var(--cyan);
+  }
+  .chat-send:disabled { opacity: 0.5; cursor: default; }
+  .chat-hint {
+    margin-top: 8px; font-size: 10px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .chat-clear {
+    background: transparent; border: none; color: var(--text-dim);
+    text-decoration: underline; cursor: pointer; font-size: 10px;
+    font-family: inherit; padding: 0;
+  }
+  .chat-clear:hover { color: var(--red); }
 
 </style>
     `;

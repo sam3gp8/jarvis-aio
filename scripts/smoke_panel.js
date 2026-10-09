@@ -1269,6 +1269,41 @@ setTimeout(async () => {
     ["global search navigation switches tab + settings sub-section", _gsNav],
   );
 
+  // #322: Chat tab — type-to-JARVIS routed through the HA conversation entity.
+  el._hass.states["conversation.jarvis"] = { state: "2024.1.0", attributes: { friendly_name: "JARVIS" } };
+  const _chatAgent = el._jarvisAgentId();
+  el._currentTab = "chat";
+  el._render();
+  const _chatSr = el.shadowRoot;
+  let _chatReq = null;
+  const _chatRealWS = el._hass.callWS.bind(el._hass);
+  el._hass.callWS = async (m) => {
+    if (m.type === "conversation/process") {
+      _chatReq = m;
+      return { conversation_id: "cid-1", response: { speech: { plain: { speech: "The garage is closed." } } } };
+    }
+    return _chatRealWS(m);
+  };
+  const _chatInput = _chatSr.getElementById("chat-input");
+  if (_chatInput) _chatInput.value = "is the garage open?";
+  await el._sendChat();
+  const _chatLogHtml = _chatSr.getElementById("chat-log")?.innerHTML || "";
+  el._hass.callWS = _chatRealWS;
+  delete el._hass.states["conversation.jarvis"];
+  checks.push(
+    ["#322 chat tab button present", !!_chatSr.querySelector('[data-tab="chat"]')],
+    ["#322 chat compose controls render", !!_chatSr.getElementById("chat-input") && !!_chatSr.getElementById("chat-send")],
+    ["#322 agent discovery finds the JARVIS conversation entity", _chatAgent === "conversation.jarvis"],
+    ["#322 send routes through conversation/process to the JARVIS agent",
+      !!_chatReq && _chatReq.type === "conversation/process"
+      && _chatReq.agent_id === "conversation.jarvis" && _chatReq.text === "is the garage open?"],
+    ["#322 user + JARVIS messages render in the log",
+      /chat-user/.test(_chatLogHtml) && /is the garage open\?/.test(_chatLogHtml)
+      && /chat-jarvis/.test(_chatLogHtml) && /The garage is closed\./.test(_chatLogHtml)],
+    ["#322 multi-turn conversation_id is retained", el._chatConvId === "cid-1"],
+  );
+  el._currentTab = "dashboard";
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();

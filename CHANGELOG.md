@@ -1,3 +1,31 @@
+## [8.177.0] — type-to-JARVIS chat tab in the panel (issue #322)
+
+Adds a **Chat** tab to the JARVIS dashboard so you can *type* to the assistant
+instead of speaking — for people who'd rather write at the computer, or who are
+up late while the house is asleep and don't want a voice reply. No more switching
+to Home Assistant's Assist box to test something.
+
+- **Frontend-only, zero backend change.** The chat routes through JARVIS's own
+  HA **conversation entity** via the native `conversation/process` WebSocket
+  command, so it's the exact same brain as voice and the HA Assist box —
+  questions *and* home control both work. No new backend command, no kernel
+  surface touched.
+- Agent discovery is a state-scan (the panel isn't admin-gated, so the entity
+  registry WS isn't available to every user); falls back to HA's default
+  conversation agent if no JARVIS entity is found.
+- Multi-turn: the returned `conversation_id` is carried across messages for
+  follow-up context. The request passes the viewer's HA language, so replies
+  follow the user's language (consistent with #317).
+- Session-local history (clears on reload), Enter-to-send / Shift+Enter for a
+  newline, a typing indicator, inline error rows if JARVIS can't be reached, and
+  a global-search entry so the tab is findable.
+
+Behaviour-preserving: a new, opt-in-by-clicking tab; nothing else in the panel
+changes. Tests: `scripts/smoke_panel.js` gains six chat assertions (tab + compose
+render, agent discovery, routing through `conversation/process`, user/JARVIS
+message rendering, conversation_id retention). Audit + four kernel gates green.
+Version 8.176.0 → 8.177.0.
+
 ## [8.176.0] — localize Sentinel's static door/window alerts (issue #317)
 
 Follow-up to 8.174.0. That fix localized JARVIS's **LLM-generated** output; this
