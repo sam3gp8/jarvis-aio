@@ -3179,6 +3179,22 @@ async def _tick():
     except Exception as exc:
         _LOGGER.debug("cognitive-cycle parity error: %s", exc)
 
+    # ── Phase K (shadow): populate the kernel working memory, observe-only ────
+    # Fold this tick's cognitive context into the decaying kernel working set and
+    # log its bounded snapshot. Independent of the cycle switch above and drives
+    # nothing — the ladder's parity rung (attention consults it) and enforce rung
+    # come later. Fully fail-safe + kill-switched.
+    try:
+        _populate_working_memory_shadow(
+            people=len(_people),
+            anyone_home=anyone_home,
+            sleeping=sleeping,
+            decided=len(actions),
+            emitted=emitted,
+        )
+    except Exception as exc:
+        _LOGGER.debug("working-memory shadow error: %s", exc)
+
 
 # Phase J (J2): kill-switch for the observe-only cognitive cycle. A module
 # constant AND a config key ("cognitive_cycle_shadow") both gate it; either off
@@ -3254,6 +3270,62 @@ def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
             )
     except Exception:
         _LOGGER.debug("cognitive cycle parity trace: %s", trace.to_dict())
+
+
+# Phase K (shadow): the observe-only kernel working set. A module constant AND a
+# config key ("working_memory_shadow") gate it; either off disables it. The set
+# is module-level so it *decays across ticks* — the whole point of a working
+# memory — rather than being a single frame. Shadow only: nothing reads it back.
+WORKING_MEMORY_SHADOW = True
+_WORKING_MEMORY = None  # lazily created kernel.working_memory.WorkingMemory
+
+
+def _populate_working_memory_shadow(*, people: int, anyone_home: bool,
+                                    sleeping: bool, decided: int,
+                                    emitted: int) -> None:
+    """Phase K shadow: fold this tick's cognitive context into the kernel working
+    set and log its bounded snapshot. Best-effort, never raises; reads nothing
+    back, drives nothing. Only genuinely-present context is remembered — a quiet
+    tick refreshes little, so the set decays to reflect what is actually in mind.
+    """
+    if not WORKING_MEMORY_SHADOW:
+        return
+    try:
+        if _CORE and _CORE.config and not _CORE.config.get("working_memory_shadow", True):
+            return
+    except Exception:
+        pass
+    try:
+        global _WORKING_MEMORY
+        from .kernel import working_memory as wm
+        if _WORKING_MEMORY is None:
+            _WORKING_MEMORY = wm.WorkingMemory()
+        mem = _WORKING_MEMORY
+        now = time.time()
+        # Current situation: home occupancy / sleep — the frame everything else
+        # is read against, so it carries a high base salience.
+        occ = "occupied" if anyone_home else "empty"
+        if sleeping:
+            occ += ", household asleep"
+        mem.remember(wm.KIND_SITUATION, "home_occupancy", content=occ,
+                     salience=0.8, now=now, source="cognitive_core")
+        # People in play (more people → more salient).
+        mem.remember(wm.KIND_OBSERVATION, "people_present", content=str(people),
+                     salience=min(1.0, 0.3 + 0.1 * max(0, people)), now=now,
+                     source="cognitive_core")
+        # Actions this tick — only when something happened, so a quiet tick lets
+        # the entry decay out rather than refreshing noise.
+        if decided:
+            mem.remember(wm.KIND_ACTION, "tick_decisions", content=str(decided),
+                         salience=0.6, now=now, source="cognitive_core")
+        snap = mem.snapshot(now=now)
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("WORKING_MEMORY", f"shadow: {snap.summary()}")
+        except Exception:
+            _LOGGER.debug("working-memory shadow snapshot: %s", snap.summary())
+    except Exception:
+        _LOGGER.debug("working-memory shadow populate failed", exc_info=True)
 
 
 def _provider_api_key(config: dict, provider_name: str) -> str:

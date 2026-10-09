@@ -605,16 +605,19 @@ and verification, important memories, predictions and constraints — otherwise 
 context assembler keeps building its own hidden working memory. Done: the
 decision engine receives a **canonical bounded cognitive context** from
 `WorkingMemory`, not merely that `WorkingMemory` exists.
-**Status:** pure shipped (`kernel/working_memory.py` — a capacity-bounded,
-decay-scored working set with deterministic eviction; items typed against the
-canonical cognitive-context kinds the audit names — situation / objective /
-intent / people / devices / observations / questions / pending actions &
-verification / memories / predictions / constraints — scored by base salience ×
-recency decay, pinned items exempt from decay and eviction, rendered as a
-`WorkingSnapshot` grouped by kind). Nothing populates or reads it live yet, so
-the release is behaviour-preserving. Ladder from here: shadow (populate from the
-bus / cycle) → parity (attention consults it) → enforce
-(`WORKING_MEMORY_ENFORCE`, fail-safe = current attention inputs).
+**Status:** pure + shadow shipped. Pure: `kernel/working_memory.py` — a
+capacity-bounded, decay-scored working set with deterministic eviction; items
+typed against the canonical cognitive-context kinds the audit names (situation /
+objective / intent / people / devices / observations / questions / pending
+actions & verification / memories / predictions / constraints), scored by base
+salience × recency decay, pinned items exempt from decay and eviction, rendered
+as a `WorkingSnapshot` grouped by kind. Shadow: `cognitive_core._tick` folds each
+tick's cognitive context (home occupancy / sleep situation, people present,
+actions decided) into a module-level, decaying `WorkingMemory` and logs the
+bounded snapshot — observe-only, nothing reads it back (kill-switches
+`WORKING_MEMORY_SHADOW` + the `working_memory_shadow` config key). Ladder from
+here: parity (attention consults it) → enforce (`WORKING_MEMORY_ENFORCE`,
+fail-safe = current attention inputs).
 
 **Phase L — Prediction & Causal Reasoning.** Upgrade `causal.py` from seed to
 live predictor: `predict(context)` + `explain(effect)`. **Reordering (audit):**

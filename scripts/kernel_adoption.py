@@ -285,11 +285,15 @@ _DECLARED: dict[str, dict] = {
     # verification / memories / predictions / constraints), scores each by base
     # salience × recency decay, evicts the weakest deterministically, and renders a
     # WorkingSnapshot — the canonical bounded cognitive context a decision engine
-    # reads instead of assembling its own. PURE: nothing populates or reads it live
-    # yet. Ladder: pure → shadow (populate from the bus / cycle) → parity (attention
-    # consults it) → enforce (arbitration reads it authoritatively, behind
-    # WORKING_MEMORY_ENFORCE, fail-safe = current attention inputs).
-    "working_memory": {"stage": "pure",  "owners": []},
+    # reads instead of assembling its own. SHADOW (Phase K): cognitive_core._tick
+    # folds each tick's cognitive context (home occupancy / sleep situation,
+    # people present, actions decided) into a module-level, decaying WorkingMemory
+    # and logs the bounded WorkingSnapshot — observe-only, nothing reads it back
+    # (kill-switches WORKING_MEMORY_SHADOW + the working_memory_shadow config key).
+    # Ladder: pure → shadow → parity (attention consults it) → enforce (arbitration
+    # reads it authoritatively, behind WORKING_MEMORY_ENFORCE, fail-safe = current
+    # attention inputs).
+    "working_memory": {"stage": "shadow",  "owners": ["cognitive_core"]},
     # router: reasoning_loop computes the kernel local-first provider route
     # alongside its live cloud/local-Mind breaker decision and logs divergence
     # (E3) — shadow.
