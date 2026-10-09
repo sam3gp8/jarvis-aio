@@ -166,3 +166,56 @@ async def test_cold_resetup_after_unload(hass):
         assert hass.services.has_service(DOMAIN, "analyze_camera")
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_options_update_triggers_clean_reload(hass):
+    """Updating the config entry's OPTIONS must fire JARVIS's registered update
+    listener, which reloads the entry — a full unload+setup cycle — so a settings
+    change takes effect without a Home Assistant restart.
+
+    Distinct from ``test_reload_leaves_integration_loaded``, which calls
+    ``async_reload`` directly: this drives the reload through the real
+    options-changed path, so it guards the listener WIRING itself
+    (``entry.add_update_listener`` in async_setup_entry). Drop that line and a
+    settings change would silently never apply — and only this test would catch
+    it. After the reload JARVIS must be fully re-wired (data store repopulated,
+    services re-registered) with setup genuinely re-run (the provider resolved
+    afresh), and nothing may leak across the cycle (PHACC ``verify_cleanup``).
+
+    Only ``create_provider`` and the platform forward/unload are stubbed, exactly
+    as the other lifecycle tests do; the reload itself is the real HA machinery.
+    """
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.jarvis.create_provider", return_value=_FakeProvider()
+    ) as make_provider, patch(
+        "homeassistant.config_entries.ConfigEntries.async_forward_entry_setups",
+        AsyncMock(return_value=None),
+    ), patch(
+        "homeassistant.config_entries.ConfigEntries.async_unload_platforms",
+        AsyncMock(return_value=True),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert hass.services.has_service(DOMAIN, "analyze_camera")
+        calls_after_setup = make_provider.call_count
+        assert calls_after_setup >= 1
+
+        # A real options change — HA fires the registered update listener, which
+        # reloads the entry. honorific is read from entry.options at setup, so
+        # changing it is a genuine, benign config change.
+        new_options = {**dict(entry.options), "honorific": "Boss"}
+        hass.config_entries.async_update_entry(entry, options=new_options)
+        await hass.async_block_till_done()
+
+        # The reload re-ran full setup (provider resolved again) and the
+        # integration is fully wired once more.
+        assert make_provider.call_count > calls_after_setup
+        assert entry.entry_id in hass.data[DOMAIN]
+        assert hass.services.has_service(DOMAIN, "analyze_camera")
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+    assert entry.entry_id not in hass.data.get(DOMAIN, {})
+    assert not hass.services.has_service(DOMAIN, "analyze_camera")
