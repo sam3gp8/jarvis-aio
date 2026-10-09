@@ -478,9 +478,12 @@ in beliefs); this tier makes them canonical and first-class.
   observed-at, confidence, model, corroboration, expiry. `select_authoritative`
   picks the freshest high-confidence record; `corroborate` merges agreeing
   records (noisy-OR). Essential for learning, debugging, explanations, security,
-  trust and conflict resolution. Ladder: pure ✅ → shadow (world-model /
-  situation / recognition attach provenance) → parity → enforce (a consumer
-  reads the provenanced value).
+  trust and conflict resolution. Ladder: pure ✅ → shadow 🚧 — `knowledge.all_facts`
+  packages each curated fact and `recognition.who_is_where` packages each recent
+  face read (value=name / source=camera / confidence / observed-at / cache-window
+  expiry, authoritative fresh record logged via `select_authoritative`);
+  world-model / situation attach next → parity (attached vs. current reads) →
+  enforce (a consumer reads the provenanced value).
 - **Uncertainty Fabric** (`kernel/uncertainty.py`) — ✅ **pure shipped
   (8.100.0)**. First-class *"I believe the garage is empty: 0.92"* vs. *"the
   garage is empty."* An `Uncertain` pairs a value with a confidence, a band

@@ -154,10 +154,13 @@ _DECLARED: dict[str, dict] = {
     # best record and corroborate() merges agreeing records (noisy-OR). Essential
     # for learning, debugging, explanations, security, trust and conflict
     # resolution. SHADOW (#237): knowledge.all_facts() packages each curated fact
-    # as a Provenance (value/source/confidence/model) and logs it — observe-only,
-    # nothing consumes it yet (WorldModel.provenances() exposes the same view).
-    # Parity vs current reads next, enforce when a consumer reads it authoritatively.
-    "provenance":   {"stage": "shadow",  "owners": ["knowledge"]},
+    # as a Provenance (value/source/confidence/model), and recognition.who_is_where()
+    # packages each recent face recognition it returns (value=name / source=camera /
+    # confidence / observed-at / cache-window expiry), logging the authoritative
+    # fresh sighting via select_authoritative — observe-only, nothing consumes it
+    # yet (WorldModel.provenances() exposes the same view). Parity vs current reads
+    # next, enforce when a consumer reads it authoritatively.
+    "provenance":   {"stage": "shadow",  "owners": ["knowledge", "recognition"]},
     # uncertainty: first-class "what do I know vs think vs guess" (Epistemic
     # Fabric, audit-added). An Uncertain pairs a value with a confidence, a band
     # (known/believed/guessed/unknown), its basis and what evidence would
