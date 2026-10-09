@@ -1,3 +1,35 @@
+## [8.168.0] — Constraint-aware planning: alternatives + compensation (Phase U, pure)
+
+Extends `kernel.plan` with the two net-new constraint-aware primitives Phase U
+calls for over the linear executor — preconditions/postconditions/idempotency
+already existed. Both are additive and **behaviour-preserving**: a step that
+declares neither behaves exactly as before.
+
+- `kernel/plan.py`: **alternatives** — a `Step` may carry ordered fallback
+  `Step`s. If the primary attempt fails (precondition unmet / action fails /
+  postconditions never verify), the executor tries each alternative in order and
+  the first to reach DONE satisfies the step (the outcome notes which one). Wired
+  into both `execute_plan` and the async `aexecute_plan`; a step with no
+  alternatives collapses to the old act/verify path exactly.
+- `kernel/plan.py`: **compensation** — a `Step` may declare an undo `Step`. The
+  executor **never** runs it automatically (a saga/rollback *engine* stays
+  deliberately out of scope for this deployment); instead the pure
+  `plan_compensation(report, plan)` *derives* the rollback plan — the
+  compensations of the steps that actually took hold, newest-first — so a caller
+  that chooses to unwind a partially-applied plan routes that plan back through
+  the same authority + verify executor. A step completed via an alternative still
+  compensates (its effect took hold); a completed step with no compensation is
+  skipped.
+- `kernel/__init__.py`: exports `plan_compensation`.
+- `docs/KERNEL_PLAN.md`: Phase U status → pure shipped.
+
+Nothing live consumes alternatives/compensation yet, so `plan` stays at its
+current adoption stage (parity). No behaviour, actuation, or safety path changes.
+Tests: new `test_kernel_plan_constraints.py` (alternatives ordering + fallthrough
++ idempotency-via-alternative + async; compensation reverse-undo derivation,
+done-without-compensation skip, executor-never-auto-runs-it, correlation carry).
+Audit + four kernel gates green. Version 8.167.0 → 8.168.0.
+
 ## [8.167.0] — Long-horizon agency shadow over live goals (Phase V)
 
 Advances `kernel.long_horizon` from **pure → shadow**: JARVIS's active goals are

@@ -818,6 +818,24 @@ pure → shadow (richer plans alongside linear) → parity (outcome compare) →
 (goals/execute_plan use it; every step still authority+verify gated). Kill:
 `ADVANCED_PLANNER_ENFORCE`; fail-safe = linear planner. Done: a multi-constraint
 task plans+verifies through it, journal-reconstructable.
+**Status:** **pure shipped (8.168.0).** `kernel/plan.py` gains the two net-new
+constraint-aware primitives over the linear executor; preconditions/postconditions
+already existed. (1) **alternatives** — a `Step` may carry ordered fallback
+`Step`s; if the primary attempt fails (precondition unmet / action fails /
+postconditions never verify), the executor (`execute_plan` **and** `aexecute_plan`)
+tries each alternative in order and the first to reach DONE satisfies the step,
+noting which one. A step with no alternatives collapses to exactly the old
+act/verify path, so the release is behaviour-preserving. (2) **compensation** — a
+`Step` may declare an undo `Step`; the executor **never** runs it (a saga/rollback
+*engine* stays deliberately out of scope for this deployment), and a pure
+`plan_compensation(report, plan)` *derives* the rollback plan — the compensations
+of the steps that actually took hold, newest-first — so a caller that chooses to
+unwind a partially-applied plan routes that plan back through the same
+authority + verify executor. Pure representation + derivation; nothing live
+consumes alternatives/compensation yet, so `plan` stays at its current adoption
+stage (parity through `actuation`/`agent`/`goals`). Ladder from here: pure ✅ →
+shadow (richer plans built alongside the linear ones) → parity → enforce, kill
+`ADVANCED_PLANNER_ENFORCE`, owner-gated.
 
 **Phase V — Long-Horizon Agency.** Durable, resumable, progress-tracked goals
 spanning days/weeks — the direct payoff of Phase I. New: `kernel/long_horizon.py`
