@@ -1,3 +1,29 @@
+## [8.142.0] — Uncertainty shadow on the identity fusion read (Epistemic Fabric)
+
+Advances the audit-added **Uncertainty** primitive (`kernel/uncertainty.py`, pure
+8.100.0) from pure to its first **shadow** rung: identity fusion — a perception
+output that already produces a graded belief — now wraps its verdict as a
+first-class `Uncertain`. Observe-only, kill-switched, behaviour-preserving.
+
+- `identity.resolve()` now also packages its fused verdict as a
+  `kernel.uncertainty.Uncertain` (value = resolved person or `unknown`,
+  `confidence` = resolve()'s own fused score, `basis` = the methods that voted,
+  `resolver` = what evidence would settle a weak read — a face recognition or
+  voiceprint) and logs its epistemic band (`known` / `believed` / `guessed` /
+  `unknown`) — an honest *"I believe 'sam' (0.60)"* instead of a bare name. This
+  is the primitive's "perception wraps its output" rung. Gated by
+  `identity.UNCERTAINTY_SHADOW` (default on); the returned `Identification` is
+  identical whether the shadow runs or not, and the log-only path never raises.
+- `scripts/kernel_adoption.py`: `uncertainty` promoted `pure → shadow`, owner
+  `["identity"]`; `KERNEL_ADOPTION.md` + Constitution ledger regenerated.
+- Tests: `tests/unit/test_identity_uncertainty_shadow.py` — verdict identical
+  with the shadow on vs. off, a confident read logs the expected band, the
+  no-signal path emits nothing, and the emit path is defensive.
+
+Validation: `scripts/audit.py` + all four kernel gates green; identity /
+recognition / knowledge / provenance / uncertainty unit modules green. Version
+8.141.0 → 8.142.0.
+
 ## [8.141.0] — Provenance shadow extends to the recognition read (Epistemic Fabric)
 
 Advances the audit-added **Provenance** primitive (`kernel/provenance.py`, pure

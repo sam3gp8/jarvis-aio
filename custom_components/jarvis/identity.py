@@ -52,6 +52,17 @@ UNKNOWN = "unknown"
 # False to silence it; resolve() returns exactly the same Identification either way.
 IDENTITY_FABRIC_SHADOW = True
 
+# SHADOW (#237, Epistemic Fabric — Uncertainty): resolve() also packages its
+# fused verdict as a kernel.uncertainty.Uncertain (value=person, the computed
+# confidence, basis=the methods that voted, resolver=what would settle a weak
+# read) and logs its epistemic band — observe-only, nothing gates on the band yet
+# (parity vs the current min-confidence decision next, enforce when a decision
+# gates on the band, owner-gated). This is the "perception wraps its output" rung:
+# identity fusion produces a graded belief, not a bare name. Flip
+# UNCERTAINTY_SHADOW to False to silence it; resolve() returns the same
+# Identification either way.
+UNCERTAINTY_SHADOW = True
+
 # How long a resolved identity assertion stays fresh (seconds) — matches the
 # face-recency window so a stale recognition expires rather than lingering.
 _IDENTITY_TTL_SECS = 300.0
@@ -98,6 +109,29 @@ def _emit_identity_fabric_parity(person: str, confidence: float, methods, now: f
             _LOGGER.debug("identity_fabric(parity): legacy treated presence as "
                           "identity for %s; fabric withholds (not identifying)",
                           legacy_subject)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_identity_uncertainty_shadow(person: str, confidence: float, methods,
+                                      legacy_known: bool) -> None:
+    """Package resolve()'s verdict as a kernel.uncertainty.Uncertain and log its
+    epistemic band (shadow). Observe-only, best-effort, never raises.
+
+    The value is the resolved person (or UNKNOWN when the legacy decision would
+    not treat it as known); the confidence is resolve()'s own fused score; the
+    basis is the methods that voted; and a weak read names what evidence would
+    resolve it — an honest 'known / believed / guessed / unknown' instead of a
+    bare name."""
+    try:
+        from .kernel import uncertainty as U
+        basis = "+".join(sorted(methods or ())) or "no_signal"
+        value = normalize(person) if legacy_known else UNKNOWN
+        resolver = ("" if confidence >= U.DEFAULT_ACTIONABLE
+                    else "a face recognition or voiceprint")
+        u = U.assess(value, confidence, basis=basis, resolver=resolver)
+        _LOGGER.debug("identity_uncertainty(shadow): %s [band=%s basis=%s]",
+                      u.describe(), u.band, basis)
     except Exception:   # pragma: no cover - defensive
         pass
 DEFAULT_PERSONAL_SUBJECT = "primary"  # fallback knowledge subject when unresolved
@@ -362,6 +396,8 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
 
     if IDENTITY_FABRIC_SHADOW:
         _emit_identity_fabric_parity(person, confidence, methods, now, legacy_known)  # #237
+    if UNCERTAINTY_SHADOW:
+        _emit_identity_uncertainty_shadow(person, confidence, methods, legacy_known)  # #237
 
     if not legacy_known:
         return Identification(UNKNOWN, round(confidence, 3), "low_confidence", candidates)
