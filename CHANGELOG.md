@@ -1,3 +1,33 @@
+## [8.136.0] — Agency orchestration shadow (kernel Phase O, shadow)
+
+Advances Phase O to the **shadow** rung: when JARVIS delegates to a sub-agent,
+it now dry-runs the equivalent `kernel.agency` spawn and logs whether the kernel
+agrees the delegation is legal. Observe-only, so this release changes nothing
+JARVIS does — the real delegation path (tool scoping, depth cap, attribution) is
+untouched.
+
+- `agent._emit_agency_shadow`: called from `_run_delegated` once the sub-agent's
+  resolved tool set, label, and depth are known. It builds JARVIS as a root agency holding all capabilities (at the
+  current chain depth) and asks `kernel.agency.can_spawn` whether a child with
+  that tool set spawns legally, logging
+  `agency(shadow): child=<holder> depth=<d> caps=<n> granted=<n> dropped=<n>
+  ok=<bool>`. A FRIDAY/HOMER or capability-group delegation that the incumbent
+  runs reads `ok=True`; a depth over `MAX_DELEGATION_DEPTH` reads `ok=False`,
+  mirroring the incumbent's depth guard. Behind the `AGENCY_SHADOW` kill-switch
+  (default on); best-effort, never raises.
+- `kernel.agency.root` gains an optional `depth=` so the shadow can model JARVIS
+  at the real chain depth (keeps the logged depth and the legality verdict
+  consistent). Backward-compatible (defaults to 0).
+- Adoption: `agency` advances **pure → shadow** (owner `agent`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Enforce
+  (deriving the sub-agent's token FROM the kernel, one real budgeted sub-task)
+  stays **owner-gated** (`AGENCY_ORCHESTRATION_ENFORCE`).
+
+tests: `tests/unit/test_agency_shadow.py` — a legal delegation logs
+`ok=True granted=N dropped=0`, a depth-overflow logs `ok=False`, and the
+kill-switch silences it. audit + all four kernel gates green;
+`docs/KERNEL_PLAN.md` Phase O status updated.
+
 ## [8.135.0] — Agency orchestration primitive (kernel Phase O, pure)
 
 Opens roadmap **Phase O — Agency Orchestration** at its **pure** rung: a new pure

@@ -54,13 +54,18 @@ _DECLARED: dict[str, dict] = {
     # (reusing authority.CapabilityToken.derive — one source of truth for the
     # no-escalation rule), a delegation depth (mirroring budget.max_delegation_depth)
     # and a bounded pending→active→settled/failed lifecycle. can_spawn reports the
-    # legality + how the request narrows against the parent. PURE: the primitive
-    # exists and is unit-tested; nothing live consumes it yet. Shadow dry-runs a
-    # spawn alongside FRIDAY/HOMER delegation; enforce (owner-gated
-    # AGENCY_ORCHESTRATION_ENFORCE) runs one real budgeted sub-task, fail-safe =
-    # parent acts directly. (Peer coordination — kernel/coordination.py — is a
-    # later increment of this phase.)
-    "agency":       {"stage": "pure",    "owners": []},
+    # legality + how the request narrows against the parent. SHADOW (Phase O):
+    # agent._run_delegated dry-runs the equivalent agency spawn for each delegated
+    # sub-agent (FRIDAY/HOMER or a capability group) and logs whether the kernel
+    # agrees it is legal — "agency(shadow): child=… depth=… caps=… granted=…
+    # dropped=… ok=…" via agency.can_spawn (parent holds '*', child = the resolved
+    # tool set, depth bound = MAX_DELEGATION_DEPTH) — observe-only (AGENCY_SHADOW
+    # kill-switch), driving nothing; the real tool scoping / depth cap / attribution
+    # are untouched. Enforce (owner-gated AGENCY_ORCHESTRATION_ENFORCE) derives the
+    # sub-agent's token FROM the kernel and runs one real budgeted sub-task,
+    # fail-safe = parent acts directly. (Peer coordination — kernel/coordination.py
+    # — is a later increment of this phase.)
+    "agency":       {"stage": "shadow",  "owners": ["agent"]},
     # cycle: unified cognitive cycle (roadmap Phase J). A CognitiveCycle runs
     # named injected steps (perceive→interpret→decide→act→reflect) as one
     # instrumented pass with a per-tick correlation id and a CycleTrace. PARITY
