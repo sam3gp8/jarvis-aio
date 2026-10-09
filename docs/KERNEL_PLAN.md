@@ -913,6 +913,21 @@ Ladder: pure → shadow (propose tunings) → parity (tuned vs baseline) → enf
 only; forbidden tier immutable). Kill: `SELF_OPTIMIZE_ENFORCE`; fail-safe = fixed
 config. Done: one safe-tier parameter self-tunes within bounds with a measured
 win, and the forbidden tier is provably untouched.
+**Status:** **pure shipped (8.170.0).** `kernel/optimize.py` — the tiered
+guardrail encoded structurally: `classify(param)` returns SAFE / SENSITIVE /
+FORBIDDEN from a known-parameter registry, and an **unknown parameter defaults to
+FORBIDDEN** (fail-safe = fixed config — the optimizer refuses to touch anything
+it cannot prove is safe). A `TuningProposal` (built by `propose(param, current,
+proposed, bound=…)`, with a `Metric` for direction and a `Bound` for the owner
+ceiling) is `auto_applicable` only when SAFE **and** within bounds,
+`proposal_only` when SENSITIVE and within bounds (owner-gated), else `rejected`
+— so Y can never relax a safety threshold or authority gate, and a SAFE value
+out of bounds is rejected too. `report(...)` rolls proposals into
+auto-applicable / owner / rejected buckets. Pure: no HA import; it proposes and
+never applies. Ladder from here: pure ✅ → shadow (read real metrics —
+`token_telemetry` model spend, latency — and log proposals) → parity (tuned vs
+baseline) → enforce (`SELF_OPTIMIZE_ENFORCE`), owner-gated; the forbidden tier
+stays immutable at every rung.
 
 **Phase Z — Resilient Compute Federation.** *(Renamed from "Resilient /
 Distributed Compute" per audit.)* Graceful degradation and optional *federation*
