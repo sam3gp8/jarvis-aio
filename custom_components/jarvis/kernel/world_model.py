@@ -252,6 +252,32 @@ class WorldModel:
             _LOGGER.debug("world_model.beliefs failed: %s", exc)
         return out
 
+    def uncertainties(self, subject: Optional[str] = None) -> List[Any]:
+        """Curated facts as kernel ``Uncertain`` values (Epistemic Fabric —
+        Uncertainty). Each fact's flat ``confidence`` becomes a first-class
+        ``Uncertain`` (value + band known/believed/guessed/unknown + basis), so a
+        consumer can reason over *what JARVIS knows vs. believes vs. guesses*, not
+        just a bare number. SHADOW: this view is available and unit-tested, but no
+        live decision gates on the band yet — ``identity.resolve`` is the
+        Uncertainty parity anchor and the knowledge store stays authoritative.
+        Best-effort → ``[]`` on any failure."""
+        from . import uncertainty as U
+        out: List[Any] = []
+        try:
+            for f in (_all_facts(subject) or []):
+                if not isinstance(f, dict):
+                    continue
+                subj = f.get("subject") or ""
+                key = f.get("key") or ""
+                src = f.get("source") or "knowledge"
+                basis = f"{src}:{subj}.{key}" if subj else f"{src}:{key}"
+                out.append(U.assess(
+                    f.get("value"), float(f.get("confidence", 1.0) or 1.0),
+                    basis=basis))
+        except Exception as exc:
+            _LOGGER.debug("world_model.uncertainties failed: %s", exc)
+        return out
+
     def relationships(
         self,
         subject: Optional[str] = None,

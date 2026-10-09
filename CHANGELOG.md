@@ -1,3 +1,30 @@
+## [8.155.0] — Uncertainty coverage: the world-model wraps outputs too
+
+Epistemic Fabric (Uncertainty) broadened past perception, per the plan's
+"world-model / prediction wrap outputs too." Until now only `identity.resolve`
+packaged a kernel `Uncertain`; this extends the primitive to curated knowledge —
+observe-only, nothing gates on the band (identity remains the parity anchor).
+
+- `kernel/world_model.py`: new `WorldModel.uncertainties(subject)` facade — each
+  curated fact's flat `confidence` becomes a kernel `Uncertain` (value + band
+  known/believed/guessed/unknown + basis `source:subject.key`), mirroring the
+  existing `beliefs()` / `provenances()` views. SHADOW: available and tested,
+  nothing consumes it.
+- `knowledge.py`: `_emit_uncertainty_shadow(facts)` logs the epistemic-band
+  distribution of the curated facts (`N known / M believed / K guessed / W
+  unknown`), wired into `all_facts()` alongside the provenance/graph shadows.
+  Kill-switch `UNCERTAINTY_SHADOW`; `all_facts()` returns the same rows either way.
+- `scripts/kernel_adoption.py`: `uncertainty` owners `["identity"]` →
+  `["identity", "knowledge"]` (stage stays **parity** — identity is the anchor);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Uncertainty ladder note updated with the broadened
+  coverage.
+
+Behaviour-preserving: both additions are observe-only and kill-switched; no
+decision gates on the band (enforce is still future, owner-gated). Tests:
+`tests/unit/test_kernel_world_model.py` (+3) and `test_knowledge.py` (+3). Audit +
+four kernel gates green. Version 8.154.0 → 8.155.0.
+
 ## [8.154.0] — Phase T knowledge-graph shadow → parity (recall expansion)
 
 Roadmap **Phase T** (Deep World Model) graph primitive promoted shadow → parity.

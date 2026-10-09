@@ -505,8 +505,11 @@ in beliefs); this tier makes them canonical and first-class.
   computed confidence / basis=voting methods / resolver for a weak read), logs its
   epistemic band, and compares whether gating on the band (`is_actionable`) agrees
   with the legacy min-confidence "known" decision (they diverge in the
-  [min_confidence, actionable) band); world-model / prediction wrap outputs too →
-  enforce (a decision gates on the band).
+  [min_confidence, actionable) band). Coverage now extends past perception:
+  `world_model.uncertainties()` exposes the curated facts as `Uncertain` values
+  (facade), and `knowledge.all_facts()` logs the epistemic-band distribution of
+  those facts (`UNCERTAINTY_SHADOW`, observe-only) — "the world-model wraps outputs
+  too." Next: prediction wraps its outputs → enforce (a decision gates on the band).
 - **Conflict Resolution** (`kernel/conflict.py`) — ✅ **pure shipped
   (8.101.0)**. A formal rule for contradictions between sources (camera says
   empty, phone says present, motion fires): `resolve` consumes `Provenance`

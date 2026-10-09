@@ -39,6 +39,15 @@ _LOGGER = logging.getLogger(__name__)
 # to False to silence it; all_facts() returns exactly the same rows either way.
 PROVENANCE_SHADOW = True
 
+# SHADOW (Epistemic Fabric — Uncertainty): all_facts() also logs the epistemic-
+# band distribution of the curated facts (how many are KNOWN vs BELIEVED vs
+# GUESSED vs UNKNOWN by their stored confidence) — observe-only, broadening the
+# Uncertainty primitive's coverage from perception (identity.resolve, the parity
+# anchor) to curated knowledge. Flip UNCERTAINTY_SHADOW to False to silence it;
+# all_facts() returns the same rows either way. (world_model.uncertainties()
+# exposes the same facts as kernel.Uncertain values as a facade.)
+UNCERTAINTY_SHADOW = True
+
 # SHADOW (Phase T, Deep World Model): all_facts() also folds the curated facts +
 # their relation edges into a typed kernel.graph.KnowledgeGraph and logs a
 # one-line summary — observe-only, nothing reads the graph yet. Flip
@@ -86,6 +95,30 @@ def _emit_provenance_shadow(facts: list) -> None:
         if recs:
             _LOGGER.debug("provenance(shadow): %d fact record(s); e.g. %s",
                           len(recs), P.summary(recs[0]))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_uncertainty_shadow(facts: list) -> None:
+    """Log the epistemic-band distribution of a fact set (Epistemic Fabric —
+    Uncertainty, shadow): how many curated facts are KNOWN / BELIEVED / GUESSED /
+    UNKNOWN by their stored confidence. Observe-only, never raises — the knowledge
+    store is unchanged whether this runs or not."""
+    try:
+        from .kernel import uncertainty as U
+        bands = {U.KNOWN: 0, U.BELIEVED: 0, U.GUESSED: 0, U.UNKNOWN: 0}
+        n = 0
+        for f in (facts or []):
+            if not isinstance(f, dict):
+                continue
+            band = U.band_for(float(f.get("confidence", 1.0) or 1.0))
+            bands[band] = bands.get(band, 0) + 1
+            n += 1
+        if n:
+            _LOGGER.debug(
+                "uncertainty(shadow): %d fact(s) — %d known / %d believed / "
+                "%d guessed / %d unknown", n, bands[U.KNOWN], bands[U.BELIEVED],
+                bands[U.GUESSED], bands[U.UNKNOWN])
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -481,6 +514,8 @@ def all_facts(subject: Optional[str] = None, now: Optional[float] = None,
         facts.sort(key=lambda f: f["updated_at"], reverse=True)
         if PROVENANCE_SHADOW:
             _emit_provenance_shadow(facts)   # #237: observe-only
+        if UNCERTAINTY_SHADOW:
+            _emit_uncertainty_shadow(facts)  # Epistemic Fabric: observe-only
         if GRAPH_SHADOW:
             _emit_graph_shadow(facts)        # Phase T: observe-only
         return facts

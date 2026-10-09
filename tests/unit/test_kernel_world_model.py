@@ -147,6 +147,37 @@ def test_provenances_best_effort_on_error(wm_mod, hass, monkeypatch):
     assert wm_mod.WorldModel(hass).provenances() == []
 
 
+# ── uncertainty view (Epistemic Fabric — "world-model wraps outputs too") ─────
+
+def test_uncertainties_wrap_facts_with_bands(wm_mod, hass, monkeypatch):
+    monkeypatch.setattr(wm_mod, "_all_facts", lambda subject: [
+        {"subject": "garage", "key": "occupied", "value": False,
+         "confidence": 0.5, "source": "camera"},           # GUESSED (0.3–0.6)
+        {"subject": "Sam", "key": "coffee", "value": "oat milk",
+         "confidence": 1.0, "source": "stated"},            # KNOWN (≥0.95)
+    ])
+    us = wm_mod.WorldModel(hass).uncertainties()
+    assert len(us) == 2
+    assert us[0].value is False and us[0].band == "guessed"
+    assert us[0].basis == "camera:garage.occupied"
+    assert us[1].value == "oat milk" and us[1].band == "known"
+
+
+def test_uncertainties_skip_bad_rows_and_default_source(wm_mod, hass, monkeypatch):
+    monkeypatch.setattr(wm_mod, "_all_facts", lambda subject: [
+        "not-a-dict", {"key": "k", "value": 1, "confidence": 0.7},  # BELIEVED
+    ])
+    us = wm_mod.WorldModel(hass).uncertainties()
+    assert len(us) == 1 and us[0].band == "believed" and us[0].basis == "knowledge:k"
+
+
+def test_uncertainties_best_effort_on_error(wm_mod, hass, monkeypatch):
+    def _boom(subject):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(wm_mod, "_all_facts", _boom)
+    assert wm_mod.WorldModel(hass).uncertainties() == []
+
+
 def test_last_seen_delegates(wm_mod, hass, monkeypatch):
     monkeypatch.setattr(wm_mod, "_where_last_seen",
                         lambda term: {"term": term, "camera": "porch", "ts": 123.0})
