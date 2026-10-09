@@ -1249,14 +1249,10 @@ async def async_analyze_camera(
             f"Under 80 words unless something truly warrants more detail."
             f"{ground_hint}{_LOWLIGHT_HINT}{recognition_hint}"
         )
-    # Force the home's configured language on the analysis itself (issue #140):
-    # the user-message prompt is English, so the soft language directive in the
-    # system prompt would otherwise let the model answer in English.
-    try:
-        from .language import language_task_directive
-        task = task + language_task_directive(hass)
-    except Exception:
-        pass
+    # The home's configured language is forced on the analysis by
+    # build_system_prompt (issue #140, #307): it appends the FORCED task language
+    # directive — no "reply in the user's language" escape clause — so the model
+    # does not read the English prompt text as "the user wrote English".
     system = build_system_prompt(hass, honorific, task)
     vision_provider = _cfg_opt(hass, "vision_provider", "groq") or "groq"
     vision_model = _cfg_opt(hass, "vision_model", VISION_MODEL) or VISION_MODEL

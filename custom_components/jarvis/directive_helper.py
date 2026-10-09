@@ -21,7 +21,7 @@ from .const import (
     JARVIS_PERSONA,
     get_directive,
 )
-from .language import language_directive
+from .language import language_task_directive
 
 
 def resolve_directive(entry: ConfigEntry | None) -> str:
@@ -85,10 +85,19 @@ def build_system_prompt(
     if task_context:
         combined = f"{combined}\n\n---\n\n{task_context.strip()}"
 
-    # Steer every task prompt (briefings, camera analysis, sentinel, …) to the
-    # household's configured language. Empty for English installs, so they are
-    # unaffected. This mirrors the conversation path in agent.run_agent.
-    language = language_directive(hass)
+    # Steer every task prompt (briefings, camera analysis, sentinel, proactive
+    # notices, …) to the household's configured language. These are all
+    # MACHINE-authored prompts — their own instruction text is English, and there
+    # is no user "writing" to reply to — so we use the FORCED task directive
+    # (``language_task_directive``), not the conversational one with its
+    # "reply in the user's language" escape clause. A weak local model reading an
+    # English instruction block + that escape clause would otherwise conclude the
+    # user wrote in English and answer in English (issue #140 for camera, #307 for
+    # briefings/announces). The conversation path keeps the escape-clause directive
+    # (``agent.run_agent``), which is correct there. Empty for English installs, so
+    # they are unaffected; honours both JARVIS's output_language setting and HA's
+    # global language (see ``language.configured_language``).
+    language = language_task_directive(hass)
     if language:
         combined = f"{combined}\n\n---\n\n{language.strip()}"
 
