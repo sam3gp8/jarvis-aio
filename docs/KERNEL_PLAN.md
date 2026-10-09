@@ -503,8 +503,11 @@ in beliefs); this tier makes them canonical and first-class.
   winner — flagged **contested** when the runner-up is within a margin, so an
   unclear conflict defers rather than picks blindly. Exists **before** advanced
   world-model reasoning so contradictions resolve by policy, not by whichever
-  subsystem ran last. Ladder: pure ✅ → shadow (world-model / situation consult
-  it) → parity → enforce.
+  subsystem ran last. Ladder: pure ✅ → shadow 🚧 — `presence.get_presence_summary`
+  adjudicates each person's backing `device_tracker`s (a `Provenance` per tracker,
+  reliability by `source_type`) and logs the winner, whether CONTESTED, and
+  agreement with HA's own `person.state`; world-model / situation consult it next
+  → parity → enforce.
 - **Time / Temporal Validity** — more fundamental than Phase Q's space/time
   model: world-model facts and beliefs carry *valid-as-of* and *expires-at*, so
   JARVIS can reason *"this was true 30 min ago / is probably still true / expires

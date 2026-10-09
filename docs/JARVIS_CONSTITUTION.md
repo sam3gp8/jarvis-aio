@@ -78,7 +78,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `beliefs` | ◐ shadow |
 | `budget` | ● enforce |
 | `causal` | ◑ parity |
-| `conflict` | · pure |
+| `conflict` | ◐ shadow |
 | `correlation` | ◐ shadow |
 | `cycle` | ◑ parity |
 | `event` | ◑ parity |

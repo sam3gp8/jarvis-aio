@@ -1,3 +1,32 @@
+## [8.144.0] — Conflict shadow on the presence read (Epistemic Fabric)
+
+Advances the audit-added **Conflict** primitive (`kernel/conflict.py`, pure
+8.101.0) to its first **shadow** rung, at the primitive's canonical case —
+contradictory presence sources (the phone says home, the watch says away).
+Observe-only, kill-switched, behaviour-preserving.
+
+- `presence.get_presence_summary()` now also adjudicates each person's own
+  backing `device_tracker` entities through `kernel.conflict.resolve`: one
+  `kernel.provenance.Provenance` per tracker (value = its home/away/zone state,
+  source = the tracker entity, confidence 1.0, observed-at from `last_updated`),
+  with a reliability prior per `source_type` (gps > router > bluetooth > ble).
+  It logs the resolved winner, whether the result is **CONTESTED** (trackers
+  disagree within the margin, so the conflict defers), and whether it **AGREES**
+  with HA's own `person.state`. HA's resolution still stands — nothing reads the
+  adjudicated value. Only runs for a person with ≥2 trackers. Gated by
+  `presence.CONFLICT_SHADOW` (default on); the summary dict is identical whether
+  the shadow runs or not, and the log-only path never raises.
+- `scripts/kernel_adoption.py`: `conflict` promoted `pure → shadow`, owner
+  `["presence"]`; `KERNEL_ADOPTION.md` + Constitution ledger regenerated.
+- Tests: `tests/unit/test_presence_conflict_shadow.py` — summary identical with
+  the shadow on vs. off, agreeing trackers resolve + AGREE, equal-reliability
+  disagreeing trackers are CONTESTED, a single-tracker person emits nothing, and
+  the emit path is defensive.
+
+Validation: `scripts/audit.py` + all four kernel gates green; presence /
+identity / recognition / knowledge / provenance / uncertainty / conflict unit
+modules green. Version 8.143.0 → 8.144.0.
+
 ## [8.143.0] — Roadmap: Phase Ω opens the v9.0.0 line (owner directive)
 
 Docs-only. Records an owner directive in `docs/KERNEL_PLAN.md`: the v8.x series is

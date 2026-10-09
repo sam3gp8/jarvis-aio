@@ -14,6 +14,89 @@ from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
+# SHADOW (#237, Epistemic Fabric — Conflict): get_presence_summary() also
+# adjudicates each person's own backing device_trackers through kernel.conflict —
+# one kernel.provenance.Provenance per tracker (value = its home/away/zone state,
+# source = the tracker entity, reliability by source_type, observed-at from the
+# state's last_updated) — and logs the resolved winner, whether it is CONTESTED
+# (trackers disagree within the margin) and whether it AGREES with HA's own
+# person.state. This is the primitive's canonical case: the phone says home, the
+# watch says away. Observe-only: HA's own resolution still stands and the summary
+# is unchanged; a consumer reads the adjudicated value authoritatively only at
+# enforce (owner-gated). Flip CONFLICT_SHADOW to False to silence it.
+CONFLICT_SHADOW = True
+
+# Trust prior by device_tracker source_type: GPS is strongest, a router/ping
+# weaker, a BLE/beacon weaker still. Unknown sources get a neutral prior. These
+# feed kernel.conflict's reliability term; the tracker's own assertion is taken
+# at confidence 1.0 (it definitively reports a state), so trust lives here.
+_TRACKER_RELIABILITY = {
+    "gps": 0.9, "router": 0.7, "bluetooth": 0.6, "bluetooth_le": 0.55,
+}
+_DEFAULT_TRACKER_RELIABILITY = 0.5
+
+
+def _norm_presence(state) -> Optional[str]:
+    """Canonicalize a person/tracker state for conflict grouping: 'home', 'away'
+    (from not_home/away), or a lower-cased zone name; None for unknown/
+    unavailable so it contributes no vote."""
+    s = str(state or "").strip().lower()
+    if s in ("", "unknown", "unavailable", "none"):
+        return None
+    if s == "not_home":
+        return "away"
+    return s
+
+
+def _emit_presence_conflict_shadow(hass: HomeAssistant) -> None:
+    """For each person with ≥2 backing device_trackers, adjudicate the trackers
+    through kernel.conflict and log the winner / contested / agreement with HA's
+    own person.state (shadow). Best-effort, never raises — the presence summary
+    is unaffected either way."""
+    try:
+        import time as _t
+        from .kernel import conflict as _conflict
+        from .kernel import provenance as _prov
+        now = _t.time()
+        for pstate in hass.states.async_all("person"):
+            try:
+                trackers = pstate.attributes.get("device_trackers") or []
+                if len(trackers) < 2:
+                    continue  # no possible conflict with fewer than two sources
+                records = []
+                reliabilities = {}
+                for tid in trackers:
+                    tstate = hass.states.get(tid)
+                    if not tstate:
+                        continue
+                    val = _norm_presence(tstate.state)
+                    if val is None:
+                        continue
+                    stype = str(tstate.attributes.get("source_type", "")).lower()
+                    reliabilities[tid] = _TRACKER_RELIABILITY.get(
+                        stype, _DEFAULT_TRACKER_RELIABILITY)
+                    try:
+                        observed = tstate.last_updated.timestamp()
+                    except Exception:
+                        observed = now
+                    records.append(_prov.record(
+                        val, source=tid, confidence=1.0, now=(lambda o=observed: o)))
+                if len(records) < 2:
+                    continue
+                res = _conflict.resolve(records, reliabilities=reliabilities, now=now)
+                ha_state = _norm_presence(pstate.state)
+                verdict = ("CONTESTED" if res.contested
+                           else "AGREEMENT" if (res.resolved and res.value == ha_state)
+                           else "DIVERGENCE" if res.resolved
+                           else "—")
+                _LOGGER.debug(
+                    "presence_conflict(shadow): %s kernel=%r ha=%r resolved=%s %s",
+                    pstate.entity_id, res.value, ha_state, res.resolved, verdict)
+            except Exception:
+                continue
+    except Exception:   # pragma: no cover - defensive
+        pass
+
 
 def _person_state(hass: HomeAssistant, entity_id: str) -> dict:
     """Extract useful data from a person.* entity."""
@@ -93,6 +176,9 @@ def get_presence_summary(hass: HomeAssistant) -> dict:
         room = name.lower().replace("presence", "").replace("occupancy", "").strip()
         if room:
             rooms.setdefault(room, [])
+
+    if CONFLICT_SHADOW:
+        _emit_presence_conflict_shadow(hass)   # #237: observe-only
 
     return {
         "total_people": len(people),
