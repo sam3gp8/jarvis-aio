@@ -537,13 +537,16 @@ in beliefs); this tier makes them canonical and first-class.
   *"this was true 30 min ago / is probably still true / expires in 60 s."* A
   `Validity` derives age / remaining / is_valid / fraction-elapsed / freshness and
   a coarse band (fresh / aging / expired / durable); `summarize` rolls a set up by
-  band. SHADOW (8.160.0): `knowledge.all_facts()` packages each curated fact's
-  `updated_at` + `expires_at` as a `temporal.Validity` and logs the freshness-band
-  distribution (kill-switch `TEMPORAL_SHADOW`) — observe-only, completing the
-  fabric's coverage of curated knowledge (sourced + uncertain + now time-bound).
-  Ladder: pure ✅ → shadow ✅ → parity → enforce (a decision defers on a
-  stale/expired value), owner-gated. Reused by world-model + belief semantics
-  (and Q).
+  band. SHADOW (8.160.0 → 8.161.0) spans two sources: (1) `knowledge.all_facts()`
+  packages each curated fact's `updated_at` + `expires_at` as a `temporal.Validity`
+  and logs the freshness-band distribution (kill-switch `TEMPORAL_SHADOW`); (2)
+  `agent._exec_where_last_seen` logs the freshness band of the scene sighting it
+  surfaces for a "where did I last see X" answer, against `WHERE_LAST_SEEN_TTL`
+  (kill-switch `WHERE_LAST_SEEN_TEMPORAL_SHADOW`). Both observe-only — the fabric
+  now covers **semantic** (curated knowledge) and **episodic** (scene memory)
+  time-boundedness. Ladder: pure ✅ → shadow ✅ → parity → enforce (a decision
+  defers on / hedges a stale value), owner-gated. Reused by world-model + belief
+  semantics (and Q).
 
 These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and

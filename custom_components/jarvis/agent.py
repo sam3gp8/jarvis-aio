@@ -2463,6 +2463,41 @@ async def _exec_who_do_you_see(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc), "seen": [], "any": False})
 
 
+# SHADOW (Epistemic Fabric — Temporal validity): _exec_where_last_seen logs the
+# freshness band (fresh / aging / expired) of the scene sighting it surfaces, via
+# kernel.temporal, against WHERE_LAST_SEEN_TTL — observe-only, broadening the
+# Temporal primitive from curated knowledge (knowledge.all_facts) to the episodic
+# "where did I last see X" answer path, where staleness is exactly what a future
+# hedge needs ("…but that was 3h ago — may be out of date"). Nothing hedges yet
+# and the returned JSON is unchanged. Flip WHERE_LAST_SEEN_TEMPORAL_SHADOW off to
+# silence it.
+WHERE_LAST_SEEN_TEMPORAL_SHADOW = True
+# The window after which a last-seen answer should be flagged stale / re-confirmed
+# (temporal ttl → fresh < half / aging / expired past it). Coarse and tunable;
+# observe-only today, the owner tunes it when a consumer starts hedging on it.
+WHERE_LAST_SEEN_TTL = 6 * 3600.0   # 6 hours
+
+
+def _emit_where_last_seen_temporal_shadow(hit: dict) -> None:
+    """Log the temporal-validity band of the scene sighting being surfaced
+    (Epistemic Fabric — Temporal, shadow): fresh / aging / expired by its ``ts``
+    (valid-as-of) against WHERE_LAST_SEEN_TTL. Observe-only — the tool's JSON
+    answer is unchanged; this just quantifies how stale the "last seen" answer is,
+    the signal a future hedge would use. Never raises."""
+    if not WHERE_LAST_SEEN_TEMPORAL_SHADOW:
+        return
+    try:
+        from .kernel import temporal as T
+        ts = hit.get("ts") if isinstance(hit, dict) else None
+        if ts is None:
+            return
+        v = T.assess(float(ts), ttl=WHERE_LAST_SEEN_TTL)
+        _LOGGER.debug("temporal(shadow): where-last-seen answer %s (camera=%s)",
+                      v.describe(time.time()), hit.get("camera") or "?")
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
     """Search scene memory for when/where a thing was last observed (v8.3.0)."""
     term = str(args.get("term", "") or "").strip()
@@ -2473,6 +2508,7 @@ async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
         hit = await hass.async_add_executor_job(scene_memory.where_last_seen, term)
         if not hit:
             return json.dumps({"found": False, "term": term})
+        _emit_where_last_seen_temporal_shadow(hit)   # Epistemic Fabric: observe-only
         return json.dumps({
             "found": True, "term": term, "camera": hit.get("camera"),
             "ts": hit.get("ts"), "description": hit.get("description"),
