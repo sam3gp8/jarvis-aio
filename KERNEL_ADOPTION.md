@@ -85,7 +85,7 @@ explicit per-flip owner go/no-go.
 | `token_telemetry` | ◐ shadow | `llm_provider` |
 | `uncertainty` | ◑ parity | `identity`, `knowledge` |
 | `working_memory` | ◑ parity | `cognitive_core`, `output_gate` |
-| `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `home_state`, `proactive_briefing` |
+| `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `home_state`, `presence`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 
 ## Notes on specific primitives

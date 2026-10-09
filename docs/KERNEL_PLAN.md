@@ -525,8 +525,12 @@ in beliefs); this tier makes them canonical and first-class.
   those adjudications `presence._emit_presence_conflict_parity` logs how often the
   kernel winner AGREES with HA's native `person.state` and how often it would
   DEFER (CONTESTED), the quantified bar for enforce (kill-switch `CONFLICT_PARITY`,
-  observe-only); world-model / situation consult it next → enforce (a consumer
-  reads the adjudicated value) owner-gated.
+  observe-only). **Multi-source fusion:** `WorldModel.fuse_presence` broadens the
+  adjudication from per-`device_tracker` to independent source *types* (HA
+  `person.state` vs a recent camera recognition), and
+  `presence._emit_presence_fusion_shadow` logs that fused verdict (kill-switch
+  `PRESENCE_FUSION_SHADOW`, observe-only) — the broader view the enforce rung
+  reads. → enforce (a consumer reads the adjudicated value) owner-gated.
 - **Time / Temporal Validity** (`kernel/temporal.py`) — ✅ **pure shipped**. More
   fundamental than Phase Q's space/time model: a value carries *valid-as-of*
   (`observed_at`) and *expires-at* (an optional `ttl`), so JARVIS can reason

@@ -21,9 +21,17 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 _LOGGER = logging.getLogger(__name__)
+
+# Per-source reliability for multi-source presence fusion (conflict adjudication).
+# HA's own aggregate person.state is trusted, but an independent camera sighting
+# is a strong "they are here" signal (a phone can die / be left behind).
+_PRESENCE_SOURCE_RELIABILITY = {"person": 0.7, "camera": 0.8}
+# A recent face sighting is treated as good for this long (presence fusion ttl).
+_CAMERA_SIGHTING_TTL = 300.0
 
 
 def _provenances_from_facts(rows) -> List[Any]:
@@ -80,6 +88,11 @@ def _related(subject: Optional[str], obj: Optional[str], predicate: Optional[str
 def _where_last_seen(term: str) -> Optional[dict]:
     from ..vision import scene_memory
     return scene_memory.where_last_seen(term)
+
+
+def _who_is_where(hass) -> dict:
+    from .. import recognition
+    return recognition.who_is_where(hass) or {}
 
 
 def _room_adjacency(config: dict) -> dict:
@@ -201,6 +214,68 @@ class WorldModel:
             _LOGGER.debug("world_model.person_in failed: %s", exc)
             return None
         return name or None
+
+    def _person_home_state(self, name: str) -> Optional[str]:
+        """Read one person entity's own aggregate state as ``home``/``away`` by
+        friendly name (or entity-id tail), or ``None`` if not found. Reads HA
+        state directly — not the presence summary — so it never re-enters the
+        presence read that may call this during fusion."""
+        want = str(name or "").strip().lower()
+        if not want:
+            return None
+        try:
+            for st in self._hass.states.async_all("person"):
+                fn = st.attributes.get("friendly_name") or st.entity_id.split(".", 1)[-1]
+                if str(fn).strip().lower() == want:
+                    return "home" if str(st.state) == "home" else "away"
+        except Exception:   # pragma: no cover - defensive
+            return None
+        return None
+
+    def fuse_presence(self, name: str, *, now: Optional[float] = None) -> Any:
+        """Fuse a person's whereabouts from *independent* sources — HA's own
+        aggregate ``person.state`` and a recent camera recognition — into one
+        conflict-resolved verdict (Epistemic Fabric — Conflict, multi-source).
+
+        Returns a :class:`kernel.conflict.Resolution` over
+        :class:`kernel.provenance` records (value ``home``/``away``), ``contested``
+        when the independent sources disagree within the margin — e.g. a camera
+        sees Sam but their phone says away. Unlike the per-``device_tracker``
+        adjudication in ``presence``, this fuses whole *source types*: it is the
+        multi-source view the Conflict enforce rung will read. Observe-only facade
+        — nothing gates on it yet. Best-effort → an empty ``Resolution`` on any
+        failure (so a consumer falls back to HA's own resolution)."""
+        from . import conflict as C
+        from . import provenance as P
+        try:
+            nm = str(name or "").strip()
+            if not nm:
+                return C.Resolution()
+            clock = time.time() if now is None else float(now)
+            records = []
+            # 1) HA person.state — its own aggregate (no stated expiry).
+            state = self._person_home_state(nm)
+            if state:
+                records.append(P.record(state, source="person", confidence=1.0,
+                                        now=(lambda c=clock: c)))
+            # 2) Camera recognition — a recent sighting is an independent
+            #    "they are here" observation, good for a bounded window.
+            try:
+                seen = _who_is_where(self._hass) or {}
+                if any(str(v).strip().lower() == nm.lower() for v in seen.values()):
+                    records.append(P.record("home", source="camera", confidence=1.0,
+                                            now=(lambda c=clock: c),
+                                            ttl=_CAMERA_SIGHTING_TTL))
+            except Exception:   # pragma: no cover - defensive
+                pass
+            # Only a genuine ≥2-source case is a "fusion"; otherwise defer to HA.
+            if len(records) < 2:
+                return C.Resolution()
+            return C.resolve(records, reliabilities=_PRESENCE_SOURCE_RELIABILITY,
+                             now=clock)
+        except Exception as exc:   # pragma: no cover - defensive
+            _LOGGER.debug("world_model.fuse_presence failed: %s", exc)
+            return C.Resolution()
 
     # ── knowledge graph ─────────────────────────────────────────────────────────
     def facts(self, subject: Optional[str] = None) -> List[dict]:
