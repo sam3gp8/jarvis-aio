@@ -8,6 +8,7 @@ the conversation agent's context.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Optional
 
 from homeassistant.core import HomeAssistant
@@ -25,6 +26,18 @@ _LOGGER = logging.getLogger(__name__)
 # is unchanged; a consumer reads the adjudicated value authoritatively only at
 # enforce (owner-gated). Flip CONFLICT_SHADOW to False to silence it.
 CONFLICT_SHADOW = True
+
+# PARITY (Epistemic Fabric — Conflict): over a rolling window of the per-person
+# adjudications the shadow computes, log how often kernel.conflict's
+# reliability-weighted winner AGREES with HA's native person.state and how often
+# it would DEFER (CONTESTED). That is the quantified bar the owner-gated enforce
+# rung needs — a consumer should read the adjudicated value only once it tracks
+# HA closely and rarely defers. Rides inside the shadow emission (so it shares
+# the same real reads); observe-only, drives nothing. Flip CONFLICT_PARITY off
+# to silence it.
+CONFLICT_PARITY = True
+_CONFLICT_PARITY_WINDOW = 200
+_conflict_verdicts: deque = deque(maxlen=_CONFLICT_PARITY_WINDOW)
 
 # Trust prior by device_tracker source_type: GPS is strongest, a router/ping
 # weaker, a BLE/beacon weaker still. Unknown sources get a neutral prior. These
@@ -92,8 +105,37 @@ def _emit_presence_conflict_shadow(hass: HomeAssistant) -> None:
                 _LOGGER.debug(
                     "presence_conflict(shadow): %s kernel=%r ha=%r resolved=%s %s",
                     pstate.entity_id, res.value, ha_state, res.resolved, verdict)
+                # PARITY: accumulate this real adjudication's verdict.
+                if CONFLICT_PARITY and verdict != "—":
+                    _conflict_verdicts.append(verdict)
             except Exception:
                 continue
+        _emit_presence_conflict_parity()
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_presence_conflict_parity() -> None:
+    """PARITY (Epistemic Fabric — Conflict): log the accumulated agreement and
+    contested rates of kernel.conflict's winner vs HA's native person.state over
+    the rolling window. Best-effort, never raises; reads the window, drives
+    nothing."""
+    if not CONFLICT_PARITY:
+        return
+    try:
+        n = len(_conflict_verdicts)
+        if n == 0:
+            return
+        agree = sum(1 for v in _conflict_verdicts if v == "AGREEMENT")
+        diverge = sum(1 for v in _conflict_verdicts if v == "DIVERGENCE")
+        contested = sum(1 for v in _conflict_verdicts if v == "CONTESTED")
+        decided = agree + diverge            # non-contested resolutions
+        agree_rate = (agree / decided) if decided else 0.0
+        contested_rate = contested / n
+        _LOGGER.debug(
+            "presence_conflict(parity): agree_rate=%.2f (%d/%d) "
+            "contested_rate=%.2f n=%d", agree_rate, agree, decided,
+            contested_rate, n)
     except Exception:   # pragma: no cover - defensive
         pass
 

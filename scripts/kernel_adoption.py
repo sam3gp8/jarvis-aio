@@ -186,9 +186,14 @@ _DECLARED: dict[str, dict] = {
     # adjudicates each person's backing device_trackers through conflict.resolve
     # (a Provenance per tracker, reliability by source_type) and logs the winner,
     # whether CONTESTED, and agreement with HA's own person.state — observe-only,
-    # HA's resolution still stands. World-model / situation consult it next; parity
-    # vs current reads, then enforce when a consumer reads the adjudicated value.
-    "conflict":     {"stage": "shadow",  "owners": ["presence"]},
+    # HA's resolution still stands. PARITY (Phase K cycle): over a rolling window
+    # of those per-person adjudications, presence._emit_presence_conflict_parity
+    # logs how often the kernel winner AGREES with HA's native person.state and how
+    # often it would DEFER (CONTESTED) — the quantified bar the enforce rung needs
+    # (kill-switch CONFLICT_PARITY). Observe-only, drives nothing. World-model /
+    # situation consult it next; enforce (a consumer reads the adjudicated value)
+    # is owner-gated.
+    "conflict":     {"stage": "parity",  "owners": ["presence"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
