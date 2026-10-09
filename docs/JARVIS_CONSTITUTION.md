@@ -95,6 +95,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `priority` | · pure |
 | `provenance` | ◐ shadow |
 | `router` | ◐ shadow |
+| `self_model` | · pure |
 | `situation` | ● enforce |
 | `space_time` | ◑ parity |
 | `temporal` | ◐ shadow |

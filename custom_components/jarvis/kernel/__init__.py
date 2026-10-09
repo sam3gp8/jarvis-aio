@@ -49,6 +49,7 @@ from . import (
     uncertainty,
     priority,
     router,
+    self_model,
     situation,
     space_time,
     token_telemetry,
@@ -91,6 +92,7 @@ from .provenance import Provenance
 from .uncertainty import Uncertain
 from .conflict import Resolution as ConflictResolution
 from .temporal import Validity, ValidityStats
+from .self_model import Capability, SelfModel, project as self_project
 from .working_memory import (
     WorkingItem,
     WorkingMemory,
@@ -203,6 +205,10 @@ __all__ = [
     "temporal",
     "Validity",
     "ValidityStats",
+    "self_model",
+    "SelfModel",
+    "Capability",
+    "self_project",
     "working_memory",
     "WorkingMemory",
     "WorkingItem",

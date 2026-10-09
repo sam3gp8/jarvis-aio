@@ -233,6 +233,19 @@ _DECLARED: dict[str, dict] = {
     # shadow → parity → enforce (a decision defers on / hedges a stale value,
     # owner-gated).
     "temporal":     {"stage": "shadow",  "owners": ["agent", "knowledge"]},
+    # self_model: JARVIS's honest, inspectable picture of itself (roadmap Phase S).
+    # A read-only projection — capabilities (each with a status), current
+    # commitments (goals / open situations), overall confidence, known limits —
+    # so "what can you do / what are you doing / are you sure?" can be model-backed
+    # instead of confabulated. PURE: a record + deterministic derivations (can /
+    # available / report / to_dict) + a total builder; nothing consumes it live
+    # yet. Hard rule by construction: it only DESCRIBES — it carries no authority
+    # and cannot grant, activate or widen anything (authority lives in the
+    # authority primitive). Ladder: pure → shadow (a diagnostics read logs it) →
+    # parity (self-report vs ground truth) → enforce (self-answers sourced from the
+    # model, no confabulation), owner-gated behind SELF_MODEL_ENFORCE (fail-safe =
+    # static capability list).
+    "self_model":   {"stage": "pure",    "owners": []},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
