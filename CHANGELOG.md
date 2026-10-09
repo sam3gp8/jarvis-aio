@@ -1,3 +1,32 @@
+## [8.141.0] — Provenance shadow extends to the recognition read (Epistemic Fabric)
+
+Advances the audit-added **Provenance** primitive (`kernel/provenance.py`, pure
+8.99.0; shadow already live for curated facts via `knowledge.all_facts`) one rung
+by attaching provenance at a second, cleaner source: the face-recognition read.
+Observe-only, kill-switched, behaviour-preserving — no live consumer reads it.
+
+- `recognition.who_is_where()` now also packages each recent recognition it
+  returns as a `kernel.provenance.Provenance` (value=name, source=camera entity,
+  confidence scaled from the cache's 0..100 percent, observed-at = the sighting's
+  own timestamp, a 2 h expiry matching the recognition-cache window) and logs the
+  most authoritative *fresh* record via `provenance.select_authoritative`.
+  Recognition is the cleanest provenance source: a face read natively carries
+  *who*, *which camera*, *when*, and *how confident*. Gated by
+  `recognition.PROVENANCE_SHADOW` (default on); the returned
+  `{camera_entity: name}` mapping is identical whether the shadow runs or not,
+  and the log-only path never raises into the identity read.
+- `scripts/kernel_adoption.py`: `provenance` shadow owners now `["knowledge",
+  "recognition"]`. Stage unchanged (still shadow), so the Constitution / adoption
+  matrix rows are unaffected.
+- Tests: `tests/unit/test_recognition_provenance_shadow.py` — read is identical
+  with the shadow on vs. off, provenance covers exactly the sightings the read
+  surfaces (stale / sub-threshold entries excluded), and the emit path is
+  defensive on empty / malformed input.
+
+Validation: `scripts/audit.py` + all four kernel gates green; related recognition
+/ identity / knowledge / provenance unit modules green. Version 8.140.0 →
+8.141.0.
+
 ## [8.140.0] — Integration test: options-update triggers a clean reload
 
 Continues the v8.136.0 external audit's P1 end-to-end coverage (the owner-chosen

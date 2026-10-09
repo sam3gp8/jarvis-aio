@@ -481,13 +481,66 @@ def last_seen_at(hass: HomeAssistant, camera_entity: str) -> Optional[dict]:
     }
 
 
+# SHADOW (#237, Epistemic Fabric — Provenance): who_is_where() also packages each
+# recent face recognition it returns as a kernel.provenance.Provenance record
+# (value=name, source=camera, confidence, observed-at, a 2h expiry = the cache
+# window) and logs the most authoritative fresh sighting via select_authoritative
+# — observe-only, nothing reads it yet (world-model / situation attach next; a
+# consumer reads the provenanced value at enforce, owner-gated). Recognition is
+# the cleanest provenance source: a face read natively carries who, which camera,
+# when, and how confident. Flip PROVENANCE_SHADOW to False to silence it;
+# who_is_where() returns the same {camera_entity: name} either way. Mirrors the
+# knowledge.all_facts() provenance shadow already shipped for curated facts.
+PROVENANCE_SHADOW = True
+
+
+def _emit_provenance_shadow(matches: list) -> None:
+    """Log the provenance view of the recent recognitions who_is_where() returns
+    (shadow). Best-effort, never raises — the identity read is unaffected.
+
+    ``matches`` is a list of ``(camera_entity, name, confidence_pct, ts)`` for the
+    sightings that passed who_is_where()'s freshness + confidence filter; the
+    cache stores confidence as a 0..100 percent, so it is scaled to the [0, 1]
+    the fabric uses, and each record's observed-at is the sighting's own
+    timestamp with a TTL matching the cache window."""
+    if not matches:
+        return
+    try:
+        from .kernel import provenance as P
+        ttl = CACHE_MAX_AGE.total_seconds()
+        now_epoch = datetime.now(timezone.utc).timestamp()
+        records = []
+        for cam_entity, name, conf_pct, ts in matches:
+            try:
+                observed = ts.replace(tzinfo=timezone.utc).timestamp()
+            except Exception:
+                observed = now_epoch
+            records.append(P.record(
+                name,
+                source=cam_entity,
+                confidence=float(conf_pct) / 100.0,
+                now=(lambda o=observed: o),
+                ttl=ttl,
+            ))
+        best = P.select_authoritative(records, now=now_epoch)
+        _LOGGER.debug(
+            "provenance(shadow): %d recognition record(s); authoritative %s",
+            len(records), P.summary(best, now=now_epoch))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 def who_is_where(hass: HomeAssistant) -> dict[str, str]:
     """Return {camera_entity: name} for all recent recognitions."""
     out = {}
+    matches: list = []
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - CACHE_MAX_AGE
     for entity_id, rec in _RECOGNITION_CACHE.items():
         if rec["ts"] >= cutoff and rec["confidence"] >= CONFIDENCE_THRESHOLD:
             out[entity_id] = rec["name"]
+            matches.append((entity_id, rec["name"], rec["confidence"], rec["ts"]))
+    if PROVENANCE_SHADOW:
+        _emit_provenance_shadow(matches)   # #237: observe-only
     return out
 
 
