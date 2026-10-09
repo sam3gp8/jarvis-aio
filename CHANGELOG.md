@@ -1,3 +1,31 @@
+## [8.156.0] — Temporal-validity primitive (Epistemic Fabric — Time, pure)
+
+The fifth and final Epistemic-Fabric primitive: **Time / Temporal Validity**.
+Perception and knowledge aren't just uncertain (`kernel.uncertainty`) and sourced
+(`kernel.provenance`) — they're time-bound. This makes that first-class.
+
+- `kernel/temporal.py` (NEW, pure — no Home Assistant import, deterministic `now`
+  passed in):
+  - `Validity` — pairs an `observed_at` (valid-as-of) with an optional `ttl`
+    (→ `expires_at`), deriving `age` / `remaining` / `is_valid` / `fraction_elapsed`
+    / `freshness` (bounded [0,1], linear decay to expiry) and a coarse **band**:
+    `fresh` (<50% of lifetime), `aging` (50–100%), `expired` (≥100%), `durable`
+    (no ttl — never expires). `describe()` gives an honest one-liner
+    ("expired (observed 900s ago) — re-confirm"); `to_dict()` serialises.
+  - `summarize(items, now)` → `ValidityStats` rolls a set up by band (for shadow
+    logging), skipping non-`Validity` items.
+- `kernel/__init__.py` exports `temporal`, `Validity`, `ValidityStats`.
+- `scripts/kernel_adoption.py` declares `temporal` at stage **pure** (owners
+  `[]`); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Time / Temporal-Validity note → pure shipped (completes
+  the five Epistemic-Fabric primitives).
+
+Behaviour-preserving: pure, nothing consumes it live yet. Ladder from here: shadow
+(a live source logs its validity band distribution) → parity → enforce (a decision
+defers on a stale/expired value), owner-gated. Tests:
+`tests/unit/test_kernel_temporal.py` (9). Audit + four kernel gates green. Version
+8.155.0 → 8.156.0.
+
 ## [8.155.0] — Uncertainty coverage: the world-model wraps outputs too
 
 Epistemic Fabric (Uncertainty) broadened past perception, per the plan's
