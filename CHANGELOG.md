@@ -1,3 +1,33 @@
+## [8.162.0] — Self-model primitive (pure) — opens Phase S (Self Model & Self Awareness)
+
+Lands the foundation of Phase S: an explicit, inspectable model of what JARVIS is
+and can do, so "what can you do / what are you doing / are you sure?" can be
+model-backed instead of confabulated.
+
+- `kernel/self_model.py` (NEW, **pure**): a read-only `SelfModel` projection —
+  `capabilities` (each a `Capability` with an `available` / `degraded` /
+  `unavailable` status), `commitments` (active goals / open situations), overall
+  `confidence` (clamped [0,1]), known `limits`, and `identity`. Pure derivations:
+  `can(name)` (case-insensitive, usability-aware), `available`, `report()` (an
+  honest one-liner that never over-claims), `to_dict()`; plus a total `project()`
+  builder that coerces Capability objects / `{name,status,note}` mappings / bare
+  name strings and drops malformed entries. No Home Assistant import, no clock, no
+  raises.
+- **Hard rule, by construction:** the model only *describes* — it carries no
+  authority and has no method that grants, activates or widens anything (authority
+  lives in `kernel.authority`). An unavailable capability is never reported usable.
+- Exported from `kernel/__init__.py` (`SelfModel`, `Capability`, `self_project`).
+- `scripts/kernel_adoption.py`: new `self_model` primitive declared **pure**
+  (no live caller yet); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md`
+  regenerated. `docs/KERNEL_PLAN.md`: Phase S status → pure shipped.
+
+No behaviour, actuation, or safety path changes — nothing consumes the model yet.
+Ladder from here: pure → shadow → parity → enforce (owner-gated,
+`SELF_MODEL_ENFORCE`, fail-safe = static capability list). Tests:
+`test_kernel_self_model.py` (coercion, usability-aware `can`, never-over-claim
+`report`, confidence clamping, empty/defensive). Audit + four kernel gates green.
+Version 8.161.0 → 8.162.0.
+
 ## [8.161.0] — Temporal validity shadow on the "where last seen" answer (Epistemic Fabric)
 
 Broadens the `kernel.temporal` shadow from **semantic** memory (curated knowledge,
