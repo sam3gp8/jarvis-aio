@@ -177,10 +177,13 @@ _DECLARED: dict[str, dict] = {
     # scores each (confidence × source-reliability × recency × corroboration),
     # sums per value, returns the winner, flagging CONTESTED when the runner-up
     # is within a margin so an unclear conflict defers. Must exist before
-    # advanced world-model reasoning. PURE: exists + unit-tested, nothing live
-    # routes decisions through it yet — world-model/situation consult it in
-    # shadow, parity, then enforce.
-    "conflict":     {"stage": "pure",    "owners": []},
+    # advanced world-model reasoning. SHADOW (#237): presence.get_presence_summary()
+    # adjudicates each person's backing device_trackers through conflict.resolve
+    # (a Provenance per tracker, reliability by source_type) and logs the winner,
+    # whether CONTESTED, and agreement with HA's own person.state — observe-only,
+    # HA's resolution still stands. World-model / situation consult it next; parity
+    # vs current reads, then enforce when a consumer reads the adjudicated value.
+    "conflict":     {"stage": "shadow",  "owners": ["presence"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped

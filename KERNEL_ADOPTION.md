@@ -62,7 +62,7 @@ explicit per-flip owner go/no-go.
 | `beliefs` | ◐ shadow | `agent` |
 | `budget` | ● enforce | `actuation` |
 | `causal` | ◑ parity | `pattern_analyzer` |
-| `conflict` | · pure | — |
+| `conflict` | ◐ shadow | `presence` |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `cycle` | ◑ parity | `cognitive_core` |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
@@ -77,7 +77,7 @@ explicit per-flip owner go/no-go.
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
-| `provenance` | ◐ shadow | `knowledge`, `recognition` |
+| `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
 | `router` | ◐ shadow | `reasoning_loop` |
 | `situation` | ● enforce | `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `space_time` | ◑ parity | `cognitive_core` |
