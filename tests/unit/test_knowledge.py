@@ -261,6 +261,52 @@ def test_uncertainty_shadow_defensive(knowledge, caplog):
     assert line and "1 guessed" in line[-1]
 
 
+# ── temporal shadow (Epistemic Fabric — freshness band of curated facts) ──────
+
+def test_all_facts_temporal_shadow_logs_band_distribution(knowledge, caplog):
+    import logging
+    # A durable fact (no ttl) and a still-within-lifetime expiring fact.
+    knowledge.remember("coffee", "oat milk", kind="fact", now=1000.0)
+    knowledge.remember("door", "unlocked", kind="fact", now=1000.0,
+                       ttl_seconds=100.0)
+    with caplog.at_level(logging.DEBUG):
+        facts = knowledge.all_facts(now=1000.0)   # both within lifetime
+    assert len(facts) == 2                          # rows unchanged (observe-only)
+    line = [r.message for r in caplog.records if "temporal(shadow)" in r.message]
+    assert line and "1 fresh" in line[-1] and "1 durable" in line[-1]
+
+
+def test_temporal_shadow_bands_aging_as_lifetime_elapses(knowledge, caplog):
+    import logging
+    # 80% of the 100s lifetime gone (not yet expired) → AGING, still returned.
+    knowledge.remember("door", "unlocked", kind="fact", now=1000.0,
+                       ttl_seconds=100.0)
+    with caplog.at_level(logging.DEBUG):
+        facts = knowledge.all_facts(now=1080.0)
+    assert len(facts) == 1
+    line = [r.message for r in caplog.records if "temporal(shadow)" in r.message]
+    assert line and "1 aging" in line[-1]
+
+
+def test_temporal_shadow_kill_switch(knowledge, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(knowledge, "TEMPORAL_SHADOW", False)
+    knowledge.remember("k", "v", kind="fact", now=1000.0)
+    with caplog.at_level(logging.DEBUG):
+        knowledge.all_facts(now=1000.0)
+    assert not [r for r in caplog.records if "temporal(shadow)" in r.message]
+
+
+def test_temporal_shadow_defensive(knowledge, caplog):
+    import logging
+    # A non-dict row and a row with no expiry (durable) must not break the emitter.
+    with caplog.at_level(logging.DEBUG):
+        knowledge._emit_temporal_shadow(
+            ["not-a-dict", {"updated_at": 1000.0, "expires_at": None}], 1000.0)
+    line = [r.message for r in caplog.records if "temporal(shadow)" in r.message]
+    assert line and "1 durable" in line[-1]
+
+
 # ── knowledge-graph enforce path (roadmap Phase T, gated off by default) ──────
 # _graph_expand_facts does 1-hop relation expansion; prompt_block_async uses it
 # only when KNOWLEDGE_GRAPH_ENFORCE is on (default off = plain recall).

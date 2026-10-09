@@ -221,11 +221,14 @@ _DECLARED: dict[str, dict] = {
     # age / remaining / is_valid / fraction-elapsed and a coarse freshness band
     # (fresh / aging / expired / durable); summarize() rolls a set up by band.
     # Makes time-boundedness first-class alongside uncertainty and provenance —
-    # "true 30 min ago / probably still true / expired, re-check". PURE: nothing
-    # consumes it live yet. Ladder: pure → shadow (a live source logs its validity
-    # band distribution) → parity → enforce (a decision defers on a stale/expired
-    # value, owner-gated).
-    "temporal":     {"stage": "pure",    "owners": []},
+    # "true 30 min ago / probably still true / expired, re-check". SHADOW:
+    # knowledge.all_facts() packages each curated fact's updated_at (valid-as-of)
+    # + expires_at (→ ttl; absent ⇒ durable) as a temporal.Validity and logs the
+    # freshness-band distribution (kill-switch TEMPORAL_SHADOW) — observe-only,
+    # completing the fabric's coverage of curated knowledge (sourced + uncertain +
+    # now time-bound). Ladder from here: shadow → parity → enforce (a decision
+    # defers on a stale/expired value, owner-gated).
+    "temporal":     {"stage": "shadow",  "owners": ["knowledge"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
