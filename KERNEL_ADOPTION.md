@@ -83,7 +83,7 @@ explicit per-flip owner go/no-go.
 | `space_time` | ◑ parity | `cognitive_core` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |
 | `uncertainty` | ◑ parity | `identity` |
-| `working_memory` | · pure | — |
+| `working_memory` | ◐ shadow | `cognitive_core` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `home_state`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 

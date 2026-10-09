@@ -1,3 +1,33 @@
+## [8.151.0] — Phase K working-memory shadow (cognitive_core populate)
+
+Roadmap **Phase K** shadow rung: `cognitive_core` now populates the
+`kernel/working_memory.py` primitive (shipped pure in 8.150.0) from each
+cognitive tick — the first live producer of the canonical working set.
+
+- `cognitive_core.py`:
+  - `_populate_working_memory_shadow(...)` — folds this tick's cognitive context
+    into a module-level, **decaying** `WorkingMemory`: the current situation
+    (home occupancy / household-asleep, high base salience), the people present
+    (observation, salience scaled by count), and the actions decided this tick
+    (only when non-zero, so a quiet tick lets the entry decay rather than
+    refreshing noise). Logs the bounded `WorkingSnapshot.summary()` under the
+    `WORKING_MEMORY` tag.
+  - called from `_tick` after the cognitive-cycle shadow, in its own fail-safe
+    try/except. **Observe-only** — nothing reads the set back; it drives no
+    decision. Kill-switched two ways: the module constant `WORKING_MEMORY_SHADOW`
+    and the `working_memory_shadow` config key (either off disables it).
+- `scripts/kernel_adoption.py`: `working_memory` **pure → shadow**
+  (owners `["cognitive_core"]`); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md`
+  regenerated from it (doc-sync gate).
+- `docs/KERNEL_PLAN.md`: Phase K status → pure + shadow shipped.
+
+Behaviour-preserving: the working set accumulates and decays across ticks but
+nothing consumes it. Ladder from here: parity (attention consults it) → enforce
+(`WORKING_MEMORY_ENFORCE`, fail-safe = current attention inputs). Tests:
+`tests/unit/test_working_memory_shadow.py` (6 — populate, quiet-tick decay,
+cross-tick dedup/refresh, both kill-switches, never-raises). Audit + four kernel
+gates green. Version 8.150.0 → 8.151.0.
+
 ## [8.150.0] — Phase K working-memory primitive (pure)
 
 Roadmap **Phase K — Attention & Working Memory** (docs/KERNEL_PLAN.md): the new
