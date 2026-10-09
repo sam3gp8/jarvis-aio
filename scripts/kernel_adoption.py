@@ -47,7 +47,12 @@ _DECLARED: dict[str, dict] = {
     # a restart can know what it was in the middle of. SHADOW (I2, 8.87.0):
     # `continuity` captures a snapshot periodically and logs the continuity
     # summary on boot — it reads live state and writes its own DB + a log line,
-    # driving nothing. Boot reconcile is I3 (parity); resume/announce I4 (enforce).
+    # driving nothing. Boot reconcile is I3 (parity). Phase I-B adds a cognitive
+    # snapshot (pure) + capture (shadow) + cognitive reconcile (parity); I-B.4
+    # (8.147.0) builds the resume ENFORCE path — `continuity.resume_summary`
+    # sources the boot resume from the cognitive snapshot when
+    # `CONTINUITY_RESUME_ENFORCE` is on — but that flag DEFAULTS OFF (owner-gated)
+    # and no boot path consumes resume yet, so the live stage stays `shadow`.
     "agency_state": {"stage": "shadow",  "owners": ["continuity"]},
     # agency: hierarchical delegation (roadmap Phase O). A pure lifecycle for a
     # parent agency spawning a CHILD agency with a strictly NARROWER capability set

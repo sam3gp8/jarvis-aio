@@ -232,6 +232,46 @@ def test_boot_reconcile_cognitive_is_defensive(cont, monkeypatch):
     assert rep is not None             # commitment reconcile still produced
 
 
+# ── Phase I-B.4: resume enforce path (CONTINUITY_RESUME_ENFORCE, default OFF) ──
+def _capture_with_cognitive(cont, monkeypatch):
+    CC = cont.agency_state.CognitiveContext
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [{"id": "g1", "label": "warm up"}])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    monkeypatch.setattr(cont, "_live_cognitive",
+                        lambda hass=None: CC(intent="dim office", plan="turn_off office"))
+    cont.capture_now()
+
+
+def test_resume_summary_default_off_is_commitment_only(cont, monkeypatch):
+    # Default OFF (the shipped state): resume is the I-A commitment-only line —
+    # no cognitive headline — identical to today's behaviour.
+    assert cont.CONTINUITY_RESUME_ENFORCE is False
+    _capture_with_cognitive(cont, monkeypatch)
+    line = cont.resume_summary()
+    assert "mode=home" in line and "1 goal" in line
+    assert "intent=" not in line and "plan=" not in line
+
+
+def test_resume_summary_enforce_on_sources_cognitive(cont, monkeypatch):
+    # When the owner flips the switch on, resume is sourced from the cognitive
+    # snapshot (intent / chosen plan surface).
+    _capture_with_cognitive(cont, monkeypatch)
+    monkeypatch.setattr(cont, "CONTINUITY_RESUME_ENFORCE", True)
+    line = cont.resume_summary()
+    assert "intent=dim office" in line and "plan=turn_off office" in line
+
+
+def test_resume_summary_kill_switch(cont, monkeypatch):
+    _capture_with_cognitive(cont, monkeypatch)
+    monkeypatch.setattr(cont, "AGENCY_CAPTURE_ENABLED", False)
+    assert cont.resume_summary() == ""
+
+
+def test_resume_summary_no_prior_snapshot(cont):
+    assert cont.resume_summary() == "continuity: no prior agency snapshot"
+
+
 # ── Phase I-B (enrichment): salient beliefs from the WorldModel belief view ──
 
 class _FakeBelief:

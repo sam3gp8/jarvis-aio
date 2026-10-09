@@ -239,8 +239,19 @@ def capture(
     )
 
 
-def continuity_summary(state: Optional[AgencyState], *, now: Optional[Callable[[], float]] = None) -> str:
-    """A one-line, log/announce-friendly description of a reloaded snapshot."""
+def continuity_summary(
+    state: Optional[AgencyState],
+    *,
+    now: Optional[Callable[[], float]] = None,
+    include_cognitive: bool = True,
+) -> str:
+    """A one-line, log/announce-friendly description of a reloaded snapshot.
+
+    ``include_cognitive`` controls whether the Phase I-B cognitive headline
+    (intent / chosen plan) is surfaced. Default True keeps the full summary; a
+    caller resuming under the I-A fail-safe (commitment-only continuity) passes
+    False to omit it — used by the I-B.4 resume gate.
+    """
     if state is None:
         return "continuity: no prior agency snapshot"
     clock = now or time.time
@@ -253,7 +264,7 @@ def continuity_summary(state: Optional[AgencyState], *, now: Optional[Callable[[
     if ns:
         parts.append(f"{ns} open situation{'s' if ns != 1 else ''}")
     cog = state.cognitive
-    if cog is not None and not cog.is_empty():
+    if include_cognitive and cog is not None and not cog.is_empty():
         # Surface the headline cognitive facts (I-B) when present — intent and
         # chosen plan are what "resume what I was thinking" most needs.
         if cog.intent:
