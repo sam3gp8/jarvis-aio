@@ -73,7 +73,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `agency_state` | ◐ shadow |
 | `attention` | ◐ shadow |
 | `authority` | ● enforce |
-| `autonomy` | ◐ shadow |
+| `autonomy` | ◑ parity |
 | `beliefs` | ◐ shadow |
 | `budget` | ● enforce |
 | `causal` | ◑ parity |

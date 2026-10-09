@@ -189,6 +189,63 @@ def test_autonomy_shadow_kill_switch(actuation, load, fake_hass, monkeypatch, ca
     assert not any("autonomy(shadow)" in r.message for r in caplog.records)
 
 
+# ── Phase N (parity): earned auto-execute vs the blanket mode flag ────────────
+
+def test_autonomy_parity_diverges_when_flag_on_but_unearned(actuation, load,
+                                                            fake_hass, monkeypatch,
+                                                            caplog):
+    import logging
+    modes = load("modes")
+    monkeypatch.setattr(modes, "mode_allows_auto_actions", lambda: True)
+    monkeypatch.setattr(actuation, "AUTONOMY_PARITY", True)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        for _ in range(3):   # short of the ACT bar → earned=suggest, may_act=False
+            actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    msgs = [r.message for r in caplog.records if "autonomy(parity):" in r.message]
+    assert msgs, "expected an autonomy(parity) log line"
+    last = msgs[-1]
+    # blanket flag ON but the capability hasn't earned ACT → divergence.
+    assert "earned=suggest" in last and "earned_auto=False" in last
+    assert "mode_auto_flag=True" in last and "agree=False" in last
+
+
+def test_autonomy_parity_agrees_when_flag_off_and_unearned(actuation, load,
+                                                           fake_hass, monkeypatch,
+                                                           caplog):
+    import logging
+    modes = load("modes")
+    monkeypatch.setattr(modes, "mode_allows_auto_actions", lambda: False)
+    monkeypatch.setattr(actuation, "AUTONOMY_PARITY", True)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    msgs = [r.message for r in caplog.records if "autonomy(parity):" in r.message]
+    assert msgs, "expected an autonomy(parity) log line"
+    last = msgs[-1]
+    # flag OFF and capability wouldn't auto-execute anyway → they agree.
+    assert "earned_auto=False" in last and "mode_auto_flag=False" in last
+    assert "agree=True" in last
+
+
+def test_autonomy_parity_kill_switch(actuation, load, fake_hass, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(actuation, "AUTONOMY_PARITY", False)
+    actuation._recent_outcomes.clear()
+    req = actuation.request("light.turn_on", "light.den", action="turn_on",
+                            expected=("on",))
+    fake_hass.states.set("light.den", "on", area="den")
+    with caplog.at_level(logging.DEBUG):
+        actuation.outcome(req, "verified", fake_hass, "light.den", detail="ok")
+    assert not any("autonomy(parity)" in r.message for r in caplog.records)
+
+
 # ── Phase M (parity): learned trust vs realized success rate ──────────────────
 
 def test_learning_parity_agrees_on_consistent_success(actuation, load, fake_hass,

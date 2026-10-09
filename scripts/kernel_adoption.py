@@ -168,12 +168,18 @@ _DECLARED: dict[str, dict] = {
     # are bounded (one rung per evaluation) and reversible. SHADOW (Phase N):
     # actuation rolls up the same bounded outcome window it already keeps and, per
     # verified actuation, logs the would-be autonomy level kernel.autonomy.grant()
-    # computes for that capability ("autonomy(shadow): capability=… risk=… level=…
-    # (n=…, rate=…)") — observe-only (AUTONOMY_SHADOW kill-switch), driving nothing;
-    # the global autonomy flag is untouched. Enforce (owner-gated
-    # GRADUATED_AUTONOMY_ENFORCE) replaces that flag with the earned level,
-    # fail-safe = the current single setting.
-    "autonomy":     {"stage": "shadow",  "owners": ["actuation"]},
+    # computes for that capability ("autonomy(shadow): …"). PARITY (Phase N):
+    # actuation also logs whether that earned level would auto-execute
+    # (AutonomyGrant.may_act) AGREES with the single blanket incumbent it refines —
+    # the active mode's auto-actions flag (modes.mode_allows_auto_actions) —
+    # "autonomy(parity): capability=… earned=… earned_auto=… mode_auto_flag=…
+    # agree=…". Per-proactive-pattern trust stays with cognitive_core's
+    # AutonomyManager; this axis is the blanket flag only. Observe-only
+    # (AUTONOMY_SHADOW / AUTONOMY_PARITY kill-switches), driving nothing; the flag
+    # is untouched. Enforce (owner-gated GRADUATED_AUTONOMY_ENFORCE) replaces the
+    # blanket flag with the per-capability earned level, fail-safe = the current
+    # single setting.
+    "autonomy":     {"stage": "parity",  "owners": ["actuation"]},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /
