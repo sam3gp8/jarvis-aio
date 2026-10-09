@@ -454,9 +454,12 @@ exist. Ladder:
 | I-B.1 | `CognitiveContext` extends the snapshot schema (newer-schema-skip preserved) | pure | ✅ Shipped |
 | I-B.2 | `continuity._live_cognitive` captures intent/plan/beliefs/execution/autonomy/learning/identity; fuller continuity summary | shadow | ✅ Shipped |
 | I-B.3 | `agency_state.reconcile_cognitive` + `continuity.boot_reconcile` compare reloaded cognitive snapshot vs. live, log agreement | parity | ✅ Shipped |
-| I-B.4 | boot resume is *sourced* from the cognitive snapshot; `CONTINUITY_RESUME_ENFORCE` | enforce | ⏳ Planned (PAUSE for owner) |
+| I-B.4 | `continuity.resume_summary` sources the boot resume from the cognitive snapshot when `CONTINUITY_RESUME_ENFORCE` is on (commitment-only I-A fail-safe when off) | enforce | ✅ Path shipped, **default OFF** (owner flips) |
 
-The adoption stage stays `shadow` until I-B.4 makes a resume authoritative. Kill:
+The enforce *path* is built and tested, but `CONTINUITY_RESUME_ENFORCE` ships
+**False** and no boot path consumes `resume_summary` yet (the announce seam is
+I-A's own I4, owner-gated), so the live adoption stage stays `shadow` and today's
+behaviour is unchanged until the owner flips it. Kill:
 reuse `AGENCY_CAPTURE_ENABLED` + `CONTINUITY_RESUME_ENFORCE`; fail-safe = I-A
 commitment-only continuity. **PAUSE for owner before enforce.** Done: after a
 restart JARVIS can state belief, chosen plan, delegation, authority and pending

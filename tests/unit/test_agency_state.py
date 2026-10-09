@@ -193,6 +193,16 @@ def test_continuity_summary_surfaces_intent_and_plan(ag):
     assert "intent=dim the office" in line and "plan=turn_off office" in line
 
 
+def test_continuity_summary_omits_cognitive_when_asked(ag):
+    # I-B.4 resume fail-safe: include_cognitive=False renders commitment-only.
+    cog = ag.CognitiveContext(intent="dim the office", plan="turn_off office")
+    st = ag.capture(mode="home", goals=[{"id": "g1"}],
+                    cognitive=cog, now=lambda: 10.0)
+    line = ag.continuity_summary(st, now=lambda: 10.0, include_cognitive=False)
+    assert "intent=" not in line and "plan=" not in line
+    assert "mode=home" in line and "1 goal" in line        # commitments still shown
+
+
 def test_cognitive_context_is_empty(ag):
     assert ag.CognitiveContext().is_empty() is True
     assert ag.CognitiveContext(intent="x").is_empty() is False

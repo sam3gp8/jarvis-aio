@@ -1,3 +1,35 @@
+## [8.147.0] — Cognitive continuity resume path (Phase I-B.4, enforce — default OFF)
+
+Builds the **enforce** rung of Phase I-B, completing the ladder (I-B.1 pure /
+I-B.2 shadow / I-B.3 parity / **I-B.4 enforce**). The resume capability ships
+**ready to flip and default OFF** — nothing in a live home changes until the
+owner turns it on, and even then it is behaviour-preserving today (no consumer
+yet).
+
+- `continuity.py`: new `CONTINUITY_RESUME_ENFORCE` (default **False**) and
+  `resume_summary(hass)` — the continuity line a boot *resume* would announce.
+  Sourced from the cognitive snapshot (intent / chosen plan / …) when the switch
+  is on; the I-A **commitment-only** summary when off (the fail-safe). No boot
+  path consumes it yet (the announce seam is I-A's own I4, also owner-gated), so
+  with the switch OFF it is behaviour-identical to today — merely ready to flip.
+- `kernel/agency_state.py`: `continuity_summary` gains `include_cognitive`
+  (default True); the resume gate passes it through so the fail-safe branch
+  renders a commitment-only line (no cognitive headline). Backward-compatible.
+- Adoption: `agency_state` live stage stays **`shadow`** (the switch is OFF and
+  nothing consumes resume), with the enforce path documented in
+  `kernel_adoption` — so the Constitution / matrix are unchanged.
+- Tests: `resume_summary` is commitment-only with the switch off (default),
+  cognitive-sourced when on, empty under the capture kill-switch, and handles no
+  prior snapshot; `continuity_summary(include_cognitive=False)` omits the
+  cognitive headline while keeping commitments.
+
+Owner action to enable: set `continuity.CONTINUITY_RESUME_ENFORCE = True` (and,
+when a resume-announce consumer exists, wire it to `resume_summary`). Left for
+the owner — never flipped autonomously.
+
+Validation: `scripts/audit.py` + all four kernel gates green; agency_state /
+continuity unit modules green. Version 8.146.0 → 8.147.0.
+
 ## [8.146.0] — Cognitive continuity parity (Phase I-B.3)
 
 Adds the **parity** rung of Phase I-B (Cognitive Continuity): on boot, the

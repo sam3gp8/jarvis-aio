@@ -33,6 +33,16 @@ _LOGGER = logging.getLogger(__name__)
 # continuity line is suppressed — the primitive sits idle, fully behaviour-safe.
 AGENCY_CAPTURE_ENABLED = True
 
+# ENFORCE (roadmap Phase I-B.4) — owner-gated, DEFAULT OFF. When True, a boot
+# *resume* (via :func:`resume_summary`) is SOURCED from the cognitive snapshot —
+# the intent / chosen plan / … JARVIS held before the restart. When False
+# (default) resume falls back to the I-A commitment-only summary, so today's
+# behaviour is unchanged. No boot path consumes ``resume_summary`` yet (the
+# announce seam is I-A's own I4, also owner-gated); this ships the capability
+# ready for the owner to flip — never flipped autonomously. agency_state's live
+# adoption stage therefore stays `shadow` while this is OFF.
+CONTINUITY_RESUME_ENFORCE = False
+
 # Cap on retained snapshots (newest-wins); matches the store default.
 _SNAPSHOT_KEEP = 20
 
@@ -319,6 +329,27 @@ def boot_summary(hass=None) -> str:
         return msg
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency boot summary failed: %s", exc)
+        return ""
+
+
+def resume_summary(hass=None) -> str:
+    """The continuity line a boot *resume* would announce (I-B.4 — enforce path).
+
+    Sourced from the cognitive snapshot (intent / chosen plan / …) when
+    :data:`CONTINUITY_RESUME_ENFORCE` is on; otherwise the commitment-only
+    summary — the I-A fail-safe. **Observe-only for now:** no boot path consumes
+    this yet (the announce seam is I-A's I4, owner-gated), so with the switch OFF
+    (default) it is behaviour-identical to today and merely ready to flip. Returns
+    the string (also useful for tests); never raises.
+    """
+    if not AGENCY_CAPTURE_ENABLED:
+        return ""
+    try:
+        state = _store(hass).load_latest()
+        return agency_state.continuity_summary(
+            state, include_cognitive=CONTINUITY_RESUME_ENFORCE)
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("agency resume summary failed: %s", exc)
         return ""
 
 
