@@ -296,15 +296,29 @@ def test_graph_expand_facts_defensive(knowledge, monkeypatch):
     assert knowledge._graph_expand_facts(seed) == seed           # unchanged, no raise
 
 
-def test_prompt_block_enforce_off_is_plain_recall(knowledge):
+def test_prompt_block_enforce_off_is_plain_recall(knowledge, monkeypatch):
     import asyncio
     from fakes import FakeHass
+    monkeypatch.setattr(knowledge, "KNOWLEDGE_GRAPH_ENFORCE", False)
     knowledge.remember("role", "resident", subject="sam", now=1000.0)
     knowledge.remember("color", "red", subject="car", now=1000.0)
     knowledge.relate("sam", "owns", "car", now=1000.0)
-    # default KNOWLEDGE_GRAPH_ENFORCE is False → block is plain recall, no expansion
+    # enforce OFF → block is plain recall, no expansion
     block = asyncio.run(knowledge.prompt_block_async(FakeHass(), "", subject="sam"))
     assert "resident" in block and "red" not in block
+
+
+def test_prompt_block_enforce_on_by_default_expands(knowledge):
+    import asyncio
+    from fakes import FakeHass
+    # KNOWLEDGE_GRAPH_ENFORCE now ships True (8.158.0): the block is
+    # graph-authoritative without any monkeypatch — a related fact is pulled in.
+    assert knowledge.KNOWLEDGE_GRAPH_ENFORCE is True
+    knowledge.remember("role", "resident", subject="sam", now=1000.0)
+    knowledge.remember("color", "red", subject="car", now=1000.0)
+    knowledge.relate("sam", "owns", "car", now=1000.0)
+    block = asyncio.run(knowledge.prompt_block_async(FakeHass(), "", subject="sam"))
+    assert "resident" in block and "red" in block     # 1-hop expansion is live
 
 
 def test_prompt_block_enforce_on_expands_one_hop(knowledge, monkeypatch):

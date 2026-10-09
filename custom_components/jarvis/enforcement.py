@@ -91,14 +91,16 @@ _REGISTRY: List[Switch] = [
     ),
     Switch(
         key="knowledge_graph", module="knowledge",
-        attr="KNOWLEDGE_GRAPH_ENFORCE", default=False,
+        attr="KNOWLEDGE_GRAPH_ENFORCE", default=True,
         category=CATEGORY_CAPABILITY, phase="T",
         name="Knowledge-graph recall",
         explanation=(
             "Serve the knowledge prompt block from the typed knowledge graph "
-            "(entities + relations) instead of flat fact recall. OFF (default): "
-            "present flat recall. Enable once the graph has earned parity against "
-            "the current recall."),
+            "(entities + relations): the recalled facts are expanded one hop to "
+            "pull in directly-related facts. ON (enabled 8.158.0, after the graph "
+            "earned parity against flat recall). Fail-safe: any failure falls back "
+            "to flat recall, so this only ADDS context. Turn OFF to revert to "
+            "plain flat recall."),
     ),
     # ── Live safety / governance rungs (ship ON; these are KILL-SWITCHES — turn
     #    one OFF only to revert that rung to observe-only in an emergency) ───────

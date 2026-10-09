@@ -114,11 +114,12 @@ _DECLARED: dict[str, dict] = {
     # knowledge.all_facts() folds facts + relation edges into a KnowledgeGraph and
     # logs a summary. PARITY: knowledge.prompt_block_async computes the would-be
     # 1-hop graph expansion of the recall seed and logs how many related facts it
-    # WOULD add (kill-switch GRAPH_PARITY) — observe-only, the block the model sees
-    # is unchanged. ENFORCE (owner-gated, default OFF, KNOWLEDGE_GRAPH_ENFORCE):
-    # the prompt block becomes graph-authoritative (recall expanded one hop),
-    # fail-safe = flat recall.
-    "graph":        {"stage": "parity",  "owners": ["knowledge"]},
+    # WOULD add (kill-switch GRAPH_PARITY) — observe-only. ENFORCE (owner-enabled
+    # 8.158.0, KNOWLEDGE_GRAPH_ENFORCE=True): the prompt block is graph-authoritative
+    # — recall-seeded facts expanded one hop through the graph — fail-safe = flat
+    # recall (any failure falls back, so it only ADDS context, never touches
+    # actuation). Revert from Settings → Governance (knowledge_graph).
+    "graph":        {"stage": "enforce", "owners": ["knowledge"]},
     # space_time: first-class space & time (roadmap Phase Q, Embodied JARVIS). A
     # pure SpatialGraph (areas + undirected adjacency, built from a floor-plan
     # adjacency map like residence_graph.room_adjacency, with neighbor / adjacent

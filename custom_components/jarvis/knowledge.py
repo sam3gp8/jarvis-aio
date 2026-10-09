@@ -55,15 +55,16 @@ UNCERTAINTY_SHADOW = True
 # way. (world_model.knowledge_graph() exposes the same view as a facade.)
 GRAPH_SHADOW = True
 
-# ENFORCE (Phase T, Deep World Model) — OFF by default. When True, the curated-
-# knowledge prompt block becomes graph-authoritative: the recall-seeded facts are
+# ENFORCE (Phase T, Deep World Model) — ON (owner-enabled, 8.158.0). The curated-
+# knowledge prompt block is graph-authoritative: the recall-seeded facts are
 # expanded one hop through the knowledge graph (facts about directly-related
 # entities are pulled in too), so JARVIS's injected context reasons over the
 # graph, not just flat recall. Fail-safe: any failure (or an empty graph result)
-# falls back to exactly the current recall block, so flipping this can only add
-# context, never lose the present behaviour. Owner-gated: left False here; the
-# household flips it when ready to run the live context read graph-authoritative.
-KNOWLEDGE_GRAPH_ENFORCE = False
+# falls back to exactly the flat recall block, so this can only ADD related
+# context, never lose the present behaviour or touch any actuation. Earned parity
+# first (GRAPH_PARITY measured the would-be expansion). Revert to flat recall by
+# setting this False — or from Settings → Governance (knowledge_graph).
+KNOWLEDGE_GRAPH_ENFORCE = True
 
 # PARITY (Phase T, Deep World Model): when enforce is OFF (the live state),
 # prompt_block_async still computes the would-be 1-hop graph expansion of the

@@ -39,10 +39,14 @@ def test_registry_is_wellformed(enf):
 
 def test_known_defaults(enf):
     by_key = {s.key: s for s in enf.mod.all_switches()}
-    # Owner-opt-in capabilities ship OFF.
-    for k in ("continuity_resume", "agency_orchestration", "knowledge_graph"):
+    # Owner-opt-in capabilities (still OFF).
+    for k in ("continuity_resume", "agency_orchestration"):
         assert by_key[k].default is False
         assert by_key[k].category == enf.mod.CATEGORY_CAPABILITY
+    # knowledge_graph is a capability too, but was owner-enabled (8.158.0) so it
+    # now ships ON (fail-safe = flat recall).
+    assert by_key["knowledge_graph"].default is True
+    assert by_key["knowledge_graph"].category == enf.mod.CATEGORY_CAPABILITY
     # Live safety rungs ship ON.
     for k in ("authority", "agency_budget", "loop_detect", "safety_seam",
               "hazard_situation", "intrusion_gate", "delivery_situation"):
