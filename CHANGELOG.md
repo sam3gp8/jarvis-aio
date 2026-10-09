@@ -1,3 +1,31 @@
+## [8.165.0] — Force the household language on all task prompts (issue #307)
+
+Non-English households were still getting English on proactive/announce output
+(briefings, sentinel notices, status, camera notes) because every machine-authored
+task prompt went through `build_system_prompt`, which appended the **conversational**
+language directive — the one with a *"if the user writes in another language, reply
+in that"* escape clause. A weak local model reads the English instruction block +
+that clause as *"the user wrote English"* and answers in English. This is exactly
+the issue #140 failure that `language_task_directive` (forced, no escape clause)
+already fixed for camera analysis — now applied to **all** task prompts.
+
+- `directive_helper.py`: `build_system_prompt` now appends the **forced**
+  `language_task_directive` instead of `language_directive`. Every task prompt
+  (briefings, sentinel, summary, proactive briefing, reasoning loop, camera) now
+  carries a no-escape-clause instruction to write in the configured language. The
+  conversation path (`agent.run_agent`) keeps the escape-clause directive, which is
+  correct there. Behaviour-preserving for English installs (both are empty for
+  English); honours JARVIS's `output_language` setting and HA's global language.
+- `camera.py`: drop the now-redundant manual `language_task_directive` append —
+  `build_system_prompt` forces it for every caller uniformly.
+- Tests: `test_language_module.py` updated to assert the forced directive (no
+  escape clause) on task prompts.
+
+**Note:** small quantized local models (sub-3B) often still ignore a "respond in
+Russian/German" instruction regardless — a more capable model is needed for
+reliable non-English spoken output. This change removes the prompt-side loophole;
+it cannot make a weak model follow instructions. Version 8.164.0 → 8.165.0.
+
 ## [8.164.0] — Long-horizon agency primitive (pure) — opens Phase V
 
 Lands the foundation of Phase V (Long-Horizon Agency): a durable, resumable,

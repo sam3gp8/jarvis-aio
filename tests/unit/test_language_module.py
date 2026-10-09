@@ -114,10 +114,14 @@ def test_build_system_prompt_appends_language_for_non_english():
     mod, stub = _load_real_directive_helper()
     try:
         prompt = mod.build_system_prompt(_hass("de"), "sir", "Give a status brief.")
-        assert "## Language" in prompt and "German" in prompt
+        # #307: task prompts carry the FORCED directive (no escape clause), so a
+        # weak local model can't read the English instructions as "user wrote
+        # English" and answer in English.
+        assert "German" in prompt and "regardless of the language" in prompt
+        assert "writes to you in another language" not in prompt
         # English installs are unaffected — no language block injected.
         en = mod.build_system_prompt(_hass("en"), "sir", "Give a status brief.")
-        assert "## Language" not in en
+        assert "regardless of the language" not in en and "German" not in en
     finally:
         if stub is not None:
             sys.modules["jc.directive_helper"] = stub
