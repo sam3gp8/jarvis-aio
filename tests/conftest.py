@@ -168,7 +168,6 @@ if "jc" not in sys.modules:
     _dh.build_system_prompt = lambda *a, **k: "You are JARVIS. Respond with JSON only."
     sys.modules["jc.directive_helper"] = _dh
 
-
 def _load(modname: str):
     """Import a component module under the synthetic `jc` package, so its
     relative imports (`from .websocket import …`, `from . import reasoning_cache`)
@@ -208,6 +207,36 @@ def _load(modname: str):
 # ── 3. Fixtures ───────────────────────────────────────────────────────────────
 import pytest  # noqa: E402
 from fakes import FakeHass, FakeProvider  # noqa: E402
+
+
+# Leaf config/secret/path accessors that tests routinely stub per-test via
+# `monkeypatch.setitem(sys.modules, "jc.<name>", stub)`, and which a live module
+# (e.g. modes.mode_allows_auto_actions → _cfg → `from . import jarvis_config`)
+# may import for real from an unrelated earlier test. Once imported for real the
+# `jc.<name>` attribute is pinned on the package, so a later test's sys.modules
+# stub is bypassed by `from . import <name>` (which returns the attribute). The
+# autouse fixture unloads exactly these after each test — both the package
+# attribute and the sys.modules entry, so `from . import <name>` falls back to the
+# stub and `monkeypatch.setattr("jc.<name>.x", …)` re-imports and re-binds cleanly.
+# Deliberately narrow: a blanket unload of every `jc.*` sibling would reset modules
+# other tests rely on being cached across the session.
+_JC_PER_TEST_RESET = ("jarvis_config", "ha_secrets", "paths")
+
+
+@pytest.fixture(autouse=True)
+def _reset_jc_stub_siblings():
+    """Unload the per-test-stubbed config/secret/path siblings (see note above) so
+    one test's live `from . import X` cannot pin `jc.X` and defeat a later test's
+    `monkeypatch.setitem(sys.modules, "jc.X", stub)`."""
+    yield
+    pkg = sys.modules.get("jc")
+    for name in _JC_PER_TEST_RESET:
+        if pkg is not None:
+            try:
+                delattr(pkg, name)
+            except AttributeError:
+                pass
+        sys.modules.pop(f"jc.{name}", None)
 
 
 @pytest.fixture(autouse=True)

@@ -597,6 +597,9 @@ Ladder: pure → shadow
 enforce (proactive gated on prediction confidence). Kill:
 `CAUSAL_PREDICT_ENFORCE`; fail-safe = reactive only. Done: a measured accuracy
 number gates ≥1 proactive path.
+**Status:** pure + shadow + parity shipped (`causal.predict`/`explain`;
+`pattern_analyzer` emits `causal(shadow)`/`causal(parity)`). Enforce
+owner-gated (held).
 
 **Phase M — Learning & Adaptation (closed loop).** Journaled outcomes feed back
 into beliefs/weights. New: `kernel/learning.py` (bounded, reversible updates).
@@ -609,6 +612,9 @@ update from outcomes, clamped + audited). Kill: `LEARNING_ENFORCE`; fail-safe =
 frozen weights. **Governance:** learned weights may never relax an authority gate
 or safety threshold. Done: a decision's inputs shift from a prior structured
 outcome, reversibly.
+**Status:** pure + shadow + parity shipped (`kernel/learning.py`; `actuation`
+emits `learning(shadow)`/`learning(parity)` per verified outcome). Enforce
+owner-gated (held); its real per-capability trust store is a Phase N concern.
 
 **Phase N — Graduated Autonomy (per-capability trust).** Replace the single
 autonomy flag with per-capability trust that earns up (suggest → confirm → act)
@@ -624,6 +630,14 @@ level = pure fn of success history × risk class). Ladder: pure → shadow → p
 classes never auto-promote). Kill: `GRADUATED_AUTONOMY_ENFORCE`; fail-safe =
 current single setting. **PAUSE for owner before enforce.** Done: ≥1 low-risk
 capability self-promotes within a ceiling; safety classes never do.
+**Status:** pure + shadow + parity shipped (`kernel/autonomy.py` — ladder
+suggest→confirm→act, level = fn(verified outcome rate × `authority` risk
+class), SECURITY pinned at confirm; `actuation` emits
+`autonomy(shadow)`/`autonomy(parity)` per verified outcome, parity comparing
+the earned auto-execute verdict against the blanket `modes.mode_allows_auto_actions`
+flag it refines). Per-proactive-pattern trust stays with `cognitive_core`'s
+`AutonomyManager`. Enforce (replace the blanket flag with the earned level)
+owner-gated (held).
 
 **Phase O — Agency Orchestration (merged O + AB).** *(Audit: O and AB are both
 agency coordination with no architectural reason to be separate — merged into one
@@ -660,6 +674,10 @@ adjacency, floor-plan) and time (dayparts, cadence). New: `kernel/space_time.py`
 (camera↔sensor mapping, cf. #140) → enforce (presence/coverage/routing read the
 model). Kill: `SPACE_TIME_ENFORCE`; fail-safe = current per-feature mapping.
 Done: ≥1 live presence/coverage path is model-authoritative.
+**Status:** pure + shadow + parity shipped (`kernel/space_time.py` SpatialGraph
++ TemporalFrame; `cognitive_core` emits `space_time(shadow)` and
+`space_time(parity)` incl. breach-depth and camera+sensor coverage parity).
+Enforce owner-gated (held).
 
 **Phase R — Integration Gate (one closed loop).** *(Audit: R is a GATE, not a
 capability phase.)* It proves the architecture *can operate as one* — cognition
