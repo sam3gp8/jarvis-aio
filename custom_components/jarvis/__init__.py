@@ -257,6 +257,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # need it before the boot seed overwrites "latest" with a post-restart one.
     await hass.async_add_executor_job(_continuity.boot_summary, hass)
     await hass.async_add_executor_job(_continuity.boot_reconcile, hass)
+    # I4 (owner-gated, default OFF): speak that continuity line through the output
+    # seam when continuity.CONTINUITY_RESUME_ANNOUNCE is on — silent otherwise.
+    await _continuity.announce_resume(hass, entry)
 
     async def _agency_capture(now=None):
         await hass.async_add_executor_job(_continuity.capture_now, hass)

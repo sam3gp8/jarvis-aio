@@ -1,3 +1,31 @@
+## [8.175.0] — boot-continuity announce seam (Phase I4, default OFF)
+
+Builds the last rung of commitment continuity (Phase I-A.4): on restart JARVIS
+can **say aloud** what it was in the middle of — the goals, open situations and
+mode it held before the restart — instead of only logging it. Ships **owner-gated
+and default OFF**, so startup is behaviour-identical until the owner flips it.
+
+- `continuity.py`: new `CONTINUITY_RESUME_ANNOUNCE` kill-switch (default **False**)
+  + async `announce_resume(hass, entry)`. When enabled it speaks
+  `resume_summary(hass)` through the output seam, resolving the TTS engine and
+  announcement speakers exactly as Sentinel does (`tts_helper.resolve_tts_entity`
+  + `audio_routing.broadcast_target` from the live runtime config) and speaking
+  once via `tts_helper.async_announce`. Fail-safe: no snapshot / no speakers / any
+  error → says nothing and returns False; it can never affect the boot path.
+- `__init__.py`: calls `await continuity.announce_resume(hass, entry)` on boot,
+  right after `boot_summary` / `boot_reconcile`.
+- `docs/KERNEL_PLAN.md`: Phase I4 row → seam shipped, default OFF (owner flips
+  `CONTINUITY_RESUME_ANNOUNCE`).
+
+Behaviour-preserving: with the switch off (default) nothing new is spoken, and
+`agency_state`'s adoption stage stays `shadow` (no live consumer while both
+`CONTINUITY_RESUME_ANNOUNCE` and `CONTINUITY_RESUME_ENFORCE` are off). The owner
+still flips the switch to actually enable the spoken resume. Tests: new
+`test_continuity_announce.py` (default-off is silent; enabled-but-empty says
+nothing; enabled speaks the resume line through stubbed TTS/speakers; enabled
+with no speakers is safe). Audit + four kernel gates green. Version
+8.174.0 → 8.175.0.
+
 ## [8.174.0] — output language falls back to the JARVIS UI language (issue #317)
 
 The reporter had JARVIS's own UI (and their HA **profile**) set to Russian, yet
