@@ -179,6 +179,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # hot paths that read them (observer tick, panel data, intrusion log) don't
     # trip Home Assistant's blocking-I/O detector on first access.
     await hass.async_add_executor_job(_prewarm_persisted_state)
+    # Governance: apply any owner overrides for the kernel enforce kill-switches
+    # (set from the panel's Governance tab) to the live flags. With nothing
+    # stored — the shipped state — this is a no-op, so boot behaviour is
+    # unchanged. Defensive; never raises into setup.
+    try:
+        from . import enforcement as _enforcement
+        await hass.async_add_executor_job(_enforcement.apply_overrides)
+    except Exception as exc:
+        _LOGGER.debug("JARVIS: enforcement overrides skipped: %s", exc)
     llm_provider_name = _eff.get("llm_provider", "groq")
     llm_model         = _eff.get("model", "openai/gpt-oss-120b")
     from .const import resolve_provider_base_url
