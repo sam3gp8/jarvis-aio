@@ -285,3 +285,47 @@ def test_prompt_block_enforce_on_expands_one_hop(knowledge, monkeypatch):
     knowledge.relate("sam", "owns", "car", now=1000.0)
     block = asyncio.run(knowledge.prompt_block_async(FakeHass(), "", subject="sam"))
     assert "resident" in block and "red" in block     # car facts pulled in 1 hop
+
+
+# ── Phase T parity: measure the would-be 1-hop expansion, observe-only ────────
+
+def test_graph_parity_logs_would_add_without_expanding(knowledge, monkeypatch, caplog):
+    import asyncio
+    import logging
+    from fakes import FakeHass
+    # Enforce OFF (default), parity ON → the block stays flat recall but the
+    # parity line reports what the graph expansion would have added.
+    monkeypatch.setattr(knowledge, "KNOWLEDGE_GRAPH_ENFORCE", False)
+    monkeypatch.setattr(knowledge, "GRAPH_PARITY", True)
+    knowledge.remember("role", "resident", subject="sam", now=1000.0)
+    knowledge.remember("color", "red", subject="car", now=1000.0)
+    knowledge.relate("sam", "owns", "car", now=1000.0)
+    with caplog.at_level(logging.DEBUG):
+        block = asyncio.run(knowledge.prompt_block_async(FakeHass(), "", subject="sam"))
+    # Block unchanged (observe-only): the related car fact is NOT injected.
+    assert "resident" in block and "red" not in block
+    parity = [r.message for r in caplog.records if "graph(parity)" in r.message]
+    assert parity and "would add 1" in parity[-1]
+
+
+def test_graph_parity_kill_switch(knowledge, monkeypatch, caplog):
+    import asyncio
+    import logging
+    from fakes import FakeHass
+    monkeypatch.setattr(knowledge, "KNOWLEDGE_GRAPH_ENFORCE", False)
+    monkeypatch.setattr(knowledge, "GRAPH_PARITY", False)
+    knowledge.remember("role", "resident", subject="sam", now=1000.0)
+    with caplog.at_level(logging.DEBUG):
+        asyncio.run(knowledge.prompt_block_async(FakeHass(), "", subject="sam"))
+    assert not [r for r in caplog.records if "graph(parity)" in r.message]
+
+
+def test_log_graph_parity_counts_delta(knowledge, caplog):
+    import logging
+    seed = [{"subject": "sam", "key": "role"}]
+    expanded = seed + [{"subject": "car", "key": "color"},
+                       {"subject": "car", "key": "year"}]
+    with caplog.at_level(logging.DEBUG):
+        knowledge._log_graph_parity(seed, expanded)
+    msg = [r.message for r in caplog.records if "graph(parity)" in r.message][-1]
+    assert "recall=1" in msg and "would add 2" in msg and "total 3" in msg

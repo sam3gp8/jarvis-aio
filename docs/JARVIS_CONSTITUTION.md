@@ -83,7 +83,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `cycle` | ◑ parity |
 | `event` | ◑ parity |
 | `event_bus` | ◐ shadow |
-| `graph` | ◐ shadow |
+| `graph` | ◑ parity |
 | `identity_fabric` | ◑ parity |
 | `journal` | ◐ shadow |
 | `learning` | ◑ parity |

@@ -1,3 +1,31 @@
+## [8.154.0] — Phase T knowledge-graph shadow → parity (recall expansion)
+
+Roadmap **Phase T** (Deep World Model) graph primitive promoted shadow → parity.
+The knowledge-graph 1-hop recall expansion already ships as an owner-gated enforce
+path (`KNOWLEDGE_GRAPH_ENFORCE`, default OFF); this adds the quantified parity bar
+between shadow and enforce.
+
+- `knowledge.py`:
+  - `_log_graph_parity(seed, expanded)` — logs how many related facts the graph's
+    1-hop expansion would add to the current flat recall.
+  - `prompt_block_async`: when enforce is OFF (the live state) and `GRAPH_PARITY`
+    is on, it computes the would-be expansion via `_graph_expand_facts` and logs
+    the delta **without changing the block the model sees** — observe-only. When
+    enforce is ON, it expands as before (no double parity log).
+  - kill-switch `GRAPH_PARITY`, independent of `KNOWLEDGE_GRAPH_ENFORCE`.
+- `scripts/kernel_adoption.py`: `graph` **shadow → parity** (owners
+  `["knowledge"]`); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md`
+  regenerated from it.
+- `docs/KERNEL_PLAN.md`: Phase T status → pure + shadow + parity shipped, enforce
+  path built (owner-gated, OFF).
+
+Behaviour-preserving: the prompt block is unchanged while enforce stays OFF; the
+parity read only measures and logs. The enforce rung (`KNOWLEDGE_GRAPH_ENFORCE`,
+fail-safe = flat recall) remains owner-gated and already appears in the Settings →
+Governance registry (`knowledge_graph`). Tests: `tests/unit/test_knowledge.py`
+(+3 — parity logs would-add without expanding, kill-switch, delta count). Audit +
+four kernel gates green. Version 8.153.0 → 8.154.0.
+
 ## [8.153.0] — Phase K working-memory parity (attention consults the shared set)
 
 Roadmap **Phase K** parity rung, on the owner-chosen architecture: a **shared
