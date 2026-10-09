@@ -1,3 +1,30 @@
+## [8.149.0] — Governance settings tab in the panel (owner control surface, UI)
+
+Second half of surfacing the kernel enforce kill-switches: a **Governance**
+sub-section under Settings, wired to the `jarvis/get_enforcement` /
+`jarvis/set_enforcement` commands shipped in 8.148.0. The owner can now see and
+flip every switch from the panel, with an explanation and fail-safe for each — no
+code edits.
+
+- `frontend/jarvis-panel.js`:
+  - new **Settings · Governance** sub-nav entry + a full-width governance panel
+    (`settings-extra-panel[data-section="governance"]`) and a matching global-
+    search entry.
+  - `_fetchEnforcement()` calls `jarvis/get_enforcement` and renders a card per
+    switch — name, roadmap phase, an "overridden" marker, the explanation, and an
+    ON/OFF toggle — grouped into **Owner opt-in capabilities** (ship OFF) and
+    **Safety & governance kill-switches (keep ON)**.
+  - `_wireEnforcementToggles()` sends `jarvis/set_enforcement {key, enabled}` and
+    refreshes. Both consequential directions are confirm-gated: turning a safety
+    kill-switch OFF, or turning an opt-in capability ON.
+  - populated whenever the Settings tab renders and when the Governance
+    sub-section is opened.
+
+No Python change (frontend + version + CHANGELOG only), so the kernel gates and
+adoption matrix are untouched. Validated: `node --check` + the jsdom
+`scripts/smoke_panel.js` smoke test both clean (the two CI Frontend checks).
+Version 8.148.0 → 8.149.0.
+
 ## [8.148.0] — Governance enforcement registry + panel API (owner control surface, backend)
 
 First half of surfacing every kernel *enforce* kill-switch to the owner (a
