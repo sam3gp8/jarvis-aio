@@ -42,6 +42,7 @@ from . import (
     identity_fabric,
     journal,
     learning,
+    long_horizon,
     loop_detect,
     outcome,
     plan,
@@ -93,6 +94,12 @@ from .uncertainty import Uncertain
 from .conflict import Resolution as ConflictResolution
 from .temporal import Validity, ValidityStats
 from .self_model import Capability, SelfModel, project as self_project
+from .long_horizon import (
+    LongHorizonGoal,
+    LongHorizonStats,
+    Milestone,
+    plan_goal as plan_long_horizon_goal,
+)
 from .working_memory import (
     WorkingItem,
     WorkingMemory,
@@ -209,6 +216,11 @@ __all__ = [
     "SelfModel",
     "Capability",
     "self_project",
+    "long_horizon",
+    "LongHorizonGoal",
+    "LongHorizonStats",
+    "Milestone",
+    "plan_long_horizon_goal",
     "working_memory",
     "WorkingMemory",
     "WorkingItem",

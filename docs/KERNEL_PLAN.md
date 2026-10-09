@@ -826,6 +826,17 @@ spanning days/weeks — the direct payoff of Phase I. New: `kernel/long_horizon.
 (a multi-day goal survives restarts and drives suggestions). Kill:
 `LONG_HORIZON_ENFORCE`; fail-safe = session-scoped goals. Done: a goal persists +
 resumes across a restart with correct progress.
+**Status:** **pure shipped (8.164.0).** `kernel/long_horizon.py` — a
+`LongHorizonGoal` is an ordered set of `Milestone`s (lifecycle pending / active /
+done / blocked / skipped) with a stable id, pure progress derivations (`progress`
+= resolved fraction, `next_milestone`, `is_stalled(now, max_idle=…)`,
+`is_complete`), total transitions (`advance` returns a *new* goal), a `plan_goal`
+builder (coerces objects / `{label,status,id}` mappings / bare strings, unique
+ids) and a `summarize` roll-up. No persistence, no clock, no raises. Nothing
+consumes it live yet; the durable ledger + restart-resume wiring land at shadow
+(a live binder persists these, resumed from `agency_state`, a natural home in the
+existing `continuity` binder). Ladder from here: pure ✅ → shadow → parity →
+enforce, owner-gated.
 
 **Phase W — Social & Relationship Intelligence.** Per-person preference/pattern
 models that personalize — within strict consent/privacy limits. New:

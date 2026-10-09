@@ -250,6 +250,17 @@ _DECLARED: dict[str, dict] = {
     # (self-answers sourced from the model, no confabulation), owner-gated behind
     # SELF_MODEL_ENFORCE (fail-safe = static capability list).
     "self_model":   {"stage": "shadow",  "owners": ["agent"]},
+    # long_horizon: durable, resumable, progress-tracked goals spanning days/weeks
+    # (roadmap Phase V) — the direct payoff of Phase I (continuity). Models a goal
+    # as an ordered set of milestones with a stable id, pure progress derivations
+    # (resolved fraction / next milestone / stalled? / complete?) and total
+    # transitions (advance returns a new goal), plus a roll-up. PURE: a record +
+    # deterministic derivations; nothing persists or consumes it live yet. Ladder:
+    # pure → shadow (a live binder persists these and resumes them from
+    # agency_state) → parity (resume-after-restart proven vs the journal) → enforce
+    # (a multi-day goal survives restarts and drives suggestions), owner-gated
+    # behind LONG_HORIZON_ENFORCE (fail-safe = session-scoped goals).
+    "long_horizon": {"stage": "pure",    "owners": []},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
