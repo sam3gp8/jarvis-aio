@@ -1,3 +1,36 @@
+## [8.170.0] — Self-optimization with a tiered guardrail (Phase Y, pure)
+
+New pure kernel primitive `kernel/optimize.py` — measure-then-tune, with the
+governance invariant ("more capability never means less governance") encoded
+structurally so a self-optimizer can never relax a safety threshold or an
+authority gate.
+
+- **Tiered guardrail:** `classify(param)` returns SAFE (latency / cost /
+  provider selection / cache / context size / resource allocation — self-tunable
+  within owner bounds), SENSITIVE (autonomy levels / confidence thresholds /
+  interrupt thresholds / safety model selection — proposal-only, owner-gated), or
+  FORBIDDEN (authority ceiling / security policy / identity requirements / safety
+  thresholds / human override / audit retention — never tunable). An **unknown
+  parameter defaults to FORBIDDEN** (fail-safe = fixed config).
+- **Guarded proposals:** `propose(param, current, proposed, bound=…)` builds a
+  `TuningProposal` with a `Metric` (direction via `lower_is_better`) and a `Bound`
+  (owner floor/ceiling). It is `auto_applicable` only when SAFE **and** within
+  bounds, `proposal_only` when SENSITIVE and within bounds, else `rejected` — a
+  SAFE value out of bounds and any FORBIDDEN/unknown param are rejected.
+  `report(...)` rolls proposals into auto-applicable / owner / rejected buckets.
+- `kernel/__init__.py`: exports `optimize`, `TuningProposal`, `TuningBound`,
+  `OptimizeMetric`, `OptimizationReport`, `classify_tunable`, `propose_tuning`.
+- `scripts/kernel_adoption.py`: declares `optimize` **pure**; `KERNEL_ADOPTION.md`
+  + `docs/JARVIS_CONSTITUTION.md` regenerated (one new row).
+- `docs/KERNEL_PLAN.md`: Phase Y status → pure shipped.
+
+Pure: no HA import, it proposes and never applies; nothing live consumes it yet,
+so the release is behaviour-preserving. Tests: new `test_kernel_optimize.py`
+(tier classification incl. the unknown→FORBIDDEN fail-safe, bounds/clamp, metric
+direction, and the full guard matrix — SAFE-in-bounds auto, SAFE-out-of-bounds
+rejected, SENSITIVE proposal-only, FORBIDDEN always rejected — plus the report
+roll-up). Audit + four kernel gates green. Version 8.169.0 → 8.170.0.
+
 ## [8.169.0] — Physical-world intelligence: state + objective functions (Phase X, pure)
 
 New pure kernel primitive `kernel/environment.py` — a read-only model of the

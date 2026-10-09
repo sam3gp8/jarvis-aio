@@ -116,6 +116,14 @@ from .environment import (
     Recommendation as EnvironmentRecommendation,
     assess as assess_environment,
 )
+from .optimize import (
+    Bound as TuningBound,
+    Metric as OptimizeMetric,
+    OptimizationReport,
+    TuningProposal,
+    classify as classify_tunable,
+    propose as propose_tuning,
+)
 from .router import Provider, RouteResult, TaskRequirements, route
 from .ledger import EventLedger
 from .situation import InvalidTransition, Situation, SituationManager
@@ -164,6 +172,13 @@ __all__ = [
     "EnvironmentRecommendation",
     "ComfortBand",
     "assess_environment",
+    "optimize",
+    "OptimizationReport",
+    "TuningProposal",
+    "TuningBound",
+    "OptimizeMetric",
+    "classify_tunable",
+    "propose_tuning",
     "beliefs",
     "Belief",
     "Evidence",

@@ -49,6 +49,20 @@ _DECLARED: dict[str, dict] = {
     # a safety concern. PURE: no HA import, nothing live consumes it yet; the live
     # binders (energy / sentinel / climate) wire real sensors onto it at shadow.
     "environment":  {"stage": "pure",    "owners": []},
+    # optimize: self-optimization within owner bounds (roadmap Phase Y). A pure
+    # measure-then-tune primitive whose core is a TIERED GUARDRAIL: every tunable
+    # parameter classifies as SAFE (latency/cost/provider/cache/context/resource —
+    # self-tunable within owner Bounds), SENSITIVE (autonomy/confidence/interrupt
+    # thresholds, safety model selection — proposal-only, owner-gated) or FORBIDDEN
+    # (authority ceiling, security policy, identity requirement, safety threshold,
+    # human override, audit retention — never tunable). classify() defaults an
+    # UNKNOWN parameter to FORBIDDEN (fail-safe = fixed config). A TuningProposal is
+    # auto_applicable only when SAFE and within bounds, proposal_only when SENSITIVE
+    # and within bounds, else rejected — so Y can never relax a safety threshold or
+    # authority gate, structurally. PURE: no HA import, it proposes and never
+    # applies; the live wiring (reading token_telemetry/host metrics, emitting
+    # proposals) is the shadow rung.
+    "optimize":     {"stage": "pure",    "owners": []},
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},
