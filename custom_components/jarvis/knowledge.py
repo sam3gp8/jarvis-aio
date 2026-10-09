@@ -55,6 +55,16 @@ UNCERTAINTY_SHADOW = True
 # way. (world_model.knowledge_graph() exposes the same view as a facade.)
 GRAPH_SHADOW = True
 
+# SHADOW (Epistemic Fabric — Temporal validity): all_facts() also logs the
+# freshness-band distribution of the curated facts (how many are FRESH / AGING /
+# EXPIRED / DURABLE at `now`) via kernel.temporal, derived from each fact's
+# `updated_at` (valid-as-of) and `expires_at` (→ ttl; absent ⇒ DURABLE) —
+# observe-only, completing the fabric's coverage of curated knowledge (sourced +
+# uncertain + now time-bound). Nothing defers on staleness yet (that is the
+# parity/enforce rung). Flip TEMPORAL_SHADOW to False to silence it; all_facts()
+# returns the same rows either way.
+TEMPORAL_SHADOW = True
+
 # ENFORCE (Phase T, Deep World Model) — ON (owner-enabled, 8.158.0). The curated-
 # knowledge prompt block is graph-authoritative: the recall-seeded facts are
 # expanded one hop through the knowledge graph (facts about directly-related
@@ -139,6 +149,35 @@ def _emit_graph_shadow(facts: list) -> None:
         if not g.is_empty():
             _LOGGER.debug("graph(shadow): %d entit(ies), %d relation(s)",
                           len(g.entities), len(g.relations))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_temporal_shadow(facts: list, now: float) -> None:
+    """Log the temporal-validity band distribution of a fact set (Epistemic
+    Fabric — Temporal, shadow): how many curated facts are FRESH / AGING /
+    EXPIRED / DURABLE at ``now``, by each fact's ``updated_at`` (valid-as-of) and
+    ``expires_at`` (→ ttl; absent ⇒ DURABLE). Observe-only, never raises — the
+    knowledge store is unchanged whether this runs or not, and nothing defers on
+    staleness yet (that is the parity/enforce rung). Facts returned by
+    ``all_facts`` are already expiry-filtered, so the signal is mostly how many
+    are approaching staleness (AGING) versus fresh or durable."""
+    try:
+        from .kernel import temporal as T
+        vals = []
+        for f in (facts or []):
+            if not isinstance(f, dict):
+                continue
+            observed = float(f.get("updated_at", 0.0) or 0.0)
+            exp = f.get("expires_at")
+            ttl = None if exp is None else max(0.0, float(exp) - observed)
+            vals.append(T.assess(observed, ttl=ttl))
+        if vals:
+            st = T.summarize(vals, now)
+            _LOGGER.debug(
+                "temporal(shadow): %d fact(s) — %d fresh / %d aging / "
+                "%d expired / %d durable (%d still valid)",
+                st.count, st.fresh, st.aging, st.expired, st.durable, st.valid)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -519,6 +558,8 @@ def all_facts(subject: Optional[str] = None, now: Optional[float] = None,
             _emit_uncertainty_shadow(facts)  # Epistemic Fabric: observe-only
         if GRAPH_SHADOW:
             _emit_graph_shadow(facts)        # Phase T: observe-only
+        if TEMPORAL_SHADOW:
+            _emit_temporal_shadow(facts, now)  # Epistemic Fabric: observe-only
         return facts
     except Exception as exc:
         _LOGGER.warning("knowledge: all_facts failed: %s", exc)

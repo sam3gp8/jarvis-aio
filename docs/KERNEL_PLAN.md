@@ -531,16 +531,19 @@ in beliefs); this tier makes them canonical and first-class.
   `presence._emit_presence_fusion_shadow` logs that fused verdict (kill-switch
   `PRESENCE_FUSION_SHADOW`, observe-only) — the broader view the enforce rung
   reads. → enforce (a consumer reads the adjudicated value) owner-gated.
-- **Time / Temporal Validity** (`kernel/temporal.py`) — ✅ **pure shipped**. More
-  fundamental than Phase Q's space/time model: a value carries *valid-as-of*
+- **Time / Temporal Validity** (`kernel/temporal.py`) — ✅ **shadow shipped**.
+  More fundamental than Phase Q's space/time model: a value carries *valid-as-of*
   (`observed_at`) and *expires-at* (an optional `ttl`), so JARVIS can reason
   *"this was true 30 min ago / is probably still true / expires in 60 s."* A
   `Validity` derives age / remaining / is_valid / fraction-elapsed / freshness and
   a coarse band (fresh / aging / expired / durable); `summarize` rolls a set up by
-  band. Pure — nothing consumes it live yet. Ladder: pure ✅ → shadow (a live
-  source logs its validity band distribution) → parity → enforce (a decision
-  defers on a stale/expired value), owner-gated. Reused by world-model + belief
-  semantics (and Q).
+  band. SHADOW (8.160.0): `knowledge.all_facts()` packages each curated fact's
+  `updated_at` + `expires_at` as a `temporal.Validity` and logs the freshness-band
+  distribution (kill-switch `TEMPORAL_SHADOW`) — observe-only, completing the
+  fabric's coverage of curated knowledge (sourced + uncertain + now time-bound).
+  Ladder: pure ✅ → shadow ✅ → parity → enforce (a decision defers on a
+  stale/expired value), owner-gated. Reused by world-model + belief semantics
+  (and Q).
 
 These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and

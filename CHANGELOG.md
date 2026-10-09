@@ -1,3 +1,26 @@
+## [8.160.0] — Temporal validity shadow over curated knowledge (Epistemic Fabric)
+
+Advances the fifth Epistemic-Fabric primitive `kernel.temporal` from **pure →
+shadow**: curated knowledge is now observed as *time-bound* (sourced + uncertain
++ now valid-as-of / expires-at), observe-only.
+
+- `knowledge.py`: new `TEMPORAL_SHADOW` (default **True**) + `_emit_temporal_shadow`.
+  `all_facts()` packages each curated fact's `updated_at` (valid-as-of) and
+  `expires_at` (→ ttl; absent ⇒ DURABLE) as a `temporal.Validity` and logs the
+  freshness-band distribution (fresh / aging / expired / durable). **Observe-only:**
+  `all_facts()` returns exactly the same rows whether this runs or not; nothing
+  defers on staleness yet (that is the parity/enforce rung). Fail-safe: the
+  emitter is wrapped and never raises into the store; flip `TEMPORAL_SHADOW` off
+  to silence it.
+- `scripts/kernel_adoption.py`: `temporal` **pure → shadow** (owner `knowledge`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Time / Temporal Validity status → shadow shipped.
+
+No behaviour, actuation, or safety path changes. Tests: `test_knowledge.py` gains
+the temporal-shadow cases (band distribution, aging as lifetime elapses,
+kill-switch, defensive). Audit + four kernel gates green. Version 8.159.0 →
+8.160.0.
+
 ## [8.159.0] — Enforce: multi-agent orchestration (Phase O)
 
 Second owner-authorized enforce flip. The kernel is now the authority source for
