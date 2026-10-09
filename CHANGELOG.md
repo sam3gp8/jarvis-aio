@@ -1,3 +1,40 @@
+## [8.184.0] — kernel.cycle → enforce: the proactive dispatch loop IS the CognitiveCycle (Phase J / J4, default OFF)
+
+Advances the `cycle` primitive **parity → enforce** — the J4 full refactor.
+`cognitive_core._tick`'s proactive-action dispatch loop no longer just runs a
+cycle *alongside* itself (J2/J3 shadow+parity): when the flip is on, the loop
+genuinely **becomes** the kernel `CognitiveCycle`. The canonical
+PERCEIVE → INTERPRET → DECIDE → ACT → REFLECT pass runs, and its **DECIDE phase
+owns the ordered dispatch plan** that `_tick` then performs — one (non-safety)
+subsystem's loop is now literally the cycle, not a parallel observer.
+
+- `cognitive_core.py`: the dispatch loop (`for action in actions: await
+  _emit_action(...)`) now iterates a `plan` produced by the new
+  `_cognitive_cycle_plan(actions, *, people, anyone_home, sleeping)` — which runs
+  `kernel.cycle.standard_cycle({...}).tick()` and returns the DECIDE-owned plan.
+  New `COGNITIVE_CYCLE_ENFORCE` constant + `_cognitive_cycle_enforce_on()` gate
+  (module flag OR the `cognitive_cycle_enforce` config key).
+
+**Kill-switched, default OFF** (`COGNITIVE_CYCLE_ENFORCE` / `cognitive_cycle_enforce`)
+→ shipping is **behaviour-preserving**: with the flip off the plan is exactly
+`actions`, in the same order, and the loop dispatches it once — byte-for-byte the
+old path. **Fail-safe**: any cycle failure (`trace.ok` false, or the import/call
+raises) is caught and the loop falls back to the legacy `actions` order; the plan
+is chosen once and dispatched exactly once, so there is **no double-fire**.
+**Safety never routes through this loop** — intrusion/freeze/lockdown actuate on
+their own enforced paths, not the proactive dispatch.
+
+Activation is owner-gated on the **J3 parity log**: the household watches the
+real-traffic DECIDE-vs-ACT agreement flag (unchanged, still emitted) and flips
+`cognitive_cycle_enforce` only once it reads clean. Pre-authorized by the owner
+("j4: full refactor").
+
+Adoption matrix + Constitution regenerated (`cycle ● enforce`). Tests:
+`test_cognitive_cycle_enforce.py` (kill-switch default-off / flag / config /
+never-raises; plan preserves order + contents; empty actions; input not mutated;
+raises on cycle failure so `_tick` falls back). Audit + four kernel gates green.
+Version 8.183.0 → 8.184.0. Part of #236 / #239.
+
 ## [8.183.0] — kernel.autonomy → enforce: opt-in kernel-governed autonomy (Phase N, default OFF)
 
 Advances the `autonomy` primitive **parity → enforce**. When the household

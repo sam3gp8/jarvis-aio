@@ -133,9 +133,17 @@ _DECLARED: dict[str, dict] = {
     # (J3): cognitive_core._tick runs the cycle alongside its own loop and logs
     # an AGREEMENT flag — the cycle's DECIDE count vs the actions the loop
     # actually dispatched (ACT) — over real traffic; still drives nothing
-    # (kill-switch COGNITIVE_CYCLE_SHADOW + config). Enforce J4 = a subsystem's
-    # loop IS the cycle.
-    "cycle":        {"stage": "parity",  "owners": ["cognitive_core"]},
+    # (kill-switch COGNITIVE_CYCLE_SHADOW + config). ENFORCE (J4, owner-gated):
+    # cognitive_core._tick's proactive dispatch loop IS the cycle —
+    # _cognitive_cycle_plan runs the canonical cycle whose DECIDE phase produces
+    # the ordered dispatch plan the loop then performs (ACT). Kill-switched
+    # (COGNITIVE_CYCLE_ENFORCE / the `cognitive_cycle_enforce` key, default OFF so
+    # the plan is just `actions` — behaviour-preserving); fail-safe — any cycle
+    # error falls back to the legacy order, dispatch runs exactly once (no
+    # double-fire); safety (intrusion/freeze/lockdown) never routes through it.
+    # The J3 parity log is the real-traffic evidence the household watches before
+    # flipping it on.
+    "cycle":        {"stage": "enforce", "owners": ["cognitive_core"]},
     # graph: typed, queryable knowledge graph (roadmap Phase T, Deep World
     # Model). Entities (nodes with attributes) + typed directed relations, built
     # from plain knowledge.py fact/relation rows with a small query surface
