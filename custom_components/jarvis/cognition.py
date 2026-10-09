@@ -1143,14 +1143,37 @@ def predict_proximity(hass, now: float = None) -> list:
     when it crosses inside APPROACH_OUTER_KM while closing. Works entirely off
     the local network. State resets when the person reaches home. Returns action
     dicts for the gated announce path.
+
+    Deduped per person (#265): a ``person`` entity and the ``device_tracker``s it
+    owns (its "Track these devices" list) are all presence sources here, so
+    without this the same arrival fires once per entity — e.g. ``brewston`` AND
+    ``brewston_S26``. The approach alert is keyed by the owning PERSON, so
+    whichever of a person's sources crosses the threshold first alerts and the
+    rest are suppressed for that trip; no alert is lost even if the person entity
+    itself lacks live GPS, and the message names the person, not the phone.
     """
     out = []
     try:
+        # tracker entity_id -> owning person entity_id (from device_trackers attr).
+        owner_of: dict = {}
+        try:
+            for p in hass.states.async_all("person"):
+                for dev in (p.attributes.get("device_trackers") or []):
+                    owner_of[dev] = p.entity_id
+        except Exception:
+            owner_of = {}
+
+        def _person_key(entity_id: str) -> str:
+            if entity_id.startswith("person."):
+                return entity_id
+            return owner_of.get(entity_id, entity_id)
+
         for st in _presence_entities(hass):
             eid = st.entity_id
+            pkey = _person_key(eid)
             if _is_home(st.state):
                 _LAST_DIST.pop(eid, None)
-                _APPROACH_ALERTED.pop(eid, None)
+                _APPROACH_ALERTED.pop(pkey, None)
                 continue
             ec = _entity_coords(st)
             if ec is None:
@@ -1163,13 +1186,18 @@ def predict_proximity(hass, now: float = None) -> list:
             if prev is None:
                 continue  # need a previous reading to know direction
             closing = d < (prev - APPROACH_MIN_CLOSE_KM)
-            if closing and d <= APPROACH_OUTER_KM and not _APPROACH_ALERTED.get(eid):
-                _APPROACH_ALERTED[eid] = True
+            if closing and d <= APPROACH_OUTER_KM and not _APPROACH_ALERTED.get(pkey):
+                _APPROACH_ALERTED[pkey] = True
                 name = st.attributes.get("friendly_name", eid)
+                # Prefer the owning person's name when a claimed tracker crossed.
+                if pkey != eid:
+                    pst = hass.states.get(pkey)
+                    if pst is not None:
+                        name = pst.attributes.get("friendly_name") or name
                 out.append({
                     "type": "anticipation_arriving", "urgency": "low",
                     "message": f"{name} is heading home — about {d:.1f} km out.",
-                    "pattern_key": f"arriving:{eid}", "offer": False,
+                    "pattern_key": f"arriving:{pkey}", "offer": False,
                 })
     except Exception as exc:
         _LOGGER.debug("predict_proximity error: %s", exc)

@@ -1,3 +1,23 @@
+## [8.166.0] — Arrival anticipation deduped per person (issue #265)
+
+A person entity and the `device_tracker`s it owns (its "Track these devices"
+list) are all GPS presence sources, so `cognition.predict_proximity` emitted a
+separate "heading home" per entity — e.g. `brewston` **and** `brewston_S26` — for
+one person on one trip.
+
+- `cognition.py`: `predict_proximity` now keys the approach alert (and its
+  per-trip `_APPROACH_ALERTED` state, reset on arriving home) by the **owning
+  person** rather than the entity. Whichever of a person's sources crosses
+  `APPROACH_OUTER_KM` while closing fires first; the rest are suppressed for that
+  trip — so no alert is lost even if the person entity itself lacks live GPS, and
+  the message names the **person**, not the phone. A tracker not attached to any
+  person is still its own mover and alerts on its own. Ownership comes from each
+  person entity's `device_trackers` attribute (the same source HA uses).
+
+No config change. Tests: `test_cognition_proximity_dedup.py` (one alert per
+person; standalone tracker still alerts; reset-on-home lets the next trip alert).
+Version 8.165.0 → 8.166.0.
+
 ## [8.165.0] — Force the household language on all task prompts (issue #307)
 
 Non-English households were still getting English on proactive/announce output
