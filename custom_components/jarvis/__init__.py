@@ -906,6 +906,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.warning("JARVIS voice recognition registration failed (non-fatal): %s", exc)
 
+    # ── Faces panel restart persistence (issue #331) ───────────────────────────
+    # Restore the recognition + pinned-snapshot caches from the previous run so the
+    # Faces tab isn't empty after an HA/JARVIS restart. Executor — small file read.
+    try:
+        from . import recognition
+        await hass.async_add_executor_job(recognition.warm_start)
+    except Exception as exc:
+        _LOGGER.debug("JARVIS recognition cache warm-start failed (non-fatal): %s", exc)
+
     try:   # reads routines.yaml — keep file I/O off the event loop
         _routines = await hass.async_add_executor_job(list_routines)
     except Exception:
