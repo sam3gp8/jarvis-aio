@@ -895,9 +895,15 @@ comfort/efficiency can **never** override a safety concern (the done criterion's
 "respect the safety seam + priority ladder", encoded structurally). Pure: no HA
 import, holds no actuator, grants nothing, and nothing live consumes it yet — the
 live binders (`energy` / `sentinel` / climate) wire real sensors onto it at the
-shadow rung. Ladder from here: pure ✅ → shadow (recommendations logged alongside
-the current heuristics) → parity (vs sentinel/energy) → enforce
-(`ENVIRONMENT_ENFORCE`), owner-gated.
+shadow rung. **SHADOW (8.171.0):** `energy.evaluate_for_proactive` mirrors the
+live whole-home draw into `environment.efficiency(watts, peak_w)` on each
+proactive evaluation and logs the kernel verdict + would-be recommendation
+against its own `over_peak` decision (`environment(shadow): draw=… peak=… over=…
+agree=…`, kill-switch `energy.ENVIRONMENT_SHADOW`) — observe-only, defensive,
+drives nothing. Efficiency objective only for now (energy has no comfort
+readings); comfort (temperature/humidity) and the safety guard wire in when a
+climate/hazard path adopts the model. Ladder from here: pure ✅ → shadow ✅ →
+parity (vs sentinel/energy) → enforce (`ENVIRONMENT_ENFORCE`), owner-gated.
 
 **Phase Y — Self-Optimization.** Measure own performance (latency, accuracy,
 interruption cost, model spend) and tune *within owner bounds*. New:

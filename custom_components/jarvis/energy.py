@@ -45,6 +45,40 @@ _NEVER_SHED = ("medical", "cpap", "oxygen", "fridge", "freezer", "refrigerator",
                "security", "alarm", "network", "router", "modem", "server",
                "sump", "well_pump", "furnace", "boiler", "heat")
 
+# Phase X (roadmap) — kernel.environment SHADOW. Mirror the live power picture
+# into the kernel environment model's efficiency objective and log its verdict
+# alongside this module's own over-peak decision. Observe-only; drives nothing.
+ENVIRONMENT_SHADOW = True
+
+
+def _environment_shadow(st: dict) -> None:
+    """Phase X shadow: feed the whole-home draw into kernel.environment and log
+    its efficiency verdict + would-be recommendation against the incumbent
+    over_peak decision. Observe-only, kill-switched, and defensive — a failure
+    here can never reach the energy path. Flip ENVIRONMENT_SHADOW off to silence.
+    """
+    if not ENVIRONMENT_SHADOW:
+        return
+    try:
+        watts = st.get("watts")
+        peak = st.get("peak_watts")
+        if watts is None or not peak:
+            return
+        from .kernel import environment as ENV
+        eff = ENV.efficiency(float(watts), peak_w=float(peak))
+        # Efficiency objective only here (energy has no comfort readings); the
+        # proactive path carries no active safety concern, so recommendations are
+        # unguarded — the safety guard is exercised where a hazard is live.
+        recs = ENV.recommend(None, eff)
+        _LOGGER.debug(
+            "environment(shadow): draw=%.0fW peak=%.0fW util=%.2f kernel_over=%s "
+            "incumbent_over_peak=%s agree=%s recs=%d",
+            eff.draw, eff.peak, eff.utilization, eff.over,
+            st.get("over_peak"), eff.over == bool(st.get("over_peak")), len(recs),
+        )
+    except Exception as exc:
+        _LOGGER.debug("environment shadow failed: %s", exc)
+
 
 def _cfg(key: str, default=None):
     try:
@@ -303,6 +337,7 @@ def evaluate_for_proactive(hass) -> Optional[dict]:
         st = power_status(hass)
     except Exception:
         return None
+    _environment_shadow(st)   # Phase X: observe-only, never affects the offer
     if not st.get("over_peak"):
         return None
     sheddable = [a for a in st["running"] if a["shed_ok"]]

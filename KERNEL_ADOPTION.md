@@ -65,7 +65,7 @@ explicit per-flip owner go/no-go.
 | `conflict` | ◑ parity | `presence` |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `cycle` | ◑ parity | `cognitive_core` |
-| `environment` | · pure | — |
+| `environment` | ◐ shadow | `energy` |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `graph` | ● enforce | `knowledge` |

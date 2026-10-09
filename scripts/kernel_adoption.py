@@ -46,9 +46,14 @@ _DECLARED: dict[str, dict] = {
     # carries a priority tier (comfort=CONVENIENCE, efficiency=HOUSEHOLD) and is
     # flagged blocked_by_safety whenever an active safety concern outranks it
     # (via kernel.priority.may_override), so comfort/efficiency can never override
-    # a safety concern. PURE: no HA import, nothing live consumes it yet; the live
-    # binders (energy / sentinel / climate) wire real sensors onto it at shadow.
-    "environment":  {"stage": "pure",    "owners": []},
+    # a safety concern. SHADOW (Phase X, 8.171.0): energy.evaluate_for_proactive
+    # mirrors the live whole-home draw into environment.efficiency and logs the
+    # kernel verdict + would-be recommendation against its own over_peak decision
+    # (environment(shadow), kill-switch energy.ENVIRONMENT_SHADOW) — observe-only,
+    # drives nothing. Comfort readings (temperature/humidity) + the safety guard
+    # wire in when a climate/hazard path adopts it; parity (vs sentinel/energy)
+    # and enforce (ENVIRONMENT_ENFORCE) follow, owner-gated.
+    "environment":  {"stage": "shadow",  "owners": ["energy"]},
     # optimize: self-optimization within owner bounds (roadmap Phase Y). A pure
     # measure-then-tune primitive whose core is a TIERED GUARDRAIL: every tunable
     # parameter classifies as SAFE (latency/cost/provider/cache/context/resource —
