@@ -1,3 +1,24 @@
+## [8.167.0] — Long-horizon agency shadow over live goals (Phase V)
+
+Advances `kernel.long_horizon` from **pure → shadow**: JARVIS's active goals are
+now observed through the long-horizon primitive, observe-only.
+
+- `continuity.py`: new `LONG_HORIZON_SHADOW` (default **True**) +
+  `_long_horizon_shadow`. On each capture tick, each live active goal is modelled
+  as a `long_horizon.LongHorizonGoal` (its steps → milestones, goal step statuses
+  mapped to the milestone lifecycle) and a progress roll-up is logged (count /
+  complete / avg progress). **Observe-only:** nothing persists or resumes the goals
+  durably yet (that is the parity/enforce rung — a goal surviving a restart with
+  correct progress). Fail-safe: wrapped and never raises into the capture path;
+  flip `LONG_HORIZON_SHADOW` off to silence it.
+- `scripts/kernel_adoption.py`: `long_horizon` **pure → shadow** (owner
+  `continuity`); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Phase V status → pure + shadow shipped.
+
+No behaviour, actuation, or safety path changes. Tests: `test_continuity.py`
+gains the long_horizon-shadow cases (progress roll-up, kill-switch, no-goals
+defensive). Audit + four kernel gates green. Version 8.166.0 → 8.167.0.
+
 ## [8.166.0] — Arrival anticipation deduped per person (issue #265)
 
 A person entity and the `device_tracker`s it owns (its "Track these devices"

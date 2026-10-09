@@ -43,6 +43,22 @@ AGENCY_CAPTURE_ENABLED = True
 # adoption stage therefore stays `shadow` while this is OFF.
 CONTINUITY_RESUME_ENFORCE = False
 
+# SHADOW (roadmap Phase V — Long-Horizon Agency). On each capture tick, model the
+# live active goals as kernel.long_horizon goals (their steps → milestones) and
+# log a progress roll-up — observe-only. Nothing persists or resumes them durably
+# yet (that is the parity/enforce rung: a goal surviving a restart with correct
+# progress); this quantifies goal progress in the primitive's terms. Flip
+# LONG_HORIZON_SHADOW to False to silence it. Fail-safe: never raises into capture.
+LONG_HORIZON_SHADOW = True
+
+# Goal step status → long_horizon milestone status.
+_GOAL_STEP_TO_MILESTONE = {
+    "done": "done", "complete": "done", "completed": "done",
+    "skipped": "skipped", "cancelled": "skipped",
+    "failed": "blocked", "blocked": "blocked",
+    "active": "active", "in_progress": "active",
+}
+
 # Cap on retained snapshots (newest-wins); matches the store default.
 _SNAPSHOT_KEEP = 20
 
@@ -296,6 +312,45 @@ def _live_situations(hass=None) -> List[dict]:
         return []
 
 
+def _long_horizon_shadow(hass=None) -> None:
+    """Model the live active goals as kernel.long_horizon goals and log a progress
+    roll-up (Phase V — shadow). Observe-only: nothing persists or resumes them
+    durably yet (that is the parity/enforce rung — a goal surviving a restart with
+    correct progress). This quantifies goal progress in the primitive's terms,
+    naming each goal's milestones from its steps. Never raises."""
+    if not LONG_HORIZON_SHADOW:
+        return
+    try:
+        import time as _time
+        from .kernel import long_horizon as LH
+        from . import goals as _goals
+        now = _time.time()
+        built = []
+        for g in (_goals.active() or []):
+            gid = g.get("id")
+            if gid is None:
+                continue
+            milestones = []
+            for s in (g.get("steps") or []):
+                if not isinstance(s, dict):
+                    continue
+                label = str(s.get("step", "") or "").strip()
+                if not label:
+                    continue
+                status = _GOAL_STEP_TO_MILESTONE.get(
+                    str(s.get("status", "") or "").lower(), LH.PENDING)
+                milestones.append({"label": label, "status": status})
+            title = str(g.get("title") or g.get("outcome") or "").strip()
+            built.append(LH.plan_goal(title, milestones, id=f"goal:{gid}", now=now))
+        if built:
+            st = LH.summarize(built, now)
+            _LOGGER.debug(
+                "long_horizon(shadow): %d goal(s) — %d complete, avg progress %.2f",
+                st.count, st.complete, st.avg_progress)
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("long_horizon shadow failed: %s", exc)
+
+
 def capture_now(hass=None) -> Optional[agency_state.AgencyState]:
     """Capture + persist the current agency snapshot. Never raises."""
     if not AGENCY_CAPTURE_ENABLED:
@@ -308,6 +363,7 @@ def capture_now(hass=None) -> Optional[agency_state.AgencyState]:
             cognitive=_live_cognitive(hass),  # I-B: intent + plan, dropped if empty
         )
         _store(hass).save(state)
+        _long_horizon_shadow(hass)   # Phase V: observe-only, never affects capture
         return state
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency capture failed: %s", exc)
