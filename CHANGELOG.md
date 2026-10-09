@@ -1,3 +1,26 @@
+## [8.139.0] — Integration tests: provider-outage safety + restart re-setup
+
+Addresses the v8.136.0 external audit's P1 "measurable governance" / end-to-end
+coverage: two new **real-Home-Assistant** integration tests (PHACC), so JARVIS's
+HA-lifecycle resilience is backed by executable evidence rather than asserted.
+Test-only — no production code changes.
+
+- `tests/integration/test_wiring_smoke.py`:
+  - **`test_setup_fails_safely_on_provider_outage`** — when the LLM provider
+    cannot be constructed (outage / bad or missing key), `async_setup_entry`
+    fails *cleanly*: setup returns False, nothing is left in `hass.data`, no
+    services register, and PHACC's `verify_cleanup` confirms no lingering timers.
+    JARVIS must never crash HA or partially load when its provider is down.
+  - **`test_cold_resetup_after_unload`** — a full unload followed by a fresh
+    setup (a restart proxy, distinct from reload which never fully tears down)
+    re-initialises cleanly: the data store repopulates, services re-register, and
+    nothing leaks across the cycle.
+
+Validation: full integration suite (5 tests) green under
+`pytest-homeassistant-custom-component` on py3.13; `scripts/audit.py` + all four
+kernel gates green. Real-state verification of actuation remains covered at the
+unit layer (`test_actuation.py`). Version 8.138.0 → 8.139.0.
+
 ## [8.138.0] — Agency orchestration enforce path (kernel Phase O, owner-gated, default OFF)
 
 Builds the Phase O **enforce** path — the kernel becoming the authority source

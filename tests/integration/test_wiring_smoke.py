@@ -124,3 +124,45 @@ async def test_reload_leaves_integration_loaded(hass):
         await hass.async_block_till_done()
         assert entry.entry_id in hass.data[DOMAIN]
         assert hass.services.has_service(DOMAIN, "analyze_camera")
+
+
+async def test_setup_fails_safely_on_provider_outage(hass):
+    """A provider that cannot be constructed (outage, bad/missing key) must fail
+    setup CLEANLY — no half-initialised jarvis in hass.data, no registered
+    services, and (via PHACC's verify_cleanup teardown) no lingering timers —
+    rather than crash Home Assistant or leave the integration partially wired.
+    This is the audit's "handle provider outages safely" at the setup boundary.
+
+    Only ``create_provider`` is made to fail; the platform-forward stubs are
+    unnecessary because setup returns before any forward."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with patch("custom_components.jarvis.create_provider",
+               side_effect=RuntimeError("provider unreachable")):
+        ok = await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    assert ok is False
+    assert entry.entry_id not in hass.data.get(DOMAIN, {})
+    assert not hass.services.has_service(DOMAIN, "analyze_camera")
+
+
+async def test_cold_resetup_after_unload(hass):
+    """A full unload followed by a fresh setup (a restart proxy) re-initialises
+    cleanly: the data store is repopulated, services re-register, and nothing
+    leaks across the cycle — so a restart never leaves JARVIS half-initialised or
+    doubly-wired. (Distinct from reload, which never fully tears down.)"""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with _mock_provider():
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.entry_id not in hass.data.get(DOMAIN, {})
+        # cold start again — must come up exactly as a first install would
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.entry_id in hass.data[DOMAIN]
+        assert hass.services.has_service(DOMAIN, "analyze_camera")
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
