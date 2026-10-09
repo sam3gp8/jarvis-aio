@@ -175,6 +175,58 @@ def _attention_shadow(*, category: str, urgency: str, reason: str,
         pass
 
 
+# PARITY (Phase K): attention CONSULTS the one canonical working set. The owner
+# chose a shared kernel-level WorkingMemory (kernel.working_memory.shared()) as
+# the canonical cognitive context; cognitive_core populates it each tick. Here the
+# attention arbitration reads that set and derives a context signal the current
+# gate ignores — whether the household is asleep (the situation item) — then logs
+# whether consulting it would CHANGE the arbitration vs the working-memory-blind
+# shadow baseline. Observe-only: nothing gates on the working set yet (that is the
+# owner-gated WORKING_MEMORY_ENFORCE rung). Flip WORKING_MEMORY_PARITY off to
+# silence it.
+WORKING_MEMORY_PARITY = True
+
+
+def _attention_working_memory_parity(*, category: str, urgency: str,
+                                     budget_multiplier: float,
+                                     max_per_hour: int) -> None:
+    """Phase K parity: recompute the attention arbitration enriched by the shared
+    working set's situation (asleep → quiet hours) and log whether consulting the
+    canonical cognitive context would change the decision vs the working-memory-
+    blind baseline. Best-effort, never raises; reads only, drives nothing."""
+    if not WORKING_MEMORY_PARITY:
+        return
+    try:
+        from .kernel import attention as A
+        from .kernel import working_memory as wm
+        mem = wm.shared()
+        sit = mem.get(wm.KIND_SITUATION, "home_occupancy")
+        if sit is None:
+            return  # nothing in the working set to consult yet
+        asleep = "asleep" in (sit.content or "").lower()
+        pri = (A.CRITICAL if urgency == "critical"
+               else A.HIGH if urgency == "high" else A.NORMAL)
+        eff_max = max(1, int(round(max_per_hour * budget_multiplier)))
+        recent = len(_recent_within(_STATE.history, 3600) + _STATE.reservations)
+        base_kwargs = dict(
+            budget_remaining=max(0.0, 1.0 - recent / eff_max),
+            recent_interruptions=recent, max_recent=eff_max,
+            shushed=_STATE.mute_all, duplicate=False)
+        req = A.AttentionRequest(category=category, priority=pri)
+        # Baseline: the working-memory-blind arbitration (quiet_hours unset).
+        blind = A.arbitrate(req, A.AttentionContext(**base_kwargs))
+        # Enriched: the same arbitration told, by the canonical working set, that
+        # the household is asleep.
+        informed = A.arbitrate(
+            req, A.AttentionContext(quiet_hours=asleep, **base_kwargs))
+        changed = blind.decision != informed.decision
+        _LOGGER.debug(
+            "attention+working_memory(parity): asleep=%s blind=%s informed=%s "
+            "would_change=%s", asleep, blind.decision, informed.decision, changed)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
 def _can_announce_with_multiplier(
     budget_multiplier: float,
     *,
@@ -195,6 +247,9 @@ def _can_announce_with_multiplier(
     _attention_shadow(category=category, urgency=urgency, reason=reason,
                       budget_multiplier=budget_multiplier,
                       max_per_hour=max_per_hour, allowed=allowed)
+    _attention_working_memory_parity(category=category, urgency=urgency,
+                                     budget_multiplier=budget_multiplier,
+                                     max_per_hour=max_per_hour)
     return allowed, reason
 
 

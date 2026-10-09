@@ -316,3 +316,27 @@ class WorkingMemory:
         salient = tuple(self.top(max(0, top_k), now))
         return WorkingSnapshot(now=now, by_kind=by_kind, salient=salient,
                                total=len(self._items), capacity=self.capacity)
+
+
+# ── the one canonical working set (Phase K) ──────────────────────────────────
+# The audit's done-criterion for Phase K is that "the decision engine receives a
+# canonical bounded cognitive context from WorkingMemory" — i.e. ONE shared set,
+# not a per-loop one. This process-wide singleton is that set: the producer
+# (cognitive_core's tick) writes to it, and consumers (attention arbitration)
+# read it. It is still observe-only up the ladder — a reader logs what consulting
+# it would change (parity) before anything gates on it (enforce).
+_SHARED: Optional[WorkingMemory] = None
+
+
+def shared() -> WorkingMemory:
+    """The process-wide canonical working set, created lazily with defaults."""
+    global _SHARED
+    if _SHARED is None:
+        _SHARED = WorkingMemory()
+    return _SHARED
+
+
+def reset_shared() -> None:
+    """Drop the shared working set (used on reload and in tests)."""
+    global _SHARED
+    _SHARED = None
