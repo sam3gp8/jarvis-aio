@@ -52,15 +52,17 @@ UNKNOWN = "unknown"
 # False to silence it; resolve() returns exactly the same Identification either way.
 IDENTITY_FABRIC_SHADOW = True
 
-# SHADOW (#237, Epistemic Fabric — Uncertainty): resolve() also packages its
-# fused verdict as a kernel.uncertainty.Uncertain (value=person, the computed
+# PARITY (#237, Epistemic Fabric — Uncertainty): resolve() packages its fused
+# verdict as a kernel.uncertainty.Uncertain (value=person, the computed
 # confidence, basis=the methods that voted, resolver=what would settle a weak
-# read) and logs its epistemic band — observe-only, nothing gates on the band yet
-# (parity vs the current min-confidence decision next, enforce when a decision
-# gates on the band, owner-gated). This is the "perception wraps its output" rung:
-# identity fusion produces a graded belief, not a bare name. Flip
-# UNCERTAINTY_SHADOW to False to silence it; resolve() returns the same
-# Identification either way.
+# read), logs its epistemic band, AND compares whether gating on the band
+# (is_actionable, ≥ the believed threshold) would AGREE with the legacy
+# min-confidence "known" decision. They diverge in the
+# [identity_min_confidence, actionable) band, where legacy acts on a verdict the
+# fabric would still call a guess — the fabric being the more conservative of the
+# two. Observe-only: nothing gates on the band yet (enforce, where a decision
+# gates on it, is owner-gated). Flip UNCERTAINTY_SHADOW to False to silence it;
+# resolve() returns the same Identification either way.
 UNCERTAINTY_SHADOW = True
 
 # How long a resolved identity assertion stays fresh (seconds) — matches the
@@ -115,14 +117,17 @@ def _emit_identity_fabric_parity(person: str, confidence: float, methods, now: f
 
 def _emit_identity_uncertainty_shadow(person: str, confidence: float, methods,
                                       legacy_known: bool) -> None:
-    """Package resolve()'s verdict as a kernel.uncertainty.Uncertain and log its
-    epistemic band (shadow). Observe-only, best-effort, never raises.
+    """Package resolve()'s verdict as a kernel.uncertainty.Uncertain, log its
+    epistemic band, and compare band-actionability against the legacy "known"
+    decision (parity). Observe-only, best-effort, never raises.
 
     The value is the resolved person (or UNKNOWN when the legacy decision would
     not treat it as known); the confidence is resolve()'s own fused score; the
     basis is the methods that voted; and a weak read names what evidence would
     resolve it — an honest 'known / believed / guessed / unknown' instead of a
-    bare name."""
+    bare name. Parity: whether acting on the band (``is_actionable``) agrees with
+    ``legacy_known`` — a DIVERGENCE means the two thresholds disagree for this
+    confidence, which is expected in the [min_confidence, actionable) band."""
     try:
         from .kernel import uncertainty as U
         basis = "+".join(sorted(methods or ())) or "no_signal"
@@ -130,8 +135,13 @@ def _emit_identity_uncertainty_shadow(person: str, confidence: float, methods,
         resolver = ("" if confidence >= U.DEFAULT_ACTIONABLE
                     else "a face recognition or voiceprint")
         u = U.assess(value, confidence, basis=basis, resolver=resolver)
-        _LOGGER.debug("identity_uncertainty(shadow): %s [band=%s basis=%s]",
-                      u.describe(), u.band, basis)
+        band_actionable = u.is_actionable()
+        agree = band_actionable == bool(legacy_known)
+        _LOGGER.debug(
+            "identity_uncertainty(parity): %s legacy_known=%s band_actionable=%s "
+            "[band=%s basis=%s]",
+            "AGREEMENT" if agree else "DIVERGENCE",
+            bool(legacy_known), band_actionable, u.band, basis)
     except Exception:   # pragma: no cover - defensive
         pass
 DEFAULT_PERSONAL_SUBJECT = "primary"  # fallback knowledge subject when unresolved

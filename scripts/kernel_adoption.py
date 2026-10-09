@@ -165,13 +165,13 @@ _DECLARED: dict[str, dict] = {
     # Fabric, audit-added). An Uncertain pairs a value with a confidence, a band
     # (known/believed/guessed/unknown), its basis and what evidence would
     # resolve it; update() folds new evidence (noisy-OR agree, discount
-    # disagree). SHADOW (#237): identity.resolve() packages its fused verdict as
+    # disagree). PARITY (#237): identity.resolve() packages its fused verdict as
     # an Uncertain (value=person / the computed confidence / basis=voting methods
-    # / resolver for a weak read) and logs its epistemic band — observe-only, the
-    # Identification returned is unchanged, nothing gates on the band yet
-    # (world-model / prediction wrap outputs next; parity vs current confidences,
-    # enforce when a decision gates on the band).
-    "uncertainty":  {"stage": "shadow",  "owners": ["identity"]},
+    # / resolver for a weak read), logs its epistemic band, AND compares whether
+    # gating on the band (is_actionable) agrees with the legacy min-confidence
+    # "known" decision — observe-only, the Identification returned is unchanged,
+    # nothing gates on the band yet (enforce when a decision gates on the band).
+    "uncertainty":  {"stage": "parity",  "owners": ["identity"]},
     # conflict: formal conflict resolution between contradictory evidence
     # (Epistemic Fabric, audit-added). Consumes Provenance records; resolve()
     # scores each (confidence × source-reliability × recency × corroboration),
