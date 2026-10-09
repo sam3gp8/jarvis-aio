@@ -347,10 +347,15 @@ _DECLARED: dict[str, dict] = {
     # agree=…". Per-proactive-pattern trust stays with cognitive_core's
     # AutonomyManager; this axis is the blanket flag only. Observe-only
     # (AUTONOMY_SHADOW / AUTONOMY_PARITY kill-switches), driving nothing; the flag
-    # is untouched. Enforce (owner-gated GRADUATED_AUTONOMY_ENFORCE) replaces the
-    # blanket flag with the per-capability earned level, fail-safe = the current
-    # single setting.
-    "autonomy":     {"stage": "parity",  "owners": ["actuation"]},
+    # is untouched. ENFORCE (Phase N, owner-gated + user opt-in): cognitive_core's
+    # AutonomyManager.is_autonomous consults kernel.autonomy so a granted proactive
+    # pattern whose capability is SECURITY-class (pinned at CONFIRM — may_act False
+    # regardless of record) NEVER auto-acts; it always falls back to asking. Behind
+    # GRADUATED_AUTONOMY_ENFORCE / the `autonomy_enforce` key — default OFF and
+    # written only after the panel's full-explanation confirmation screen — so
+    # shipping is behaviour-preserving; fail-safe — any error leaves the legacy
+    # gate (grant + mode flag) untouched. Safety never routes through this gate.
+    "autonomy":     {"stage": "enforce", "owners": ["actuation", "cognitive_core"]},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
     # brackets a named sub-agent's run in an actor scope; actuation.request /

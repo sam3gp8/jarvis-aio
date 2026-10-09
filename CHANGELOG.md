@@ -1,3 +1,36 @@
+## [8.183.0] — kernel.autonomy → enforce: opt-in kernel-governed autonomy (Phase N, default OFF)
+
+Advances the `autonomy` primitive **parity → enforce**. When the household
+explicitly opts in — via a **full-explanation confirmation screen** in the panel
+— JARVIS's graduated-autonomy auto-execute gate is governed by the kernel
+autonomy ladder's hard ceiling: a granted proactive pattern whose capability is
+**SECURITY-class (unlock, disarm, garage/lockdown off) NEVER auto-acts** — it
+always falls back to asking, no matter how many times it was approved.
+
+- `cognitive_core.py`: `AutonomyManager.is_autonomous` consults
+  `kernel.autonomy` (a SECURITY capability is pinned at CONFIRM — `may_act` False
+  regardless of record); new `_graduated_autonomy_enforce_on()` +
+  `_pattern_is_security()` helpers.
+- `jarvis-panel.js`: a new **"Act without asking (kernel-governed)"** toggle in
+  Settings → Sub-Agents & Automation, carrying a `data-confirm` that spells out
+  exactly what's being enabled (which automations auto-run, that security/safety
+  never auto-act, how to turn it off) — the write only persists after the user
+  confirms, reusing the existing confirm flow.
+- `websocket.py`: `autonomy_enforce` registered writable + echoed in panel data.
+
+**Kill-switched, default OFF** (`GRADUATED_AUTONOMY_ENFORCE` / `autonomy_enforce`)
+→ shipping is behaviour-preserving. **Fail-safe**: any error leaves the legacy
+gate (grant + mode flag) untouched. Safety (intrusion/freeze/lockdown) never
+routes through this gate. The security ceiling is forward-looking — today's
+proactive patterns are all SENSITIVE (lights/hvac), so nothing changes until the
+household opts in.
+
+Adoption matrix + Constitution regenerated (`autonomy ● enforce`). Tests:
+`test_autonomy_enforce.py` (ceiling helper; default-off; security blocked only
+under opt-in; SENSITIVE unaffected; ungranted never autonomous) +
+`smoke_panel.js` pins the confirmation toggle. Audit + four kernel gates green.
+Version 8.182.0 → 8.183.0. Part of #236.
+
 ## [8.182.0] — kernel.learning → enforce: closed-loop trust (Phase M, owner-gated, default OFF)
 
 Advances the `learning` primitive **parity → enforce** — closes the learning
