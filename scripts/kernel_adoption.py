@@ -278,6 +278,18 @@ _DECLARED: dict[str, dict] = {
     # attention: output_gate computes the kernel interruption arbitration
     # alongside its legacy announce decision and logs divergence (E2) — shadow.
     "attention":    {"stage": "shadow",  "owners": ["output_gate"]},
+    # working_memory: a bounded, decay-scored working set feeding attention
+    # arbitration (roadmap Phase K). kernel/working_memory.py holds a
+    # capacity-bounded set of typed cognitive-context items (situation / objective
+    # / intent / people / devices / observations / questions / pending actions &
+    # verification / memories / predictions / constraints), scores each by base
+    # salience × recency decay, evicts the weakest deterministically, and renders a
+    # WorkingSnapshot — the canonical bounded cognitive context a decision engine
+    # reads instead of assembling its own. PURE: nothing populates or reads it live
+    # yet. Ladder: pure → shadow (populate from the bus / cycle) → parity (attention
+    # consults it) → enforce (arbitration reads it authoritatively, behind
+    # WORKING_MEMORY_ENFORCE, fail-safe = current attention inputs).
+    "working_memory": {"stage": "pure",  "owners": []},
     # router: reasoning_loop computes the kernel local-first provider route
     # alongside its live cloud/local-Mind breaker decision and logs divergence
     # (E3) — shadow.

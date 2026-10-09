@@ -51,6 +51,7 @@ from . import (
     situation,
     space_time,
     token_telemetry,
+    working_memory,
 )
 from .actuator import ActuatorOutcome, ActuatorRequest, build_actuator_request
 from .loop_detect import LoopDetector, LoopVerdict
@@ -88,6 +89,7 @@ from .learning import WeightAdjustment, adjust as adjust_weight, plan_adjustment
 from .provenance import Provenance
 from .uncertainty import Uncertain
 from .conflict import Resolution as ConflictResolution
+from .working_memory import WorkingItem, WorkingMemory, WorkingSnapshot
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
 from .router import Provider, RouteResult, TaskRequirements, route
@@ -191,6 +193,10 @@ __all__ = [
     "Uncertain",
     "conflict",
     "ConflictResolution",
+    "working_memory",
+    "WorkingMemory",
+    "WorkingItem",
+    "WorkingSnapshot",
     "cycle",
     "priority",
     "loop_detect",

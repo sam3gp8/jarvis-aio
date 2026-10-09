@@ -1,3 +1,40 @@
+## [8.150.0] — Phase K working-memory primitive (pure)
+
+Roadmap **Phase K — Attention & Working Memory** (docs/KERNEL_PLAN.md): the new
+`kernel/working_memory.py` primitive — a bounded, decay-scored working set that
+is the one canonical answer to "what is JARVIS holding in mind right now?",
+replacing the hidden working memory each path assembles ad-hoc today.
+
+- `kernel/working_memory.py` (NEW, pure — no Home Assistant import, deterministic
+  `now` passed in so scoring/eviction are reproducible and unit-testable):
+  - `WorkingItem` — a typed cognitive-context item (`kind`, `subject`, `content`,
+    base `salience` 0..1, `pinned`, `ts`, `correlation_id`, `source`). `kind` is
+    one of the canonical cognitive-context kinds the audit names — **situation,
+    objective, intent, people, devices, observations, questions, pending actions
+    & verification, memories, predictions, constraints** — so working memory
+    represents the *current cognitive context*, not just salient events.
+  - `WorkingMemory` — capacity-bounded (default 32), decay-scored
+    (`salience × 0.5**(age/half_life)`), with **deterministic eviction** (lowest
+    current score; ties → oldest `ts` → earliest insertion). Re-adding the same
+    `(kind, subject)` *refreshes* rather than duplicates; pinned items neither
+    decay nor get evicted (an active objective, a live constraint). `remember` /
+    `touch` / `forget` / `clear`, `top(k)`, `by_kind`, `get`, `__len__`,
+    `__contains__`.
+  - `WorkingSnapshot` — the bounded cognitive-context view a decision engine
+    reads: items grouped by kind (most salient first) plus a flat top-N, with a
+    deterministic one-line `summary()` and `to_dict()`.
+- `kernel/__init__.py` exports `working_memory`, `WorkingMemory`, `WorkingItem`,
+  `WorkingSnapshot`.
+- `scripts/kernel_adoption.py` declares `working_memory` at stage **pure**
+  (owners `[]`); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated
+  from it (doc-sync gate).
+
+Behaviour-preserving: nothing populates or reads the working set live yet. Ladder
+from here is shadow (populate from the bus / cycle) → parity (attention consults
+it) → enforce (`WORKING_MEMORY_ENFORCE`, fail-safe = current attention inputs).
+Tests: `tests/unit/test_kernel_working_memory.py` (17). Audit + four kernel gates
+green. Version 8.149.0 → 8.150.0.
+
 ## [8.149.0] — Governance settings tab in the panel (owner control surface, UI)
 
 Second half of surfacing the kernel enforce kill-switches: a **Governance**

@@ -99,6 +99,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `space_time` | ◑ parity |
 | `token_telemetry` | ◐ shadow |
 | `uncertainty` | ◑ parity |
+| `working_memory` | · pure |
 | `world_model` | ● enforce |
 <!-- END kernel-stage-ledger -->
 
