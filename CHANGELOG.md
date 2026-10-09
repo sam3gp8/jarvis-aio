@@ -1,3 +1,34 @@
+## [8.138.0] — Agency orchestration enforce path (kernel Phase O, owner-gated, default OFF)
+
+Builds the Phase O **enforce** path — the kernel becoming the authority source
+for delegated sub-agents — behind `AGENCY_ORCHESTRATION_ENFORCE` **defaulted
+OFF**. Per the v8.136.0 external audit (and the owner's "parity, then prep
+enforce OFF" choice), this ships the capability *ready to flip*; **nothing in a
+live home changes until the owner turns it on**, and even then it is
+behaviour-preserving today.
+
+- `agent._agency_enforce(label, allowed, depth) → (ok, effective_allowed, reason)`:
+  derives a delegated sub-agent's effective tool set from a kernel
+  `agency.spawn` (a strict narrowing of the incumbent-resolved set) and vetoes
+  the delegation when `agency.can_spawn` refuses. `_run_delegated` consults it
+  only when the switch is on, **after** every incumbent gate (depth, the FRIDAY
+  `_profile_enabled` opt-in, capability validity), so it can only ever narrow
+  authority — never widen. A kernel veto returns an error to the parent; any
+  kernel error fails safe to the incumbent set.
+- **Why ON is safe today:** JARVIS holds all capabilities, so the kernel-derived
+  set equals the incumbent set and the veto never fires — ON is identical to
+  today. The switch exists so the owner can make the kernel authoritative (and
+  later scope JARVIS's own token / move gates into the kernel). The owner alone
+  flips it.
+- Adoption: `agency` stays **parity** as its *live* stage (enforce is OFF);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated with the
+  enforce path documented. `docs/KERNEL_PLAN.md` Phase O status updated.
+
+tests: `tests/unit/test_agency_delegation_shadow.py` gains enforce cases — the
+switch defaults OFF, the kernel-derived set passes through (identity narrowing)
+and never widens, and an over-depth spawn is vetoed. audit + all four kernel
+gates green.
+
 ## [8.137.0] — Agency orchestration parity (kernel Phase O, parity)
 
 Advances Phase O to the **parity** rung: at each delegation decision point,

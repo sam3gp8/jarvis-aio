@@ -3286,6 +3286,44 @@ def _emit_agency_parity(label: str, caps, depth: int, *,
         pass
 
 
+# ENFORCE (Phase O — Agency Orchestration): OWNER-GATED, default OFF. When the
+# owner turns this on, the KERNEL becomes the source of a delegated sub-agent's
+# authority: its effective tool set is DERIVED from a kernel agency spawn (a
+# strict narrowing of the incumbent-resolved set), and the delegation is VETOED
+# if the kernel refuses the spawn. It sits BEHIND every incumbent gate (depth,
+# the FRIDAY opt-in via _profile_enabled, capability validity), so it can only
+# ever narrow authority, never widen it. Today JARVIS holds all capabilities, so
+# the derived set equals the incumbent set and the veto never fires — i.e. ON is
+# behaviourally identical to today; the switch exists so the owner can make the
+# kernel authoritative (and later scope JARVIS's own token / move gates into the
+# kernel). Fail-safe = the incumbent `allowed` set (any kernel error passes the
+# incumbent decision through). This flag is flipped ONLY by the owner.
+AGENCY_ORCHESTRATION_ENFORCE = False
+
+
+def _agency_enforce(label: str, allowed, depth: int):
+    """Kernel-derived authority for a delegated sub-agent (Phase O enforce).
+
+    Returns ``(ok, effective_allowed, reason)``: ``ok=False`` vetoes the
+    delegation; otherwise ``effective_allowed`` is the kernel-narrowed tool set
+    (never wider than ``allowed``). Any kernel error fails safe to the incumbent
+    ``allowed`` set so a kernel problem can never block a delegation the incumbent
+    already authorised."""
+    try:
+        from .kernel import agency as _agency
+        incumbent = set(allowed or ())
+        parent = _agency.root("jarvis", ("*",), depth=depth)
+        chk = _agency.can_spawn(parent, frozenset(incumbent),
+                                max_depth=MAX_DELEGATION_DEPTH)
+        if not chk.ok:
+            return (False, set(), chk.reason)
+        child = _agency.spawn(parent, (label or "sub").lower(), incumbent)
+        effective = set(child.capabilities) & incumbent   # strict narrowing
+        return (True, effective, "ok")
+    except Exception:   # pragma: no cover - defensive
+        return (True, allowed, "kernel-unavailable")
+
+
 async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
                          api_key: str, model: str, base_url, config, depth: int) -> str:
     """Run one ephemeral sub-agent for a delegated objective. Returns a JSON
@@ -3343,6 +3381,19 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
     _emit_agency_shadow(label, allowed, depth)
     _emit_agency_parity(label, allowed, depth, incumbent_proceeded=True,
                         note="proceed")
+
+    # Phase O (enforce, owner-gated, default OFF): make the kernel the authority
+    # source — veto the delegation if the kernel refuses, else run with the
+    # kernel-derived (strictly narrowed) tool set. Sits behind every incumbent
+    # gate above, so it only narrows. No-op when OFF. See _agency_enforce.
+    if AGENCY_ORCHESTRATION_ENFORCE:
+        _ok, _eff, _reason = _agency_enforce(label, allowed, depth)
+        if not _ok:
+            _LOGGER.warning("agency(enforce): kernel vetoed delegation child=%s (%s)",
+                            (label or "sub").lower(), _reason)
+            return json.dumps({"error": "kernel agency refused this delegation: %s"
+                                        % _reason})
+        allowed = _eff
 
     # H6: attribute the sub-agent's actuations to it (FRIDAY/HOMER), not to the
     # delegating JARVIS loop. Only named profiles are distinct agents; a generic
