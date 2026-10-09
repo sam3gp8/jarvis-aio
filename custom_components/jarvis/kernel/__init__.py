@@ -108,6 +108,14 @@ from .working_memory import (
 )
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan, plan_compensation
+from .environment import (
+    ComfortBand,
+    EnvironmentAssessment,
+    EnvironmentState,
+    Reading as EnvironmentReading,
+    Recommendation as EnvironmentRecommendation,
+    assess as assess_environment,
+)
 from .router import Provider, RouteResult, TaskRequirements, route
 from .ledger import EventLedger
 from .situation import InvalidTransition, Situation, SituationManager
@@ -149,6 +157,13 @@ __all__ = [
     "PlanReport",
     "execute_plan",
     "plan_compensation",
+    "environment",
+    "EnvironmentState",
+    "EnvironmentAssessment",
+    "EnvironmentReading",
+    "EnvironmentRecommendation",
+    "ComfortBand",
+    "assess_environment",
     "beliefs",
     "Belief",
     "Evidence",

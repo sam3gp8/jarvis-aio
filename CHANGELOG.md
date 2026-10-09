@@ -1,3 +1,37 @@
+## [8.169.0] — Physical-world intelligence: state + objective functions (Phase X, pure)
+
+New pure kernel primitive `kernel/environment.py` — a read-only model of the
+physical world plus objective functions that score comfort and efficiency and,
+crucially, a recommender that structurally obeys the safety seam and priority
+ladder. JARVIS already senses the physical world through scattered heuristics
+(`energy` draw-vs-peak with a never-shed list, `sentinel` apertures, the freeze
+threshold); Phase X gives them a common, inspectable substrate.
+
+- `kernel/environment.py`: `Reading` (temperature / humidity / air-quality /
+  power / apertures) + `EnvironmentState` query helpers (`by_kind` / `by_area` /
+  `latest`). Objective functions: `comfort(state, bands)` scores each reading
+  against a `ComfortBand` (1.0 at the ideal, linearly to 0 one band-width away,
+  with `classify` below/comfortable/above) and rolls up overall + worst;
+  `efficiency(power_w, peak_w)` assesses whole-home draw against a peak
+  (over / headroom / utilization).
+- **Safety guard (the invariant):** `recommend(...)` / `assess(...)` emit
+  advisory `Recommendation`s only — comfort at the CONVENIENCE tier, efficiency
+  at HOUSEHOLD — and flag each `blocked_by_safety` whenever an active safety
+  concern outranks it, reusing `kernel.priority.may_override`. So comfort and
+  efficiency can never override a safety concern, and `actionable` is never True
+  while one is active. The primitive holds no actuator and grants nothing.
+- `kernel/__init__.py`: exports `environment`, `EnvironmentState`,
+  `EnvironmentAssessment`, `ComfortBand`, `assess_environment`, etc.
+- `scripts/kernel_adoption.py`: declares `environment` **pure**;
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated (one new row).
+- `docs/KERNEL_PLAN.md`: Phase X status → pure shipped.
+
+Nothing live consumes it yet, so the release is behaviour-preserving — no
+actuation or safety path changes. Tests: new `test_kernel_environment.py`
+(comfort-band classify/score/clamp, state queries, comfort + efficiency
+objectives, the safety-ladder guard for LIFE_SAFETY/SECURITY/HOUSEHOLD, and the
+`assess` one-shot). Audit + four kernel gates green. Version 8.168.0 → 8.169.0.
+
 ## [8.168.0] — Constraint-aware planning: alternatives + compensation (Phase U, pure)
 
 Extends `kernel.plan` with the two net-new constraint-aware primitives Phase U

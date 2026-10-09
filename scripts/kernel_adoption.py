@@ -38,6 +38,17 @@ import sys
 # the stage is > pure. The check fails if a non-pure primitive has no live ref.
 _DECLARED: dict[str, dict] = {
     "event":        {"stage": "parity",  "owners": ["actuation", "camera", "events", "observer", "proactive_audio"]},
+    # environment: physical-world intelligence (roadmap Phase X). A pure read-only
+    # model of environmental state (temperature / humidity / air-quality / power /
+    # apertures as plain Readings) plus objective functions — comfort scoring
+    # against ComfortBands and efficiency against a peak threshold — and a
+    # recommender that is advisory only and yields to safety: every Recommendation
+    # carries a priority tier (comfort=CONVENIENCE, efficiency=HOUSEHOLD) and is
+    # flagged blocked_by_safety whenever an active safety concern outranks it
+    # (via kernel.priority.may_override), so comfort/efficiency can never override
+    # a safety concern. PURE: no HA import, nothing live consumes it yet; the live
+    # binders (energy / sentinel / climate) wire real sensors onto it at shadow.
+    "environment":  {"stage": "pure",    "owners": []},
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},
