@@ -56,18 +56,31 @@ def test_resolve_identical_with_uncertainty_shadow_on_or_off(identity, cfg, sigs
     assert with_shadow.method == without_shadow.method
 
 
-def test_resolve_logs_uncertainty_band(identity, cfg, sigs, fake_hass, caplog):
-    """A confident sole-occupant read logs an honest band, not a bare name."""
+def test_resolve_logs_uncertainty_band_and_agreement(identity, cfg, sigs, fake_hass, caplog):
+    """A confident sole-occupant read logs an honest band AND the parity verdict
+    vs the legacy 'known' decision."""
     sigs["home"] = ["Sam"]
     with caplog.at_level(logging.DEBUG):
         ident = identity.resolve(fake_hass)
     assert ident.person == "Sam"
     msgs = [r.message for r in caplog.records
-            if "identity_uncertainty(shadow)" in r.message]
-    assert msgs, "expected an identity_uncertainty(shadow) log line"
-    # A lone sole-occupant vote resolves to confidence 0.60 → the 'believed' band.
-    assert "band=believed" in msgs[-1]
-    assert "sole_occupant" in msgs[-1]
+            if "identity_uncertainty(parity)" in r.message]
+    assert msgs, "expected an identity_uncertainty(parity) log line"
+    # A lone sole-occupant vote resolves to confidence 0.60 → the 'believed' band,
+    # actionable (≥0.60) and legacy-known (≥0.45) → the two thresholds AGREE.
+    assert "band=believed" in msgs[-1] and "sole_occupant" in msgs[-1]
+    assert "AGREEMENT" in msgs[-1] and "band_actionable=True" in msgs[-1]
+
+
+def test_parity_divergence_between_thresholds(identity, caplog):
+    """In the [min_confidence, actionable) band the two gates disagree: legacy
+    acts (≥0.45) while the band says 'guess' (< 0.60) → DIVERGENCE."""
+    with caplog.at_level(logging.DEBUG):
+        identity._emit_identity_uncertainty_shadow("Sam", 0.5, {"room"}, True)
+    msgs = [r.message for r in caplog.records
+            if "identity_uncertainty(parity)" in r.message]
+    assert msgs and "DIVERGENCE" in msgs[-1]
+    assert "legacy_known=True" in msgs[-1] and "band_actionable=False" in msgs[-1]
 
 
 def test_no_signal_emits_no_uncertainty(identity, cfg, sigs, fake_hass, caplog):
@@ -77,10 +90,10 @@ def test_no_signal_emits_no_uncertainty(identity, cfg, sigs, fake_hass, caplog):
         ident = identity.resolve(fake_hass)
     assert ident.person == "unknown" and ident.method == "no_signal"
     assert not [r for r in caplog.records
-                if "identity_uncertainty(shadow)" in r.message]
+                if "identity_uncertainty(parity)" in r.message]
 
 
-def test_uncertainty_shadow_helper_is_defensive(identity):
+def test_uncertainty_parity_helper_is_defensive(identity):
     """The log-only path never raises on odd input."""
     identity._emit_identity_uncertainty_shadow("Sam", 0.6, {"face"}, True)
     identity._emit_identity_uncertainty_shadow("Sam", 0.6, None, False)

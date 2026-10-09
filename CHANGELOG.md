@@ -1,3 +1,26 @@
+## [8.145.0] — Uncertainty parity on the identity read (Epistemic Fabric)
+
+Promotes the **Uncertainty** adoption from shadow to **parity** (first of the
+Epistemic-Fabric parity tier). Still observe-only, kill-switched, no enforce.
+
+- `identity.resolve()`'s uncertainty emission now also compares whether gating on
+  the epistemic band (`Uncertain.is_actionable`, ≥ the believed threshold 0.60)
+  would **agree** with the legacy min-confidence "known" decision
+  (`confidence ≥ identity_min_confidence`, default 0.45), logging AGREEMENT /
+  DIVERGENCE alongside the band. The two disagree in the
+  `[min_confidence, actionable)` band — where the legacy gate acts on a verdict
+  the fabric would still call a *guess* — so the divergence is expected and
+  instructive (the fabric is the more conservative gate). The returned
+  `Identification` is unchanged; nothing gates on the band yet.
+- `scripts/kernel_adoption.py`: `uncertainty` promoted `shadow → parity`;
+  `KERNEL_ADOPTION.md` + Constitution ledger regenerated.
+- Tests: `tests/unit/test_identity_uncertainty_shadow.py` gains parity cases — a
+  confident read logs AGREEMENT, and a confidence in the in-between band logs
+  DIVERGENCE (legacy acts, band withholds).
+
+Validation: `scripts/audit.py` + all four kernel gates green; identity unit
+module green. Version 8.144.0 → 8.145.0.
+
 ## [8.144.0] — Conflict shadow on the presence read (Epistemic Fabric)
 
 Advances the audit-added **Conflict** primitive (`kernel/conflict.py`, pure
