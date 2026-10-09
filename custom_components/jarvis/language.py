@@ -147,3 +147,26 @@ def language_task_directive(hass, lang: str | None = None) -> str:
         f"these instructions are written in. Keep entity names and proper nouns "
         f"unchanged."
     )
+
+
+def translate_directive(hass, lang: str | None = None) -> str:
+    """A system prompt that instructs a model to TRANSLATE text into the
+    household output language.
+
+    Used to localize JARVIS's *static* alert templates — e.g. Sentinel's
+    door/window/garage/lock lines (``"{honorific}, {friendly_name} has been open
+    for {minutes} minutes."``), which are plain English format strings spoken
+    verbatim and so never followed the configured language (issue #317). The
+    caller feeds the already-filled English line as the user message and speaks
+    the translation. Returns ``""`` for English / unset — the caller then speaks
+    the original text unchanged, so English homes are completely unaffected and
+    make no extra model call. Never raises.
+    """
+    lname = language_name(hass, lang)
+    if not lname:
+        return ""
+    return (
+        f"You are a translation engine. Translate the user's message into "
+        f"{lname}. Keep entity names, proper nouns and numbers exactly as "
+        f"written. Output only the translation, with no preamble or quotes."
+    )
