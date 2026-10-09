@@ -1,3 +1,33 @@
+## [8.137.0] — Agency orchestration parity (kernel Phase O, parity)
+
+Advances Phase O to the **parity** rung: at each delegation decision point,
+JARVIS now logs whether the kernel's `agency.can_spawn` verdict **agrees** with
+what the incumbent `_run_delegated` actually does (proceed vs. return an error).
+Observe-only, so this release changes nothing JARVIS does.
+
+- `agent._emit_agency_parity`: emitted at the depth guard, the profile-resolve
+  refusal, the unknown-capability refusal, and the proceed path, logging
+  `agency(parity): child=<holder> depth=<d> kernel_ok=<bool>
+  incumbent_proceeded=<bool> agree=<bool> [note]`.
+- The kernel models capability-narrowing + depth; the incumbent also enforces
+  gates the kernel does **not** yet model — chiefly the FRIDAY opt-in
+  (`_profile_enabled`). So a **disabled FRIDAY** is the expected **divergence**
+  (kernel would allow the declared tool set, incumbent refuses). That divergence
+  is exactly the signal the owner-gated enforce rung must close by sitting behind
+  (or encoding) those incumbent gates — captured now as data rather than guessed
+  at enforce time. Behind the `AGENCY_PARITY` kill-switch (default on);
+  best-effort, never raises; drives nothing.
+- Adoption: `agency` advances **shadow → parity** (owner `agent`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated. Enforce stays
+  **owner-gated** (`AGENCY_ORCHESTRATION_ENFORCE`); per the v8.136.0 external
+  audit, the enforce path will be built next behind that switch **defaulted off**
+  for the owner to flip.
+
+tests: `tests/unit/test_agency_delegation_shadow.py` gains parity cases — proceed
+agrees, depth-refuse agrees, a disabled profile diverges (`agree=False`), and the
+kill-switch silences it. audit + all four kernel gates green;
+`docs/KERNEL_PLAN.md` Phase O status updated.
+
 ## [8.136.0] — Agency orchestration shadow (kernel Phase O, shadow)
 
 Advances Phase O to the **shadow** rung: when JARVIS delegates to a sub-agent,

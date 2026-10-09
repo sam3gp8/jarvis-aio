@@ -653,13 +653,18 @@ conflicts resolved by the priority ladder). Kill: `AGENCY_ORCHESTRATION_ENFORCE`
 fail-safe = parent/single-agent acts directly. Done: a child completes a scoped
 task (attributed, budgeted, provably un-escalatable) **and** two peer agencies
 complete a shared task without escalation or double-actuation.
-**Status:** pure + shadow (hierarchical delegation) shipped — `kernel/agency.py`:
-`Agency` lifecycle + `spawn`/`can_spawn` deriving a strictly-narrower child
-`CapabilityToken` (no-escalation reused from `authority`), depth bound mirroring
-`budget.max_delegation_depth`, bounded pending→active→settled/failed lifecycle;
-`agent._run_delegated` emits `agency(shadow)` per FRIDAY/HOMER/capability
-delegation (observe-only). Parity (child-via-kernel vs parent-direct) + peer
-coordination (`kernel/coordination.py`) remain; enforce owner-gated.
+**Status:** pure + shadow + parity (hierarchical delegation) shipped —
+`kernel/agency.py`: `Agency` lifecycle + `spawn`/`can_spawn` deriving a
+strictly-narrower child `CapabilityToken` (no-escalation reused from
+`authority`), depth bound mirroring `budget.max_delegation_depth`, bounded
+pending→active→settled/failed lifecycle; `agent._run_delegated` emits
+`agency(shadow)` and `agency(parity)` per delegation (observe-only). Parity
+surfaces the one expected divergence — a disabled FRIDAY profile the kernel
+would allow but the `_profile_enabled` gate refuses — as the signal the enforce
+rung must close. NEXT: build the **enforce** path (kernel-derived child token for
+one bounded sub-task) behind `AGENCY_ORCHESTRATION_ENFORCE` **defaulted off** for
+the owner to flip (per the v8.136.0 external audit). Peer coordination
+(`kernel/coordination.py`) remains a later increment.
 
 **Phase P — Proactive Household Intelligence.** Household-level anticipation
 (routines, comfort) — suggest, don't act. **Reordering (audit): delayed.**

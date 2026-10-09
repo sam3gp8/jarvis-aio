@@ -42,3 +42,45 @@ def test_agency_shadow_kill_switch(agent, monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG):
         agent._emit_agency_shadow("FRIDAY", {"control_device"}, 0)
     assert not any("agency(shadow)" in r.message for r in caplog.records)
+
+
+# ── Phase O (parity): kernel verdict vs the incumbent delegation decision ─────
+
+def test_agency_parity_agrees_on_proceed(agent, caplog):
+    # incumbent proceeds; kernel would also allow → agree.
+    with caplog.at_level(logging.DEBUG):
+        agent._emit_agency_parity("FRIDAY", {"control_device"}, 0,
+                                  incumbent_proceeded=True, note="proceed")
+    last = [r.message for r in caplog.records if "agency(parity):" in r.message][-1]
+    assert "kernel_ok=True" in last and "incumbent_proceeded=True" in last
+    assert "agree=True" in last
+
+
+def test_agency_parity_agrees_on_depth_refuse(agent, caplog):
+    # incumbent refuses on depth; the kernel refuses on depth too → agree.
+    with caplog.at_level(logging.DEBUG):
+        agent._emit_agency_parity("sub", ("*",), agent.MAX_DELEGATION_DEPTH,
+                                  incumbent_proceeded=False, note="depth-guard")
+    last = [r.message for r in caplog.records if "agency(parity):" in r.message][-1]
+    assert "kernel_ok=False" in last and "agree=True" in last
+
+
+def test_agency_parity_diverges_on_disabled_profile(agent, caplog):
+    # a disabled FRIDAY: incumbent refuses, but the kernel (knowing only the
+    # declared tool set) would allow it → the expected DIVERGENCE the enforce
+    # rung must close by sitting behind the _profile_enabled gate.
+    tools = agent.AGENT_PROFILES["FRIDAY"]["tools"]
+    with caplog.at_level(logging.DEBUG):
+        agent._emit_agency_parity("FRIDAY", tools, 0,
+                                  incumbent_proceeded=False, note="profile-refused")
+    last = [r.message for r in caplog.records if "agency(parity):" in r.message][-1]
+    assert "kernel_ok=True" in last and "incumbent_proceeded=False" in last
+    assert "agree=False" in last and "profile-refused" in last
+
+
+def test_agency_parity_kill_switch(agent, monkeypatch, caplog):
+    monkeypatch.setattr(agent, "AGENCY_PARITY", False)
+    with caplog.at_level(logging.DEBUG):
+        agent._emit_agency_parity("FRIDAY", {"control_device"}, 0,
+                                  incumbent_proceeded=True)
+    assert not any("agency(parity)" in r.message for r in caplog.records)
