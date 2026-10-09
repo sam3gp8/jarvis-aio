@@ -184,9 +184,12 @@ _DECLARED: dict[str, dict] = {
     # an IdentityAssertion for its verdict, runs the fabric resolver over it, and
     # logs AGREEMENT/DIVERGENCE vs the legacy "known person" decision — observe-
     # only, drives nothing. It is EXPECTED to diverge when the legacy resolver
-    # calls a presence-only prior "known" (identity ≠ presence). Enforce (owner-
-    # gated) on one identity-sensitive path is the next rung.
-    "identity_fabric": {"stage": "parity", "owners": ["identity"]},
+    # calls a presence-only prior "known" (identity ≠ presence). ENFORCE (#237,
+    # owner-gated): identity.resolve() downgrades a confident verdict resting only
+    # on presence-class signals to UNKNOWN when IDENTITY_FABRIC_ENFORCE / the
+    # `identity_fabric_enforce` key is on (default OFF, so behaviour-preserving as
+    # shipped); fail-safe — any error leaves the legacy verdict untouched.
+    "identity_fabric": {"stage": "enforce", "owners": ["identity"]},
     # token_telemetry: cognitive token & cost telemetry (cross-cutting
     # observability, feeds Phase Y). A UsageRecord captures a call's actual
     # input/output/cached tokens by tier + model, a PriceBook estimates cost,

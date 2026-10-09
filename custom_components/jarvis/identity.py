@@ -341,6 +341,40 @@ def _owner_from_tracker(hass: HomeAssistant, tracker_id: str) -> Optional[str]:
     return None
 
 
+# Phase I½ — kernel.identity_fabric ENFORCE (owner-gated, #237). When enabled, a
+# "known person" verdict that rests ONLY on presence-class signals (sole-occupant
+# / home-prior / room / proximity) is downgraded to UNKNOWN: presence locates a
+# body, it does not establish WHO — only a face or voiceprint does. Default OFF so
+# shipping is behaviour-preserving; the household flips `identity_fabric_enforce`
+# after watching the identity_fabric(parity) divergence log. Fail-safe: any error
+# leaves the legacy verdict untouched (never downgrades on error).
+IDENTITY_FABRIC_ENFORCE = False
+
+
+def _identity_fabric_enforce_on() -> bool:
+    """True when the identity-fabric enforce flip is active (module flag or the
+    `identity_fabric_enforce` config key). Never raises."""
+    if IDENTITY_FABRIC_ENFORCE:
+        return True
+    try:
+        return bool(_cfg("identity_fabric_enforce", False))
+    except Exception:
+        return False
+
+
+def _fabric_establishes_identity(methods) -> bool:
+    """Whether a resolve() verdict carries an *identifying* signal — a face or
+    voiceprint. A verdict resting only on presence-class methods (sole-occupant /
+    home-prior / room / proximity) does NOT establish identity, mirroring
+    kernel.identity_fabric's identity ≠ presence rule. Fail-safe: returns True on
+    any error so enforce never downgrades a verdict it couldn't classify."""
+    try:
+        ms = set(methods or ())
+        return ("face" in ms) or ("voice" in ms)
+    except Exception:
+        return True
+
+
 def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
             area_id: Optional[str] = None, now: Optional[float] = None) -> Identification:
     """
@@ -411,6 +445,12 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
 
     if not legacy_known:
         return Identification(UNKNOWN, round(confidence, 3), "low_confidence", candidates)
+
+    # Phase I½ enforce (default OFF): presence locates a body but does not
+    # establish WHO — only face / voiceprint do. When the flip is on, a confident
+    # verdict resting only on presence-class signals is downgraded to UNKNOWN.
+    if _identity_fabric_enforce_on() and not _fabric_establishes_identity(methods):
+        return Identification(UNKNOWN, round(confidence, 3), "presence_not_identity", candidates)
 
     return Identification(person, round(confidence, 3),
                           "+".join(sorted(methods)), candidates)
