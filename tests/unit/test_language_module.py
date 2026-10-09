@@ -209,3 +209,52 @@ def test_jarvis_output_language_english_silences_directive(language, set_output_
     # Explicitly choosing English on a non-English home turns the directive off.
     set_output_language("en")
     assert language.language_directive(_hass("ru")) == ""
+
+
+# ── ui_language fallback (#317) ──────────────────────────────────────────────
+# When output_language is Auto, JARVIS's own panel UI language is a better
+# default than HA's SYSTEM language: a user who set JARVIS's UI (and their HA
+# *profile*) to Russian, but never the HA *system* language, had announces and
+# camera analysis come out in English because that system language was the only
+# remaining source. ui_language now fills that gap — below output_language, above
+# the HA global.
+
+@pytest.fixture
+def set_langs(load, monkeypatch):
+    """Patch jarvis_config.get with chosen output_language + ui_language."""
+    jc = load("jarvis_config")
+
+    def _set(output="", ui=""):
+        real = {"output_language": output, "ui_language": ui}
+        monkeypatch.setattr(jc, "get", lambda k, d=None: real.get(k, d))
+    return _set
+
+
+def test_ui_language_fills_in_when_output_is_auto(language, set_langs):
+    # output_language Auto, JARVIS UI set to Russian, HA system English →
+    # output should follow the UI language the user actually chose (#317).
+    set_langs(output="auto", ui="ru")
+    assert language.configured_language(_hass("en")) == "ru"
+    assert "Russian" in language.language_task_directive(_hass("en"))
+
+
+def test_output_language_still_beats_ui_language(language, set_langs):
+    # An explicit output_language wins over ui_language (keeps #148 intact).
+    set_langs(output="de", ui="ru")
+    assert language.configured_language(_hass("en")) == "de"
+
+
+def test_request_language_beats_ui_language(language, set_langs):
+    set_langs(output="auto", ui="ru")
+    assert language.configured_language(_hass("en"), "fr") == "fr"
+
+
+def test_ui_language_auto_falls_through_to_global(language, set_langs):
+    # Both JARVIS knobs on Auto → HA system language, exactly as before.
+    set_langs(output="auto", ui="auto")
+    assert language.configured_language(_hass("ru")) == "ru"
+
+
+def test_ui_language_region_suffix_stripped(language, set_langs):
+    set_langs(output="", ui="pt-br")
+    assert language.configured_language(_hass("en")) == "pt"

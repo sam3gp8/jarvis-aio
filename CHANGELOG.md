@@ -1,3 +1,31 @@
+## [8.174.0] — output language falls back to the JARVIS UI language (issue #317)
+
+The reporter had JARVIS's own UI (and their HA **profile**) set to Russian, yet
+announcements and proactive camera analysis came out in **English** (and were
+logged in English), while live satellite voice answered correctly. Root cause:
+with the dedicated `output_language` on **Auto**, `configured_language` fell
+straight through to Home Assistant's **system** language — which a user who
+changed only their *profile* language never set — so machine-authored output
+(no per-request language) defaulted to English. (The 500 error they also hit was
+a separate upstream ollama 0.32–0.40.2 regression, fixed by downgrading to
+0.31.2 — not a JARVIS bug.)
+
+- `language.py`: `configured_language` gains a step — when `output_language` is
+  Auto it now falls back to JARVIS's panel **`ui_language`** before HA's global
+  language. New resolution order: per-request `lang` → `output_language` →
+  `ui_language` → HA system `language` → `en`. If you set JARVIS's own UI to a
+  language, its spoken/written output now defaults to it too. Added
+  `_jarvis_ui_language()` + a shared `_clean_lang_setting()` helper (Auto /
+  default / blank all normalise to "follow the next source").
+
+Additive and behaviour-preserving everywhere else: an explicit `output_language`
+still wins (issue #148 intact), a per-request voice language still wins, and with
+both JARVIS knobs on Auto the HA system language is used exactly as before. Tests:
+`test_language_module.py` gains the #317 cases (UI language fills in when output
+is Auto; output_language and per-request language still beat it; both-Auto falls
+through to the global; region suffix stripped). Audit + four kernel gates green.
+Version 8.173.0 → 8.174.0.
+
 ## [8.173.0] — opt-in "heading home" push notification (issue #265)
 
 The reporter asked to be **notified on their phone** when someone is heading

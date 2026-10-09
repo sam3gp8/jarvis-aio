@@ -26,6 +26,12 @@ _LANG_NAMES = {
 }
 
 
+def _clean_lang_setting(val) -> str:
+    """Normalise a stored language setting: ``""`` for unset / auto / default."""
+    v = (val or "").strip()
+    return "" if v.lower() in ("", "auto", "default") else v
+
+
 def _jarvis_output_language() -> str:
     """JARVIS's own output-language setting, or ``""`` when unset / 'auto'.
 
@@ -35,10 +41,27 @@ def _jarvis_output_language() -> str:
     the only language source was HA's global setting. Never raises."""
     try:
         from . import jarvis_config
-        val = (jarvis_config.get("output_language", "") or "").strip()
+        return _clean_lang_setting(jarvis_config.get("output_language", ""))
     except Exception:
         return ""
-    return "" if val.lower() in ("", "auto", "default") else val
+
+
+def _jarvis_ui_language() -> str:
+    """JARVIS's panel UI-language setting, or ``""`` when unset / 'auto'.
+
+    Used only as a fallback for :func:`configured_language` when the dedicated
+    ``output_language`` is on Auto: a household that set JARVIS's *own* UI to,
+    say, Russian clearly wants JARVIS to speak and write Russian too, yet with
+    ``output_language`` unset the only remaining source was Home Assistant's
+    **system** language — which a user who changed only their *profile* language
+    never set, so announces and camera analysis came out in English while live
+    voice (carrying a per-request language) was correct (issue #317). Never
+    raises."""
+    try:
+        from . import jarvis_config
+        return _clean_lang_setting(jarvis_config.get("ui_language", ""))
+    except Exception:
+        return ""
 
 
 def configured_language(hass, lang: str | None = None) -> str:
@@ -52,12 +75,18 @@ def configured_language(hass, lang: str | None = None) -> str:
          language is Russian (the case that produced garbled voice replies).
       2. JARVIS's own ``output_language`` setting — so a home can have JARVIS
          speak German while Home Assistant's UI stays English (issue #148).
-      3. Home Assistant's global ``language``.
-      4. ``"en"``.
+      3. JARVIS's panel ``ui_language`` setting — if you set JARVIS's own UI to
+         a language you almost certainly want its output in it too, so this is a
+         fallback when ``output_language`` is Auto. Fixes the case where
+         announces / camera analysis stayed English because the user changed
+         only their HA *profile* language (not the system one) that step 4 reads
+         (issue #317).
+      4. Home Assistant's global (system) ``language``.
+      5. ``"en"``.
 
     Never raises."""
     try:
-        raw = lang or _jarvis_output_language() \
+        raw = lang or _jarvis_output_language() or _jarvis_ui_language() \
             or getattr(hass.config, "language", None) or "en"
         return (raw or "en").split("-")[0].lower()
     except Exception:
