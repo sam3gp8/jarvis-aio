@@ -1,3 +1,30 @@
+## [8.171.0] — environment shadow over the live energy picture (Phase X)
+
+Advances `kernel.environment` from **pure → shadow**: the physical-world model's
+efficiency objective is now exercised against JARVIS's real whole-home power
+draw, observe-only.
+
+- `energy.py`: new `ENVIRONMENT_SHADOW` (default **True**) + `_environment_shadow`.
+  On each `evaluate_for_proactive` tick, the live power picture (`watts`,
+  `peak_watts`) is mirrored into `kernel.environment.efficiency` and the kernel
+  verdict + would-be recommendation is logged against the module's own
+  `over_peak` decision (`environment(shadow): draw=… peak=… util=… kernel_over=…
+  incumbent_over_peak=… agree=… recs=…`). **Observe-only:** hooked before the
+  proactive early-returns, it never changes the offer; defensive (missing meter /
+  zero peak / malformed input all no-op) and wrapped so it can never reach the
+  energy path. Flip `ENVIRONMENT_SHADOW` off to silence it.
+- Efficiency objective only here (energy has no comfort readings); comfort
+  (temperature/humidity) and the recommender's safety guard wire in when a
+  climate/hazard path adopts the model.
+- `scripts/kernel_adoption.py`: `environment` **pure → shadow** (owner `energy`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Phase X status → pure + shadow shipped.
+
+No behaviour, actuation, or safety path changes. Tests: new
+`test_energy_environment_shadow.py` (logs the efficiency verdict + agreement
+flag, kill-switch, and defensive no-ops on missing meter / zero peak / garbage).
+Audit + four kernel gates green. Version 8.170.0 → 8.171.0.
+
 ## [8.170.0] — Self-optimization with a tiered guardrail (Phase Y, pure)
 
 New pure kernel primitive `kernel/optimize.py` — measure-then-tune, with the
