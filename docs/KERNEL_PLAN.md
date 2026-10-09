@@ -902,8 +902,16 @@ against its own `over_peak` decision (`environment(shadow): draw=… peak=… ov
 agree=…`, kill-switch `energy.ENVIRONMENT_SHADOW`) — observe-only, defensive,
 drives nothing. Efficiency objective only for now (energy has no comfort
 readings); comfort (temperature/humidity) and the safety guard wire in when a
-climate/hazard path adopts the model. Ladder from here: pure ✅ → shadow ✅ →
-parity (vs sentinel/energy) → enforce (`ENVIRONMENT_ENFORCE`), owner-gated.
+climate/hazard path adopts the model. **PARITY (8.172.0):**
+`energy._environment_parity` tracks, over real proactive ticks, how often the
+kernel recommender's *actionable* efficiency verdict agrees with the incumbent
+"would surface an energy offer" predicate (over peak AND ≥2 sheddable loads) and
+logs the running rate (`environment(parity): n=… agree=… kernel_only=…
+incumbent_only=…`, kill-switch `ENVIRONMENT_PARITY`). The expected divergence is
+the kernel recommending on "over peak" alone while the incumbent also requires
+something to stagger — the signal the enforce rung reconciles. Observe-only.
+Ladder from here: pure ✅ → shadow ✅ → parity ✅ → enforce
+(`ENVIRONMENT_ENFORCE`), owner-gated.
 
 **Phase Y — Self-Optimization.** Measure own performance (latency, accuracy,
 interruption cost, model spend) and tune *within owner bounds*. New:

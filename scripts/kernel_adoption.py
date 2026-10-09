@@ -48,12 +48,16 @@ _DECLARED: dict[str, dict] = {
     # (via kernel.priority.may_override), so comfort/efficiency can never override
     # a safety concern. SHADOW (Phase X, 8.171.0): energy.evaluate_for_proactive
     # mirrors the live whole-home draw into environment.efficiency and logs the
-    # kernel verdict + would-be recommendation against its own over_peak decision
-    # (environment(shadow), kill-switch energy.ENVIRONMENT_SHADOW) — observe-only,
-    # drives nothing. Comfort readings (temperature/humidity) + the safety guard
-    # wire in when a climate/hazard path adopts it; parity (vs sentinel/energy)
-    # and enforce (ENVIRONMENT_ENFORCE) follow, owner-gated.
-    "environment":  {"stage": "shadow",  "owners": ["energy"]},
+    # kernel verdict against its own over_peak decision (environment(shadow),
+    # kill-switch energy.ENVIRONMENT_SHADOW). PARITY (Phase X, 8.172.0): over real
+    # proactive ticks energy._environment_parity tracks how often the kernel
+    # recommender's ACTIONABLE efficiency verdict agrees with the incumbent
+    # 'would surface an energy offer' predicate (over peak AND >=2 sheddable
+    # loads) and logs the running rate (environment(parity), kill-switch
+    # ENVIRONMENT_PARITY) — observe-only, the quantified bar for enforce. Comfort
+    # readings + the safety guard wire in when a climate/hazard path adopts it;
+    # enforce (ENVIRONMENT_ENFORCE) follows, owner-gated.
+    "environment":  {"stage": "parity",  "owners": ["energy"]},
     # optimize: self-optimization within owner bounds (roadmap Phase Y). A pure
     # measure-then-tune primitive whose core is a TIERED GUARDRAIL: every tunable
     # parameter classifies as SAFE (latency/cost/provider/cache/context/resource —

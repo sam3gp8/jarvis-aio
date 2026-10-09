@@ -80,6 +80,57 @@ def _environment_shadow(st: dict) -> None:
         _LOGGER.debug("environment shadow failed: %s", exc)
 
 
+# Phase X (roadmap) — kernel.environment PARITY. Over real proactive ticks, track
+# how often the kernel environment recommender's *actionable* efficiency verdict
+# agrees with this module's incumbent decision to surface an energy offer, and
+# log the running agreement. Observe-only; this is the quantified bar the
+# owner-gated enforce rung must clear. Flip ENVIRONMENT_PARITY off to silence.
+ENVIRONMENT_PARITY = True
+_ENV_PARITY_LOG_EVERY = 10
+_ENV_PARITY = {"n": 0, "agree": 0, "kernel_only": 0, "incumbent_only": 0}
+
+
+def _environment_parity(st: dict) -> None:
+    """Phase X parity: compare the kernel recommender's actionable efficiency
+    verdict against the incumbent 'would surface an energy offer' predicate
+    (over peak AND >=2 sheddable loads), accumulate agreement, and log the
+    running rate. The expected divergence is the kernel recommending on 'over
+    peak' alone while the incumbent also requires something to stagger — the
+    signal the enforce rung reconciles. Observe-only, kill-switched, defensive.
+    """
+    if not ENVIRONMENT_PARITY:
+        return
+    try:
+        watts = st.get("watts")
+        peak = st.get("peak_watts")
+        if watts is None or not peak:
+            return
+        from .kernel import environment as ENV
+        eff = ENV.efficiency(float(watts), peak_w=float(peak))
+        kernel_rec = any(r.actionable for r in ENV.recommend(None, eff))
+        sheddable = sum(1 for a in (st.get("running") or []) if a.get("shed_ok"))
+        incumbent_offer = bool(st.get("over_peak")) and sheddable >= 2
+
+        _ENV_PARITY["n"] += 1
+        if kernel_rec == incumbent_offer:
+            _ENV_PARITY["agree"] += 1
+        elif kernel_rec:
+            _ENV_PARITY["kernel_only"] += 1
+        else:
+            _ENV_PARITY["incumbent_only"] += 1
+
+        n = _ENV_PARITY["n"]
+        if n % _ENV_PARITY_LOG_EVERY == 0 or kernel_rec != incumbent_offer:
+            _LOGGER.debug(
+                "environment(parity): n=%d agree=%.2f kernel_rec=%s "
+                "incumbent_offer=%s kernel_only=%d incumbent_only=%d",
+                n, _ENV_PARITY["agree"] / n, kernel_rec, incumbent_offer,
+                _ENV_PARITY["kernel_only"], _ENV_PARITY["incumbent_only"],
+            )
+    except Exception as exc:
+        _LOGGER.debug("environment parity failed: %s", exc)
+
+
 def _cfg(key: str, default=None):
     try:
         from . import jarvis_config
@@ -338,6 +389,7 @@ def evaluate_for_proactive(hass) -> Optional[dict]:
     except Exception:
         return None
     _environment_shadow(st)   # Phase X: observe-only, never affects the offer
+    _environment_parity(st)   # Phase X: observe-only agreement tracking
     if not st.get("over_peak"):
         return None
     sheddable = [a for a in st["running"] if a["shed_ok"]]
