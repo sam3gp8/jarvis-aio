@@ -653,6 +653,12 @@ conflicts resolved by the priority ladder). Kill: `AGENCY_ORCHESTRATION_ENFORCE`
 fail-safe = parent/single-agent acts directly. Done: a child completes a scoped
 task (attributed, budgeted, provably un-escalatable) **and** two peer agencies
 complete a shared task without escalation or double-actuation.
+**Status:** pure (hierarchical delegation) shipped — `kernel/agency.py`:
+`Agency` lifecycle + `spawn`/`can_spawn` deriving a strictly-narrower child
+`CapabilityToken` (no-escalation reused from `authority`), depth bound mirroring
+`budget.max_delegation_depth`, bounded pending→active→settled/failed lifecycle.
+Peer coordination (`kernel/coordination.py`) + the shadow/parity/enforce rungs
+remain; enforce owner-gated.
 
 **Phase P — Proactive Household Intelligence.** Household-level anticipation
 (routines, comfort) — suggest, don't act. **Reordering (audit): delayed.**

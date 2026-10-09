@@ -49,6 +49,18 @@ _DECLARED: dict[str, dict] = {
     # summary on boot — it reads live state and writes its own DB + a log line,
     # driving nothing. Boot reconcile is I3 (parity); resume/announce I4 (enforce).
     "agency_state": {"stage": "shadow",  "owners": ["continuity"]},
+    # agency: hierarchical delegation (roadmap Phase O). A pure lifecycle for a
+    # parent agency spawning a CHILD agency with a strictly NARROWER capability set
+    # (reusing authority.CapabilityToken.derive — one source of truth for the
+    # no-escalation rule), a delegation depth (mirroring budget.max_delegation_depth)
+    # and a bounded pending→active→settled/failed lifecycle. can_spawn reports the
+    # legality + how the request narrows against the parent. PURE: the primitive
+    # exists and is unit-tested; nothing live consumes it yet. Shadow dry-runs a
+    # spawn alongside FRIDAY/HOMER delegation; enforce (owner-gated
+    # AGENCY_ORCHESTRATION_ENFORCE) runs one real budgeted sub-task, fail-safe =
+    # parent acts directly. (Peer coordination — kernel/coordination.py — is a
+    # later increment of this phase.)
+    "agency":       {"stage": "pure",    "owners": []},
     # cycle: unified cognitive cycle (roadmap Phase J). A CognitiveCycle runs
     # named injected steps (perceive→interpret→decide→act→reflect) as one
     # instrumented pass with a per-tick correlation id and a CycleTrace. PARITY

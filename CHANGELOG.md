@@ -1,3 +1,34 @@
+## [8.135.0] — Agency orchestration primitive (kernel Phase O, pure)
+
+Opens roadmap **Phase O — Agency Orchestration** at its **pure** rung: a new pure
+primitive for **hierarchical delegation** — a parent agency spawning a child that
+carries a strictly narrower capability set, a bounded delegation depth, and a
+small lifecycle. Nothing live consumes it yet, so this release changes nothing
+JARVIS does.
+
+- `kernel/agency.py`: an immutable `Agency` (holder, capability token, depth,
+  parent, scope, objective, lifecycle state).
+  - `root(holder, capabilities)` / `spawn(parent, holder, capabilities, …)`: a
+    child's token is the parent's `CapabilityToken.derive`d token — capabilities
+    **intersected** with the parent's, so **delegation narrows, never widens**
+    (the authority engine's no-escalation rule, reused as the single source of
+    truth). Depth is `parent.depth + 1`.
+  - `can_spawn(parent, capabilities, *, max_depth=3)`: pure verdict — refuses a
+    terminal parent, a depth over the bound (mirrors
+    `budget.max_delegation_depth`), or a request granting nothing; reports which
+    requested capabilities were narrowed away (`dropped`).
+  - `transition` / `can_transition`: a bounded, irreversible lifecycle
+    `pending → active → settled|failed` — a settled agency can't be revived.
+- Adoption: `agency` declared **pure** (no live owner); `KERNEL_ADOPTION.md` +
+  `docs/JARVIS_CONSTITUTION.md` regenerated. Shadow dry-runs a spawn alongside
+  FRIDAY/HOMER delegation next; enforce (one real budgeted sub-task) is
+  **owner-gated** (`AGENCY_ORCHESTRATION_ENFORCE`, fail-safe = parent acts
+  directly). Peer coordination (`kernel/coordination.py`) is a later increment.
+
+tests: `tests/unit/test_kernel_agency.py` pins the no-escalation narrowing, the
+depth bound, the `can_spawn` verdicts, and the bounded/irreversible lifecycle.
+audit + all four kernel gates green.
+
 ## [8.134.0] — Graduated autonomy parity (kernel Phase N, parity)
 
 Advances Phase N to the **parity** rung: alongside the would-be per-capability
