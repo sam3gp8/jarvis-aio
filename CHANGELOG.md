@@ -1,3 +1,31 @@
+## [8.172.0] — environment parity over the live energy picture (Phase X)
+
+Advances `kernel.environment` from **shadow → parity**: over real proactive
+ticks, JARVIS now quantifies how often the kernel environment recommender agrees
+with the incumbent energy decision — the bar the owner-gated enforce must clear.
+
+- `energy.py`: new `ENVIRONMENT_PARITY` (default **True**) + `_environment_parity`.
+  On each `evaluate_for_proactive` tick it compares the kernel recommender's
+  **actionable** efficiency verdict (`environment.recommend` on the live draw)
+  against the incumbent "would surface an energy offer" predicate (over peak AND
+  ≥2 sheddable loads), accumulates agreement, and logs the running rate
+  (`environment(parity): n=… agree=… kernel_rec=… incumbent_offer=…
+  kernel_only=… incumbent_only=…`). The expected divergence is the kernel
+  recommending on "over peak" alone while the incumbent also requires something
+  to stagger — the signal enforce reconciles. **Observe-only:** hooked beside the
+  shadow call before the proactive early-returns; never changes the offer;
+  kill-switched and defensive (missing meter / zero peak / malformed input all
+  no-op).
+- `scripts/kernel_adoption.py`: `environment` **shadow → parity** (owner
+  `energy`); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Phase X status → pure + shadow + parity shipped.
+
+No behaviour, actuation, or safety path changes. Tests: new
+`test_energy_environment_parity.py` (agreement when over-peak-with-sheddable and
+when under-peak, the kernel-only divergence, running-rate log, accumulation,
+kill-switch, defensive no-ops). Audit + four kernel gates green. Version
+8.171.0 → 8.172.0.
+
 ## [8.171.0] — environment shadow over the live energy picture (Phase X)
 
 Advances `kernel.environment` from **pure → shadow**: the physical-world model's
