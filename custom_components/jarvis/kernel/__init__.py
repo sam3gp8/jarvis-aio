@@ -36,6 +36,7 @@ from . import (
     budget,
     causal,
     conflict,
+    temporal,
     cycle,
     graph,
     identity_fabric,
@@ -89,6 +90,7 @@ from .learning import WeightAdjustment, adjust as adjust_weight, plan_adjustment
 from .provenance import Provenance
 from .uncertainty import Uncertain
 from .conflict import Resolution as ConflictResolution
+from .temporal import Validity, ValidityStats
 from .working_memory import (
     WorkingItem,
     WorkingMemory,
@@ -198,6 +200,9 @@ __all__ = [
     "Uncertain",
     "conflict",
     "ConflictResolution",
+    "temporal",
+    "Validity",
+    "ValidityStats",
     "working_memory",
     "WorkingMemory",
     "WorkingItem",

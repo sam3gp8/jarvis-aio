@@ -527,10 +527,16 @@ in beliefs); this tier makes them canonical and first-class.
   DEFER (CONTESTED), the quantified bar for enforce (kill-switch `CONFLICT_PARITY`,
   observe-only); world-model / situation consult it next → enforce (a consumer
   reads the adjudicated value) owner-gated.
-- **Time / Temporal Validity** — more fundamental than Phase Q's space/time
-  model: world-model facts and beliefs carry *valid-as-of* and *expires-at*, so
-  JARVIS can reason *"this was true 30 min ago / is probably still true / expires
-  in 60 s."* Folded into world-model + belief semantics (and reused by Q).
+- **Time / Temporal Validity** (`kernel/temporal.py`) — ✅ **pure shipped**. More
+  fundamental than Phase Q's space/time model: a value carries *valid-as-of*
+  (`observed_at`) and *expires-at* (an optional `ttl`), so JARVIS can reason
+  *"this was true 30 min ago / is probably still true / expires in 60 s."* A
+  `Validity` derives age / remaining / is_valid / fraction-elapsed / freshness and
+  a coarse band (fresh / aging / expired / durable); `summarize` rolls a set up by
+  band. Pure — nothing consumes it live yet. Ladder: pure ✅ → shadow (a live
+  source logs its validity band distribution) → parity → enforce (a decision
+  defers on a stale/expired value), owner-gated. Reused by world-model + belief
+  semantics (and Q).
 
 These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and

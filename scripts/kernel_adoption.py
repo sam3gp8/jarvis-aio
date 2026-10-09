@@ -210,6 +210,16 @@ _DECLARED: dict[str, dict] = {
     # situation consult it next; enforce (a consumer reads the adjudicated value)
     # is owner-gated.
     "conflict":     {"stage": "parity",  "owners": ["presence"]},
+    # temporal: valid-as-of / expires-at (Epistemic Fabric — Time, the fifth
+    # primitive). A Validity pairs an observed-at with an optional ttl and derives
+    # age / remaining / is_valid / fraction-elapsed and a coarse freshness band
+    # (fresh / aging / expired / durable); summarize() rolls a set up by band.
+    # Makes time-boundedness first-class alongside uncertainty and provenance —
+    # "true 30 min ago / probably still true / expired, re-check". PURE: nothing
+    # consumes it live yet. Ladder: pure → shadow (a live source logs its validity
+    # band distribution) → parity → enforce (a decision defers on a stale/expired
+    # value, owner-gated).
+    "temporal":     {"stage": "pure",    "owners": []},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
