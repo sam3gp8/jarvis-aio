@@ -647,6 +647,16 @@ const JARVIS3D = (function () {
     F(L, [[x0,yb,0],[x1,yb,0],[x1,yb,zTop],[x0,yb,zTop]], 'rgba(8,19,29,0.97)', C.dim, 0.5);
     F(L, [[x0,ya,zTop],[x1,ya,zTop],[x1,yb,zTop],[x0,yb,zTop]], 'rgba(0,242,254,0.08)', C.chimS, 0.5);
   }
+  // #324: a free-standing chimney stack that rises through the roof at an
+  // interior (x,y) — a European central chimney, vs chimneyAt's edge stack.
+  function chimneyStack(L, cx, cy, zBase, zTop) {
+    var r = 1.3, xa = cx - r, xb = cx + r, ya = cy - r, yb = cy + r;
+    F(L, [[xb,ya,zBase],[xb,yb,zBase],[xb,yb,zTop],[xb,ya,zTop]], C.chimF, C.chimS, 0.7);               // east
+    F(L, [[xa,ya,zBase],[xa,yb,zBase],[xa,yb,zTop],[xa,ya,zTop]], 'rgba(8,19,29,0.97)', C.dim, 0.5);    // west
+    F(L, [[xa,ya,zBase],[xb,ya,zBase],[xb,ya,zTop],[xa,ya,zTop]], 'rgba(8,19,29,0.97)', C.chimS, 0.6);  // front
+    F(L, [[xa,yb,zBase],[xb,yb,zBase],[xb,yb,zTop],[xa,yb,zTop]], 'rgba(8,19,29,0.97)', C.dim, 0.5);    // back
+    F(L, [[xa,ya,zTop],[xb,ya,zTop],[xb,yb,zTop],[xa,yb,zTop]], 'rgba(0,242,254,0.08)', C.chimS, 0.5);  // cap
+  }
 
   // A Bilco-style bulkhead cellar door: a sloped wedge against the wall, high at
   // the house and low at the outer edge, split into two door panels (v7.94.0).
@@ -887,14 +897,35 @@ const JARVIS3D = (function () {
         }
       });
     }
-    // auto bulkhead only when nothing is placed on the 1st floor or basement
-    if (!placed.length && !placedB.length && plan['bsmt'] && plan['bsmt'].length) {
+    // auto bulkhead only when nothing is placed on the 1st floor or basement —
+    // and not when the household says the basement is entered from INSIDE (the
+    // European norm: dig the hole, build on it, reach the cellar by interior
+    // stairs), which would make an exterior bulkhead plain wrong (#324).
+    if (SPEC.basementEntrance !== 'interior'
+        && !placed.length && !placedB.length && plan['bsmt'] && plan['bsmt'].length) {
       bulkheadDoor(L, GL, 'back', (minx + maxx) / 2, maxy, 6, false);
     }
 
+    // Chimney: single edge stack (right/left) as before, or one-or-more central
+    // stacks rising through the ridge (common on European houses) (#324).
     var side = SPEC.chimney, yc = (miny + maxy) / 2;
-    if (side === 'left' && roof.ridge) chimneyAt(L, minx, yc, roof.ridge + 4, -1);
-    else if (side === 'right' && roof.ridge) chimneyAt(L, maxx, yc, roof.ridge + 4, 1);
+    var cn = Math.max(1, Math.min(4, Math.round(SPEC.chimneyCount || 1)));
+    var ridgeZ = (roof && roof.ridge != null) ? roof.ridge : ztop;
+    var _cfrac = function (i) { return (i + 1) / (cn + 1); };
+    var ci;
+    if (side === 'center') {
+      for (ci = 0; ci < cn; ci++) {
+        var ccx, ccy;
+        if (roof && roof.axis === 'x' && roof.a != null) { ccx = roof.a + (roof.b - roof.a) * _cfrac(ci); ccy = (roof.mid != null ? roof.mid : yc); }
+        else if (roof && roof.axis === 'y') { ccx = (minx + maxx) / 2; ccy = miny + (maxy - miny) * _cfrac(ci); }
+        else { ccx = minx + (maxx - minx) * _cfrac(ci); ccy = yc; }  // flat / unknown roof
+        chimneyStack(L, ccx, ccy, ridgeZ - 1.5, ridgeZ + 4);
+      }
+    } else if (side === 'left' && roof.ridge) {
+      for (ci = 0; ci < cn; ci++) chimneyAt(L, minx, cn === 1 ? yc : miny + (maxy - miny) * _cfrac(ci), roof.ridge + 4, -1);
+    } else if (side === 'right' && roof.ridge) {
+      for (ci = 0; ci < cn; ci++) chimneyAt(L, maxx, cn === 1 ? yc : miny + (maxy - miny) * _cfrac(ci), roof.ridge + 4, 1);
+    }
 
     return { faces: L, glow: GL, labels: LBL };
   }
@@ -3543,6 +3574,11 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     spec.dormersRear = rEx != null ? rEx : sd.dormersRear;
     if (num(c.garage_bays) != null) spec.garageBays = num(c.garage_bays);
     if (c.chimney_side) spec.chimney = c.chimney_side;
+    // #324: center / multiple chimneys (common on European houses) + where the
+    // basement is entered. Defaults preserve the prior single-edge chimney and
+    // the auto exterior bulkhead, so existing homes render byte-for-byte as before.
+    spec.chimneyCount = Math.max(1, Math.min(4, num(c.chimney_count) || 1));
+    spec.basementEntrance = c.basement_entrance || 'bulkhead';
     return spec;
   }
 
@@ -4694,12 +4730,21 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           </div>
           <div class="cfg-row">
             <label>Chimney</label>
-            <select class="cfg-field" data-cfg-key="chimney_side">${this._optsLabeled([['right','East / right'],['left','West / left'],['none','None']], d.config?.chimney_side || 'right')}</select>
+            <select class="cfg-field" data-cfg-key="chimney_side">${this._optsLabeled([['right','East / right'],['left','West / left'],['center','Center / ridge'],['none','None']], d.config?.chimney_side || 'right')}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Chimneys</label>
+            <select class="cfg-field" data-cfg-key="chimney_count">${this._opts(['1','2','3','4'], String(d.config?.chimney_count ?? '1'))}</select>
           </div>
           <div class="cfg-row">
             <label>Basement</label>
             <button class="toggle-btn ${(d.config?.has_basement !== false) ? 'on' : 'off'}" data-cfg-key="has_basement" data-cfg-val="${(d.config?.has_basement !== false) ? 'false' : 'true'}">${(d.config?.has_basement !== false) ? 'YES' : 'NO'}</button>
           </div>
+          ${(d.config?.has_basement !== false) ? `
+          <div class="cfg-row">
+            <label>Cellar entrance</label>
+            <select class="cfg-field" data-cfg-key="basement_entrance">${this._optsLabeled([['bulkhead','Exterior bulkhead'],['interior','Interior stairs (inside)']], d.config?.basement_entrance || 'bulkhead')}</select>
+          </div>` : ''}
           <div class="cfg-row">
             <label>Bedrooms</label>
             <input class="cfg-field cfg-num" type="number" min="0" max="12" data-cfg-key="home_bedrooms" value="${d.config?.home_bedrooms ?? ''}" placeholder="3">

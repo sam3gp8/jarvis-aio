@@ -1,3 +1,29 @@
+## [8.178.0] — European house options: center/multiple chimneys + interior cellar (issue #324, part 1)
+
+First part of #324 — the 3D house map assumed an American layout. This adds the
+two structural knobs a European/German house needs most:
+
+- **Chimney: center + multiple.** `chimney_side` gains a **Center / ridge** option
+  (a free-standing stack rising through the roof ridge, via the new
+  `chimneyStack` primitive, vs the existing edge stack), and a new **Chimneys**
+  count (1–4) places several spaced along the ridge — the common German case of a
+  central chimney, often two or more.
+- **Interior cellar entrance.** New **Cellar entrance** selector
+  (`basement_entrance`): *Exterior bulkhead* (current default) or *Interior stairs
+  (inside)*. Interior suppresses the auto exterior bulkhead, which is plain wrong
+  for the European norm (dig the hole, build on it, reach the cellar from inside).
+
+Defaults are unchanged (`chimney_side` right, count 1, `basement_entrance`
+bulkhead), so existing homes render exactly as before. Frontend-only; no backend
+or kernel change. Tests: `scripts/smoke_panel.js` gains four #324 assertions
+(spec carries the new fields, the settings UI exposes the controls, a center
+chimney renders without error). Audit + four kernel gates green.
+Version 8.177.0 → 8.178.0.
+
+Still to come for #324: interior windows and window-doors (balcony / French doors)
+that aren't bound to the four outer walls — a deeper editor/renderer change,
+coming as its own release.
+
 ## [8.177.0] — type-to-JARVIS chat tab in the panel (issue #322)
 
 Adds a **Chat** tab to the JARVIS dashboard so you can *type* to the assistant
