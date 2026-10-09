@@ -185,7 +185,14 @@ _DECLARED: dict[str, dict] = {
     # gating on the band (is_actionable) agrees with the legacy min-confidence
     # "known" decision — observe-only, the Identification returned is unchanged,
     # nothing gates on the band yet (enforce when a decision gates on the band).
-    "uncertainty":  {"stage": "parity",  "owners": ["identity"]},
+    # COVERAGE (Epistemic Fabric — "world-model wraps outputs too"):
+    # knowledge.all_facts() logs the epistemic-band distribution of the curated
+    # facts (UNCERTAINTY_SHADOW), broadening the primitive from perception to
+    # curated knowledge (observe-only). The kernel world_model.uncertainties()
+    # facade exposes the same facts as Uncertain values (kernel-internal, so not a
+    # live-adoption owner). The declared stage tracks the furthest anchor
+    # (identity, parity).
+    "uncertainty":  {"stage": "parity",  "owners": ["identity", "knowledge"]},
     # conflict: formal conflict resolution between contradictory evidence
     # (Epistemic Fabric, audit-added). Consumes Provenance records; resolve()
     # scores each (confidence × source-reliability × recency × corroboration),

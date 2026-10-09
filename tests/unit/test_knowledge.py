@@ -230,6 +230,37 @@ def test_graph_shadow_never_breaks_all_facts(knowledge, monkeypatch):
     assert len(knowledge.all_facts()) == 1
 
 
+# ── uncertainty shadow (Epistemic Fabric — band distribution of curated facts) ──
+
+def test_all_facts_uncertainty_shadow_logs_band_distribution(knowledge, caplog):
+    import logging
+    # A stated fact defaults to full confidence (KNOWN).
+    knowledge.remember("trash day", "Tuesday", kind="fact", now=1000.0)
+    with caplog.at_level(logging.DEBUG):
+        facts = knowledge.all_facts()
+    assert len(facts) == 1 and facts[0]["key"] == "trash day"   # rows unchanged
+    line = [r.message for r in caplog.records if "uncertainty(shadow)" in r.message]
+    assert line and "1 known" in line[-1]
+
+
+def test_uncertainty_shadow_kill_switch(knowledge, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(knowledge, "UNCERTAINTY_SHADOW", False)
+    knowledge.remember("k", "v", kind="fact", now=1000.0)
+    with caplog.at_level(logging.DEBUG):
+        knowledge.all_facts()
+    assert not [r for r in caplog.records if "uncertainty(shadow)" in r.message]
+
+
+def test_uncertainty_shadow_defensive(knowledge, caplog):
+    import logging
+    # A non-dict row must not break the emitter.
+    with caplog.at_level(logging.DEBUG):
+        knowledge._emit_uncertainty_shadow(["not-a-dict", {"confidence": 0.4}])
+    line = [r.message for r in caplog.records if "uncertainty(shadow)" in r.message]
+    assert line and "1 guessed" in line[-1]
+
+
 # ── knowledge-graph enforce path (roadmap Phase T, gated off by default) ──────
 # _graph_expand_facts does 1-hop relation expansion; prompt_block_async uses it
 # only when KNOWLEDGE_GRAPH_ENFORCE is on (default off = plain recall).
