@@ -39,6 +39,15 @@ CONFLICT_PARITY = True
 _CONFLICT_PARITY_WINDOW = 200
 _conflict_verdicts: deque = deque(maxlen=_CONFLICT_PARITY_WINDOW)
 
+# SHADOW (Epistemic Fabric — Conflict, multi-source fusion): get_presence_summary()
+# also logs the world-model fusion of each person's whereabouts across independent
+# source *types* — HA's own person.state vs a recent camera recognition — via
+# WorldModel.fuse_presence (kernel.conflict over kernel.provenance records). This
+# broadens the conflict adjudication from the per-device_tracker shadow above to
+# whole source types, and is the multi-source verdict the Conflict enforce rung
+# will read. Observe-only: HA's resolution still stands. Flip off to silence it.
+PRESENCE_FUSION_SHADOW = True
+
 # Trust prior by device_tracker source_type: GPS is strongest, a router/ping
 # weaker, a BLE/beacon weaker still. Unknown sources get a neutral prior. These
 # feed kernel.conflict's reliability term; the tracker's own assertion is taken
@@ -111,6 +120,34 @@ def _emit_presence_conflict_shadow(hass: HomeAssistant) -> None:
             except Exception:
                 continue
         _emit_presence_conflict_parity()
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_presence_fusion_shadow(hass: HomeAssistant) -> None:
+    """Log the world-model multi-source presence fusion per person — HA's own
+    person.state vs a recent camera recognition, adjudicated through
+    WorldModel.fuse_presence (kernel.conflict). Observe-only, best-effort, never
+    raises — the presence summary is unaffected. Only a genuine ≥2-source case
+    (a resolved or contested fusion) is logged."""
+    if not PRESENCE_FUSION_SHADOW:
+        return
+    try:
+        from .kernel.world_model import WorldModel
+        wm = WorldModel(hass)
+        for pstate in hass.states.async_all("person"):
+            try:
+                name = (pstate.attributes.get("friendly_name")
+                        or pstate.entity_id.split(".", 1)[-1])
+                res = wm.fuse_presence(name)
+                if res.resolved or res.contested:
+                    verdict = "CONTESTED" if res.contested else "resolved"
+                    _LOGGER.debug(
+                        "presence_fusion(shadow): %s kernel=%r %s ranked=%s",
+                        pstate.entity_id, res.value, verdict,
+                        [[v, round(s, 3)] for v, s in res.ranked])
+            except Exception:
+                continue
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -221,6 +258,8 @@ def get_presence_summary(hass: HomeAssistant) -> dict:
 
     if CONFLICT_SHADOW:
         _emit_presence_conflict_shadow(hass)   # #237: observe-only
+    if PRESENCE_FUSION_SHADOW:
+        _emit_presence_fusion_shadow(hass)     # multi-source fusion: observe-only
 
     return {
         "total_people": len(people),

@@ -1,3 +1,35 @@
+## [8.157.0] — World-model multi-source presence fusion (shadow)
+
+Phase-T world-model multi-source fusion: adjudicate a person's whereabouts across
+independent **source types**, not just device-trackers. This is the piece that
+unblocks the Conflict enforce rung — a consumer can now read one fused, provenance
+-scored verdict instead of whichever subsystem ran last.
+
+- `kernel/world_model.py`:
+  - `WorldModel.fuse_presence(name, *, now=None)` → a `kernel.conflict.Resolution`
+    over `kernel.provenance` records, fusing HA's own aggregate `person.state`
+    (source `person`, reliability 0.7) against a recent **camera recognition**
+    (source `camera`, 0.8, 5-min ttl). Returns `home`/`away`, **contested** when
+    the independent sources disagree within the margin (e.g. a camera sees Sam but
+    their phone says away). Reads HA state directly (no re-entry into the presence
+    read), best-effort → empty `Resolution` on any failure (consumer falls back to
+    HA's own resolution). Only a genuine ≥2-source case is fused.
+  - helper `_person_home_state`, seam `_who_is_where` (recognition).
+- `presence.py`: `_emit_presence_fusion_shadow(hass)` logs the fused verdict per
+  person (value / resolved-or-CONTESTED / ranked scores), wired into
+  `get_presence_summary` alongside the existing device-tracker conflict shadow.
+  **Observe-only** — the summary dict is unchanged; kill-switch
+  `PRESENCE_FUSION_SHADOW`.
+- `scripts/kernel_adoption.py`: `conflict` declaration comment notes the
+  multi-source fusion (stage unchanged, **parity**, owner `presence`);
+  `KERNEL_ADOPTION.md` regenerated (adds `presence` to `world_model`'s live-users,
+  since it now references the facade).
+
+Behaviour-preserving: observe-only, kill-switched, HA's resolution still stands;
+the enforce rung (a consumer reads the fused value) stays owner-gated. Tests:
+`tests/unit/test_kernel_world_model.py` (+6) and `test_presence_fusion_shadow.py`
+(5). Audit + four kernel gates green. Version 8.156.0 → 8.157.0.
+
 ## [8.156.0] — Temporal-validity primitive (Epistemic Fabric — Time, pure)
 
 The fifth and final Epistemic-Fabric primitive: **Time / Temporal Validity**.

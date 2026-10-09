@@ -178,6 +178,66 @@ def test_uncertainties_best_effort_on_error(wm_mod, hass, monkeypatch):
     assert wm_mod.WorldModel(hass).uncertainties() == []
 
 
+# ── multi-source presence fusion (Epistemic Fabric — Conflict) ────────────────
+
+def _person(h, eid, state, friendly):
+    h.states.set(eid, state, friendly_name=friendly)
+
+
+def test_fuse_presence_agreeing_sources_resolve_home(wm_mod, monkeypatch):
+    h = FakeHass()
+    _person(h, "person.sam", "home", "Sam")
+    monkeypatch.setattr(wm_mod, "_who_is_where", lambda hass: {"camera.kitchen": "Sam"})
+    res = wm_mod.WorldModel(h).fuse_presence("Sam", now=1000.0)
+    assert res.resolved and res.value == "home" and not res.contested
+
+
+def test_fuse_presence_conflicting_sources_contested(wm_mod, monkeypatch):
+    h = FakeHass()
+    _person(h, "person.sam", "not_home", "Sam")          # HA says away
+    monkeypatch.setattr(wm_mod, "_who_is_where", lambda hass: {"camera.kitchen": "Sam"})
+    res = wm_mod.WorldModel(h).fuse_presence("Sam", now=1000.0)
+    # Camera (0.8) edges person-away (0.7) but within the contest margin → defer.
+    assert res.contested and res.value == "home"
+
+
+def test_fuse_presence_single_source_defers(wm_mod, monkeypatch):
+    h = FakeHass()
+    _person(h, "person.sam", "home", "Sam")
+    monkeypatch.setattr(wm_mod, "_who_is_where", lambda hass: {})   # no camera vote
+    res = wm_mod.WorldModel(h).fuse_presence("Sam", now=1000.0)
+    # Only one source → not a fusion; defer to HA (empty Resolution).
+    assert not res.resolved and not res.contested and res.value is None
+
+
+def test_fuse_presence_name_match_is_case_insensitive(wm_mod, monkeypatch):
+    h = FakeHass()
+    _person(h, "person.sam", "home", "Sam")
+    monkeypatch.setattr(wm_mod, "_who_is_where", lambda hass: {"camera.k": "sam"})
+    res = wm_mod.WorldModel(h).fuse_presence("SAM", now=1000.0)
+    assert res.resolved and res.value == "home"
+
+
+def test_fuse_presence_unknown_person_is_empty(wm_mod, monkeypatch):
+    h = FakeHass()
+    monkeypatch.setattr(wm_mod, "_who_is_where", lambda hass: {"camera.k": "Sam"})
+    res = wm_mod.WorldModel(h).fuse_presence("Nobody", now=1000.0)
+    assert not res.resolved and not res.contested
+
+
+def test_fuse_presence_camera_source_failure_is_defensive(wm_mod, monkeypatch):
+    h = FakeHass()
+    _person(h, "person.sam", "home", "Sam")
+
+    def _boom(hass):
+        raise RuntimeError("recognition down")
+
+    monkeypatch.setattr(wm_mod, "_who_is_where", _boom)
+    # Camera source fails → only the person record remains → defer, no raise.
+    res = wm_mod.WorldModel(h).fuse_presence("Sam", now=1000.0)
+    assert not res.resolved
+
+
 def test_last_seen_delegates(wm_mod, hass, monkeypatch):
     monkeypatch.setattr(wm_mod, "_where_last_seen",
                         lambda term: {"term": term, "camera": "porch", "ts": 123.0})

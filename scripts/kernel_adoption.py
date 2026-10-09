@@ -206,9 +206,13 @@ _DECLARED: dict[str, dict] = {
     # of those per-person adjudications, presence._emit_presence_conflict_parity
     # logs how often the kernel winner AGREES with HA's native person.state and how
     # often it would DEFER (CONTESTED) — the quantified bar the enforce rung needs
-    # (kill-switch CONFLICT_PARITY). Observe-only, drives nothing. World-model /
-    # situation consult it next; enforce (a consumer reads the adjudicated value)
-    # is owner-gated.
+    # (kill-switch CONFLICT_PARITY). Observe-only, drives nothing. MULTI-SOURCE
+    # FUSION: WorldModel.fuse_presence adjudicates a person's whereabouts across
+    # independent source TYPES (HA person.state vs a recent camera recognition),
+    # not just device_trackers, and presence._emit_presence_fusion_shadow logs it
+    # (kill-switch PRESENCE_FUSION_SHADOW) — the broader multi-source verdict the
+    # enforce rung will read. Enforce (a consumer reads the adjudicated value) is
+    # owner-gated.
     "conflict":     {"stage": "parity",  "owners": ["presence"]},
     # temporal: valid-as-of / expires-at (Epistemic Fabric — Time, the fifth
     # primitive). A Validity pairs an observed-at with an optional ttl and derives
