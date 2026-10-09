@@ -195,6 +195,43 @@ def test_capture_without_goal_stays_commitment_only(cont, load, monkeypatch):
     assert state is not None and state.cognitive is None
 
 
+# ── Phase I-B parity: boot_reconcile compares cognitive snapshot vs live ──────
+def test_boot_reconcile_logs_cognitive_continuity(cont, monkeypatch, caplog):
+    """boot_reconcile also reconciles the reloaded cognitive snapshot against live
+    cognitive state and logs which fields persisted vs changed (observe-only)."""
+    CC = cont.agency_state.CognitiveContext
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [{"id": "g1"}])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    # Snapshot captured with one intent + plan…
+    monkeypatch.setattr(cont, "_live_cognitive",
+                        lambda hass=None: CC(intent="dim office", plan="turn_off office"))
+    cont.capture_now()
+    # …then live cognitive differs on intent only.
+    monkeypatch.setattr(cont, "_live_cognitive",
+                        lambda hass=None: CC(intent="brew coffee", plan="turn_off office"))
+    with caplog.at_level(logging.INFO):
+        cont.boot_reconcile()
+    msgs = [r.message for r in caplog.records if "cognitive continuity" in r.message]
+    assert msgs, "expected a cognitive continuity reconcile line"
+    assert "1 changed" in msgs[-1] and "intent" in msgs[-1]
+
+
+def test_boot_reconcile_cognitive_is_defensive(cont, monkeypatch):
+    # A failing live-cognitive read during reconcile must not break boot_reconcile
+    # (the commitment reconcile still returns its report).
+    monkeypatch.setattr(cont, "_live_mode", lambda: "home")
+    monkeypatch.setattr(cont, "_live_goals", lambda: [{"id": "g1"}])
+    monkeypatch.setattr(cont, "_live_situations", lambda hass=None: [])
+    cont.capture_now()
+
+    def boom(*a, **k):
+        raise RuntimeError("cognitive read down")
+    monkeypatch.setattr(cont, "_live_cognitive", boom)
+    rep = cont.boot_reconcile()        # must not raise
+    assert rep is not None             # commitment reconcile still produced
+
+
 # ── Phase I-B (enrichment): salient beliefs from the WorldModel belief view ──
 
 class _FakeBelief:

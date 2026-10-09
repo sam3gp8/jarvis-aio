@@ -315,6 +315,62 @@ def reconcile(
     return ReconcileReport(still_live=tuple(live), vanished=tuple(gone))
 
 
+@dataclass(frozen=True)
+class CognitiveReconcileReport:
+    """How a reloaded cognitive snapshot compares to live cognitive state (I-B
+    parity). ``agreed`` are fields whose value persisted across the restart;
+    ``changed`` are fields whose value differs now. Only fields populated on
+    either side are judged."""
+
+    agreed: Tuple[str, ...] = ()
+    changed: Tuple[str, ...] = ()
+
+    @property
+    def consistent(self) -> bool:
+        """True when nothing a reload remembered has changed since the restart."""
+        return not self.changed
+
+    def to_dict(self) -> dict:
+        return {
+            "agreed": list(self.agreed),
+            "changed": list(self.changed),
+            "agreed_count": len(self.agreed),
+            "changed_count": len(self.changed),
+        }
+
+
+def reconcile_cognitive(
+    prev: Optional[CognitiveContext],
+    live: Optional[CognitiveContext],
+) -> CognitiveReconcileReport:
+    """Field-by-field agreement between a reloaded cognitive context and the live
+    one (I-B — parity).
+
+    Only fields populated on *either* side are judged (a field empty on both is
+    not interesting). A field "agrees" when the two carry the same value — scalars
+    compared directly, list fields as ordered tuples — otherwise it "changed".
+    Either side may be ``None`` (treated as all-empty). Pure and total; drives
+    nothing — the caller only logs the result.
+    """
+    scalars = CognitiveContext._SCALARS
+    lists = CognitiveContext._LISTS
+    agreed: List[str] = []
+    changed: List[str] = []
+    for f in scalars:
+        pv = str(getattr(prev, f, "") or "") if prev is not None else ""
+        lv = str(getattr(live, f, "") or "") if live is not None else ""
+        if not (pv or lv):
+            continue
+        (agreed if pv == lv else changed).append(f)
+    for f in lists:
+        pv = tuple(getattr(prev, f, ()) or ()) if prev is not None else ()
+        lv = tuple(getattr(live, f, ()) or ()) if live is not None else ()
+        if not (pv or lv):
+            continue
+        (agreed if pv == lv else changed).append(f)
+    return CognitiveReconcileReport(agreed=tuple(agreed), changed=tuple(changed))
+
+
 class AgencyStore:
     """Durable, append-only store of agency snapshots (newest wins on load).
 

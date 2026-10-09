@@ -1,3 +1,30 @@
+## [8.146.0] — Cognitive continuity parity (Phase I-B.3)
+
+Adds the **parity** rung of Phase I-B (Cognitive Continuity): on boot, the
+reloaded *cognitive* snapshot (what JARVIS was thinking before a restart) is
+reconciled against live cognitive state, and the agreement is logged. Still
+observe-only — drives nothing, enforce (`CONTINUITY_RESUME_ENFORCE`) remains a
+future owner-gated rung. (I-B.1 pure schema and I-B.2 shadow capture already
+shipped earlier.)
+
+- `kernel/agency_state.py`: new pure `reconcile_cognitive(prev, live)` →
+  `CognitiveReconcileReport` — field-by-field agreement between two
+  `CognitiveContext`s (only fields populated on either side are judged; scalars
+  compared directly, list fields as ordered tuples). Pure and total; either side
+  may be None.
+- `continuity.py`: `boot_reconcile` now also reconciles the cognitive snapshot
+  against a freshly-built live cognitive context and logs how many fields
+  persisted vs. changed since the restart (naming the changed ones). Best-effort,
+  never raises into startup; the commitment reconcile is unaffected.
+- Adoption stage unchanged (`agency_state` stays `shadow` — observe-only until a
+  resume is made authoritative), so the Constitution / matrix are untouched.
+- Tests: `test_agency_state.py` covers `reconcile_cognitive` (agreement, changes,
+  empty-field skipping, one-sided populate, both-None); `test_continuity.py`
+  covers the boot reconcile logging and its defensiveness.
+
+Validation: `scripts/audit.py` + all four kernel gates green; agency_state /
+continuity unit modules green. Version 8.145.0 → 8.146.0.
+
 ## [8.145.0] — Uncertainty parity on the identity read (Epistemic Fabric)
 
 Promotes the **Uncertainty** adoption from shadow to **parity** (first of the
