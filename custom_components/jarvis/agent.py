@@ -3225,6 +3225,35 @@ _SLIM_TOOLS = {
 }
 
 
+# SHADOW (Phase O — Agency Orchestration): per delegated sub-agent run, dry-run
+# the equivalent kernel.agency spawn and log whether the kernel agrees the spawn
+# is legal — the child's tool set is within the parent's and the depth is within
+# MAX_DELEGATION_DEPTH. Observe-only: nothing consumes the Agency and the real
+# delegation path (tool scoping, depth cap, attribution) is untouched. The enforce
+# rung (deriving the sub-agent's token FROM the kernel) is owner-gated
+# (AGENCY_ORCHESTRATION_ENFORCE). Flip AGENCY_SHADOW = False to silence.
+AGENCY_SHADOW = True
+
+
+def _emit_agency_shadow(label: str, allowed, depth: int) -> None:
+    """Dry-run the kernel.agency spawn for a delegated sub-agent and log it.
+    Best-effort, never raises; mirrors the incumbent, drives nothing."""
+    if not AGENCY_SHADOW:
+        return
+    try:
+        from .kernel import agency as _agency
+        caps = frozenset(allowed or ())
+        # JARVIS (holding all capabilities) at the current chain depth.
+        parent = _agency.root("jarvis", ("*",), depth=depth)
+        chk = _agency.can_spawn(parent, caps, max_depth=MAX_DELEGATION_DEPTH)
+        _LOGGER.debug(
+            "agency(shadow): child=%s depth=%d caps=%d granted=%d dropped=%d ok=%s%s",
+            (label or "sub").lower(), chk.depth, len(caps), len(chk.granted),
+            len(chk.dropped), chk.ok, "" if chk.ok else f" ({chk.reason})")
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
                          api_key: str, model: str, base_url, config, depth: int) -> str:
     """Run one ephemeral sub-agent for a delegated objective. Returns a JSON
@@ -3264,6 +3293,10 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
         except Exception:
             turns = _DELEGATION_MAX_TURNS
         turns = max(1, min(turns, _DELEGATION_MAX_TURNS))
+
+    # Phase O (shadow): dry-run the kernel.agency spawn for this delegation and
+    # log whether the kernel agrees it is legal — observe-only, drives nothing.
+    _emit_agency_shadow(label, allowed, depth)
 
     # H6: attribute the sub-agent's actuations to it (FRIDAY/HOMER), not to the
     # delegating JARVIS loop. Only named profiles are distinct agents; a generic

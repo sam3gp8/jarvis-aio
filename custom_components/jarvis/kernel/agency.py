@@ -87,13 +87,16 @@ class SpawnCheck:
 
 
 def root(holder: str, capabilities: Iterable[str], *,
-         scope: Optional[str] = None, now: Optional[float] = None) -> Agency:
-    """A top-level agency (e.g. JARVIS itself, holding ``{"*"}``). Starts ACTIVE."""
+         scope: Optional[str] = None, depth: int = 0,
+         now: Optional[float] = None) -> Agency:
+    """A top-level agency (e.g. JARVIS itself, holding ``{"*"}``). Starts ACTIVE.
+    ``depth`` defaults to 0; pass the current chain depth to model an agency that
+    already sits ``depth`` levels down when reasoning about its next spawn."""
     tok = CapabilityToken(holder=holder, capabilities=frozenset(capabilities),
                           scope=scope)
     kw = {} if now is None else {"created_at": now}
-    return Agency(holder=holder, token=tok, depth=0, parent=None, scope=scope,
-                  state=ACTIVE, **kw)
+    return Agency(holder=holder, token=tok, depth=int(depth), parent=None,
+                  scope=scope, state=ACTIVE, **kw)
 
 
 def can_spawn(parent: Agency, capabilities: Iterable[str], *,
