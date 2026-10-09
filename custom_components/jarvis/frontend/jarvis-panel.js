@@ -1666,6 +1666,7 @@ class JarvisPanel extends HTMLElement {
       { label: "Settings · Cameras", tab: "settings", section: "cameras", kw: "camera doorbell diagnostics" },
       { label: "Settings · Home & Extras", tab: "settings", section: "home", kw: "wellbeing character documents extras" },
       { label: "Settings · Floor Plan", tab: "settings", section: "floorplan", kw: "floorplan map rooms floor plan editor" },
+      { label: "Settings · Governance", tab: "settings", section: "governance", kw: "governance enforce enforcement kernel kill-switch autonomy safety continuity authority intrusion hazard" },
       { label: "Excluded Entities", tab: "settings", section: "learning", kw: "exclude ignore entity hide noise" },
       { label: "Floor Plan Editor", tab: "settings", section: "floorplan", kw: "floorplan map rooms floor plan" },
       { label: "Cameras", tab: "settings", section: "cameras", kw: "camera" },
@@ -2287,6 +2288,88 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           await this._fetchAndRender();
         } catch (err) {
           this._toast(`✗ ${key} — ${err?.message || err}`, "err");
+        }
+      });
+    });
+  }
+
+  // ── Governance tab: the kernel enforce kill-switches ──────────────────────
+  // Fetches jarvis/get_enforcement and renders a toggle + explanation per
+  // switch into #gov-body. Called when the Settings tab renders and when the
+  // Governance sub-section is opened. Safe to call repeatedly.
+  async _fetchEnforcement() {
+    const body = this.shadowRoot && this.shadowRoot.getElementById("gov-body");
+    if (!body || !this._hass) return;
+    try {
+      const res = await this._hass.callWS({ type: "jarvis/get_enforcement" });
+      const switches = (res && res.switches) || [];
+      body.innerHTML = this._renderEnforcement(switches);
+      this._wireEnforcementToggles(body);
+    } catch (err) {
+      body.innerHTML = `<div class="mem-sub">Couldn't load governance switches — ${this._esc(err?.message || String(err))}</div>`;
+    }
+  }
+
+  _renderEnforcement(switches) {
+    const row = (s) => {
+      const on = !!s.enabled;
+      const phase = s.phase ? `<span style="opacity:.6;font-size:11px;margin-left:6px;">${this._esc(s.phase)}</span>` : "";
+      const ovr = s.overridden ? `<span style="opacity:.7;font-size:11px;margin-left:6px;color:var(--warning,#e0a030);">overridden</span>` : "";
+      return `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.07);">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;">${this._esc(s.name)}${phase}${ovr}</div>
+          <div class="mem-sub" style="margin-top:3px;">${this._esc(s.explanation)}</div>
+        </div>
+        <button class="toggle-btn ${on ? 'on' : 'off'} gov-toggle"
+                data-gov-key="${this._esc(s.key)}" data-gov-enabled="${on ? '1' : '0'}"
+                data-gov-cat="${this._esc(s.category)}" data-gov-name="${this._esc(s.name)}"
+                style="flex:0 0 auto;">${on ? 'ON' : 'OFF'}</button>
+      </div>`;
+    };
+    const caps = switches.filter(s => s.category === "capability");
+    const safety = switches.filter(s => s.category === "safety");
+    let html = "";
+    if (caps.length) {
+      html += `<div class="mem-sub" style="margin:4px 0 2px;font-weight:600;">Owner opt-in capabilities</div>`;
+      html += `<div class="mem-sub" style="margin-bottom:6px;">These ship OFF. Turning one ON makes the kernel authoritative for that capability — your choice, behaviour-changing.</div>`;
+      html += caps.map(row).join("");
+    }
+    if (safety.length) {
+      html += `<div class="mem-sub" style="margin:14px 0 2px;font-weight:600;">Safety &amp; governance — kill-switches (keep ON)</div>`;
+      html += `<div class="mem-sub" style="margin-bottom:6px;">These ship ON and guard autonomous behaviour. Turning one OFF reverts that guard to observe-only (log-only) — only for debugging.</div>`;
+      html += safety.map(row).join("");
+    }
+    return html || `<div class="mem-sub">No governance switches reported.</div>`;
+  }
+
+  _wireEnforcementToggles(root) {
+    if (!root) return;
+    root.querySelectorAll(".gov-toggle").forEach(btn => {
+      if (btn._govWired) return;
+      btn._govWired = true;
+      btn.addEventListener("click", async (e) => {
+        const t = e.currentTarget;
+        const key = t.getAttribute("data-gov-key");
+        const cur = t.getAttribute("data-gov-enabled") === "1";
+        const next = !cur;
+        const cat = t.getAttribute("data-gov-cat");
+        const name = t.getAttribute("data-gov-name") || key;
+        if (!key || !this._hass) return;
+        // Turning OFF a safety kill-switch, or turning ON an opt-in capability,
+        // both change autonomous behaviour — confirm before either.
+        if (cat === "safety" && next === false &&
+            !window.confirm(`Turn OFF the safety enforcement “${name}”?\n\nThis reverts that guard to observe-only (log-only) until you turn it back on. Only do this for debugging.`)) return;
+        if (cat === "capability" && next === true &&
+            !window.confirm(`Enable “${name}”?\n\nThis makes the kernel authoritative for that capability.`)) return;
+        t.disabled = true;
+        try {
+          await this._hass.callWS({ type: "jarvis/set_enforcement", key, enabled: next });
+          this._toast(`✓ ${name} → ${next ? 'ON' : 'OFF'}`, "ok");
+          await this._fetchEnforcement();
+        } catch (err) {
+          this._toast(`✗ ${name} — ${err?.message || err}`, "err");
+          t.disabled = false;
         }
       });
     });
@@ -4472,7 +4555,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         ['general', 'General'], ['voice', 'Voice & Audio'],
         ['learning', 'Learning'], ['safety', 'Safety & Energy'],
         ['cameras', 'Cameras'], ['home', 'Home & Extras'],
-        ['floorplan', 'Floor Plan'],
+        ['floorplan', 'Floor Plan'], ['governance', 'Governance'],
       ].map(([id, label]) => `<button class="settings-subnav-btn ${this._settingsSection === id ? 'active' : ''}" data-settings-section="${id}">${label}</button>`).join('')}
     </div>
 
@@ -5353,6 +5436,16 @@ ${this._renderExcludedEntities(d)}
       ${this._renderDoorbellTraining(d)}
     </div>
 
+    <!-- GOVERNANCE — kernel enforcement kill-switches (owner control surface) -->
+    <div class="panel settings-extra-panel" data-section="governance" style="margin-top:16px;">
+      <div class="head">
+        <span>Governance</span>
+        <span class="side">ENFORCEMENT</span>
+      </div>
+      <div class="mem-sub">JARVIS's kernel brings each capability online along a shadow → parity → enforce ladder, each behind a kill-switch. Here you control those switches: the opt-in capabilities ship OFF (enable when you're ready), and the live safety guards ship ON (leave them on). Changes take effect immediately and survive a restart.</div>
+      <div class="gov-body" id="gov-body"><div class="mem-sub">Loading governance switches…</div></div>
+    </div>
+
   </div>
   ` : ''}
 
@@ -5678,11 +5771,15 @@ ${this._renderExcludedEntities(d)}
         if (sec && sec !== this._settingsSection) {
           this._settingsSection = sec;
           this._applySettingsSections();
+          if (sec === "governance") this._fetchEnforcement();
         }
       });
     });
     // Apply the active section on every render (Settings tab only).
-    if (this._currentTab === "settings") this._applySettingsSections();
+    if (this._currentTab === "settings") {
+      this._applySettingsSections();
+      this._fetchEnforcement();   // populate the Governance tab's switches
+    }
 
     // Global search (issue #209) — header box over entities + sections.
     const gsIn = this.shadowRoot.getElementById("gsearch-input");
