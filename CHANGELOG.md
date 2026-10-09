@@ -1,3 +1,28 @@
+## [8.140.0] — Integration test: options-update triggers a clean reload
+
+Continues the v8.136.0 external audit's P1 end-to-end coverage (the owner-chosen
+priority): one new **real-Home-Assistant** integration test (PHACC) covering a
+HA-lifecycle contract not previously exercised. Test-only — no production code
+changes.
+
+- `tests/integration/test_wiring_smoke.py`:
+  - **`test_options_update_triggers_clean_reload`** — updating the config
+    entry's *options* must fire JARVIS's registered update listener, which
+    reloads the entry (a full unload+setup cycle), so a settings change takes
+    effect without a Home Assistant restart. Unlike
+    `test_reload_leaves_integration_loaded` (which calls `async_reload`
+    directly), this drives the reload through the real options-changed path, so
+    it guards the listener *wiring* itself (`entry.add_update_listener` in
+    `async_setup_entry`): drop that line and a settings change would silently
+    never apply, and only this test would catch it. After the reload JARVIS is
+    asserted fully re-wired (data store repopulated, services re-registered) with
+    setup genuinely re-run (provider resolved afresh via a call-count check), and
+    nothing leaks across the cycle (PHACC `verify_cleanup`).
+
+Validation: full integration suite (6 tests) green under
+`pytest-homeassistant-custom-component` on py3.13; `scripts/audit.py` + all four
+kernel gates green (unaffected — test-only). Version 8.139.0 → 8.140.0.
+
 ## [8.139.0] — Integration tests: provider-outage safety + restart re-setup
 
 Addresses the v8.136.0 external audit's P1 "measurable governance" / end-to-end
