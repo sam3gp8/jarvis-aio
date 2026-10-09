@@ -27,6 +27,7 @@ from .event import (
 )
 from . import (
     actuator,
+    agency,
     agency_state,
     attention,
     authority,
@@ -65,6 +66,7 @@ from .authority import (
     authorize,
 )
 from .autonomy import AutonomyGrant, earned_level, grant as autonomy_grant, step_toward
+from .agency import Agency, SpawnCheck
 from .beliefs import Belief, Evidence
 from .graph import Attribute, Entity, KnowledgeGraph, Relation
 from .space_time import Area, SpatialGraph, TemporalFrame, daypart_of
@@ -180,6 +182,9 @@ __all__ = [
     "autonomy_grant",
     "earned_level",
     "step_toward",
+    "agency",
+    "Agency",
+    "SpawnCheck",
     "provenance",
     "Provenance",
     "uncertainty",
