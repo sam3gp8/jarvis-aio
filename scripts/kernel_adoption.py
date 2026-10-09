@@ -320,10 +320,16 @@ _DECLARED: dict[str, dict] = {
     # actuation also logs a "learning(parity)" line comparing that learned trust
     # against the capability's realized success_rate (outcome.summarize) and
     # whether they agree on direction — observe-only (kill-switches
-    # LEARNING_SHADOW / LEARNING_PARITY), driving nothing. Enforce updates a real
-    # per-capability trust store behind LEARNING_ENFORCE (clamped + audited),
-    # fail-safe = frozen weights; the trust store itself is a Phase N concern.
-    "learning":     {"stage": "parity",  "owners": ["actuation"]},
+    # LEARNING_SHADOW / LEARNING_PARITY), driving nothing. ENFORCE (Phase M,
+    # owner-gated): actuation._emit_learning_enforce CLOSES THE LOOP — the learned
+    # per-capability trust is persisted (<config>/jarvis/capability_trust.json) and
+    # fed back as the prior for the next adjustment, so trust accumulates across
+    # restarts instead of resetting to 0.5; actuation.learned_trust(cap) exposes
+    # it. Behind LEARNING_ENFORCE / the `learning_enforce` key (default OFF, so
+    # behaviour-preserving — prior stays 0.5, store untouched); fail-safe — any
+    # error falls back to the neutral prior and persists nothing; the governance
+    # clamp (protected weights only tighten) is unchanged.
+    "learning":     {"stage": "enforce", "owners": ["actuation"]},
     # autonomy: graduated per-capability trust (roadmap Phase N). Replaces the
     # single autonomy flag with an EARNED autonomy level — a pure function of a
     # capability's verified track record (kernel.outcome.OutcomeStats) and its

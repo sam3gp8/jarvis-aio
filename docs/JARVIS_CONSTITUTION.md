@@ -87,7 +87,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `graph` | ● enforce |
 | `identity_fabric` | ● enforce |
 | `journal` | ◐ shadow |
-| `learning` | ◑ parity |
+| `learning` | ● enforce |
 | `ledger` | ◐ shadow |
 | `long_horizon` | ◐ shadow |
 | `loop_detect` | ● enforce |

@@ -1,3 +1,27 @@
+## [8.182.0] — kernel.learning → enforce: closed-loop trust (Phase M, owner-gated, default OFF)
+
+Advances the `learning` primitive **parity → enforce** — closes the learning
+loop. The per-capability trust the shadow/parity rungs only *logged* is now
+**persisted and fed back as the prior** for the next adjustment, so trust
+accumulates across restarts instead of resetting to the neutral 0.5 each tick.
+
+- `actuation.py`: new persistent per-capability trust store
+  (`<config>/jarvis/capability_trust.json`, house JSON-snapshot pattern —
+  loaded once, saved throttled), `learned_trust(cap)` accessor (the consumable
+  for graduated autonomy), and `_emit_learning_enforce(oc, hass)` wired into the
+  verified-outcome path.
+- **Kill-switched, default OFF** (`LEARNING_ENFORCE` / the `learning_enforce`
+  config key) → shipping is behaviour-preserving (prior stays 0.5, the store is
+  never written). **Fail-safe**: any error — including a hass without a usable
+  config path — falls back to the neutral prior and persists nothing. The
+  governance clamp (protected weights only tighten, never relax) is unchanged.
+
+Adoption matrix + Constitution regenerated (`learning ● enforce`). Tests:
+`test_actuation_learning_enforce.py` (gate + accessor; default-off persists
+nothing; on → persists and reloads across a restart; stored prior fed back;
+fail-safe on a path-less hass). Audit + four kernel gates green.
+Version 8.181.0 → 8.182.0. Part of #236.
+
 ## [8.181.0] — kernel.identity_fabric → enforce (Phase I½, owner-gated, default OFF)
 
 Advances the `identity_fabric` primitive **parity → enforce** (#237). When

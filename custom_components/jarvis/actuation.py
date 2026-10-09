@@ -17,7 +17,10 @@ gate it. Promoting any of this to enforcement is a separate, owner-gated step.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import time
 from collections import deque
 from typing import Any, Dict, Optional, Sequence
 
@@ -298,7 +301,7 @@ def emit_event(hass, capability: str, entity_id: str, *, action: str = "",
 OUTCOME_SHADOW = True
 
 
-def _record_outcome_shadow(request, status: str, observed, detail: str) -> None:
+def _record_outcome_shadow(request, status: str, observed, detail: str, hass=None) -> None:
     """Emit a structured kernel.outcome.Outcome for a verified actuation (shadow).
 
     Derived from the same verification verdict that drives the ActuatorOutcome:
@@ -336,6 +339,9 @@ def _record_outcome_shadow(request, status: str, observed, detail: str) -> None:
         # whether it would auto-execute with the blanket mode flag — observe-only.
         _emit_autonomy_shadow(oc)
         _emit_autonomy_parity(oc)
+        # Phase M enforce (default OFF): close the loop — persist the learned
+        # per-capability trust and feed it back as the next prior.
+        _emit_learning_enforce(oc, hass)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -410,6 +416,111 @@ def _emit_learning_parity(oc) -> None:
         _LOGGER.debug(
             "learning(parity): capability=%s trust=%.2f success_rate=%.2f "
             "agree=%s (n=%d)", cap, trust, success_rate, agree, stats.count)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+# ENFORCE (Phase M — Learning & Adaptation, owner-gated): close the loop. The
+# per-capability trust the shadow/parity only *logged* is now PERSISTED and fed
+# back as the prior for the next adjustment, so trust accumulates across restarts
+# instead of resetting to the neutral 0.5 each tick. `learned_trust(cap)` exposes
+# the stored value for downstream consumers (e.g. graduated autonomy). Kill-
+# switched, default OFF (LEARNING_ENFORCE / the `learning_enforce` config key) so
+# shipping is behaviour-preserving — the prior stays 0.5 and the store is never
+# written; fail-safe — any error falls back to the neutral prior and persists
+# nothing. Stored to <config>/jarvis/capability_trust.json (house JSON-snapshot
+# pattern), loaded once, saved throttled.
+LEARNING_ENFORCE = False
+_LEARN_STORE: Dict[str, float] = {}
+_LEARN_STORE_LOADED = False
+_LEARN_STORE_PATH: Optional[str] = None
+_LEARN_LAST_SAVE = 0.0
+_LEARN_SAVE_THROTTLE = 60.0        # seconds; outcome() is not hot, but don't thrash the disk
+
+
+def _learning_enforce_on() -> bool:
+    """True when the learning enforce flip is active (module flag or the
+    `learning_enforce` config key). Never raises."""
+    if LEARNING_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("learning_enforce", False))
+    except Exception:
+        return False
+
+
+def learned_trust(cap: str) -> float:
+    """The persisted learned trust for a capability in [0, 1], or the neutral
+    prior when the loop is open / the capability is unseen. Never raises."""
+    try:
+        return float(_LEARN_STORE.get(cap, _CAP_TRUST_PRIOR))
+    except Exception:
+        return _CAP_TRUST_PRIOR
+
+
+def _learn_store_load(hass) -> None:
+    global _LEARN_STORE_LOADED, _LEARN_STORE_PATH
+    if _LEARN_STORE_LOADED:
+        return
+    _LEARN_STORE_LOADED = True
+    try:
+        _LEARN_STORE_PATH = hass.config.path("jarvis", "capability_trust.json")
+        if os.path.exists(_LEARN_STORE_PATH):
+            with open(_LEARN_STORE_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    try:
+                        _LEARN_STORE[str(k)] = max(0.0, min(1.0, float(v)))
+                    except (TypeError, ValueError):
+                        pass
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _learn_store_save(hass, *, force: bool = False) -> None:
+    global _LEARN_LAST_SAVE
+    try:
+        now = time.time()
+        if not force and (now - _LEARN_LAST_SAVE) < _LEARN_SAVE_THROTTLE:
+            return
+        path = _LEARN_STORE_PATH or hass.config.path("jarvis", "capability_trust.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(_LEARN_STORE, f, indent=2)
+        _LEARN_LAST_SAVE = now
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_learning_enforce(oc, hass) -> None:
+    """Phase M enforce: fold this outcome into the capability's PERSISTED trust
+    (prior = the stored value, nudged by the kernel learner) and save it, so the
+    next adjustment builds on it — a closed loop. Does nothing and persists
+    nothing when the flip is off. Kill-switched + fail-safe; never raises."""
+    if not _learning_enforce_on() or hass is None:
+        return
+    try:
+        # Require a usable store path — never hold trust we can't persist.
+        try:
+            hass.config.path("jarvis", "capability_trust.json")
+        except Exception:
+            return
+        cap = getattr(oc, "capability", "") or ""
+        if not cap:
+            return
+        _learn_store_load(hass)
+        from .kernel import learning
+        cap_outcomes = [o for o in _recent_outcomes
+                        if (getattr(o, "capability", "") or "") == cap]
+        adj = learning.adjust(cap, learned_trust(cap), cap_outcomes)
+        if adj.samples == 0:
+            return
+        _LEARN_STORE[cap] = max(0.0, min(1.0, float(adj.proposed)))
+        _learn_store_save(hass)
+        _LOGGER.debug("learning(enforce): capability=%s trust->%.3f persisted (n=%d)",
+                      cap, _LEARN_STORE[cap], adj.samples)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -509,7 +620,7 @@ def outcome(request, status: str, hass, entity_id: str, detail: str = "") -> Non
         pass
     # #237: emit the Epistemic-Fabric Outcome in shadow alongside the above.
     if OUTCOME_SHADOW:
-        _record_outcome_shadow(request, status, observed, detail)
+        _record_outcome_shadow(request, status, observed, detail, hass)
 
 
 async def execute_actuator(hass, *, capability: str, entity_id: str,
