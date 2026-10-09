@@ -89,6 +89,119 @@ _UNKNOWN_FACE_CACHE: dict[str, dict] = {}
 # Recently Seen already shows one unknown row per camera).
 _UNKNOWN_SNAP_THROTTLE = 120.0
 
+# ── Restart persistence for the Faces panel (issue #331) ────────────────────────
+# The recognition cache and pinned-snapshot index are in-memory module globals, so
+# a Home Assistant / JARVIS restart used to empty the Faces tab (recognized faces
+# "set to 0") until new sightings arrived — especially painful for MQTT/DoubleTake
+# setups with no live Frigate face sensor to repopulate from. We persist the
+# trusted recognition cache + the snapshot index to a small JSON and restore them
+# on startup, age-filtered to CACHE_MAX_AGE so nothing stale is resurrected.
+#
+# SAFETY: restored recognitions are tagged ``restored`` and the intrusion
+# stand-down (``resident_present``) ignores them — only a FRESH recognition made
+# in this process can stand monitoring down, so a pre-restart sighting can never
+# disable an alert. A fresh sighting for a camera overwrites its restored entry
+# (``remember_recognition`` writes a new, untagged dict), restoring normal
+# behaviour. Best-effort throughout: never raises into the caller.
+RECOG_CACHE_PATH = config_path_str("jarvis", "recognition_cache.json")
+_PERSIST_SAVE_THROTTLE = 10.0   # secs between disk writes
+_persist_loaded = False
+_persist_last_save = 0.0
+
+
+def _persist_save(force: bool = False) -> None:
+    """Persist the recognition cache + snapshot index to disk (throttled, atomic).
+    Never raises."""
+    global _persist_last_save
+    try:
+        now = _time.time()
+        if not force and (now - _persist_last_save) < _PERSIST_SAVE_THROTTLE:
+            return
+        _persist_last_save = now
+        recs = {}
+        for cam, rec in list(_RECOGNITION_CACHE.items()):
+            ts = rec.get("ts")
+            if not ts:
+                continue
+            recs[cam] = {
+                "name": rec.get("name", ""),
+                "confidence": rec.get("confidence", 0.0),
+                "ts": ts.isoformat(),
+                "unknown_count": rec.get("unknown_count", 0),
+            }
+        snaps = {}
+        for key, snap in list(_FACE_SNAPSHOTS.items()):
+            snaps[key] = {
+                "url": snap.get("url", ""),
+                "path": snap.get("path", ""),
+                "ts": snap.get("ts", 0.0),
+                "camera_entity": snap.get("camera_entity", ""),
+            }
+        payload = {"recognitions": recs, "snapshots": snaps}
+        os.makedirs(os.path.dirname(RECOG_CACHE_PATH), exist_ok=True)
+        tmp = RECOG_CACHE_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(payload, f)
+        os.replace(tmp, RECOG_CACHE_PATH)
+    except Exception as exc:
+        _LOGGER.debug("recognition cache persist failed: %s", exc)
+
+
+def _persist_load() -> None:
+    """Restore the recognition cache + snapshot index persisted by a previous run
+    so the Faces panel isn't empty after a restart (issue #331). Age-filters to
+    CACHE_MAX_AGE; restored recognitions are tagged ``restored`` so the intrusion
+    stand-down never trusts them. Runs once; never raises."""
+    global _persist_loaded
+    if _persist_loaded:
+        return
+    _persist_loaded = True
+    try:
+        if not os.path.exists(RECOG_CACHE_PATH):
+            return
+        with open(RECOG_CACHE_PATH) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for cam, rec in (data.get("recognitions") or {}).items():
+            try:
+                ts = datetime.fromisoformat(rec["ts"])
+            except Exception:
+                continue
+            if (now - ts) > CACHE_MAX_AGE:
+                continue
+            if cam in _RECOGNITION_CACHE:
+                continue   # a fresh sighting this run already wins
+            _RECOGNITION_CACHE[cam] = {
+                "name": str(rec.get("name", "")),
+                "confidence": float(rec.get("confidence", 0.0) or 0.0),
+                "ts": ts,
+                "unknown_count": int(rec.get("unknown_count", 0) or 0),
+                "restored": True,   # SAFETY: never stands intrusion down
+            }
+        for key, snap in (data.get("snapshots") or {}).items():
+            try:
+                path = snap.get("path")
+                # Only restore a pin whose frame still exists on disk.
+                if path and os.path.exists(path) and key not in _FACE_SNAPSHOTS:
+                    _FACE_SNAPSHOTS[key] = {
+                        "url": str(snap.get("url", "")),
+                        "path": path,
+                        "ts": float(snap.get("ts", 0.0) or 0.0),
+                        "camera_entity": str(snap.get("camera_entity", "")),
+                    }
+            except Exception:
+                continue
+    except Exception as exc:
+        _LOGGER.debug("recognition cache restore failed: %s", exc)
+
+
+def warm_start() -> None:
+    """Restore the persisted Faces caches at integration startup (issue #331).
+    Run on the executor — does a small one-time JSON read. Never raises."""
+    _persist_load()
+
 
 def _normalize_score(raw) -> float:
     """Frigate scores are 0..1; return a 0..100 percent. Never raises."""
@@ -223,6 +336,10 @@ def remember_recognition(camera_name: str, name: str, confidence: float) -> None
         "ts":         now,
         "unknown_count": 0 if name.lower() != "unknown" else prev.get("unknown_count", 0) + 1,
     }
+    # Persist so the Faces panel survives a restart (#331). Fresh and untagged —
+    # this overwrites any restored entry for the camera, so normal intrusion
+    # stand-down behaviour resumes the moment a real sighting lands.
+    _persist_save()
 
 
 def _face_norm(name: str) -> str:
@@ -312,6 +429,7 @@ async def capture_face_snapshot(hass, camera: str, name: str) -> Optional[dict]:
             "camera_entity": camera_entity,
         }
         _FACE_SNAPSHOTS[key] = rec
+        _persist_save()   # keep the pinned-snapshot index across restarts (#331)
         _LOGGER.info("JARVIS: pinned face snapshot for %s from %s", name, camera_entity)
         return rec
     except Exception as exc:
@@ -554,6 +672,9 @@ def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
     last_recognized_face sensors, de-dupes to one row per (name, camera), marks
     each row known/unknown and whether the name is a flagged household resident,
     and returns newest first. Never raises."""
+    # Restore any persisted caches (#331) so the panel isn't empty after a restart
+    # even if the startup warm-load hasn't run. Guarded — a no-op after the first.
+    _persist_load()
     try:
         from . import face_roster
     except Exception:
@@ -677,6 +798,11 @@ def resident_present(hass: HomeAssistant, within_secs: int = 180) -> Optional[st
     best = None
     try:
         for rec in _RECOGNITION_CACHE.values():
+            # SAFETY (#331): a recognition restored from a previous run must never
+            # stand intrusion monitoring down — only a fresh sighting made in this
+            # process (untagged) can. A real sighting overwrites the restored entry.
+            if rec.get("restored"):
+                continue
             name = rec.get("name", "")
             ts = rec.get("ts")
             if not name or _is_unknown(name) or not ts:

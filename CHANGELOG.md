@@ -1,3 +1,32 @@
+## [8.185.0] — fix: Faces panel resets to 0 on every restart (#331)
+
+The Household Faces tab emptied on every Home Assistant / JARVIS restart — the
+faces JARVIS had recognized "disappeared and set to 0" until new sightings
+arrived. The recognition cache and the pinned recognition-time snapshot index
+were in-memory module globals, so a restart wiped them; households on
+MQTT/DoubleTake (no live Frigate `last_recognized_face` sensor to repopulate
+from) saw a permanently empty tab after every restart.
+
+- `recognition.py`: persist the trusted recognition cache + the snapshot index to
+  `<config>/jarvis/recognition_cache.json` (atomic, throttled) on each
+  `remember_recognition` / `capture_face_snapshot`, and restore them on startup —
+  **age-filtered to `CACHE_MAX_AGE` (2h)** so nothing stale is resurrected and a
+  pinned frame is only restored if its file still exists.
+- `__init__.py`: a `recognition.warm_start()` executor warm-load at setup, plus a
+  lazy guarded restore inside `recent_faces` as a fallback.
+
+**Safety preserved.** `resident_present()` — which stands intrusion monitoring
+down when a recognized resident is on camera within 180s — now **ignores
+restored entries** (tagged `restored`): only a *fresh* recognition made in the
+running process can stand monitoring down, so a pre-restart sighting can never
+disable an alert. A real sighting overwrites the restored entry, resuming normal
+behaviour immediately. Best-effort throughout: every path never raises.
+
+Tests: `test_recognition_persistence.py` (save → restore round-trips the cache
+and snapshot index; stale entries age out; a missing pinned frame is skipped;
+restored recognitions never satisfy `resident_present` while a fresh one does).
+Audit + four kernel gates green. Version 8.184.0 → 8.185.0.
+
 ## [8.184.0] — kernel.cycle → enforce: the proactive dispatch loop IS the CognitiveCycle (Phase J / J4, default OFF)
 
 Advances the `cycle` primitive **parity → enforce** — the J4 full refactor.
