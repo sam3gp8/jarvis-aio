@@ -56,6 +56,13 @@ GRAPH_SHADOW = True
 # household flips it when ready to run the live context read graph-authoritative.
 KNOWLEDGE_GRAPH_ENFORCE = False
 
+# PARITY (Phase T, Deep World Model): when enforce is OFF (the live state),
+# prompt_block_async still computes the would-be 1-hop graph expansion of the
+# recall seed and logs how many related facts it WOULD add — the quantified bar
+# for the enforce rung, without changing the block the model sees. Observe-only;
+# flip GRAPH_PARITY off to silence it. Independent of KNOWLEDGE_GRAPH_ENFORCE.
+GRAPH_PARITY = True
+
 # Cap on how many related-entity facts the 1-hop expansion may add, so the block
 # stays compact.
 _GRAPH_EXPAND_CAP = 6
@@ -98,6 +105,21 @@ def _emit_graph_shadow(facts: list) -> None:
         if not g.is_empty():
             _LOGGER.debug("graph(shadow): %d entit(ies), %d relation(s)",
                           len(g.entities), len(g.relations))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _log_graph_parity(seed_facts: list, expanded: list) -> None:
+    """Phase T parity: log how many related facts the graph's 1-hop expansion
+    would add to the current flat recall — the quantified bar before the owner
+    flips KNOWLEDGE_GRAPH_ENFORCE. Observe-only; never raises."""
+    try:
+        seed_n = len(seed_facts or [])
+        added = max(0, len(expanded or []) - seed_n)
+        _LOGGER.debug(
+            "graph(parity): recall=%d fact(s); graph expansion would add %d "
+            "related fact(s) (total %d, cap %d)",
+            seed_n, added, len(expanded or []), _GRAPH_EXPAND_CAP)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -578,6 +600,14 @@ async def prompt_block_async(hass, query: str = "", *, subject: Optional[str] = 
             expanded = await hass.async_add_executor_job(_graph_expand_facts, facts)
             if expanded:
                 facts = expanded
+        except Exception:   # pragma: no cover - defensive
+            pass
+    elif GRAPH_PARITY and facts:
+        # Phase T parity: measure the would-be expansion without changing the
+        # block the model sees. Observe-only.
+        try:
+            expanded = await hass.async_add_executor_job(_graph_expand_facts, facts)
+            _log_graph_parity(facts, expanded)
         except Exception:   # pragma: no cover - defensive
             pass
     return _format_block(facts)

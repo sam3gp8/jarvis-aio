@@ -109,7 +109,16 @@ _DECLARED: dict[str, dict] = {
     # knowledge prompt block becomes graph-authoritative with 1-hop relation
     # expansion and the current recall as the fail-safe; that flip advances this
     # row to "enforce". Until then the live state is shadow.
-    "graph":        {"stage": "shadow",  "owners": ["knowledge"]},
+    # graph: typed, queryable knowledge graph (roadmap Phase T, Deep World Model).
+    # Entities + typed relations built from curated knowledge rows. SHADOW:
+    # knowledge.all_facts() folds facts + relation edges into a KnowledgeGraph and
+    # logs a summary. PARITY: knowledge.prompt_block_async computes the would-be
+    # 1-hop graph expansion of the recall seed and logs how many related facts it
+    # WOULD add (kill-switch GRAPH_PARITY) — observe-only, the block the model sees
+    # is unchanged. ENFORCE (owner-gated, default OFF, KNOWLEDGE_GRAPH_ENFORCE):
+    # the prompt block becomes graph-authoritative (recall expanded one hop),
+    # fail-safe = flat recall.
+    "graph":        {"stage": "parity",  "owners": ["knowledge"]},
     # space_time: first-class space & time (roadmap Phase Q, Embodied JARVIS). A
     # pure SpatialGraph (areas + undirected adjacency, built from a floor-plan
     # adjacency map like residence_graph.room_adjacency, with neighbor / adjacent

@@ -767,6 +767,16 @@ facts+relations to a typed, queryable graph. New: graph view on
 builder reads the graph authoritatively). Kill: `KNOWLEDGE_GRAPH_ENFORCE`;
 fail-safe = current semantic recall. Done: a live context read is
 graph-authoritative with no raw fallback.
+**Status:** pure + shadow + parity shipped, enforce path built (owner-gated, OFF).
+Pure: `kernel/graph.py` typed `KnowledgeGraph` (entities + typed relations, pure
+query surface). Shadow: `knowledge.all_facts` folds facts + relation edges into
+the graph and logs a summary (`GRAPH_SHADOW`). Parity: `knowledge.prompt_block_async`
+computes the would-be 1-hop graph expansion of the recall seed and logs how many
+related facts it would add, without changing the block the model sees
+(`GRAPH_PARITY`, observe-only). Enforce: `_graph_expand_facts` makes the prompt
+block graph-authoritative (recall expanded one hop, capped) behind
+`KNOWLEDGE_GRAPH_ENFORCE` (default OFF, in the Governance registry), fail-safe =
+flat recall. **Owner flips the switch.**
 
 **Phase U — Advanced Reasoning & Planning.** Multi-step, constraint-aware plans
 (preconditions, alternatives, compensation). New: extend `kernel/plan.py`. Ladder:
