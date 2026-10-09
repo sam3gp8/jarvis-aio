@@ -874,6 +874,12 @@ primitive; a recurring cadence + a "new capability intake" checklist (ladder,
 gates, kill-switch, Constitution update). The governance gates prevent drift.
 Exit criterion: never — the invariants keep holding as the system grows.
 
+**Version milestone (owner directive, 2026-10):** Phase Ω opens the **v9.0.0**
+line. The v8.x series is the kernel-migration arc — standing up the spine and
+walking every subsystem up the shadow → parity → enforce ladder (this document).
+v9.0.0 marks the shift from *building* the spine to *evolving* on a spine that is
+already authoritative: the major-version bump lands with Phase Ω, not before.
+
 ### Cross-cutting invariant (binds every phase above)
 
 Each phase's enforce step must leave intact (and the four gates enforce): no

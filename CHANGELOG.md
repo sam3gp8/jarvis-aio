@@ -1,3 +1,11 @@
+## [8.143.0] — Roadmap: Phase Ω opens the v9.0.0 line (owner directive)
+
+Docs-only. Records an owner directive in `docs/KERNEL_PLAN.md`: the v8.x series is
+the kernel-migration arc (standing up the spine and walking every subsystem up
+the shadow → parity → enforce ladder), and **Phase Ω — Continuous Evolution**
+marks the shift from *building* the spine to *evolving* on one that is already
+authoritative, landing as **v9.0.0**. No code, primitive, or governance change.
+
 ## [8.142.0] — Uncertainty shadow on the identity fusion read (Epistemic Fabric)
 
 Advances the audit-added **Uncertainty** primitive (`kernel/uncertainty.py`, pure
