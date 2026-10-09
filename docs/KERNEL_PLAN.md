@@ -357,7 +357,7 @@ the roadmap now:
 | I1 | `kernel/agency_state.py`: durable versioned snapshot + continuity summary + reconcile | pure | ✅ Shipped | 8.85.0 |
 | I2 | `continuity.py`: bootstrap captures the snapshot; boot logs the continuity summary | shadow | ✅ Shipped | 8.87.0 |
 | I3 | `continuity.boot_reconcile`: reloaded vs. live commitments, log agreement | parity | ✅ Shipped | 8.88.0 |
-| I4 | JARVIS resumes / announces continuity through the output seam (kill-switched) | enforce | ⏳ Planned (PAUSE for owner) | — |
+| I4 | JARVIS resumes / announces continuity through the output seam (kill-switched) | enforce | ✅ Seam shipped, **default OFF** (owner flips `CONTINUITY_RESUME_ANNOUNCE`) | 8.175.0 |
 
 #### I1 — AgencyState primitive (8.85.0)
 
@@ -393,6 +393,20 @@ the roadmap now:
 - **Parity / log-only:** it computes and logs the reconciliation and drives
   nothing, so the adoption stage stays `shadow` (observe-only) until I4 makes a
   resumption authoritative (enforce). Same kill-switch and fail-safe as I2.
+
+#### I4 — boot-continuity announce seam (8.175.0)
+
+- `continuity.announce_resume(hass, entry)`: on boot (after `boot_summary` /
+  `boot_reconcile`) it can **speak** the continuity line through the output seam
+  — JARVIS saying aloud what it was in the middle of before the restart, not just
+  logging it — resolving TTS engine + announcement speakers exactly as Sentinel
+  does and speaking `resume_summary` once.
+- **Owner-gated, default OFF** (`continuity.CONTINUITY_RESUME_ANNOUNCE`): with the
+  switch off (the default) it returns immediately and says nothing, so startup is
+  behaviour-identical to today; the seam ships ready for the owner to flip. Every
+  failure (no snapshot, no speakers, TTS error) is swallowed so it can never
+  affect the boot path. agency_state's live adoption stage therefore stays
+  `shadow` while this and `CONTINUITY_RESUME_ENFORCE` are both OFF.
 
 ### Phase I½ — Identity & Trust Fabric (new, audit-added) 🚧
 
@@ -1063,7 +1077,7 @@ as *applications* of the architecture. The revised dependency order:
 ```
 H  (universal agency spine)  ✅
 │
-├── I-A  Commitment continuity              (I1–I3 ✅, I4 ⏳ owner-gated)
+├── I-A  Commitment continuity              (I1–I3 ✅, I4 seam ✅ default-OFF)
 ├── I½   Identity & Trust Fabric            (new — before autonomy)
 ├── J    Cognitive Runtime (owns context)
 ├── K    Attention + Working Memory (canonical cognitive context)

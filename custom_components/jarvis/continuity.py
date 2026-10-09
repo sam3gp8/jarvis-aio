@@ -43,6 +43,16 @@ AGENCY_CAPTURE_ENABLED = True
 # adoption stage therefore stays `shadow` while this is OFF.
 CONTINUITY_RESUME_ENFORCE = False
 
+# I4 announce seam (roadmap Phase I-A.4) — owner-gated, DEFAULT OFF. When True,
+# :func:`announce_resume` speaks the boot continuity line through the output seam
+# at startup, so JARVIS says aloud what it was in the middle of before the
+# restart instead of only logging it. When False (default) it is completely
+# silent — behaviour-identical to today — so this ships the seam ready for the
+# owner to flip, never flipped autonomously. The spoken line is sourced from
+# :func:`resume_summary` (cognitive when CONTINUITY_RESUME_ENFORCE is on, else
+# commitment-only). Fail-safe: any error is swallowed and the boot path proceeds.
+CONTINUITY_RESUME_ANNOUNCE = False
+
 # SHADOW (roadmap Phase V — Long-Horizon Agency). On each capture tick, model the
 # live active goals as kernel.long_horizon goals (their steps → milestones) and
 # log a progress roll-up — observe-only. Nothing persists or resumes them durably
@@ -407,6 +417,48 @@ def resume_summary(hass=None) -> str:
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency resume summary failed: %s", exc)
         return ""
+
+
+async def announce_resume(hass=None, entry=None) -> bool:
+    """I4 — speak the boot continuity line through the output seam, if enabled.
+
+    Owner-gated and **default OFF** (:data:`CONTINUITY_RESUME_ANNOUNCE`): with the
+    switch off this returns immediately and says nothing, so startup is unchanged.
+    When on, it resolves JARVIS's TTS engine + announcement speakers the same way
+    Sentinel does and speaks :func:`resume_summary` once. Entirely best-effort —
+    any failure (no snapshot, no speakers, TTS error) is swallowed so it can never
+    affect the boot path. Returns True only if a line was actually handed to a
+    speaker.
+    """
+    if not (CONTINUITY_RESUME_ANNOUNCE and AGENCY_CAPTURE_ENABLED):
+        return False
+    try:
+        line = resume_summary(hass)
+        if not line:
+            return False
+        from . import jarvis_config
+        from .const import CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE
+        from .tts_helper import resolve_tts_entity, async_announce
+        from .audio_routing import broadcast_target
+
+        tts_entity = resolve_tts_entity(
+            hass, jarvis_config.runtime_get(hass, entry, CONF_TTS_ENGINE,
+                                            DEFAULT_TTS_ENGINE))
+        speakers = broadcast_target(
+            hass,
+            broadcast_group=(jarvis_config.runtime_get(
+                hass, entry, "broadcast_group", "") or None),
+            announcement_speakers=jarvis_config.runtime_get(
+                hass, entry, "announcement_speakers", None),
+        )
+        if not tts_entity or not speakers:
+            _LOGGER.debug("continuity resume announce: no TTS/speakers configured")
+            return False
+        return bool(await async_announce(hass, line, tts_entity, speakers,
+                                         context="sentinel"))
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("continuity resume announce failed: %s", exc)
+        return False
 
 
 def boot_reconcile(hass=None):
