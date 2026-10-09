@@ -568,3 +568,50 @@ def test_capture_attaches_identity(cont, load, monkeypatch):
     assert state is not None and state.cognitive is not None
     assert state.cognitive.identity == "Sam (resident) (seen 30s ago)"
     assert cont._store().load_latest().cognitive.identity == "Sam (resident) (seen 30s ago)"
+
+
+# ── long-horizon shadow (roadmap Phase V — model active goals, log progress) ──
+
+def test_long_horizon_shadow_logs_progress_rollup(cont, monkeypatch, caplog):
+    import sys
+    import types
+    fake_goals = types.SimpleNamespace(active=lambda: [
+        {"id": 1, "title": "spring clean", "steps": [
+            {"n": 1, "step": "declutter garage", "status": "done"},
+            {"n": 2, "step": "deep clean kitchen", "status": "pending"}]},   # 0.5
+        {"id": 2, "outcome": "restock pantry", "steps": [
+            {"n": 1, "step": "make a list", "status": "done"},
+            {"n": 2, "step": "place order", "status": "done"}]},             # 1.0 (complete)
+    ])
+    monkeypatch.setitem(sys.modules, "jc.goals", fake_goals)
+    monkeypatch.setattr(sys.modules["jc"], "goals", fake_goals, raising=False)
+    with caplog.at_level(logging.DEBUG):
+        cont._long_horizon_shadow()
+    line = [r.message for r in caplog.records if "long_horizon(shadow)" in r.message]
+    assert line, "expected a long_horizon(shadow) log line"
+    assert "2 goal(s)" in line[-1] and "1 complete" in line[-1]
+    assert "0.75" in line[-1]            # avg of 0.5 and 1.0
+
+
+def test_long_horizon_shadow_kill_switch(cont, monkeypatch, caplog):
+    import sys
+    import types
+    monkeypatch.setattr(cont, "LONG_HORIZON_SHADOW", False)
+    fake_goals = types.SimpleNamespace(active=lambda: [
+        {"id": 1, "title": "g", "steps": [{"n": 1, "step": "x", "status": "done"}]}])
+    monkeypatch.setitem(sys.modules, "jc.goals", fake_goals)
+    monkeypatch.setattr(sys.modules["jc"], "goals", fake_goals, raising=False)
+    with caplog.at_level(logging.DEBUG):
+        cont._long_horizon_shadow()
+    assert not [r for r in caplog.records if "long_horizon(shadow)" in r.message]
+
+
+def test_long_horizon_shadow_defensive_on_no_goals(cont, monkeypatch, caplog):
+    import sys
+    import types
+    fake_goals = types.SimpleNamespace(active=lambda: [])
+    monkeypatch.setitem(sys.modules, "jc.goals", fake_goals)
+    monkeypatch.setattr(sys.modules["jc"], "goals", fake_goals, raising=False)
+    with caplog.at_level(logging.DEBUG):
+        cont._long_horizon_shadow()                 # must not raise, must not log
+    assert not [r for r in caplog.records if "long_horizon(shadow)" in r.message]

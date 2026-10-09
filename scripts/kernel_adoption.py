@@ -259,8 +259,12 @@ _DECLARED: dict[str, dict] = {
     # pure → shadow (a live binder persists these and resumes them from
     # agency_state) → parity (resume-after-restart proven vs the journal) → enforce
     # (a multi-day goal survives restarts and drives suggestions), owner-gated
-    # behind LONG_HORIZON_ENFORCE (fail-safe = session-scoped goals).
-    "long_horizon": {"stage": "pure",    "owners": []},
+    # behind LONG_HORIZON_ENFORCE (fail-safe = session-scoped goals). SHADOW:
+    # continuity._long_horizon_shadow models the live active goals (their steps →
+    # milestones) as long_horizon goals on each capture tick and logs a progress
+    # roll-up (count / complete / avg progress), kill-switch LONG_HORIZON_SHADOW —
+    # observe-only, nothing persists or resumes durably yet.
+    "long_horizon": {"stage": "shadow",  "owners": ["continuity"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped

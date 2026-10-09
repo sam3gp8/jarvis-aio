@@ -826,17 +826,18 @@ spanning days/weeks — the direct payoff of Phase I. New: `kernel/long_horizon.
 (a multi-day goal survives restarts and drives suggestions). Kill:
 `LONG_HORIZON_ENFORCE`; fail-safe = session-scoped goals. Done: a goal persists +
 resumes across a restart with correct progress.
-**Status:** **pure shipped (8.164.0).** `kernel/long_horizon.py` — a
-`LongHorizonGoal` is an ordered set of `Milestone`s (lifecycle pending / active /
-done / blocked / skipped) with a stable id, pure progress derivations (`progress`
-= resolved fraction, `next_milestone`, `is_stalled(now, max_idle=…)`,
+**Status:** **pure + shadow shipped (8.164.0 → 8.167.0).** `kernel/long_horizon.py`
+— a `LongHorizonGoal` is an ordered set of `Milestone`s (lifecycle pending /
+active / done / blocked / skipped) with a stable id, pure progress derivations
+(`progress` = resolved fraction, `next_milestone`, `is_stalled(now, max_idle=…)`,
 `is_complete`), total transitions (`advance` returns a *new* goal), a `plan_goal`
-builder (coerces objects / `{label,status,id}` mappings / bare strings, unique
-ids) and a `summarize` roll-up. No persistence, no clock, no raises. Nothing
-consumes it live yet; the durable ledger + restart-resume wiring land at shadow
-(a live binder persists these, resumed from `agency_state`, a natural home in the
-existing `continuity` binder). Ladder from here: pure ✅ → shadow → parity →
-enforce, owner-gated.
+builder and a `summarize` roll-up. No persistence, no clock, no raises. SHADOW
+(8.167.0): `continuity._long_horizon_shadow` models the live active goals (their
+steps → milestones) as long_horizon goals on each capture tick and logs a progress
+roll-up (count / complete / avg progress), kill-switch `LONG_HORIZON_SHADOW` —
+observe-only; nothing persists or resumes them durably yet. Ladder from here:
+pure ✅ → shadow ✅ → parity (resume-after-restart proven vs the journal, which
+needs the durable ledger + real per-goal timestamps) → enforce, owner-gated.
 
 **Phase W — Social & Relationship Intelligence.** Per-person preference/pattern
 models that personalize — within strict consent/privacy limits. New:
