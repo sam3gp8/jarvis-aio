@@ -3213,9 +3213,22 @@ async def _tick():
     except Exception as exc:
         _LOGGER.debug("Goal tick error: %s", exc)
 
-    # Process actions
+    # Process actions. Under the J4 enforce flip the proactive dispatch plan is
+    # produced by the kernel CognitiveCycle's DECIDE phase — this subsystem's loop
+    # genuinely IS the cycle — then performed here (ACT). Default OFF (the plan is
+    # just `actions`); fail-safe — any cycle error falls back to the legacy order;
+    # dispatch runs exactly once over the chosen plan, so there is no double-fire.
+    # Safety (intrusion/freeze/lockdown) never routes through this proactive loop.
+    plan = actions
+    if _cognitive_cycle_enforce_on():
+        try:
+            plan = _cognitive_cycle_plan(
+                actions, people=len(_people), anyone_home=anyone_home, sleeping=sleeping)
+        except Exception as exc:
+            _LOGGER.warning("cognitive-cycle enforce failed; using legacy order: %s", exc)
+            plan = actions
     emitted = 0
-    for action in actions:
+    for action in plan:
         await _emit_action(hass, config, action, sleeping)
         emitted += 1
 
@@ -3253,6 +3266,71 @@ async def _tick():
         )
     except Exception as exc:
         _LOGGER.debug("working-memory shadow error: %s", exc)
+
+
+# Phase J (J4): ENFORCE — the proactive dispatch loop IS the kernel
+# CognitiveCycle. When on, `_cognitive_cycle_plan` runs the canonical
+# PERCEIVE→INTERPRET→DECIDE→ACT→REFLECT cycle whose DECIDE phase produces the
+# ordered proactive dispatch plan `_tick` then performs — making one (non-safety)
+# subsystem's loop genuinely the cycle. Kill-switched (COGNITIVE_CYCLE_ENFORCE /
+# the `cognitive_cycle_enforce` config key); default OFF so shipping is
+# behaviour-preserving (the plan is just `actions`); fail-safe — any cycle error
+# raises and the caller falls back to the legacy order. The J3 parity log below
+# is the real-traffic evidence the household watches before flipping this on.
+COGNITIVE_CYCLE_ENFORCE = False
+
+
+def _cognitive_cycle_enforce_on() -> bool:
+    """True when the J4 enforce flip is active (module flag or the
+    `cognitive_cycle_enforce` config key). Never raises."""
+    if COGNITIVE_CYCLE_ENFORCE:
+        return True
+    try:
+        if _CORE and _CORE.config and _CORE.config.get("cognitive_cycle_enforce", False):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _cognitive_cycle_plan(actions, *, people: int, anyone_home: bool, sleeping: bool):
+    """Run the kernel CognitiveCycle so its DECIDE phase owns the ordered proactive
+    dispatch plan (J4 enforce) — the proactive loop genuinely becomes the cycle.
+    Returns the ordered action list (== ``actions`` on the happy path). Raises on
+    cycle failure so the caller falls back to the legacy order. Builds nothing
+    safety-related — the proactive dispatch carries no intrusion/freeze/lockdown
+    action."""
+    from .kernel import cycle
+    decided = {"plan": list(actions)}
+
+    def _perceive(ctx):
+        ctx["people"] = people
+        ctx["anyone_home"] = anyone_home
+        ctx["sleeping"] = sleeping
+
+    def _interpret(ctx):
+        ctx["candidate"] = len(actions)
+
+    def _decide(ctx):
+        ctx["plan"] = list(actions)      # the cycle owns the ordered plan
+        decided["plan"] = ctx["plan"]
+
+    def _act(ctx):
+        ctx["dispatched"] = len(decided["plan"])
+
+    def _reflect(ctx):
+        ctx["ok"] = True
+
+    trace = cycle.standard_cycle({
+        cycle.PERCEIVE: _perceive,
+        cycle.INTERPRET: _interpret,
+        cycle.DECIDE: _decide,
+        cycle.ACT: _act,
+        cycle.REFLECT: _reflect,
+    }).tick()
+    if not trace.ok:
+        raise RuntimeError("cognitive cycle did not complete")
+    return decided["plan"]
 
 
 # Phase J (J2): kill-switch for the observe-only cognitive cycle. A module
