@@ -3254,6 +3254,38 @@ def _emit_agency_shadow(label: str, allowed, depth: int) -> None:
         pass
 
 
+# PARITY (Phase O): at each delegation decision point, compare the kernel.agency
+# spawn verdict against what the incumbent _run_delegated actually does (proceed
+# vs. return an error), and log AGREEMENT/DIVERGENCE. The kernel's can_spawn
+# models capability-narrowing + depth; the incumbent also enforces gates the
+# kernel does NOT yet model — chiefly the FRIDAY opt-in (_profile_enabled) — so a
+# disabled profile is the expected DIVERGENCE (kernel would allow the declared
+# tool set, incumbent refuses). That divergence is the signal the owner-gated
+# enforce rung must close (it must sit behind, or encode, those incumbent gates).
+# Observe-only (AGENCY_PARITY kill-switch); drives nothing.
+AGENCY_PARITY = True
+
+
+def _emit_agency_parity(label: str, caps, depth: int, *,
+                        incumbent_proceeded: bool, note: str = "") -> None:
+    """Compare the kernel spawn verdict with the incumbent's proceed/refuse
+    decision and log agreement. Best-effort, never raises; drives nothing."""
+    if not AGENCY_PARITY:
+        return
+    try:
+        from .kernel import agency as _agency
+        parent = _agency.root("jarvis", ("*",), depth=depth)
+        chk = _agency.can_spawn(parent, frozenset(caps or ()),
+                                max_depth=MAX_DELEGATION_DEPTH)
+        agree = (chk.ok == bool(incumbent_proceeded))
+        _LOGGER.debug(
+            "agency(parity): child=%s depth=%d kernel_ok=%s incumbent_proceeded=%s "
+            "agree=%s%s", (label or "sub").lower(), chk.depth, chk.ok,
+            bool(incumbent_proceeded), agree, f" [{note}]" if note else "")
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
                          api_key: str, model: str, base_url, config, depth: int) -> str:
     """Run one ephemeral sub-agent for a delegated objective. Returns a JSON
@@ -3264,6 +3296,8 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
     if not objective:
         return json.dumps({"error": "delegate_task needs an objective"})
     if depth >= MAX_DELEGATION_DEPTH:
+        _emit_agency_parity(profile or capability or "sub", ("*",), depth,
+                            incumbent_proceeded=False, note="depth-guard")
         return json.dumps({"error": "delegation depth limit reached — a sub-agent "
                                     "cannot delegate further; handle this directly"})
 
@@ -3274,7 +3308,12 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
     label = capability
     if profile:
         resolved = _resolve_profile(profile)
-        if isinstance(resolved, str):        # error JSON
+        if isinstance(resolved, str):        # error JSON (unknown or disabled profile)
+            # The incumbent refuses; the kernel, knowing only the profile's declared
+            # tool set, would allow it — the expected divergence the enforce rung
+            # must close by sitting behind the _profile_enabled gate.
+            _emit_agency_parity(profile, AGENT_PROFILES.get(profile, {}).get("tools"),
+                                depth, incumbent_proceeded=False, note="profile-refused")
             return resolved
         allowed, max_turns_cap, directive = resolved
         label = profile.upper()
@@ -3286,6 +3325,9 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
     else:
         allowed = _resolve_capability(capability)
         if not allowed:
+            _emit_agency_parity(capability or "sub",
+                                CAPABILITY_GROUPS.get(capability, ()), depth,
+                                incumbent_proceeded=False, note="unknown-capability")
             return json.dumps({"error": "unknown capability '%s'. Options: %s"
                                         % (capability, ", ".join(sorted(CAPABILITY_GROUPS)))})
         try:
@@ -3294,9 +3336,13 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
             turns = _DELEGATION_MAX_TURNS
         turns = max(1, min(turns, _DELEGATION_MAX_TURNS))
 
-    # Phase O (shadow): dry-run the kernel.agency spawn for this delegation and
-    # log whether the kernel agrees it is legal — observe-only, drives nothing.
+    # Phase O (shadow + parity): dry-run the kernel.agency spawn for this
+    # delegation and log the kernel verdict; parity records that the incumbent is
+    # about to PROCEED, so agreement means the kernel would also allow it.
+    # Observe-only, drives nothing.
     _emit_agency_shadow(label, allowed, depth)
+    _emit_agency_parity(label, allowed, depth, incumbent_proceeded=True,
+                        note="proceed")
 
     # H6: attribute the sub-agent's actuations to it (FRIDAY/HOMER), not to the
     # delegating JARVIS loop. Only named profiles are distinct agents; a generic

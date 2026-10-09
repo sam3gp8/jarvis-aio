@@ -61,11 +61,18 @@ _DECLARED: dict[str, dict] = {
     # dropped=… ok=…" via agency.can_spawn (parent holds '*', child = the resolved
     # tool set, depth bound = MAX_DELEGATION_DEPTH) — observe-only (AGENCY_SHADOW
     # kill-switch), driving nothing; the real tool scoping / depth cap / attribution
-    # are untouched. Enforce (owner-gated AGENCY_ORCHESTRATION_ENFORCE) derives the
-    # sub-agent's token FROM the kernel and runs one real budgeted sub-task,
-    # fail-safe = parent acts directly. (Peer coordination — kernel/coordination.py
-    # — is a later increment of this phase.)
-    "agency":       {"stage": "shadow",  "owners": ["agent"]},
+    # are untouched. PARITY (Phase O): at each _run_delegated decision point agent
+    # also logs whether the kernel spawn verdict AGREES with what the incumbent
+    # actually does (proceed vs error) — "agency(parity): … kernel_ok=…
+    # incumbent_proceeded=… agree=…". The expected divergence is a disabled FRIDAY
+    # profile (kernel allows the declared tools, incumbent refuses via the
+    # _profile_enabled opt-in gate) — the signal the enforce rung must close by
+    # sitting behind those incumbent gates. Observe-only (AGENCY_SHADOW /
+    # AGENCY_PARITY kill-switches). Enforce (owner-gated AGENCY_ORCHESTRATION_ENFORCE)
+    # derives the sub-agent's token FROM the kernel and runs one real budgeted
+    # sub-task, fail-safe = parent acts directly. (Peer coordination —
+    # kernel/coordination.py — is a later increment of this phase.)
+    "agency":       {"stage": "parity",  "owners": ["agent"]},
     # cycle: unified cognitive cycle (roadmap Phase J). A CognitiveCycle runs
     # named injected steps (perceive→interpret→decide→act→reflect) as one
     # instrumented pass with a per-tick correlation id and a CycleTrace. PARITY
