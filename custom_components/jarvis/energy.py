@@ -131,6 +131,49 @@ def _environment_parity(st: dict) -> None:
         _LOGGER.debug("environment parity failed: %s", exc)
 
 
+# Phase X (roadmap) — kernel.environment ENFORCE (owner-gated). When enabled, the
+# kernel environment recommender's actionable efficiency verdict becomes the
+# authority for the "home is over peak" determination that gates a proactive
+# energy offer — the step the parity rung measured. Default OFF, so shipping is
+# byte-for-byte behaviour-preserving; the household flips `environment_enforce`
+# after watching the environment(parity) agreement log. Fail-safe: any error
+# falls back to the legacy `over_peak` threshold, and the >=2-sheddable guard in
+# evaluate_for_proactive is unchanged, so an over-peak verdict with nothing to
+# stagger still surfaces nothing.
+ENVIRONMENT_ENFORCE = False
+
+
+def _environment_enforce_on() -> bool:
+    """True when the environment enforce flip is active (module flag or the
+    `environment_enforce` config key). Never raises."""
+    if ENVIRONMENT_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("environment_enforce", False))
+    except Exception:
+        return False
+
+
+def _environment_over_peak(st: dict) -> bool:
+    """The effective over-peak verdict gating a proactive energy offer: the
+    kernel environment recommender under enforce, else the legacy threshold.
+    Fail-safe — any error returns the legacy `over_peak`. Never raises."""
+    legacy = bool(st.get("over_peak"))
+    if not _environment_enforce_on():
+        return legacy
+    try:
+        watts = st.get("watts")
+        peak = st.get("peak_watts")
+        if watts is None or not peak:
+            return legacy
+        from .kernel import environment as ENV
+        eff = ENV.efficiency(float(watts), peak_w=float(peak))
+        return any(r.actionable for r in ENV.recommend(None, eff))
+    except Exception:
+        return legacy
+
+
 def _cfg(key: str, default=None):
     try:
         from . import jarvis_config
@@ -390,7 +433,7 @@ def evaluate_for_proactive(hass) -> Optional[dict]:
         return None
     _environment_shadow(st)   # Phase X: observe-only, never affects the offer
     _environment_parity(st)   # Phase X: observe-only agreement tracking
-    if not st.get("over_peak"):
+    if not _environment_over_peak(st):   # Phase X enforce (default OFF): kernel verdict or legacy
         return None
     sheddable = [a for a in st["running"] if a["shed_ok"]]
     if len(sheddable) < 2:

@@ -1,3 +1,26 @@
+## [8.180.0] — kernel.environment → enforce (Phase X, owner-gated, default OFF)
+
+Advances the `environment` primitive **parity → enforce**, the first of the
+owner-authorized discretionary enforce flips. When enabled, the kernel
+environment recommender's actionable efficiency verdict becomes the authority
+for the "home is over peak" determination that gates a proactive energy offer —
+the exact step the `environment(parity)` log has been measuring.
+
+- `energy.py`: new `_environment_over_peak(st)` (+ `_environment_enforce_on`) and
+  `evaluate_for_proactive` consults it instead of the raw `over_peak` flag.
+- **Kill-switched, default OFF** (`energy.ENVIRONMENT_ENFORCE` / the
+  `environment_enforce` config key), so shipping is byte-for-byte
+  behaviour-preserving; the household flips it after watching the parity
+  agreement log. **Fail-safe**: any error falls back to the legacy `over_peak`
+  threshold, and the ≥2-sheddable guard is unchanged, so an over-peak verdict
+  with nothing to stagger still surfaces nothing. Comfort/efficiency can never
+  override a live safety concern (the kernel priority guard is unchanged).
+
+Adoption matrix + Constitution regenerated (`environment ● enforce`). Tests:
+`test_energy_environment_enforce.py` (default-off echoes legacy; kernel verdict
+wins when on; module-flag + config-key toggles; fail-safe on bad meter). Audit +
+four kernel gates green. Version 8.179.0 → 8.180.0. Part of #236.
+
 ## [8.179.0] — interior windows + balcony/French doors (issue #324, part 2)
 
 Second part of #324, and the one the reporter asked for most: openings were
