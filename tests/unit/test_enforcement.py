@@ -39,14 +39,14 @@ def test_registry_is_wellformed(enf):
 
 def test_known_defaults(enf):
     by_key = {s.key: s for s in enf.mod.all_switches()}
-    # Owner-opt-in capabilities (still OFF).
-    for k in ("continuity_resume", "agency_orchestration"):
-        assert by_key[k].default is False
+    # Owner-opt-in capability still OFF.
+    assert by_key["continuity_resume"].default is False
+    assert by_key["continuity_resume"].category == enf.mod.CATEGORY_CAPABILITY
+    # Capabilities owner-enabled so far (knowledge_graph 8.158.0, agency_orchestration
+    # 8.159.0) now ship ON — still capabilities (reversible), fail-safe to incumbent.
+    for k in ("knowledge_graph", "agency_orchestration"):
+        assert by_key[k].default is True
         assert by_key[k].category == enf.mod.CATEGORY_CAPABILITY
-    # knowledge_graph is a capability too, but was owner-enabled (8.158.0) so it
-    # now ships ON (fail-safe = flat recall).
-    assert by_key["knowledge_graph"].default is True
-    assert by_key["knowledge_graph"].category == enf.mod.CATEGORY_CAPABILITY
     # Live safety rungs ship ON.
     for k in ("authority", "agency_budget", "loop_detect", "safety_seam",
               "hazard_situation", "intrusion_gate", "delivery_situation"):
@@ -89,8 +89,9 @@ def test_apply_overrides_applies_only_stored(enf):
     assert applied == 2
     assert getattr(enf.fakes["continuity"], "CONTINUITY_RESUME_ENFORCE") is True
     assert getattr(enf.fakes["authority_bridge"], "AUTHORITY_ENFORCE") is False
-    # A switch with no stored override keeps its code default.
-    assert getattr(enf.fakes["agent"], "AGENCY_ORCHESTRATION_ENFORCE") is False
+    # A switch with no stored override keeps its code default (agency_orchestration
+    # now ships True, so the fake — seeded from sw.default — stays True).
+    assert getattr(enf.fakes["agent"], "AGENCY_ORCHESTRATION_ENFORCE") is True
 
 
 def test_live_value_falls_back_when_module_missing(enf, monkeypatch):

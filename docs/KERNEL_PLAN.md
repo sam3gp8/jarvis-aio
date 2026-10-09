@@ -716,16 +716,16 @@ pending→active→settled/failed lifecycle; `agent._run_delegated` emits
 `agency(shadow)` and `agency(parity)` per delegation (observe-only). Parity
 surfaces the one expected divergence — a disabled FRIDAY profile the kernel
 would allow but the `_profile_enabled` gate refuses — as the signal the enforce
-rung must close. The **enforce** path now SHIPS behind
-`AGENCY_ORCHESTRATION_ENFORCE` **defaulted off** (`agent._agency_enforce`): when
-the owner enables it the kernel becomes the authority source — the child's tool
-set is derived from `agency.spawn` and the delegation is vetoed if
-`agency.can_spawn` refuses, sitting behind every incumbent gate so it only
-narrows. Behaviour-preserving (identical today even when on, since JARVIS holds
-all capabilities); fail-safe = the incumbent set. **Owner flips the switch.**
-Remaining: scope JARVIS's own token so the narrowing bites; a kernel Agency
-lifecycle bracket (spawn→settled) for attribution/verification; and peer
-coordination (`kernel/coordination.py`).
+rung must close. **Enforce is now ON (owner-enabled 8.159.0):**
+`AGENCY_ORCHESTRATION_ENFORCE = True` (`agent._agency_enforce`) — the kernel is
+the authority source: the child's tool set is derived from `agency.spawn` and the
+delegation is vetoed if `agency.can_spawn` refuses, sitting behind every incumbent
+gate so it only narrows. Behaviour-identical today (JARVIS's root token holds
+`*`, so the derived set == the incumbent set and the veto never fires); fail-safe
+= the incumbent set (any kernel error passes it through). Reversible from
+Settings → Governance (`agency_orchestration`). Remaining: scope JARVIS's own
+token so the narrowing bites; a kernel Agency lifecycle bracket (spawn→settled)
+for attribution/verification; and peer coordination (`kernel/coordination.py`).
 
 **Phase P — Proactive Household Intelligence.** Household-level anticipation
 (routines, comfort) — suggest, don't act. **Reordering (audit): delayed.**

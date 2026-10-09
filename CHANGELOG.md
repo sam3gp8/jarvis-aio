@@ -1,3 +1,29 @@
+## [8.159.0] — Enforce: multi-agent orchestration (Phase O)
+
+Second owner-authorized enforce flip. The kernel is now the authority source for
+delegated sub-agents — **behaviour-identical today**, fail-safe to the incumbent
+tool set.
+
+- `agent.py`: `AGENCY_ORCHESTRATION_ENFORCE` **False → True**. A delegated
+  sub-agent's effective tool set is now DERIVED from a kernel `agency.spawn`
+  (strict narrowing of the incumbent-resolved set), and a delegation the kernel
+  refuses is VETOED. It sits **behind** every incumbent gate (depth guard, FRIDAY
+  `_profile_enabled` opt-in, capability validity), so it can only narrow, never
+  widen. **No-op today:** JARVIS's root token holds `("*",)`, so the derived set
+  equals the incumbent set and the veto never fires — the kernel simply becomes
+  authoritative so the narrowing bites once its token is scoped. **Fail-safe:**
+  any kernel error passes the incumbent `allowed` set through unchanged.
+- `enforcement.py`: `agency_orchestration` Governance switch now reports `default`
+  **True** with an updated explanation; still a capability, reversible OFF.
+- `scripts/kernel_adoption.py`: `agency` **parity → enforce** (owner `agent`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Phase O status → enforce ON.
+
+The 7 safety kill-switches remain ON. Tests: `test_enforcement.py` +
+`test_agency_delegation_shadow.py` updated for the new default (the
+pass-through / never-widen / fail-safe properties already pinned). Audit + four
+kernel gates green. Version 8.158.0 → 8.159.0.
+
 ## [8.158.0] — Enforce: knowledge-graph recall (Phase T) + Ω→README note
 
 First owner-authorized **enforce flip** (per "full permissions for enforcements").

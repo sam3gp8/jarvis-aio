@@ -79,15 +79,16 @@ _REGISTRY: List[Switch] = [
     ),
     Switch(
         key="agency_orchestration", module="agent",
-        attr="AGENCY_ORCHESTRATION_ENFORCE", default=False,
+        attr="AGENCY_ORCHESTRATION_ENFORCE", default=True,
         category=CATEGORY_CAPABILITY, phase="O",
         name="Multi-agent orchestration",
         explanation=(
-            "Let the kernel be the authority source for delegated sub-agents — it "
-            "can only *narrow* a sub-agent's tools, never widen them. OFF "
-            "(default): the existing delegation path. Behaviour-identical today "
-            "because JARVIS holds every capability, so the narrowing never bites "
-            "until you scope its token."),
+            "The kernel is the authority source for delegated sub-agents — it can "
+            "only *narrow* a sub-agent's tools, never widen them, and vetoes a "
+            "spawn it refuses. ON (enabled 8.159.0). Behaviour-identical today "
+            "because JARVIS holds every capability, so the narrowing doesn't bite "
+            "until its token is scoped; fail-safe = the incumbent tool set. Turn "
+            "OFF to revert to the pre-kernel delegation path."),
     ),
     Switch(
         key="knowledge_graph", module="knowledge",

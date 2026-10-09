@@ -88,9 +88,10 @@ def test_agency_parity_kill_switch(agent, monkeypatch, caplog):
 
 # ── Phase O (enforce, owner-gated): kernel-derived authority, default OFF ──────
 
-def test_agency_enforce_defaults_off(agent):
-    # The live-home switch ships OFF; only the owner flips it.
-    assert agent.AGENCY_ORCHESTRATION_ENFORCE is False
+def test_agency_enforce_enabled_by_default(agent):
+    # Owner-enabled 8.159.0: the kernel is the delegation authority source.
+    # Behaviour-identical today (JARVIS holds all caps), fail-safe = incumbent.
+    assert agent.AGENCY_ORCHESTRATION_ENFORCE is True
 
 
 def test_agency_enforce_passes_through_resolved_set(agent):
