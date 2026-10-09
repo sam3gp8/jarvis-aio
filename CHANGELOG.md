@@ -1,3 +1,33 @@
+## [8.152.0] — Conflict resolution shadow → parity (presence)
+
+Epistemic Fabric **Conflict** primitive promoted shadow → parity. The presence
+read already adjudicates each person's backing `device_tracker`s through
+`kernel.conflict` and logs the winner vs HA's native `person.state`; this adds
+the quantified parity bar over real reads.
+
+- `presence.py`:
+  - `_emit_presence_conflict_parity()` — over a rolling window
+    (`_CONFLICT_PARITY_WINDOW` = 200) of the per-person adjudications the shadow
+    computes, logs how often `kernel.conflict`'s reliability-weighted winner
+    **AGREES** with HA's native `person.state` (`agree_rate` over non-contested
+    resolutions) and how often it would **DEFER** (`contested_rate`). That is the
+    bar the owner-gated enforce rung needs: a consumer should read the adjudicated
+    value only once it tracks HA closely and rarely defers.
+  - verdicts accumulate inside the existing shadow loop (so parity shares the same
+    real reads); the parity summary is emitted once per presence read. Observe-only
+    — the summary dict is unchanged and HA's resolution still stands. Kill-switch
+    `CONFLICT_PARITY` (independent of `CONFLICT_SHADOW`).
+- `scripts/kernel_adoption.py`: `conflict` **shadow → parity** (owners
+  `["presence"]`); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md`
+  regenerated from it.
+- `docs/KERNEL_PLAN.md`: Conflict ladder note → pure + shadow + parity shipped.
+
+Behaviour-preserving: observe-only, kill-switched, drives nothing; enforce (a
+consumer reads the adjudicated value) stays owner-gated. Tests:
+`tests/unit/test_presence_conflict_parity.py` (7 — agreement rate, contested
+accounting, divergence, rolling-window arithmetic, kill-switch, empty-window,
+summary-unchanged). Audit + four kernel gates green. Version 8.151.0 → 8.152.0.
+
 ## [8.151.0] — Phase K working-memory shadow (cognitive_core populate)
 
 Roadmap **Phase K** shadow rung: `cognitive_core` now populates the
