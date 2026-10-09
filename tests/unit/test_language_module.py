@@ -258,3 +258,30 @@ def test_ui_language_auto_falls_through_to_global(language, set_langs):
 def test_ui_language_region_suffix_stripped(language, set_langs):
     set_langs(output="", ui="pt-br")
     assert language.configured_language(_hass("en")) == "pt"
+
+
+# ── translate_directive — localizing static alert templates (#317) ───────────
+# Sentinel's door/window lines are plain English format strings; this directive
+# lets the caller translate them to the household language. English homes get ""
+# (no translation, no extra model call).
+
+def test_translate_directive_empty_for_english(language):
+    assert language.translate_directive(_hass("en")) == ""
+    assert language.translate_directive(_hass(None)) == ""
+
+
+def test_translate_directive_names_target_language(language):
+    d = language.translate_directive(_hass("ru"))
+    assert d and "Russian" in d and "Translate" in d
+
+
+def test_translate_directive_follows_output_language(language, set_langs):
+    # HA system English, but JARVIS Output language = German → translate to German.
+    set_langs(output="de", ui="auto")
+    assert "German" in language.translate_directive(_hass("en"))
+
+
+def test_translate_directive_follows_ui_language_fallback(language, set_langs):
+    # Output Auto, JARVIS UI Russian (the #317 case) → translate to Russian.
+    set_langs(output="auto", ui="ru")
+    assert "Russian" in language.translate_directive(_hass("en"))

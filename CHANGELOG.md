@@ -1,3 +1,30 @@
+## [8.176.0] — localize Sentinel's static door/window alerts (issue #317)
+
+Follow-up to 8.174.0. That fix localized JARVIS's **LLM-generated** output; this
+one closes the remaining gap the reporter hit — proactive **Sentinel** alerts
+("{honorific}, {friendly_name} has been open for {minutes} minutes") are plain
+English **format strings** spoken verbatim, so on a non-English home they came
+out in English (and, once TTS was set to Russian, as English words in a Russian
+voice). The LLM-generated Sentinel fallback already localized; the static
+default rules did not.
+
+- `language.py`: new `translate_directive(hass, lang=None)` — a translation
+  system prompt naming the household output language (keep names/numbers), or
+  `""` for English / unset so the caller speaks the original text and makes **no
+  extra model call**. Follows the same resolution as the rest of the module
+  (per-request → `output_language` → `ui_language` → HA system → en).
+- `sentinel.py`: new `_localize(text)` translates a filled static template into
+  the output language via the sentinel LLM client before speaking/pushing it;
+  wired into the `"message"`-rule branch. No-op for English; best-effort — any
+  failure falls back to the original English line and never raises into the
+  alert path.
+
+Behaviour-preserving for English homes (no translation, no extra call, identical
+text). Tests: `test_language_module.py` gains the `translate_directive` cases
+(empty for English; names the target; follows `output_language` and the
+`ui_language` fallback). Audit + four kernel gates green. Version
+8.175.0 → 8.176.0.
+
 ## [8.175.0] — boot-continuity announce seam (Phase I4, default OFF)
 
 Builds the last rung of commitment continuity (Phase I-A.4): on restart JARVIS

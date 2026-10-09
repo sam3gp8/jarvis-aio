@@ -297,6 +297,10 @@ class JarvisSentinel:
                 minutes=minutes,
                 honorific=self._honorific,
             )
+            # Static rule templates are plain English; localize to the household
+            # output language so proactive door/window alerts aren't spoken in
+            # English on a non-English home (issue #317). No-op for English.
+            text = await self._localize(text)
         else:
             text = await self._groq_line(entity_id, friendly_name, rule, minutes)
 
@@ -337,6 +341,33 @@ class JarvisSentinel:
                 )
         except Exception as exc:
             _LOGGER.debug("Sentinel phone notify failed: %s", exc)
+
+    async def _localize(self, text: str) -> str:
+        """Translate a static alert template into the household output language.
+
+        No-op (returns ``text`` unchanged, no model call) for an English / unset
+        home, so English behaviour is identical. On any failure the original
+        English line is spoken — best-effort, never raises into the alert path.
+        """
+        try:
+            from .language import translate_directive
+            system = translate_directive(self.hass)
+            if not system:
+                return text
+            result = await self.hass.async_add_executor_job(
+                lambda: self._groq.chat(
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": text},
+                    ],
+                    max_tokens=80,
+                )
+            )
+            out = ((result or {}).get("text") or "").strip()
+            return out or text
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.debug("Sentinel localize failed: %s", exc)
+            return text
 
     async def _groq_line(
         self, entity_id: str, friendly_name: str, rule: dict, minutes: int
