@@ -1,3 +1,28 @@
+## [8.158.0] — Enforce: knowledge-graph recall (Phase T) + Ω→README note
+
+First owner-authorized **enforce flip** (per "full permissions for enforcements").
+Lowest-risk capability rung, fail-safe to current behaviour.
+
+- `knowledge.py`: `KNOWLEDGE_GRAPH_ENFORCE` **False → True**. The curated-knowledge
+  prompt block is now **graph-authoritative** — recall-seeded facts are expanded
+  one hop through the typed knowledge graph (directly-related facts pulled in,
+  capped at 6). **Fail-safe:** any failure or empty graph result falls back to
+  exactly the flat recall block, so this can only *add* related context — it never
+  removes context or touches any actuation/safety path. Earned parity first
+  (`GRAPH_PARITY` measured the would-be expansion in 8.154.0).
+- `enforcement.py`: the `knowledge_graph` Governance switch now reports `default`
+  **True** with an updated explanation; still a capability (reversible OFF →
+  flat recall from Settings → Governance). `overridden` semantics unchanged.
+- `scripts/kernel_adoption.py`: `graph` **parity → enforce** (owner `knowledge`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Phase T status → enforce ON; **and a durable note that
+  Phase Ω's definition of done includes refreshing the README** (owner-requested).
+
+The 7 safety kill-switches are untouched (still ON). Tests:
+`tests/unit/test_knowledge.py` (enforce-on-by-default expansion; enforce-off path
+pinned explicitly) and `test_enforcement.py` (knowledge_graph default True).
+Audit + four kernel gates green. Version 8.157.0 → 8.158.0.
+
 ## [8.157.0] — World-model multi-source presence fusion (shadow)
 
 Phase-T world-model multi-source fusion: adjudicate a person's whereabouts across

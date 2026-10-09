@@ -780,16 +780,17 @@ facts+relations to a typed, queryable graph. New: graph view on
 builder reads the graph authoritatively). Kill: `KNOWLEDGE_GRAPH_ENFORCE`;
 fail-safe = current semantic recall. Done: a live context read is
 graph-authoritative with no raw fallback.
-**Status:** pure + shadow + parity shipped, enforce path built (owner-gated, OFF).
+**Status:** pure + shadow + parity + **enforce shipped (ON, 8.158.0)**.
 Pure: `kernel/graph.py` typed `KnowledgeGraph` (entities + typed relations, pure
 query surface). Shadow: `knowledge.all_facts` folds facts + relation edges into
 the graph and logs a summary (`GRAPH_SHADOW`). Parity: `knowledge.prompt_block_async`
-computes the would-be 1-hop graph expansion of the recall seed and logs how many
-related facts it would add, without changing the block the model sees
-(`GRAPH_PARITY`, observe-only). Enforce: `_graph_expand_facts` makes the prompt
-block graph-authoritative (recall expanded one hop, capped) behind
-`KNOWLEDGE_GRAPH_ENFORCE` (default OFF, in the Governance registry), fail-safe =
-flat recall. **Owner flips the switch.**
+computed the would-be 1-hop graph expansion of the recall seed and logged how many
+related facts it would add (`GRAPH_PARITY`, observe-only). Enforce:
+`KNOWLEDGE_GRAPH_ENFORCE` is **True** — the prompt block is graph-authoritative
+(recall expanded one hop, capped at 6) via `_graph_expand_facts`, fail-safe = flat
+recall (any failure falls back, so it only *adds* context, never touches
+actuation). Reversible from Settings → Governance (`knowledge_graph`). ✅ *Done:
+a live context read is graph-authoritative with a flat-recall fallback.*
 
 **Phase U — Advanced Reasoning & Planning.** Multi-step, constraint-aware plans
 (preconditions, alternatives, compensation). New: extend `kernel/plan.py`. Ladder:
@@ -933,6 +934,10 @@ features, issues and audits fold in under the same discipline forever. No new
 primitive; a recurring cadence + a "new capability intake" checklist (ladder,
 gates, kill-switch, Constitution update). The governance gates prevent drift.
 Exit criterion: never — the invariants keep holding as the system grows.
+**Definition of done for Ω's opening release (owner directive, 2026-10): refresh
+the top-level `README` to reflect the completed kernel/MCU architecture.** The
+README update is an explicit step of the release that lands Ω / v9.0.0 — not done
+earlier, since before Ω the architecture is still being built.
 
 **Version milestone (owner directive, 2026-10):** Phase Ω opens the **v9.0.0**
 line. The v8.x series is the kernel-migration arc — standing up the spine and
