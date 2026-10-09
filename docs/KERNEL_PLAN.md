@@ -881,6 +881,23 @@ constraints — including climate/air/light and comfort/efficiency trade-offs. N
 (suggest-don't-act; any actuation stays on the safety seam). Kill:
 `ENVIRONMENT_ENFORCE`; fail-safe = current heuristics. Done: climate/energy
 suggestions come from the model and respect the safety seam + priority ladder.
+**Status:** **pure shipped (8.169.0).** `kernel/environment.py` — a read-only
+model of environmental state (`Reading`s of temperature / humidity / air-quality
+/ power / apertures, with `EnvironmentState` query helpers) plus two objective
+functions: `comfort(state, bands)` scores each reading against a `ComfortBand`
+(1.0 at the ideal, falling to 0 a band-width away) and rolls up an overall +
+worst entry; `efficiency(power_w, peak_w)` assesses whole-home draw against a
+peak threshold. The invariant-bearing piece is the recommender: `recommend(...)`
+/ `assess(...)` emit **advisory** `Recommendation`s (comfort at the CONVENIENCE
+tier, efficiency at HOUSEHOLD) and flag each `blocked_by_safety` whenever an
+active safety concern outranks it — reusing `kernel.priority.may_override`, so
+comfort/efficiency can **never** override a safety concern (the done criterion's
+"respect the safety seam + priority ladder", encoded structurally). Pure: no HA
+import, holds no actuator, grants nothing, and nothing live consumes it yet — the
+live binders (`energy` / `sentinel` / climate) wire real sensors onto it at the
+shadow rung. Ladder from here: pure ✅ → shadow (recommendations logged alongside
+the current heuristics) → parity (vs sentinel/energy) → enforce
+(`ENVIRONMENT_ENFORCE`), owner-gated.
 
 **Phase Y — Self-Optimization.** Measure own performance (latency, accuracy,
 interruption cost, model spend) and tune *within owner bounds*. New:
