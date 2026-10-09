@@ -237,15 +237,19 @@ _DECLARED: dict[str, dict] = {
     # A read-only projection — capabilities (each with a status), current
     # commitments (goals / open situations), overall confidence, known limits —
     # so "what can you do / what are you doing / are you sure?" can be model-backed
-    # instead of confabulated. PURE: a record + deterministic derivations (can /
-    # available / report / to_dict) + a total builder; nothing consumes it live
-    # yet. Hard rule by construction: it only DESCRIBES — it carries no authority
-    # and cannot grant, activate or widen anything (authority lives in the
-    # authority primitive). Ladder: pure → shadow (a diagnostics read logs it) →
-    # parity (self-report vs ground truth) → enforce (self-answers sourced from the
-    # model, no confabulation), owner-gated behind SELF_MODEL_ENFORCE (fail-safe =
-    # static capability list).
-    "self_model":   {"stage": "pure",    "owners": []},
+    # instead of confabulated. SHADOW: agent._exec_cognitive_status (the
+    # cognitive-status introspection read) builds a SelfModel from live inputs —
+    # governed capabilities from the enforcement registry (each available when its
+    # switch is on), commitments from active goals + open situations, confidence =
+    # share of capabilities active, inactive ones as limits — and logs it (and
+    # surfaces it in the status JSON, beside the E1 beliefs snapshot), kill-switch
+    # SELF_MODEL_SHADOW. Observe-only; no decision consumes it. Hard rule by
+    # construction: it only DESCRIBES — it carries no authority and cannot grant,
+    # activate or widen anything (authority lives in the authority primitive).
+    # Ladder: pure → shadow → parity (self-report vs ground truth) → enforce
+    # (self-answers sourced from the model, no confabulation), owner-gated behind
+    # SELF_MODEL_ENFORCE (fail-safe = static capability list).
+    "self_model":   {"stage": "shadow",  "owners": ["agent"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped

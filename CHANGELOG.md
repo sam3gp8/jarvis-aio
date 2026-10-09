@@ -1,3 +1,28 @@
+## [8.163.0] — Self-model shadow on the cognitive-status read (Phase S)
+
+Advances `kernel.self_model` from **pure → shadow**: JARVIS's self-picture is now
+*projected from live state* on the introspection path, observe-only.
+
+- `agent.py`: new `SELF_MODEL_SHADOW` (default **True**) + `_project_self_model`
+  (pure) + `_build_self_model_snapshot` (live reads). `_exec_cognitive_status`
+  now builds a `SelfModel` from live inputs — governed **capabilities** from the
+  enforcement registry (each `available` when its switch is on, `unavailable`
+  when off), **commitments** from active goals + open kernel situations,
+  **confidence** = share of capabilities active, and inactive ones as **limits** —
+  then logs `self(shadow): …` and surfaces it in the status JSON (beside the E1
+  beliefs snapshot). **Observe-only:** no decision consumes it; it only
+  *describes* (naming a capability never grants it — authority stays in
+  `kernel.authority`). Fail-safe: every read is guarded and never fails the status
+  call; flip `SELF_MODEL_SHADOW` off to silence it.
+- `scripts/kernel_adoption.py`: `self_model` **pure → shadow** (owner `agent`);
+  `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Phase S status → pure + shadow shipped.
+
+No behaviour, actuation, or safety path changes — the status tool gains an
+introspection field, nothing more. Tests: `test_self_model_shadow.py` (switch →
+capability mapping, commitments, confidence, defensive, describing-is-not-having,
+kill-switch default). Audit + four kernel gates green. Version 8.162.0 → 8.163.0.
+
 ## [8.162.0] — Self-model primitive (pure) — opens Phase S (Self Model & Self Awareness)
 
 Lands the foundation of Phase S: an explicit, inspectable model of what JARVIS is

@@ -1833,6 +1833,83 @@ async def _exec_unignore(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+# SHADOW (roadmap Phase S — Self Model & Self Awareness): the cognitive-status
+# introspection read also builds a kernel.self_model.SelfModel from live inputs
+# and logs it (and surfaces it in the status JSON, like the E1 beliefs snapshot) —
+# observe-only, no decision consumes it. Advances self_model pure → shadow. The
+# model only DESCRIBES: naming a capability never grants it (capability authority
+# lives in the kernel authority primitive, never here). Flip SELF_MODEL_SHADOW
+# off to silence it.
+SELF_MODEL_SHADOW = True
+
+
+def _project_self_model(switches, goals_rows, situation_labels):
+    """Pure projection of live-read rows into a kernel.self_model.SelfModel:
+    governed capabilities (each *available* when its enforcement switch is on,
+    *unavailable* when off), commitments (active goals + open situations),
+    confidence = the share of capabilities currently active, and the inactive
+    ones stated as limits. Read-only — it grants nothing. Never raises."""
+    from .kernel import self_model as SM
+    caps, limits = [], []
+    for sw in (switches or []):
+        if not isinstance(sw, dict):
+            continue
+        name = str(sw.get("key") or sw.get("name") or "").strip()
+        if not name:
+            continue
+        on = bool(sw.get("enabled"))
+        caps.append({"name": name,
+                     "status": SM.AVAILABLE if on else SM.UNAVAILABLE,
+                     "note": str(sw.get("category") or "")})
+        if not on:
+            limits.append(name)
+    commitments = []
+    for g in (goals_rows or []):
+        if not isinstance(g, dict):
+            continue
+        lbl = str(g.get("title") or g.get("outcome") or "").strip()
+        if lbl:
+            commitments.append(f"goal: {lbl}")
+    for lbl in (situation_labels or []):
+        lbl = str(lbl).strip()
+        if lbl:
+            commitments.append(f"situation: {lbl}")
+    total = len(caps)
+    usable = sum(1 for c in caps if c["status"] != SM.UNAVAILABLE)
+    confidence = (usable / total) if total else 1.0
+    return SM.project(capabilities=caps, commitments=commitments,
+                      confidence=confidence, limits=limits)
+
+
+def _build_self_model_snapshot(hass):
+    """Live reads → :func:`_project_self_model`. SYNC (DB + registry reads) — call
+    via the executor. Returns a SelfModel, or None on any failure. Never raises."""
+    try:
+        from . import enforcement
+        switches = enforcement.current() or []
+    except Exception:
+        switches = []
+    try:
+        from . import goals
+        goals_rows = goals.active() or []
+    except Exception:
+        goals_rows = []
+    sit_labels = []
+    try:
+        from .kernel.situation import SituationManager
+        from .paths import config_path_str
+        store = SituationManager(config_path_str("jarvis", "situations.db", hass=hass))
+        for s in store.open_situations():
+            subj = getattr(s, "subject", None)
+            sit_labels.append(s.kind + (f" · {subj}" if subj else ""))
+    except Exception:
+        sit_labels = []
+    try:
+        return _project_self_model(switches, goals_rows, sit_labels)
+    except Exception:   # pragma: no cover - defensive
+        return None
+
+
 async def _exec_cognitive_status(hass: HomeAssistant, args: dict) -> str:
     """Get cognitive core status and learning stats."""
     try:
@@ -1859,6 +1936,19 @@ async def _exec_cognitive_status(hass: HomeAssistant, args: dict) -> str:
             }
         except Exception:
             pass
+        # Phase S (shadow): a read-only self-model projection — governed
+        # capabilities, current commitments, confidence, limits — logged and
+        # surfaced for introspection. No decision consumes it; it only DESCRIBES
+        # (naming a capability never grants it). Best-effort; never fails status.
+        if SELF_MODEL_SHADOW:
+            try:
+                sm = await hass.async_add_executor_job(
+                    _build_self_model_snapshot, hass)
+                if sm is not None:
+                    _LOGGER.debug("self(shadow): %s", sm.report())
+                    status["self_model"] = sm.to_dict()
+            except Exception:
+                pass
         return json.dumps(status)
     except Exception as exc:
         return json.dumps({"error": str(exc)})

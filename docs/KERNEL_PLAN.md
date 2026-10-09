@@ -778,15 +778,20 @@ ground truth) → enforce (self-answers sourced from the model, no confabulation
 Kill: `SELF_MODEL_ENFORCE`; fail-safe = static capability list. **Hard rule:**
 describing a capability never grants it. Done: "what can/are you doing" answers
 are provably model-backed.
-**Status:** **pure shipped (8.162.0).** `kernel/self_model.py` — a read-only
-`SelfModel` projection (capabilities each with a status, commitments, overall
-confidence, known limits, identity) with pure derivations (`can` / `available` /
-`report` / `to_dict`) and a total `project()` builder. The hard rule is
-structural: it only *describes* — no method grants, activates or widens anything,
-and an unavailable capability is never reported usable. Nothing consumes it live
-yet. Ladder from here: pure ✅ → shadow (a diagnostics read logs it) → parity
-(self-report vs ground truth) → enforce (self-answers sourced from the model),
-owner-gated.
+**Status:** **pure + shadow shipped (8.162.0 → 8.163.0).** `kernel/self_model.py`
+— a read-only `SelfModel` projection (capabilities each with a status,
+commitments, overall confidence, known limits, identity) with pure derivations
+(`can` / `available` / `report` / `to_dict`) and a total `project()` builder. The
+hard rule is structural: it only *describes* — no method grants, activates or
+widens anything, and an unavailable capability is never reported usable. SHADOW
+(8.163.0): `agent._exec_cognitive_status` (the cognitive-status introspection
+read) builds a SelfModel from live inputs — governed capabilities from the
+enforcement registry (available when the switch is on), commitments from active
+goals + open situations, confidence = share of capabilities active, inactive ones
+as limits — and logs it (and surfaces it in the status JSON beside the E1 beliefs
+snapshot), kill-switch `SELF_MODEL_SHADOW`. Observe-only; no decision consumes it.
+Ladder from here: pure ✅ → shadow ✅ → parity (self-report vs ground truth) →
+enforce (self-answers sourced from the model), owner-gated.
 
 **Phase T — Deep World Model (knowledge graph).** Upgrade `knowledge.py`
 facts+relations to a typed, queryable graph. New: graph view on
