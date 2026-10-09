@@ -1,3 +1,25 @@
+## [8.181.0] — kernel.identity_fabric → enforce (Phase I½, owner-gated, default OFF)
+
+Advances the `identity_fabric` primitive **parity → enforce** (#237). When
+enabled, `identity.resolve()` applies the fabric's **identity ≠ presence** rule to
+a live path: a confident verdict resting ONLY on presence-class signals
+(sole-occupant / home-prior / room / proximity) is downgraded to `UNKNOWN`, with
+method `presence_not_identity`. Presence locates a body; only a face or voiceprint
+establishes *who*.
+
+- `identity.py`: new `_identity_fabric_enforce_on()` + `_fabric_establishes_identity(methods)`, consulted in `resolve()` after the legacy confidence gate.
+- **Kill-switched, default OFF** (`IDENTITY_FABRIC_ENFORCE` / the
+  `identity_fabric_enforce` config key) → shipping is behaviour-preserving (the
+  parity log is expected to show frequent presence→identity divergence in a
+  single-occupant home, which is exactly why activation is the household's call,
+  after watching that log). **Fail-safe**: any error leaves the legacy verdict
+  untouched — enforce never downgrades a verdict it couldn't classify.
+
+Adoption matrix + Constitution regenerated (`identity_fabric ● enforce`). Tests:
+`test_identity_fabric_enforce.py` (helper rule; default-off keeps presence known;
+enforce downgrades presence-only; a face verdict is never downgraded). Audit +
+four kernel gates green. Version 8.180.0 → 8.181.0. Part of #236 / #237.
+
 ## [8.180.0] — kernel.environment → enforce (Phase X, owner-gated, default OFF)
 
 Advances the `environment` primitive **parity → enforce**, the first of the
