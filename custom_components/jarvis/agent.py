@@ -3286,19 +3286,19 @@ def _emit_agency_parity(label: str, caps, depth: int, *,
         pass
 
 
-# ENFORCE (Phase O — Agency Orchestration): OWNER-GATED, default OFF. When the
-# owner turns this on, the KERNEL becomes the source of a delegated sub-agent's
-# authority: its effective tool set is DERIVED from a kernel agency spawn (a
-# strict narrowing of the incumbent-resolved set), and the delegation is VETOED
-# if the kernel refuses the spawn. It sits BEHIND every incumbent gate (depth,
-# the FRIDAY opt-in via _profile_enabled, capability validity), so it can only
-# ever narrow authority, never widen it. Today JARVIS holds all capabilities, so
-# the derived set equals the incumbent set and the veto never fires — i.e. ON is
-# behaviourally identical to today; the switch exists so the owner can make the
-# kernel authoritative (and later scope JARVIS's own token / move gates into the
-# kernel). Fail-safe = the incumbent `allowed` set (any kernel error passes the
-# incumbent decision through). This flag is flipped ONLY by the owner.
-AGENCY_ORCHESTRATION_ENFORCE = False
+# ENFORCE (Phase O — Agency Orchestration): ON (owner-enabled, 8.159.0). The
+# KERNEL is the source of a delegated sub-agent's authority: its effective tool
+# set is DERIVED from a kernel agency spawn (a strict narrowing of the
+# incumbent-resolved set), and the delegation is VETOED if the kernel refuses the
+# spawn. It sits BEHIND every incumbent gate (depth, the FRIDAY opt-in via
+# _profile_enabled, capability validity), so it can only ever narrow authority,
+# never widen it. Today JARVIS holds all capabilities (root token = "*"), so the
+# derived set equals the incumbent set and the veto never fires — i.e. ON is
+# behaviourally identical to today; it makes the kernel authoritative so the
+# narrowing bites once JARVIS's own token is scoped / gates move into the kernel.
+# Fail-safe = the incumbent `allowed` set (any kernel error passes the incumbent
+# decision through). Revert from Settings → Governance (agency_orchestration).
+AGENCY_ORCHESTRATION_ENFORCE = True
 
 
 def _agency_enforce(label: str, allowed, depth: int):
