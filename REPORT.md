@@ -1,23 +1,23 @@
-# JARVIS traction report — 2026-10-08
+# JARVIS traction report — 2026-10-09
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-07 vs the 7 before
+## 7 days to 2026-10-08 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 799 | 709 | +13% |
-| Unique visitors (sum of daily) | 193 | 185 | +4% |
-| Clones | 4362 | 1468 | +197% |
-| Unique cloners (sum of daily) | 1050 | 412 | +155% |
+| Views | 884 | 594 | +49% |
+| Unique visitors (sum of daily) | 196 | 185 | +6% |
+| Clones | 4760 | 1287 | +270% |
+| Unique cloners (sum of daily) | 1143 | 392 | +192% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 25 | +5 | +8 |
+| Stars | 25 | +4 | +8 |
 | Forks | 4 | +1 | +1 |
 | Watchers | 1 | -1 | -1 |
 | HA analytics installs | — | — | — |
@@ -27,11 +27,11 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| github.com | 82 | 33 |
+| github.com | 68 | 36 |
+| community.home-assistant.io | 23 | 22 |
 | lm.facebook.com | 23 | 22 |
-| community.home-assistant.io | 22 | 21 |
 | facebook.com | 20 | 19 |
-| Google | 15 | 12 |
+| Google | 16 | 12 |
 | chatgpt.com | 3 | 2 |
 | l.facebook.com | 2 | 2 |
 | DuckDuckGo | 1 | 1 |
@@ -41,21 +41,22 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 483 | 242 |
-| `/sam3gp8/jarvis-aio/issues` | 154 | 41 |
-| `/sam3gp8/jarvis-aio/pulls` | 79 | 5 |
-| `/sam3gp8/jarvis-aio/releases` | 52 | 28 |
-| `/sam3gp8/jarvis-aio/tree/main/custom_components/jarvis` | 40 | 10 |
-| `/sam3gp8/jarvis-aio/pull/66` | 23 | 2 |
+| `/sam3gp8/jarvis-aio` | 471 | 247 |
+| `/sam3gp8/jarvis-aio/issues` | 153 | 46 |
+| `/sam3gp8/jarvis-aio/pulls` | 58 | 6 |
+| `/sam3gp8/jarvis-aio/releases` | 52 | 27 |
+| `/sam3gp8/jarvis-aio/tree/main/custom_components/jarvis` | 46 | 13 |
+| `/sam3gp8/jarvis-aio/tree/main/docs` | 23 | 11 |
 | `/sam3gp8/jarvis-aio/issues/140` | 22 | 7 |
-| `/sam3gp8/jarvis-aio/discussions/55` | 22 | 5 |
-| `/sam3gp8/jarvis-aio/tree/main/docs` | 21 | 9 |
-| `/sam3gp8/jarvis-aio/discussions` | 16 | 8 |
+| `/sam3gp8/jarvis-aio/discussions/55` | 20 | 5 |
+| `/sam3gp8/jarvis-aio/tree/main` | 18 | 8 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 15 | 12 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-08 | 132 | 25 | 593 | 149 |
 | 2026-10-07 | 169 | 22 | 293 | 82 |
 | 2026-10-06 | 183 | 30 | 478 | 114 |
 | 2026-10-05 | 103 | 34 | 677 | 170 |
