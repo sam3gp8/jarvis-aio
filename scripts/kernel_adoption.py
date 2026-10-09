@@ -67,11 +67,20 @@ _DECLARED: dict[str, dict] = {
     # incumbent_proceeded=… agree=…". The expected divergence is a disabled FRIDAY
     # profile (kernel allows the declared tools, incumbent refuses via the
     # _profile_enabled opt-in gate) — the signal the enforce rung must close by
-    # sitting behind those incumbent gates. Observe-only (AGENCY_SHADOW /
-    # AGENCY_PARITY kill-switches). Enforce (owner-gated AGENCY_ORCHESTRATION_ENFORCE)
-    # derives the sub-agent's token FROM the kernel and runs one real budgeted
-    # sub-task, fail-safe = parent acts directly. (Peer coordination —
-    # kernel/coordination.py — is a later increment of this phase.)
+    # sitting behind those incumbent gates. ENFORCE (Phase O, owner-gated, default
+    # OFF): with AGENCY_ORCHESTRATION_ENFORCE=True the kernel becomes the authority
+    # source — agent._run_delegated derives the sub-agent's effective tool set from
+    # agency.spawn (a strict narrowing of the incumbent-resolved set) and VETOES the
+    # delegation if agency.can_spawn refuses, sitting BEHIND every incumbent gate so
+    # it can only narrow. Default OFF ⇒ behaviour-preserving; even ON it is
+    # identical today (JARVIS holds all capabilities, so the derived set == the
+    # incumbent set and the veto never fires), the switch existing so the owner can
+    # make the kernel authoritative and later scope JARVIS's own token. Fail-safe =
+    # the incumbent set. Kill-switches: AGENCY_SHADOW / AGENCY_PARITY (observe) +
+    # AGENCY_ORCHESTRATION_ENFORCE (owner). The declared live stage stays "parity"
+    # until the owner enables enforce; this entry documents the enforce path that
+    # ships default-OFF. (Peer coordination — kernel/coordination.py — is a later
+    # increment of this phase.)
     "agency":       {"stage": "parity",  "owners": ["agent"]},
     # cycle: unified cognitive cycle (roadmap Phase J). A CognitiveCycle runs
     # named injected steps (perceive→interpret→decide→act→reflect) as one

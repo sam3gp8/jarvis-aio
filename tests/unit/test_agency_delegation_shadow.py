@@ -84,3 +84,32 @@ def test_agency_parity_kill_switch(agent, monkeypatch, caplog):
         agent._emit_agency_parity("FRIDAY", {"control_device"}, 0,
                                   incumbent_proceeded=True)
     assert not any("agency(parity)" in r.message for r in caplog.records)
+
+
+# ── Phase O (enforce, owner-gated): kernel-derived authority, default OFF ──────
+
+def test_agency_enforce_defaults_off(agent):
+    # The live-home switch ships OFF; only the owner flips it.
+    assert agent.AGENCY_ORCHESTRATION_ENFORCE is False
+
+
+def test_agency_enforce_passes_through_resolved_set(agent):
+    # JARVIS holds all capabilities, so the kernel-derived set equals the
+    # incumbent-resolved set (a strict, here-identity narrowing) and ok=True.
+    ok, effective, reason = agent._agency_enforce(
+        "FRIDAY", {"control_device", "bulk_control"}, 0)
+    assert ok is True and reason == "ok"
+    assert effective == {"control_device", "bulk_control"}
+
+
+def test_agency_enforce_never_widens(agent):
+    # The derived set is a subset of what was requested — never more.
+    ok, effective, _ = agent._agency_enforce("sub", {"get_entity_state"}, 0)
+    assert ok is True and effective <= {"get_entity_state"}
+
+
+def test_agency_enforce_vetoes_over_depth(agent):
+    # A spawn past MAX_DELEGATION_DEPTH is vetoed (ok=False) — fail-safe refuse.
+    ok, effective, reason = agent._agency_enforce(
+        "sub", {"get_entity_state"}, agent.MAX_DELEGATION_DEPTH)
+    assert ok is False and effective == set() and "depth" in reason
