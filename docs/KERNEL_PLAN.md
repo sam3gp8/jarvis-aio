@@ -447,13 +447,20 @@ best-effort) the live identity context, belief set, attention / working-memory
 focus, current intent, chosen plan, authority context, autonomy state, open
 delegations, execution state, pending verifications, unresolved uncertainty,
 recent causality and learning state — whatever those subsystems expose once they
-exist. Ladder: pure (extend the snapshot schema, newer-schema-skip preserved) →
-shadow (capture the richer snapshot, log the fuller continuity summary) → parity
-(reloaded cognitive state vs. live, agreement logged) → enforce (boot resume is
-sourced from the cognitive snapshot). Kill: reuse `AGENCY_CAPTURE_ENABLED` +
-`CONTINUITY_RESUME_ENFORCE`; fail-safe = I-A commitment-only continuity. **PAUSE
-for owner before enforce.** Done: after a restart JARVIS can state belief, chosen
-plan, delegation, authority and pending verification — not just the objective.
+exist. Ladder:
+
+| # | Increment | Stage | Status |
+| --- | --- | --- | --- |
+| I-B.1 | `CognitiveContext` extends the snapshot schema (newer-schema-skip preserved) | pure | ✅ Shipped |
+| I-B.2 | `continuity._live_cognitive` captures intent/plan/beliefs/execution/autonomy/learning/identity; fuller continuity summary | shadow | ✅ Shipped |
+| I-B.3 | `agency_state.reconcile_cognitive` + `continuity.boot_reconcile` compare reloaded cognitive snapshot vs. live, log agreement | parity | ✅ Shipped |
+| I-B.4 | boot resume is *sourced* from the cognitive snapshot; `CONTINUITY_RESUME_ENFORCE` | enforce | ⏳ Planned (PAUSE for owner) |
+
+The adoption stage stays `shadow` until I-B.4 makes a resume authoritative. Kill:
+reuse `AGENCY_CAPTURE_ENABLED` + `CONTINUITY_RESUME_ENFORCE`; fail-safe = I-A
+commitment-only continuity. **PAUSE for owner before enforce.** Done: after a
+restart JARVIS can state belief, chosen plan, delegation, authority and pending
+verification — not just the objective.
 
 ### Epistemic Fabric — cross-cutting kernel primitives (new, audit-added) ⏳
 

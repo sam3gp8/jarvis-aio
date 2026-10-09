@@ -351,6 +351,23 @@ def boot_reconcile(hass=None):
             "JARVIS: continuity reconcile — %d still live, %d vanished while down",
             len(report.still_live), len(report.vanished),
         )
+        # I-B parity: compare the reloaded *cognitive* snapshot (what JARVIS was
+        # thinking before the restart) against live cognitive state now, and log
+        # which fields persisted vs changed. Observe-only; drives nothing, never
+        # raises into startup.
+        try:
+            cog_report = agency_state.reconcile_cognitive(
+                state.cognitive, _live_cognitive(hass))
+            if cog_report.agreed or cog_report.changed:
+                _LOGGER.info(
+                    "JARVIS: cognitive continuity — %d field(s) unchanged, "
+                    "%d changed since restart%s",
+                    len(cog_report.agreed), len(cog_report.changed),
+                    (f" ({', '.join(cog_report.changed)})"
+                     if cog_report.changed else ""),
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug("agency cognitive reconcile failed: %s", exc)
         return report
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency boot reconcile failed: %s", exc)

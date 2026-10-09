@@ -197,3 +197,47 @@ def test_cognitive_context_is_empty(ag):
     assert ag.CognitiveContext().is_empty() is True
     assert ag.CognitiveContext(intent="x").is_empty() is False
     assert ag.CognitiveContext(beliefs=("b",)).is_empty() is False
+
+
+# ── reconcile_cognitive (I-B parity) ──────────────────────────────────────────
+def test_reconcile_cognitive_agreement(ag):
+    prev = ag.CognitiveContext(intent="dim office", plan="turn_off office",
+                               beliefs=("garage empty (p=0.90)",))
+    live = ag.CognitiveContext(intent="dim office", plan="turn_off office",
+                               beliefs=("garage empty (p=0.90)",))
+    rep = ag.reconcile_cognitive(prev, live)
+    assert rep.consistent is True
+    assert set(rep.agreed) == {"intent", "plan", "beliefs"}
+    assert rep.changed == ()
+
+
+def test_reconcile_cognitive_detects_changes(ag):
+    prev = ag.CognitiveContext(intent="dim office", plan="turn_off office",
+                               identity="Sam")
+    live = ag.CognitiveContext(intent="brew coffee", plan="turn_off office",
+                               identity="Sam")
+    rep = ag.reconcile_cognitive(prev, live)
+    assert rep.consistent is False
+    assert "intent" in rep.changed            # differs
+    assert "plan" in rep.agreed and "identity" in rep.agreed
+
+
+def test_reconcile_cognitive_ignores_fields_empty_on_both_sides(ag):
+    prev = ag.CognitiveContext(intent="x")
+    live = ag.CognitiveContext(intent="x")
+    rep = ag.reconcile_cognitive(prev, live)
+    # Only 'intent' is populated on either side; every other field is skipped.
+    assert rep.agreed == ("intent",) and rep.changed == ()
+
+
+def test_reconcile_cognitive_one_side_populated_is_a_change(ag):
+    prev = ag.CognitiveContext(plan="turn_off office")
+    rep = ag.reconcile_cognitive(prev, None)   # live is None → plan vanished
+    assert rep.changed == ("plan",) and rep.agreed == ()
+    rep2 = ag.reconcile_cognitive(None, prev)  # appeared only live
+    assert rep2.changed == ("plan",)
+
+
+def test_reconcile_cognitive_both_none_is_consistent(ag):
+    rep = ag.reconcile_cognitive(None, None)
+    assert rep.consistent is True and rep.agreed == () and rep.changed == ()
