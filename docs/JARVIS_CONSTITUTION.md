@@ -81,7 +81,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `conflict` | ◑ parity |
 | `correlation` | ◐ shadow |
 | `cycle` | ◑ parity |
-| `environment` | ◑ parity |
+| `environment` | ● enforce |
 | `event` | ◑ parity |
 | `event_bus` | ◐ shadow |
 | `graph` | ● enforce |

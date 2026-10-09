@@ -55,9 +55,14 @@ _DECLARED: dict[str, dict] = {
     # 'would surface an energy offer' predicate (over peak AND >=2 sheddable
     # loads) and logs the running rate (environment(parity), kill-switch
     # ENVIRONMENT_PARITY) — observe-only, the quantified bar for enforce. Comfort
-    # readings + the safety guard wire in when a climate/hazard path adopts it;
-    # enforce (ENVIRONMENT_ENFORCE) follows, owner-gated.
-    "environment":  {"stage": "parity",  "owners": ["energy"]},
+    # readings + the safety guard wire in when a climate/hazard path adopts it.
+    # ENFORCE (Phase X, owner-gated): energy._environment_over_peak makes the
+    # kernel recommender's actionable efficiency verdict the authority for the
+    # over-peak determination that gates a proactive energy offer, kill-switched
+    # (energy.ENVIRONMENT_ENFORCE / `environment_enforce`, default OFF so shipping
+    # is behaviour-preserving) and fail-safe (any error falls back to the legacy
+    # over_peak threshold; the >=2-sheddable guard is unchanged).
+    "environment":  {"stage": "enforce", "owners": ["energy"]},
     # optimize: self-optimization within owner bounds (roadmap Phase Y). A pure
     # measure-then-tune primitive whose core is a TIERED GUARDRAIL: every tunable
     # parameter classifies as SAFE (latency/cost/provider/cache/context/resource —
