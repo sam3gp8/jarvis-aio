@@ -490,9 +490,11 @@ in beliefs); this tier makes them canonical and first-class.
   (known / believed / guessed / unknown), its basis and *what evidence would
   resolve it*; `update` folds new evidence (noisy-OR on agreement, discount on
   disagreement). Spans perception, identity, world-model, beliefs, prediction,
-  planning, authority and outcomes. Ladder: pure ✅ → shadow (perception /
-  world-model / prediction wrap outputs) → parity → enforce (a decision gates on
-  the band).
+  planning, authority and outcomes. Ladder: pure ✅ → shadow 🚧 — `identity.resolve`
+  packages its fused verdict as an `Uncertain` (value=person / computed
+  confidence / basis=voting methods / resolver for a weak read) and logs its
+  epistemic band; world-model / prediction wrap outputs next → parity (vs. current
+  confidences) → enforce (a decision gates on the band).
 - **Conflict Resolution** (`kernel/conflict.py`) — ✅ **pure shipped
   (8.101.0)**. A formal rule for contradictions between sources (camera says
   empty, phone says present, motion fires): `resolve` consumes `Provenance`
