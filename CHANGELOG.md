@@ -1,3 +1,26 @@
+## [8.179.0] — interior windows + balcony/French doors (issue #324, part 2)
+
+Second part of #324, and the one the reporter asked for most: openings were
+bound to the four outer walls, so you couldn't glaze a wall between two rooms or
+the wall facing a courtyard/balcony between two building masses. Now you can:
+
+- **Interior window** (`window` / `interior`) — glazing on a chosen **room's**
+  wall, for a window between rooms or facing an interior courtyard.
+- **Balcony / French door** (`door` / `french`) — a full-height glazed door on a
+  chosen room's wall; lit when its open/closed sensor says open.
+
+Both reuse the existing room-anchored placement the interior doors and cased
+openings already use (pick the room, then the wall + position), so they're no
+longer tied to the building's outer bounding box. New palette buttons
+(**+ Interior Window**, **+ Balcony Door**), per-element room pickers, 2D-editor
+markers, and 3D rendering on the selected floor.
+
+Purely additive — no existing opening changes, and a home with none of these
+renders exactly as before. Frontend-only. Tests: `scripts/smoke_panel.js` gains
+four part-2 assertions (palette offers both; interior-window and balcony-door
+rows attach to a room; the openings editor renders). Audit + four kernel gates
+green. Version 8.178.0 → 8.179.0. Completes #324.
+
 ## [8.178.0] — European house options: center/multiple chimneys + interior cellar (issue #324, part 1)
 
 First part of #324 — the 3D house map assumed an American layout. This adds the

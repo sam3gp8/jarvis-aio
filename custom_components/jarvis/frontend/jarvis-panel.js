@@ -983,6 +983,33 @@ const JARVIS3D = (function () {
         else { cx = rx1; cy = ry0 + p * (ry1 - ry0); }
         casedOnWall(L, GL, e.wall, cx, cy, w, zf[0] + 0.3, Math.min(zf[0] + 7, zf[1] - 0.2));
       });
+      // interior windows — glazing on a chosen room's wall: between two rooms,
+      // or facing an interior courtyard/balcony between two masses. Not bound to
+      // the four outer walls like exterior windows (#324).
+      ((opts.elements && opts.elements[pf]) || []).filter(function (e) { return e.type === 'window' && e.kind === 'interior'; }).forEach(function (e) {
+        var rr = (plan[pf] || []).filter(function (r) { return String(r.name).toLowerCase() === String(e.room || '').toLowerCase(); })[0];
+        if (!rr) return;
+        var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 2);
+        var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
+        var zw0 = zf[0] + 2.5, zw1 = Math.min(zf[0] + 6.5, zf[1] - 0.4), cx, cy;
+        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry0, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, -0.06); }
+        else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry1, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, 0.06); }
+        else if (e.wall === 'left') { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx0, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, -0.06); }
+        else { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx1, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, 0.06); }
+      });
+      // balcony / French doors — a full-height glazed door on a chosen room's
+      // wall (floor-to-head glass), lit when its sensor says open (#324).
+      ((opts.elements && opts.elements[pf]) || []).filter(function (e) { return e.type === 'door' && e.kind === 'french'; }).forEach(function (e) {
+        var rr = (plan[pf] || []).filter(function (r) { return String(r.name).toLowerCase() === String(e.room || '').toLowerCase(); })[0];
+        if (!rr) return;
+        var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 4, 3), stt = e.open ? 'on' : 'off';
+        var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
+        var zd0 = zf[0] + 0.3, zd1 = Math.min(zf[0] + 7, zf[1] - 0.2), cx, cy;
+        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry0, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, -0.07, 2); }
+        else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry1, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, 0.07, 2); }
+        else if (e.wall === 'left') { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx0, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, -0.07); }
+        else { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx1, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, 0.07); }
+      });
       return { faces: L, glow: GL, labels: LBL };
     }
     // Whole-house view: clean exterior shell with presence as lit windows.
@@ -4147,10 +4174,16 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     const rsel = (e, i) => '<select class="op-field op-room" data-op="room" data-i="' + i + '" title="room"><option value="">\u2014 room \u2014</option>' + rooms.filter(r => r.type !== 'outdoor').map(r => '<option value="' + this._esc(r.name) + '"' + (e.room === r.name ? ' selected' : '') + '>' + this._esc(r.name) + '</option>').join('') + '</select>';
     const rows = els.map((e, i) => {
       const isD = e.type === 'dormer';
-      const t = isD ? (e.slope === 'rear' ? 'REAR DORMER' : 'FRONT DORMER') : (e.type === 'window' ? 'WINDOW' : (e.kind === 'interior' ? 'INT DOOR' : (e.kind === 'cellar' ? 'CELLAR' : (e.kind === 'cased' ? 'CASED OPENING' : 'EXT DOOR'))));
+      const t = isD ? (e.slope === 'rear' ? 'REAR DORMER' : 'FRONT DORMER')
+        : (e.type === 'window' ? (e.kind === 'interior' ? 'INT WINDOW' : 'WINDOW')
+        : (e.kind === 'interior' ? 'INT DOOR' : (e.kind === 'cellar' ? 'CELLAR'
+        : (e.kind === 'cased' ? 'CASED OPENING' : (e.kind === 'french' ? 'BALCONY DOOR' : 'EXT DOOR')))));
+      // Interior windows, interior/cased doors and balcony doors attach to a room's
+      // wall (not the four outer walls), so they get a room picker (#324).
+      const roomAnchored = (e.kind === 'interior' || e.kind === 'cased' || e.kind === 'french');
       const place = isD
         ? ('<select class="op-field" data-op="slope" data-i="' + i + '" title="roof slope"><option value="front"' + (e.slope !== 'rear' ? ' selected' : '') + '>Front slope</option><option value="rear"' + (e.slope === 'rear' ? ' selected' : '') + '>Rear slope</option></select>')
-        : ((e.kind === 'interior' || e.kind === 'cased') ? (rsel(e, i) + ' ' + wsel(e, i)) : wsel(e, i));
+        : (roomAnchored ? (rsel(e, i) + ' ' + wsel(e, i)) : wsel(e, i));
       const kc = isD ? ' op-dormer' : (e.kind === 'interior' ? ' op-int' : (e.kind === 'cellar' ? ' op-cellar' : (e.kind === 'cased' ? ' op-cased' : '')));
       return '<div class="op-row" data-i="' + i + '">'
         + '<span class="op-type op-' + (isD ? 'dormer' : e.type) + kc + '">' + t + '</span>'
@@ -4163,8 +4196,8 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     }).join('');
     const dBtns = floor === '2f' ? '<button class="ctrl" id="op-add-fdormer">+ Front Dormer</button><button class="ctrl" id="op-add-rdormer">+ Rear Dormer</button>' : '';
     return '<div class="fp-openings">'
-      + '<div class="op-headr">OPENINGS \u00b7 windows, doors &amp; dormers <span class="op-hint">interior doors &amp; cased openings attach to a room \u00b7 a cased opening is a doorway with no door (open passage, no sensor) \u00b7 dormers on the 2nd floor</span></div>'
-      + '<div class="op-add"><button class="ctrl" id="op-add-window">+ Window</button><button class="ctrl" id="op-add-extdoor">+ Exterior Door</button><button class="ctrl" id="op-add-cellar">+ Cellar Door</button><button class="ctrl" id="op-add-intdoor">+ Interior Door</button><button class="ctrl" id="op-add-cased">+ Cased Opening</button>' + dBtns + '</div>'
+      + '<div class="op-headr">OPENINGS \u00b7 windows, doors &amp; dormers <span class="op-hint">interior windows, interior / balcony doors &amp; cased openings attach to a room\u2019s wall (not just the outer walls) \u2014 pick the room, then the wall \u00b7 a balcony door is full-height glass \u00b7 a cased opening is a doorway with no door \u00b7 dormers on the 2nd floor</span></div>'
+      + '<div class="op-add"><button class="ctrl" id="op-add-window">+ Window</button><button class="ctrl" id="op-add-intwindow">+ Interior Window</button><button class="ctrl" id="op-add-extdoor">+ Exterior Door</button><button class="ctrl" id="op-add-frenchdoor">+ Balcony Door</button><button class="ctrl" id="op-add-cellar">+ Cellar Door</button><button class="ctrl" id="op-add-intdoor">+ Interior Door</button><button class="ctrl" id="op-add-cased">+ Cased Opening</button>' + dBtns + '</div>'
       + (rows || '<div class="op-empty">No openings placed on this floor yet \u2014 add one above.</div>')
       + '</div>';
   }
@@ -4305,7 +4338,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         }
         var w = e.w || 20, p = e.pos != null ? e.pos : 0.5, cx, cy, horiz = (e.wall === 'front' || e.wall === 'back');
         var bx0 = mnx, by0 = mny, bx1 = mxx, by1 = mxy;
-        if ((e.kind === 'interior' || e.kind === 'cased') && e.room) {
+        if ((e.kind === 'interior' || e.kind === 'cased' || e.kind === 'french') && e.room) {
           var rr = floorData.rooms.filter(function (r) { return r.name === e.room; })[0];
           if (rr) { bx0 = rr.x; by0 = rr.y; bx1 = rr.x + rr.w; by1 = rr.y + rr.h; }
         }
@@ -4313,7 +4346,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         else if (e.wall === 'back') { cx = bx0 + p * (bx1 - bx0); cy = by1; }
         else if (e.wall === 'left') { cx = bx0; cy = by0 + p * (by1 - by0); }
         else { cx = bx1; cy = by0 + p * (by1 - by0); }
-        var col = e.type === 'window' ? '#00f2fe' : (e.kind === 'interior' ? '#5a7a8a' : (e.kind === 'cellar' ? '#c98a2a' : (e.kind === 'cased' ? '#78b9d7' : '#ffaa28')));
+        var col = e.type === 'window' ? '#00f2fe' : (e.kind === 'interior' ? '#5a7a8a' : (e.kind === 'cellar' ? '#c98a2a' : (e.kind === 'cased' ? '#78b9d7' : (e.kind === 'french' ? '#4fd4e0' : '#ffaa28'))));
         var ex = horiz ? cx - w / 2 : cx - 2, ey = horiz ? cy - 2 : cy - w / 2, ew = horiz ? w : 4, eh = horiz ? 4 : w;
         svg += '<rect class="op-marker" data-op-marker="' + i + '" x="' + ex + '" y="' + ey + '" width="' + ew + '" height="' + eh + '" fill="' + col + '" opacity="0.9" rx="1" pointer-events="none"/>';
       });
@@ -6995,6 +7028,8 @@ ${this._renderExcludedEntities(d)}
       this._rerenderFloorEditor();
     };
     const _oaw = this.shadowRoot.querySelector('#op-add-window'); if (_oaw) _oaw.addEventListener('click', () => addElem('window', null));
+    const _oiw = this.shadowRoot.querySelector('#op-add-intwindow'); if (_oiw) _oiw.addEventListener('click', () => addElem('window', 'interior'));
+    const _ofr = this.shadowRoot.querySelector('#op-add-frenchdoor'); if (_ofr) _ofr.addEventListener('click', () => addElem('door', 'french'));
     const _oae = this.shadowRoot.querySelector('#op-add-extdoor'); if (_oae) _oae.addEventListener('click', () => addElem('door', 'exterior'));
     const _oac = this.shadowRoot.querySelector('#op-add-cellar'); if (_oac) _oac.addEventListener('click', () => addElem('door', 'cellar'));
     const _ofd = this.shadowRoot.querySelector('#op-add-fdormer'); if (_ofd) _ofd.addEventListener('click', () => { this._elemsFor(this._editorFloor || '1f').push({ id: 'e' + Date.now().toString(36), type: 'dormer', slope: 'front', pos: 0.5, entity: '' }); this._rerenderFloorEditor(); });

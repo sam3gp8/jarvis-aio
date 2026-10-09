@@ -1323,6 +1323,25 @@ setTimeout(async () => {
     ["#324 residence renders with a center chimney without error", _render324ok && _iso324.length > 0],
   );
 
+  // #324 pt2: interior windows + balcony/French doors attach to a room's wall,
+  // not the four outer walls.
+  let _op324 = "", _op324ok = true;
+  try {
+    const _fl = el._editorFloor || "1f";
+    const _arr = el._elemsFor(_fl);
+    _arr.push({ id: "e_iw", type: "window", kind: "interior", room: "", wall: "front", pos: 0.5, w: 20, entity: "" });
+    _arr.push({ id: "e_fr", type: "door", kind: "french", room: "", wall: "back", pos: 0.5, w: 20, entity: "" });
+    _op324 = el._renderOpenings(_fl);
+    _arr.splice(_arr.length - 2, 2);
+  } catch (e) { _op324ok = false; }
+  checks.push(
+    ["#324 pt2 palette offers Interior Window + Balcony Door",
+      /id="op-add-intwindow"/.test(_op324) && /id="op-add-frenchdoor"/.test(_op324)],
+    ["#324 pt2 interior window row attaches to a room", /INT WINDOW/.test(_op324) && /data-op="room"/.test(_op324)],
+    ["#324 pt2 balcony door row labels + attaches to a room", /BALCONY DOOR/.test(_op324)],
+    ["#324 pt2 openings editor renders without error", _op324ok && _op324.length > 0],
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();
