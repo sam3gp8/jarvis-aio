@@ -89,6 +89,8 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_energy)
         websocket_api.async_register_command(hass, ws_hazard)
         websocket_api.async_register_command(hass, ws_biometrics)
+        websocket_api.async_register_command(hass, ws_get_enforcement)
+        websocket_api.async_register_command(hass, ws_set_enforcement)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -2008,6 +2010,60 @@ async def ws_update_config(
     except Exception as exc:
         _LOGGER.warning("ws_update_config failed: %s", exc)
         connection.send_error(msg["id"], "update_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/get_enforcement",
+})
+@websocket_api.async_response
+async def ws_get_enforcement(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the governance enforce switches for the panel's Governance tab:
+    each switch's name, explanation, category, shipped default, live value and
+    whether an owner override is stored."""
+    try:
+        from . import enforcement
+        switches = await hass.async_add_executor_job(enforcement.current)
+        connection.send_result(msg["id"], {"switches": switches})
+    except Exception as exc:
+        _LOGGER.warning("ws_get_enforcement failed: %s", exc)
+        connection.send_error(msg["id"], "enforcement_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/set_enforcement",
+    vol.Required("key"): str,
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_set_enforcement(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Persist an owner override for one enforce switch and update the live flag.
+
+    The write survives restarts (``jarvis_config``) and takes effect immediately.
+    An unknown key is rejected; everything else is defensive."""
+    key = msg["key"]
+    enabled = bool(msg["enabled"])
+    try:
+        from . import enforcement
+        entry = await hass.async_add_executor_job(
+            enforcement.set_switch, key, enabled)
+        if entry is None:
+            connection.send_error(
+                msg["id"], "invalid_key",
+                f"Unknown enforcement switch '{key}'")
+            return
+        _LOGGER.info("JARVIS panel: enforcement %s set to %s", key, enabled)
+        connection.send_result(msg["id"], {"switch": entry})
+    except Exception as exc:
+        _LOGGER.warning("ws_set_enforcement failed: %s", exc)
+        connection.send_error(msg["id"], "enforcement_set_failed", str(exc))
 
 
 def _resolve_provider_key(hass: HomeAssistant, entry, provider: str) -> str:

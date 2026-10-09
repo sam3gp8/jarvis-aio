@@ -1,3 +1,38 @@
+## [8.148.0] — Governance enforcement registry + panel API (owner control surface, backend)
+
+First half of surfacing every kernel *enforce* kill-switch to the owner (a
+Governance tab in the panel follows). **Backend only; behaviour-preserving** —
+with no override stored (the shipped state) nothing changes.
+
+- New `enforcement.py`: a registry over the **ten live** `*_ENFORCE` flags —
+  the three owner-opt-in capabilities that ship OFF (`CONTINUITY_RESUME_ENFORCE`,
+  `AGENCY_ORCHESTRATION_ENFORCE`, `KNOWLEDGE_GRAPH_ENFORCE`) and the seven live
+  safety/governance kill-switches that ship ON (`AUTHORITY_ENFORCE`,
+  `AGENCY_BUDGET_ENFORCE`, `LOOP_DETECT_ENFORCE`, `SAFETY_SEAM_ENFORCE`,
+  `HAZARD_SITUATION_ENFORCE`, `INTRUSION_GATE_ENFORCE`,
+  `DELIVERY_SITUATION_ENFORCE`). Each carries a human name, an explanation of
+  what flipping it does and the fail-safe, a category (safety vs capability), and
+  its roadmap phase.
+  - `apply_overrides()` runs at boot: applies only *stored* owner overrides to
+    the live flags; with none stored, every flag keeps its code default.
+  - `set_switch(key, enabled)` persists an override (survives restart) and flips
+    the live flag immediately.
+  - `current()` reports each switch's live value / default / override state.
+  The design is minimally invasive — consumers keep reading their own module
+  flag; the registry just sets it from config. Defensive throughout; never raises.
+- `__init__.py`: calls `enforcement.apply_overrides()` once at setup (no-op until
+  the owner stores an override).
+- `websocket.py`: new `jarvis/get_enforcement` and `jarvis/set_enforcement` panel
+  commands.
+- Tests: `tests/unit/test_enforcement.py` (registry well-formedness, known
+  defaults, current/override reporting, set persists + flips live, safety
+  kill-switch can be toggled, unknown key rejected, apply-only-stored, defensive
+  fallbacks).
+
+No kernel adoption change (operability surface, not a ladder rung); `audit.py` +
+all four gates green. The owner never has to edit code to flip a switch now, and
+I never flip one — this just builds the control. Version 8.147.0 → 8.148.0.
+
 ## [8.147.0] — Cognitive continuity resume path (Phase I-B.4, enforce — default OFF)
 
 Builds the **enforce** rung of Phase I-B, completing the ladder (I-B.1 pure /
