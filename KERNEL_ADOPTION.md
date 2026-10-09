@@ -81,7 +81,7 @@ explicit per-flip owner go/no-go.
 | `router` | ◐ shadow | `reasoning_loop` |
 | `situation` | ● enforce | `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `space_time` | ◑ parity | `cognitive_core` |
-| `temporal` | ◐ shadow | `knowledge` |
+| `temporal` | ◐ shadow | `agent`, `knowledge` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |
 | `uncertainty` | ◑ parity | `identity`, `knowledge` |
 | `working_memory` | ◑ parity | `cognitive_core`, `output_gate` |

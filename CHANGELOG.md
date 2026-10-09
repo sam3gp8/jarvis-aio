@@ -1,3 +1,24 @@
+## [8.161.0] — Temporal validity shadow on the "where last seen" answer (Epistemic Fabric)
+
+Broadens the `kernel.temporal` shadow from **semantic** memory (curated knowledge,
+8.160.0) to **episodic** memory (scene memory), where staleness is most decision-
+relevant: a last-seen location trusted blindly can be hours out of date.
+
+- `agent.py`: new `WHERE_LAST_SEEN_TEMPORAL_SHADOW` (default **True**) +
+  `WHERE_LAST_SEEN_TTL` (6 h) + `_emit_where_last_seen_temporal_shadow`.
+  `_exec_where_last_seen` now logs the freshness band (fresh / aging / expired) of
+  the scene sighting it surfaces, via `temporal.Validity`. **Observe-only:** the
+  tool's JSON answer is unchanged; nothing hedges on staleness yet (that is the
+  parity/enforce rung). Fail-safe: the emitter never raises; flip the switch off
+  to silence it.
+- `scripts/kernel_adoption.py`: `temporal` owners now `agent, knowledge` (still
+  shadow); `KERNEL_ADOPTION.md` + `docs/JARVIS_CONSTITUTION.md` regenerated.
+- `docs/KERNEL_PLAN.md`: Time / Temporal Validity note → semantic + episodic shadow.
+
+No behaviour, actuation, or safety path changes. Tests:
+`test_where_last_seen_temporal_shadow.py` (fresh / expired band, kill-switch,
+defensive). Audit + four kernel gates green. Version 8.160.0 → 8.161.0.
+
 ## [8.160.0] — Temporal validity shadow over curated knowledge (Epistemic Fabric)
 
 Advances the fifth Epistemic-Fabric primitive `kernel.temporal` from **pure →

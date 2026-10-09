@@ -221,14 +221,18 @@ _DECLARED: dict[str, dict] = {
     # age / remaining / is_valid / fraction-elapsed and a coarse freshness band
     # (fresh / aging / expired / durable); summarize() rolls a set up by band.
     # Makes time-boundedness first-class alongside uncertainty and provenance —
-    # "true 30 min ago / probably still true / expired, re-check". SHADOW:
-    # knowledge.all_facts() packages each curated fact's updated_at (valid-as-of)
-    # + expires_at (→ ttl; absent ⇒ durable) as a temporal.Validity and logs the
-    # freshness-band distribution (kill-switch TEMPORAL_SHADOW) — observe-only,
-    # completing the fabric's coverage of curated knowledge (sourced + uncertain +
-    # now time-bound). Ladder from here: shadow → parity → enforce (a decision
-    # defers on a stale/expired value, owner-gated).
-    "temporal":     {"stage": "shadow",  "owners": ["knowledge"]},
+    # "true 30 min ago / probably still true / expired, re-check". SHADOW spans two
+    # sources now: (1) knowledge.all_facts() packages each curated fact's updated_at
+    # (valid-as-of) + expires_at (→ ttl; absent ⇒ durable) as a temporal.Validity
+    # and logs the freshness-band distribution (kill-switch TEMPORAL_SHADOW); and
+    # (2) agent._exec_where_last_seen logs the freshness band of the scene sighting
+    # it surfaces for a "where did I last see X" answer, against WHERE_LAST_SEEN_TTL
+    # (kill-switch WHERE_LAST_SEEN_TEMPORAL_SHADOW) — the episodic-memory source
+    # where staleness is exactly what a future hedge needs. Both observe-only; the
+    # fabric now covers semantic + episodic time-boundedness. Ladder from here:
+    # shadow → parity → enforce (a decision defers on / hedges a stale value,
+    # owner-gated).
+    "temporal":     {"stage": "shadow",  "owners": ["agent", "knowledge"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
