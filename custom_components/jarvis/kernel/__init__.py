@@ -107,7 +107,7 @@ from .working_memory import (
     shared as working_memory_shared,
 )
 from .event_bus import JarvisEventBus
-from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
+from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan, plan_compensation
 from .router import Provider, RouteResult, TaskRequirements, route
 from .ledger import EventLedger
 from .situation import InvalidTransition, Situation, SituationManager
@@ -148,6 +148,7 @@ __all__ = [
     "StepOutcome",
     "PlanReport",
     "execute_plan",
+    "plan_compensation",
     "beliefs",
     "Belief",
     "Evidence",
