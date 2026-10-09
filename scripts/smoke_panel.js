@@ -1304,6 +1304,25 @@ setTimeout(async () => {
   );
   el._currentTab = "dashboard";
 
+  // #324: European house options — center/multiple chimneys + interior cellar entrance.
+  const _cfg324 = el._liveData.config;
+  const _save324 = { side: _cfg324.chimney_side, cnt: _cfg324.chimney_count, be: _cfg324.basement_entrance, hb: _cfg324.has_basement };
+  _cfg324.chimney_side = "center"; _cfg324.chimney_count = "2"; _cfg324.basement_entrance = "interior"; _cfg324.has_basement = true;
+  const _spec324 = el._houseSpec();
+  const _h324 = (() => { const prev = el._currentTab; el._currentTab = "settings"; const h = el._html(); el._currentTab = prev; return h; })();
+  let _render324ok = true;
+  try { el._currentTab = "residence"; el._render(); } catch (e) { _render324ok = false; }
+  const _iso324 = el.shadowRoot.querySelector("#res-iso")?.innerHTML || "";
+  _cfg324.chimney_side = _save324.side; _cfg324.chimney_count = _save324.cnt; _cfg324.basement_entrance = _save324.be; _cfg324.has_basement = _save324.hb;
+  el._currentTab = "dashboard"; el._render();
+  checks.push(
+    ["#324 spec carries center chimney + count", _spec324.chimney === "center" && _spec324.chimneyCount === 2],
+    ["#324 spec carries interior basement entrance", _spec324.basementEntrance === "interior"],
+    ["#324 settings expose center chimney + count + cellar-entrance controls",
+      /value="center"/.test(_h324) && /data-cfg-key="chimney_count"/.test(_h324) && /data-cfg-key="basement_entrance"/.test(_h324)],
+    ["#324 residence renders with a center chimney without error", _render324ok && _iso324.length > 0],
+  );
+
   let ok = true;
   for (const [n, p] of checks) { console.log((p ? "  PASS  " : "  FAIL  ") + n); if (!p) ok = false; }
   if (typeof el._stopIntervals === "function") el._stopIntervals();
