@@ -3272,21 +3272,22 @@ def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
         _LOGGER.debug("cognitive cycle parity trace: %s", trace.to_dict())
 
 
-# Phase K (shadow): the observe-only kernel working set. A module constant AND a
-# config key ("working_memory_shadow") gate it; either off disables it. The set
-# is module-level so it *decays across ticks* — the whole point of a working
-# memory — rather than being a single frame. Shadow only: nothing reads it back.
+# Phase K (shadow): populate the ONE canonical kernel working set (the shared
+# singleton every loop reads — kernel.working_memory.shared()). A module constant
+# AND a config key ("working_memory_shadow") gate it; either off disables it. The
+# set decays across ticks — the whole point of a working memory — rather than
+# being a single frame. Shadow only: cognitive_core writes it, nothing gates on it.
 WORKING_MEMORY_SHADOW = True
-_WORKING_MEMORY = None  # lazily created kernel.working_memory.WorkingMemory
 
 
 def _populate_working_memory_shadow(*, people: int, anyone_home: bool,
                                     sleeping: bool, decided: int,
                                     emitted: int) -> None:
-    """Phase K shadow: fold this tick's cognitive context into the kernel working
-    set and log its bounded snapshot. Best-effort, never raises; reads nothing
-    back, drives nothing. Only genuinely-present context is remembered — a quiet
-    tick refreshes little, so the set decays to reflect what is actually in mind.
+    """Phase K shadow: fold this tick's cognitive context into the shared kernel
+    working set and log its bounded snapshot. Best-effort, never raises; reads
+    nothing back, drives nothing. Only genuinely-present context is remembered —
+    a quiet tick refreshes little, so the set decays to reflect what is actually
+    in mind.
     """
     if not WORKING_MEMORY_SHADOW:
         return
@@ -3296,11 +3297,8 @@ def _populate_working_memory_shadow(*, people: int, anyone_home: bool,
     except Exception:
         pass
     try:
-        global _WORKING_MEMORY
         from .kernel import working_memory as wm
-        if _WORKING_MEMORY is None:
-            _WORKING_MEMORY = wm.WorkingMemory()
-        mem = _WORKING_MEMORY
+        mem = wm.shared()
         now = time.time()
         # Current situation: home occupancy / sleep — the frame everything else
         # is read against, so it carries a high base salience.

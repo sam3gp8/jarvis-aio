@@ -89,7 +89,12 @@ from .learning import WeightAdjustment, adjust as adjust_weight, plan_adjustment
 from .provenance import Provenance
 from .uncertainty import Uncertain
 from .conflict import Resolution as ConflictResolution
-from .working_memory import WorkingItem, WorkingMemory, WorkingSnapshot
+from .working_memory import (
+    WorkingItem,
+    WorkingMemory,
+    WorkingSnapshot,
+    shared as working_memory_shared,
+)
 from .event_bus import JarvisEventBus
 from .plan import Plan, PlanReport, Step, StepOutcome, execute_plan
 from .router import Provider, RouteResult, TaskRequirements, route
@@ -197,6 +202,7 @@ __all__ = [
     "WorkingMemory",
     "WorkingItem",
     "WorkingSnapshot",
+    "working_memory_shared",
     "cycle",
     "priority",
     "loop_detect",

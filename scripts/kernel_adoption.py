@@ -292,13 +292,18 @@ _DECLARED: dict[str, dict] = {
     # WorkingSnapshot — the canonical bounded cognitive context a decision engine
     # reads instead of assembling its own. SHADOW (Phase K): cognitive_core._tick
     # folds each tick's cognitive context (home occupancy / sleep situation,
-    # people present, actions decided) into a module-level, decaying WorkingMemory
-    # and logs the bounded WorkingSnapshot — observe-only, nothing reads it back
-    # (kill-switches WORKING_MEMORY_SHADOW + the working_memory_shadow config key).
-    # Ladder: pure → shadow → parity (attention consults it) → enforce (arbitration
-    # reads it authoritatively, behind WORKING_MEMORY_ENFORCE, fail-safe = current
-    # attention inputs).
-    "working_memory": {"stage": "shadow",  "owners": ["cognitive_core"]},
+    # people present, actions decided) into the ONE shared kernel working set
+    # (working_memory.shared()), a decaying WorkingMemory, and logs the bounded
+    # snapshot (kill-switch WORKING_MEMORY_SHADOW + the working_memory_shadow
+    # config key). PARITY (Phase K): output_gate's attention arbitration CONSULTS
+    # that shared set — it derives a signal the current gate ignores (household
+    # asleep, from the situation item) and logs whether consulting the canonical
+    # context would CHANGE the arbitration vs the working-memory-blind baseline
+    # (kill-switch WORKING_MEMORY_PARITY). The owner chose the shared-singleton
+    # architecture. Observe-only, drives nothing. Ladder: pure → shadow → parity →
+    # enforce (arbitration reads it authoritatively, behind WORKING_MEMORY_ENFORCE,
+    # fail-safe = current attention inputs) — owner-gated.
+    "working_memory": {"stage": "parity",  "owners": ["cognitive_core", "output_gate"]},
     # router: reasoning_loop computes the kernel local-first provider route
     # alongside its live cloud/local-Mind breaker decision and logs divergence
     # (E3) — shadow.

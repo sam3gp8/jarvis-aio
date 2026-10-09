@@ -1,3 +1,35 @@
+## [8.153.0] — Phase K working-memory parity (attention consults the shared set)
+
+Roadmap **Phase K** parity rung, on the owner-chosen architecture: a **shared
+kernel-level `WorkingMemory` singleton** as the one canonical cognitive context.
+`cognitive_core` populates it; `output_gate`'s attention arbitration now consults
+it.
+
+- `kernel/working_memory.py`: `shared()` returns the process-wide canonical
+  `WorkingMemory` (lazily created); `reset_shared()` drops it (reload/tests).
+  Exported from `kernel/__init__.py` as `working_memory_shared`.
+- `cognitive_core.py`: `_populate_working_memory_shadow` now writes into
+  `working_memory.shared()` (was a module-local instance) — so producer and
+  consumers share one set. Behaviour unchanged (still shadow, kill-switched).
+- `output_gate.py`: `_attention_working_memory_parity()` reads the shared set,
+  derives a signal the current gate ignores — whether the household is asleep
+  (from the `situation` item) — and logs whether consulting the canonical
+  context would **change** the attention arbitration vs the working-memory-blind
+  baseline. Wired into `_can_announce_with_multiplier` after the existing
+  attention shadow. **Observe-only** — the gate stays authoritative; kill-switch
+  `WORKING_MEMORY_PARITY`.
+- `scripts/kernel_adoption.py`: `working_memory` **shadow → parity** (owners
+  `["cognitive_core", "output_gate"]`); `KERNEL_ADOPTION.md` +
+  `docs/JARVIS_CONSTITUTION.md` regenerated from it.
+- `docs/KERNEL_PLAN.md`: Phase K status → pure + shadow + parity shipped.
+
+Behaviour-preserving: nothing gates on the working set yet. Ladder from here:
+enforce (`WORKING_MEMORY_ENFORCE`, fail-safe = current attention inputs) —
+owner-gated, and will join the Governance registry when that constant ships.
+Tests: `tests/unit/test_working_memory_parity.py` (7); `test_working_memory_shadow.py`
+updated to the shared singleton. Audit + four kernel gates green. Version
+8.152.0 → 8.153.0.
+
 ## [8.152.0] — Conflict resolution shadow → parity (presence)
 
 Epistemic Fabric **Conflict** primitive promoted shadow → parity. The presence
