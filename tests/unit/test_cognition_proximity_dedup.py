@@ -63,6 +63,7 @@ def test_arrival_fires_once_per_person(cog, monkeypatch):
     assert len(out) == 1                               # one person → one alert
     assert out[0]["pattern_key"] == "arriving:person.daughter"
     assert "Daughter is heading home" in out[0]["message"]  # the person, not a phone
+    assert out[0]["push"] is True                      # push-eligible (#265)
 
 
 def test_standalone_tracker_still_alerts(cog, monkeypatch):

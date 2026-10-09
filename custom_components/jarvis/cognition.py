@@ -1198,6 +1198,11 @@ def predict_proximity(hass, now: float = None) -> list:
                     "type": "anticipation_arriving", "urgency": "low",
                     "message": f"{name} is heading home — about {d:.1f} km out.",
                     "pattern_key": f"arriving:{pkey}", "offer": False,
+                    # Push-eligible (issue #265): low urgency so it is normally
+                    # spoken only; _emit_action pushes it to the phone when the
+                    # household opts in (arrival_push_enabled), so you can be told
+                    # someone's on the way home while you're out.
+                    "push": True,
                 })
     except Exception as exc:
         _LOGGER.debug("predict_proximity error: %s", exc)
