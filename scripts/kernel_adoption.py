@@ -441,10 +441,16 @@ _DECLARED: dict[str, dict] = {
     # asleep, from the situation item) and logs whether consulting the canonical
     # context would CHANGE the arbitration vs the working-memory-blind baseline
     # (kill-switch WORKING_MEMORY_PARITY). The owner chose the shared-singleton
-    # architecture. Observe-only, drives nothing. Ladder: pure → shadow → parity →
-    # enforce (arbitration reads it authoritatively, behind WORKING_MEMORY_ENFORCE,
-    # fail-safe = current attention inputs) — owner-gated.
-    "working_memory": {"stage": "parity",  "owners": ["cognitive_core", "output_gate"]},
+    # architecture. ENFORCE (Phase K): output_gate's attention arbitration now
+    # reads the shared working set AUTHORITATIVELY — behind WORKING_MEMORY_ENFORCE
+    # (or the owner-gated working_memory_enforce config key, DEFAULT-OFF) it may
+    # WITHHOLD a non-critical announcement the legacy gate allowed when the working
+    # set's knowledge (household asleep) is exactly what tips the kernel
+    # arbitration from ALLOW to DEFER/SUPPRESS. Tighten-only / safe-directional
+    # (never surfaces a withheld announcement, critical always bypasses); fail-safe
+    # to the legacy decision (current attention inputs) on any error or an
+    # unpopulated set. Ladder: pure → shadow → parity → enforce.
+    "working_memory": {"stage": "enforce", "owners": ["cognitive_core", "output_gate"]},
     # router: reasoning_loop computes the kernel local-first provider route
     # alongside its live cloud/local-Mind breaker decision and logs divergence
     # (E3) — shadow.

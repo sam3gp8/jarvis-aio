@@ -111,7 +111,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `temporal` | ◐ shadow |
 | `token_telemetry` | ◐ shadow |
 | `uncertainty` | ◑ parity |
-| `working_memory` | ◑ parity |
+| `working_memory` | ● enforce |
 | `world_model` | ● enforce |
 <!-- END kernel-stage-ledger -->
 
