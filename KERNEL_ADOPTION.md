@@ -82,7 +82,7 @@ explicit per-flip owner go/no-go.
 | `priority` | · pure | — |
 | `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
 | `router` | ◐ shadow | `reasoning_loop` |
-| `self_model` | ◐ shadow | `agent` |
+| `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `space_time` | ◑ parity | `cognitive_core` |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |

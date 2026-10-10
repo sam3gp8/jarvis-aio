@@ -1,3 +1,26 @@
+## [8.186.0] — kernel.self_model → parity: self-report vs ground truth (Phase S)
+
+Advances the `self_model` primitive **shadow → parity**. Alongside the shadow
+projection on the cognitive-status read, `agent._emit_self_model_parity` now
+compares the self-model's reported capability availability against an
+**independent ground truth** — a capability is really available only when its
+enforcement switch is live-enabled **and** its backing module actually resolves —
+and logs agreement/divergence (`self(parity): n=… agree=… report_only=…
+truth_only=…`). `report_only` isolates exactly what the enforce rung must forbid:
+the model reporting a capability *available* that JARVIS cannot actually perform
+(confabulation).
+
+- `agent.py`: pure `_self_model_parity(capabilities, ground_truth)` comparator +
+  `_emit_self_model_parity(sm)` (builds ground truth from the enforcement
+  registry), called from `_exec_cognitive_status` after the shadow log.
+  Kill-switch `SELF_MODEL_PARITY`.
+
+Observe-only — no decision consumes it; the hard rule holds structurally (the
+model only *describes*, it grants nothing). Adoption matrix + Constitution
+regenerated (`self_model ◑ parity`). Tests: `test_self_model_parity.py` (agree /
+confabulation / under-report / unknown-key skip / defensive-empty). Four kernel
+gates + audit green. Version 8.185.0 → 8.186.0. Part of #236.
+
 ## [8.185.0] — fix: Faces panel resets to 0 on every restart (#331)
 
 The Household Faces tab emptied on every Home Assistant / JARVIS restart — the

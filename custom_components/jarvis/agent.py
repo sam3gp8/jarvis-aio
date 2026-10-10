@@ -1842,6 +1842,68 @@ async def _exec_unignore(hass: HomeAssistant, args: dict) -> str:
 # off to silence it.
 SELF_MODEL_SHADOW = True
 
+# Phase S (parity): alongside the shadow projection, compare the self-model's
+# reported capability availability against an INDEPENDENT ground truth — the
+# switch is live-enabled AND its backing module actually resolves — and log
+# agreement/divergence. This isolates the one thing the enforce rung forbids:
+# the model reporting a capability *available* that JARVIS cannot actually
+# perform (confabulation). Observe-only, drives nothing; set SELF_MODEL_PARITY
+# off to silence it. Advances self_model shadow → parity.
+SELF_MODEL_PARITY = True
+
+
+def _self_model_parity(capabilities, ground_truth):
+    """Pure. Compare the self-model's reported capability availability (each
+    capability's ``usable`` flag) against ``ground_truth`` (``{key: really_available}``).
+    Returns ``(checked, agree, report_only, truth_only)`` where ``report_only`` =
+    the model called it available but ground truth says not (the confabulation the
+    enforce rung must forbid) and ``truth_only`` = available in truth but the model
+    under-reported. Only keys present in both are checked. Never raises."""
+    gt = {str(k): bool(v) for k, v in (ground_truth or {}).items()}
+    checked = agree = report_only = truth_only = 0
+    for cap in (capabilities or ()):
+        if isinstance(cap, dict):
+            name, reported = cap.get("name"), bool(cap.get("usable"))
+        else:
+            name, reported = getattr(cap, "name", None), bool(getattr(cap, "usable", False))
+        name = str(name or "")
+        if not name or name not in gt:
+            continue
+        truth = gt[name]
+        checked += 1
+        if reported == truth:
+            agree += 1
+        elif reported and not truth:
+            report_only += 1
+        else:
+            truth_only += 1
+    return checked, agree, report_only, truth_only
+
+
+def _emit_self_model_parity(sm) -> None:
+    """Phase S — parity. Build ground truth from the enforcement registry (a
+    capability is really available when its switch is live-enabled AND its backing
+    module resolves) and log how the self-model's self-report compares. Observe-only,
+    never raises; the status read is unchanged whether this runs or not."""
+    if not SELF_MODEL_PARITY or sm is None:
+        return
+    try:
+        from . import enforcement
+        gt = {}
+        for sw in enforcement.all_switches():
+            try:
+                gt[sw.key] = bool(enforcement.live_value(sw)) and (
+                    enforcement._resolve(sw.module) is not None)
+            except Exception:
+                gt[sw.key] = False
+        caps = sm.to_dict().get("capabilities", [])
+        checked, agree, report_only, truth_only = _self_model_parity(caps, gt)
+        _LOGGER.debug(
+            "self(parity): n=%d agree=%d report_only=%d truth_only=%d",
+            checked, agree, report_only, truth_only)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
 
 def _project_self_model(switches, goals_rows, situation_labels):
     """Pure projection of live-read rows into a kernel.self_model.SelfModel:
@@ -1947,6 +2009,7 @@ async def _exec_cognitive_status(hass: HomeAssistant, args: dict) -> str:
                 if sm is not None:
                     _LOGGER.debug("self(shadow): %s", sm.report())
                     status["self_model"] = sm.to_dict()
+                    _emit_self_model_parity(sm)   # Phase S parity (observe-only)
             except Exception:
                 pass
         return json.dumps(status)
