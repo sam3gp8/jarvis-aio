@@ -78,7 +78,7 @@ explicit per-flip owner go/no-go.
 | `ledger` | ◐ shadow | `__init__` |
 | `long_horizon` | ◐ shadow | `continuity` |
 | `loop_detect` | ● enforce | `actuation` |
-| `optimize` | · pure | — |
+| `optimize` | ◐ shadow | `decision_record` |
 | `outcome` | ◐ shadow | `actuation` |
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |

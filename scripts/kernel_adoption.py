@@ -73,10 +73,14 @@ _DECLARED: dict[str, dict] = {
     # UNKNOWN parameter to FORBIDDEN (fail-safe = fixed config). A TuningProposal is
     # auto_applicable only when SAFE and within bounds, proposal_only when SENSITIVE
     # and within bounds, else rejected — so Y can never relax a safety threshold or
-    # authority gate, structurally. PURE: no HA import, it proposes and never
-    # applies; the live wiring (reading token_telemetry/host metrics, emitting
-    # proposals) is the shadow rung.
-    "optimize":     {"stage": "pure",    "owners": []},
+    # authority gate, structurally. SHADOW (8.194.0): decision_record.interruption_budget
+    # maps its live over-interruption assessment into an optimize tuning PROPOSAL for
+    # the SENSITIVE interrupt_threshold and logs it (OPTIMIZE_SHADOW) — observe-only,
+    # proposal_only (owner-gated, never auto-applied), demonstrating the tiered
+    # guardrail. Drives nothing. Ladder from here: shadow → parity (tuned vs
+    # baseline) → enforce (SELF_OPTIMIZE_ENFORCE — self-tunes SAFE-tier only; the
+    # forbidden tier stays immutable at every rung), owner-gated.
+    "optimize":     {"stage": "shadow",  "owners": ["decision_record"]},
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},

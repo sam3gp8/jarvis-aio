@@ -1,3 +1,25 @@
+## [8.194.0] — kernel.optimize → shadow: tuning proposals from the interruption budget (Phase Y)
+
+Advances the `optimize` primitive **pure → shadow** with its first live producer.
+`decision_record.interruption_budget` now maps its live over-interruption
+assessment into a `kernel.optimize` tuning **proposal** for the SENSITIVE
+`interrupt_threshold` and logs it (`optimize(shadow): …`) — the more JARVIS has
+been interrupting without payoff (multiplier below 1.0), the more it would propose
+*raising* the threshold to interrupt less.
+
+- `decision_record.py`: pure `_optimize_proposal_from_budget(budget)` +
+  `_emit_optimize_shadow(budget)` (called at the end of `interruption_budget`).
+  Kill-switch `OPTIMIZE_SHADOW`.
+
+Observe-only and, crucially, **proposal_only** — because `interrupt_threshold` is
+SENSITIVE, the proposal is owner-gated and **never auto-applied**, demonstrating
+the tiered guardrail (SAFE self-tunes, SENSITIVE proposes, FORBIDDEN is immutable;
+the enforce rung owns self-application). Adoption matrix now `optimize ◐ shadow`
+(owner `decision_record`); Constitution regenerated. Tests:
+`test_optimize_shadow.py` (no-data; over-interrupting raises + proposal_only, never
+auto; healthy = no change; within-bounds clamp; defensive emit). Four kernel gates
++ audit green. Version 8.193.0 → 8.194.0. Part of #236.
+
 ## [8.193.0] — kernel.coordination (pure): budgeted peer coordination (Phase O)
 
 Lands the peer-coordination half of Phase O (merged O+AB) **pure** — hierarchical
