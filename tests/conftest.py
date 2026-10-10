@@ -18,9 +18,23 @@ import os
 import pathlib
 import sqlite3
 import sys
+import tempfile
 import types
 
 sys.path.insert(0, os.path.dirname(__file__))  # make fakes.py importable here
+
+# ── Hermetic config dir ───────────────────────────────────────────────────────
+# JARVIS's sync-only path helper (paths.py) falls back to /config when it has no
+# live hass. In a dev container that /config is the OWNER'S LIVE Home Assistant
+# config, so a unit test that imports jarvis_config / output_gate for real would
+# read the household's actual config.json (enforce flags on) and output_mutes.json
+# (all:true) — the exact state leaks into "off by default" / shadow assertions and
+# makes the in-container suite spuriously red. Point the fallback at an empty temp
+# dir so unit tests see DEFAULTS, reproducing clean-CI behaviour regardless of the
+# host. Set before any `jc.*` module (and thus `paths`) is imported. Integration
+# tests pass a real hass, which always wins over this fallback, so they're
+# unaffected. (Audit 2026-10, recommendation #1.)
+os.environ["JARVIS_CONFIG_DIR"] = tempfile.mkdtemp(prefix="jarvis-test-config-")
 
 
 # ── 1. Install faithful-but-minimal Home Assistant stubs ──────────────────────

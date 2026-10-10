@@ -1,3 +1,27 @@
+## [8.214.0] — Audit follow-up: hermetic test config (fixes live-home contamination)
+
+Acts on the audit's #1 recommendation (the one real bug): unit tests read the
+host's live `/config/jarvis` instead of defaults, so in a dev container with the
+owner's Home Assistant config they see enforce flags ON and `output_mutes.json`
+`all:true` — eight "off by default" / shadow tests fail spuriously and the
+in-container suite is permanently red, masking real regressions.
+
+- **`paths.py`**: the sync-only config-dir fallback now honours a
+  `JARVIS_CONFIG_DIR` env override (`DEFAULT_CONFIG_DIR`). Production is unchanged —
+  the variable is unset there and HA's live `hass.config.path` always wins over the
+  fallback anyway; the override only redirects the no-hass fallback.
+- **`tests/conftest.py`**: points `JARVIS_CONFIG_DIR` at a fresh empty temp dir
+  before any `jc.*` module loads, so unit tests that import `jarvis_config` /
+  `output_gate` for real see DEFAULTS — reproducing clean-CI behaviour regardless
+  of the host. Integration tests pass a real hass and are unaffected.
+- Result: the 8 previously-contaminated tests
+  (`test_actuation_learning_enforce`, `test_autonomy_enforce`,
+  `test_energy_environment_enforce`, `test_identity_fabric_enforce`,
+  `test_attention_shadow`, `test_delivery_triggers`) now pass in-container; the
+  unit suite is hermetic.
+
+No behaviour change. Six kernel gates + audit green. Version 8.213.0 → 8.214.0.
+
 ## [8.213.0] — Bug & gap audit (roadmap pause)
 
 Docs-only release. With Phase AE complete (shadow → parity → enforce), the roadmap
