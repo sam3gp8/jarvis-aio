@@ -270,6 +270,23 @@ async def _reason_about_scene(
         '"summary": "<one concise factual sentence for the log>", '
         '"speak": "<what JARVIS should say aloud, in his voice, ONLY if severity is urgent or notable; otherwise an empty string>"}'
     )
+    # Pin the human-readable values to the household language (#341). The vision
+    # analysis is already language-forced (build_system_prompt), but this
+    # reasoning summary is what gets stored as scene/observer memory and later
+    # recalled in chat — so a drift here surfaces as a foreign-language camera
+    # line in an otherwise on-language reply. Keep the JSON keys + enum values
+    # English so parsing is unaffected.
+    try:
+        from .language import language_name
+        _lname = language_name(hass)
+        if _lname:
+            system += (
+                f'\nWrite the "summary" and "speak" values in {_lname}. Keep the '
+                'JSON keys and the severity/category enum values exactly as '
+                'specified (in English).'
+            )
+    except Exception:
+        pass
     fg_line = ""
     if frigate_dets:
         _present = [l for l, v in frigate_dets.items() if v]
