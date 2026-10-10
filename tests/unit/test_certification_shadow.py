@@ -88,3 +88,50 @@ def test_never_raises_on_bad_ledger(cc):
     # should swallow the error, not propagate into the tick
     cc._emit_certification_shadow(perceived=True, predicted=True, decided=True,
                                   acted=True, learned=True)
+
+
+# ── the shared observer (certification_observe) ──────────────────────────────
+def test_observe_routes_into_the_shared_ledger(cc):
+    from jc.kernel import certification as CERT
+    cc.certification_observe(CERT.CONVERSATIONAL, closed_loop=True)
+    cc.certification_observe(CERT.PROACTIVE, closed_loop=False)
+    rep = cc.certification_ledger().report()
+    assert set(rep.exercised_classes) == {"conversational", "proactive"}
+    assert rep.closed_classes == ("conversational",)
+
+
+def test_observe_kill_switch(cc):
+    cc.CERTIFICATION_SHADOW = False
+    from jc.kernel import certification as CERT
+    cc.certification_observe(CERT.CONVERSATIONAL, closed_loop=True)
+    assert cc._CERT_LEDGER is None
+
+
+# ── agent.py conversational wiring (shared ledger) ───────────────────────────
+@pytest.fixture
+def agent(load):
+    return load("agent")
+
+
+def test_agent_conversational_closes_with_action_and_answer(cc, agent):
+    agent._emit_conversational_shadow(acted=True, answered=True)
+    rep = cc.certification_ledger().report()
+    assert rep.closed_classes == ("conversational",)
+
+
+def test_agent_conversational_open_without_action(cc, agent):
+    agent._emit_conversational_shadow(acted=False, answered=True)
+    rep = cc.certification_ledger().report()
+    assert rep.exercised_classes == ("conversational",)
+    assert rep.closed_classes == ()
+
+
+def test_agent_and_core_share_one_ledger(cc, agent):
+    # the agent's conversational observation and the core's proactive observation
+    # land in the SAME ledger — one system-wide certification dashboard
+    cc._emit_certification_shadow(perceived=True, predicted=True, decided=True,
+                                  acted=True, learned=True)        # proactive closed
+    agent._emit_conversational_shadow(acted=True, answered=True)   # conversational closed
+    rep = cc.certification_ledger().report()
+    assert set(rep.closed_classes) == {"proactive", "conversational"}
+    assert cc._CERT_LEDGER.observations == 2

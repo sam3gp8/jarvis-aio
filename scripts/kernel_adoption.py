@@ -606,15 +606,17 @@ _DECLARED: dict[str, dict] = {
     # a CertificationReport with pure derivations (coverage, closed-loop rate,
     # is_certified = every class exercised AND closed), and a CertificationLedger
     # that accumulates live observations (sticky-best per class) into a rolling
-    # report. SHADOW: cognitive_core._tick folds each live pass into the ledger as a
-    # `proactive` scenario observation (the integration loop's perceive→predict→
-    # decide→act→learn IS that scenario's shape), closed when the loop closes,
-    # logging `certification(shadow)` periodically. Observe-only; nothing reads the
-    # tally; kill-switched (CERTIFICATION_SHADOW / certification_shadow). Ladder from
-    # here: shadow → parity (a certification dashboard: coverage %, closed-loop %,
-    # invariants green, all ten classes observed from their own live surfaces) →
-    # enforce (every class closes + a certification CI gate), owner-gated.
-    "certification": {"stage": "shadow",  "owners": ["cognitive_core"]},
+    # report. SHADOW: live surfaces fold observations into ONE shared ledger via
+    # cognitive_core.certification_observe() — cognitive_core._tick observes the
+    # `proactive` class (the integration loop's perceive→predict→decide→act→learn IS
+    # that scenario's shape), and agent.run_agent observes the `conversational` class
+    # (request → reasoning → tool action → verified reply). Each class closes when it
+    # ran end-to-end; logs `certification(shadow)` periodically. Observe-only; nothing
+    # reads the tally; kill-switched (CERTIFICATION_SHADOW / certification_shadow).
+    # Ladder from here: shadow → parity (a certification dashboard: coverage %,
+    # closed-loop %, invariants green, all ten classes observed from their own live
+    # surfaces) → enforce (every class closes + a certification CI gate), owner-gated.
+    "certification": {"stage": "shadow",  "owners": ["agent", "cognitive_core"]},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action
