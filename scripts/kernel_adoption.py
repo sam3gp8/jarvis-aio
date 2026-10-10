@@ -184,10 +184,16 @@ _DECLARED: dict[str, dict] = {
     # logs AGREEMENT/DIVERGENCE ("space_time(parity)") — observe-only (kill-
     # switches SPACE_TIME_SHADOW / SPACE_TIME_PARITY), driving nothing. This
     # parity isolates the kernel BFS as a faithful re-implementation of the
-    # incumbent; the camera↔sensor mapping (cf. #140) and the enforce flip
-    # (SPACE_TIME_ENFORCE — presence/coverage/routing reading the model
-    # authoritatively, fail-safe = present mapping) are later, owner-gated rungs.
-    "space_time":   {"stage": "parity",  "owners": ["cognitive_core"]},
+    # incumbent. ENFORCE (Phase Q): the intrusion investigation consumes the
+    # kernel SpatialGraph's breach-depth map AUTHORITATIVELY behind
+    # SPACE_TIME_ENFORCE (or the owner-gated space_time_enforce config key,
+    # DEFAULT-OFF) — adopted only when the kernel reproduces the incumbent map
+    # exactly at room-slug level (the parity agreement test), keyed back to
+    # area-ids via the legacy map; any divergence / empty graph / unmappable key /
+    # error keeps residence_graph.hops_from_breach (fail-safe). Exact-agreement
+    # adoption makes the kernel the authoritative producer without changing the
+    # safety behaviour. Kill-switched. Ladder: pure → shadow → parity → enforce.
+    "space_time":   {"stage": "enforce", "owners": ["cognitive_core"]},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS

@@ -862,6 +862,12 @@ class SafetyManager:
             # Phase Q (parity): check the kernel SpatialGraph reproduces the same
             # breach-depth map — observe-only, drives nothing.
             _emit_space_time_parity(self.hass, self.config, breach_area, hops)
+            # Phase Q (enforce, owner-gated, default OFF): let the kernel
+            # SpatialGraph own the breach-depth map authoritatively — adopted only
+            # when it exactly reproduces the incumbent; any divergence/error keeps
+            # the legacy map (fail-safe = residence_graph.hops_from_breach).
+            hops = _space_time_breach_hops(
+                self.hass, self.config, breach_area, hops)
             connected.discard(None)
             # ONE alert, then investigate. An intentionally-open window is still
             # a valid entry point — alert once and watch, rather than ignore it.
@@ -2916,6 +2922,67 @@ def _emit_space_time_parity(hass, config, breach_area, legacy_hops) -> None:
             agree, len(kernel_slug_hops), len(legacy_slug_hops))
     except Exception:   # pragma: no cover - defensive
         pass
+
+
+# ENFORCE (Phase Q): the kernel SpatialGraph owns the breach-depth map that the
+# intrusion investigation reasons over (inward-vs-entry motion). Behind
+# SPACE_TIME_ENFORCE (or the owner-gated `space_time_enforce` config key,
+# DEFAULT-OFF) the investigation consumes the kernel-derived depth map instead of
+# residence_graph's — but ONLY when the kernel exactly reproduces the incumbent
+# at room-slug level (the parity rung's agreement test). The kernel map is slug-
+# keyed; the consumer expects area-id keys, so it is keyed back using the legacy
+# map's own area-ids. Any divergence, an empty graph, a key that does not map
+# back, or any error → the incumbent residence_graph.hops_from_breach map stands
+# untouched (fail-safe). Since adoption requires exact slug-level equality, the
+# map handed downstream is identical to today's — this makes the kernel the
+# authoritative producer without changing the safety behaviour. Kill-switched.
+SPACE_TIME_ENFORCE = False
+
+
+def _space_time_enforce_on() -> bool:
+    """True when the household has opted the kernel space/time model into the
+    authoritative breach-depth path (`SPACE_TIME_ENFORCE` or the
+    `space_time_enforce` config key). Never raises."""
+    if SPACE_TIME_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("space_time_enforce", False))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _space_time_breach_hops(hass, config, breach_area, legacy_hops):
+    """Phase Q enforce — the breach-depth map, kernel-owned when it is safe to be.
+
+    Returns the kernel SpatialGraph's ``{area_id: depth}`` breach-depth map when
+    enforce is on AND the kernel reproduces the incumbent map exactly at room-slug
+    level; otherwise returns ``legacy_hops`` unchanged (fail-safe =
+    residence_graph.hops_from_breach). Best-effort; any error → ``legacy_hops``."""
+    if not breach_area or not _space_time_enforce_on():
+        return legacy_hops
+    try:
+        from . import residence_graph
+        from .kernel.world_model import WorldModel
+        g = WorldModel(hass, config or {}).spatial_graph()
+        if g.is_empty():
+            return legacy_hops
+        start = residence_graph._area_slug(hass, breach_area)
+        kernel_slug_hops = g.hops_from(start)                 # {slug: depth}
+        slug_to_aid, legacy_slug_hops = {}, {}
+        for aid, d in (legacy_hops or {}).items():
+            s = residence_graph._area_slug(hass, aid)
+            slug_to_aid[s] = aid
+            legacy_slug_hops[s] = d
+        # Adopt only on exact agreement with the incumbent (the parity test) and
+        # only when every kernel slug maps back to a known area-id. Otherwise the
+        # incumbent map stays authoritative.
+        if (kernel_slug_hops != legacy_slug_hops
+                or not set(kernel_slug_hops) <= set(slug_to_aid)):
+            return legacy_hops
+        return {slug_to_aid[s]: d for s, d in kernel_slug_hops.items()}
+    except Exception:   # pragma: no cover - defensive
+        return legacy_hops
 
 
 def _emit_space_time_shadow(hass, config) -> None:

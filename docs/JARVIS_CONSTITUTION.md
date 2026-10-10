@@ -106,7 +106,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `self_model` | ◑ parity |
 | `situation` | ● enforce |
 | `social` | · pure |
-| `space_time` | ◑ parity |
+| `space_time` | ● enforce |
 | `surfaces` | · pure |
 | `temporal` | ◐ shadow |
 | `token_telemetry` | ◐ shadow |
