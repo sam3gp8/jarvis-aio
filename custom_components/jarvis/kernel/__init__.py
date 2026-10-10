@@ -35,6 +35,7 @@ from . import (
     beliefs,
     budget,
     causal,
+    certification,
     conflict,
     temporal,
     cycle,
@@ -91,6 +92,14 @@ from .token_telemetry import (
 from .outcome import Outcome, OutcomeStats, record_outcome
 from .learning import WeightAdjustment, adjust as adjust_weight, plan_adjustments
 from .provenance import Provenance
+from .certification import (
+    CLASSES as CERTIFICATION_CLASSES,
+    CertificationReport,
+    ScenarioResult,
+    from_map as certification_from_map,
+    report as certification_report,
+    result as certification_result,
+)
 from .uncertainty import Uncertain
 from .conflict import Resolution as ConflictResolution
 from .temporal import Validity, ValidityStats
@@ -237,6 +246,13 @@ __all__ = [
     "SpawnCheck",
     "provenance",
     "Provenance",
+    "certification",
+    "CertificationReport",
+    "ScenarioResult",
+    "CERTIFICATION_CLASSES",
+    "certification_report",
+    "certification_result",
+    "certification_from_map",
     "uncertainty",
     "Uncertain",
     "conflict",
