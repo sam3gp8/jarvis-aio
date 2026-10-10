@@ -1,3 +1,101 @@
+## [8.199.0] — kernel.long_horizon → parity: durable goal ledger + resume-after-restart proof (Phase V)
+
+Advances `long_horizon` **shadow → parity** with a real durable build. `continuity`
+persists the live goals — modeled as `kernel.long_horizon` goals, carrying the
+milestone progress the `agency_state` commitment deliberately does **not** — to a
+durable ledger (`long_horizon_ledger.json`) on each capture, and on boot RESUMES
+them from the ledger and compares their progress against the goals re-derived from
+the live store.
+
+- `continuity.py`: `_build_long_horizon_goals` (the single builder the shadow
+  roll-up and the ledger read share), `_long_horizon_persist` (atomic temp+replace,
+  capped, best-effort), `_long_horizon_load` (round-trips via
+  `long_horizon.plan_goal`), `_long_horizon_parity` (logs how many goals resumed
+  with identical progress + new/dropped counts). `capture_now` runs parity against
+  the previous ledger then rewrites it; `boot_summary` runs parity against the
+  pre-restart ledger. Kill-switch `LONG_HORIZON_PARITY`.
+
+Not hollow: the ledger is an independent durable path written in a prior process,
+compared against `goals.py`'s own persistence after a restart. **Observe-only** —
+nothing resumes FROM the ledger yet (that is the owner-gated `LONG_HORIZON_ENFORCE`
+rung, fail-safe = session-scoped goals); the parity read never raises into boot.
+Adoption matrix + Constitution regenerated (`long_horizon ◑ parity`). Tests:
+`test_long_horizon_parity.py`. Four kernel gates + audit green. Version 8.198.0 →
+8.199.0. Part of #236.
+
+## [8.198.0] — Phase AC: contextual autonomy — hold convenience auto-actions while a guest is present (default OFF)
+
+Advanced Autonomy (dynamic / contextual), layered **on top of** the earned
+per-capability level (Phase N) and its hard ceiling: a capability's autonomy at any
+instant becomes `min(earned_level, contextual_cap)` — the N gate runs first and is
+never exceeded, so contextual autonomy can tighten JARVIS's hand but never free it.
+
+- `kernel/autonomy.py` (pure): `AutonomyContext` (guests / asleep / low-confidence)
+  + `contextual_cap(level, context)` (DOWNWARD-ONLY clamp — always `min(level, cap)`
+  on the ladder) + `context_blocks_autonomy()` (boolean adapter; None/malformed →
+  never blocks).
+- `cognitive_core.py`: behind `CONTEXTUAL_AUTONOMY_ENFORCE` / the owner-gated
+  `contextual_autonomy_enforce` key (default OFF), `AutonomyManager.is_autonomous`
+  consults the context atop the N ceiling, so a granted convenience pattern is held
+  to ask-first while a guest is in the home. Context built once per proactive tick
+  from `_guests_present()` (a recently-recognised non-resident face); only when
+  enforce is on; no context passed = no-op.
+
+Proactive offers are already suppressed while asleep upstream, so the live wiring
+uses the **guests** signal (non-hollow); the asleep / low-confidence dimensions
+ship in the pure primitive for a future clean signal. **Safe-directional** (can
+only withhold, never grant), never loosens the N gate, default OFF /
+behaviour-preserving, kill-switched, fail-safe to acting as today. Safety events
+never route through this gate. Tests: `test_kernel_autonomy_contextual.py`,
+`test_contextual_autonomy_enforce.py`. Four kernel gates + audit green. Version
+8.197.0 → 8.198.0. Part of #236.
+
+## [8.197.0] — kernel.space_time → enforce: intrusion breach-depth owned by the kernel SpatialGraph (Phase Q, default OFF)
+
+Completes the Phase Q **spatial** ladder (pure → shadow → parity → enforce). The
+intrusion investigation's breach-depth map (which tells inward motion from motion
+lingering at the point of entry) can be owned authoritatively by the kernel
+`SpatialGraph` instead of `residence_graph`.
+
+- `cognitive_core.py`: behind `SPACE_TIME_ENFORCE` / the owner-gated
+  `space_time_enforce` key (default OFF), `_space_time_breach_hops` adopts the
+  kernel-derived depth map — but **only** when the kernel reproduces the incumbent
+  `residence_graph.hops_from_breach` map exactly at room-slug level (the parity
+  agreement test), keyed back to area-ids via the legacy map.
+
+Safety path, safe by construction: exact-agreement adoption makes the kernel the
+authoritative producer **without changing the safety behaviour**; any divergence /
+empty graph / unmappable key / error keeps the incumbent map (fail-safe). Default
+OFF, kill-switched. (The non-safety temporal/daypart path was considered first per
+the roadmap caution, but the kernel's 6-bucket dayparts deliberately differ from the
+live 4-bucket greeting buckets, so it would not be behaviour-preserving.) Adoption
+matrix + Constitution regenerated (`space_time ● enforce`). Tests:
+`test_space_time_enforce.py`. Four kernel gates + audit green. Version 8.196.0 →
+8.197.0. Part of #236.
+
+## [8.196.0] — kernel.working_memory → enforce: attention reads the canonical working set (Phase K, default OFF)
+
+Completes the Phase K ladder (pure → shadow → parity → enforce). The output gate's
+announce arbitration reads the one shared kernel `WorkingMemory`
+(`working_memory.shared()`) **authoritatively**.
+
+- `output_gate.py`: behind `WORKING_MEMORY_ENFORCE` / the owner-gated
+  `working_memory_enforce` key (default OFF), the gate consults the canonical
+  cognitive context and may **withhold** a non-critical announcement the legacy
+  gate allowed, when the working set's knowledge (household asleep, from the
+  situation item) is exactly what tips the kernel attention arbitration from ALLOW
+  to DEFER/SUPPRESS. A shared `_working_memory_signal()` is the single source the
+  parity log and the enforce gate both read; the verdict is the pure, unit-tested
+  `_working_memory_gates_out()`.
+
+**Tighten-only** (can only withhold, never surface a withheld announcement);
+**critical urgency always bypasses**; **fail-safe** = the legacy decision (current
+attention inputs) on any error or an unpopulated working set; behaviour-preserving
+while OFF; kill-switched. Non-safety (announce surface only). Adoption matrix +
+Constitution regenerated (`working_memory ● enforce`). Tests:
+`test_working_memory_enforce.py`. Four kernel gates + audit green. Version 8.195.0 →
+8.196.0. Part of #236.
+
 ## [8.195.0] — kernel.causal → enforce: proactive suggestions gated on prediction (Phase L, default OFF)
 
 Advances the `causal` primitive **parity → enforce**. When the flip is on, a
