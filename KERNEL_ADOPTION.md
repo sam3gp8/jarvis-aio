@@ -86,6 +86,7 @@ explicit per-flip owner go/no-go.
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `space_time` | ◑ parity | `cognitive_core` |
+| `surfaces` | · pure | — |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |
 | `uncertainty` | ◑ parity | `identity`, `knowledge` |

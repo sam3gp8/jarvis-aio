@@ -1,3 +1,26 @@
+## [8.188.0] — kernel.surfaces (pure): presence continuity (Phase AA)
+
+Lands the Phase AA primitive **pure**. `kernel/surfaces.py` is a surface registry
++ a single cross-surface arbiter, built around **presence continuity, not a UI
+layer**:
+
+- `arbitrate(surfaces)` picks **exactly one** surface to emit on — a focused
+  surface wins over mere presence, else the lowest effective priority — so a
+  notification is announced **once**, never N times across N surfaces. A muted or
+  absent surface never wins; `None` means stay silent.
+- Mutes are honored everywhere (`muted_surfaces`), and `would_double_announce`
+  shows when arbitration is doing real work.
+- An `Interaction` survives a `handoff` between surfaces (voice → mobile → HUD)
+  **keeping its id** — `is_same_interaction` is the continuity test; a same-surface
+  handoff is a no-op.
+
+Pure: no Home Assistant import, no I/O, no clock; nothing live consumes it yet
+(the registry + announcement path wire on at the shadow rung). Declared
+`surfaces · pure`; Constitution regenerated. Tests: `test_kernel_surfaces.py`
+(focused/priority/override arbitration; mute+absent exclusion; single-emit;
+handoff identity continuity; same-surface no-op; summary). Audit + four kernel
+gates green. Version 8.187.0 → 8.188.0. Part of #236.
+
 ## [8.187.0] — kernel.resilience (pure): resilient compute federation (Phase Z)
 
 Lands the Phase Z primitive **pure**. `kernel/resilience.py` is a local-first,

@@ -472,6 +472,15 @@ _DECLARED: dict[str, dict] = {
     # pure → shadow (would-be tier choice) → parity (vs current breaker) → enforce
     # (RESILIENCE_ENFORCE, fail-safe = current breaker), owner-gated.
     "resilience":   {"stage": "pure",    "owners": []},
+    # surfaces: PURE (Phase AA, Omnipresent Multimodal — presence continuity). A
+    # surface registry + a single cross-surface arbiter: one utterance is emitted
+    # on exactly ONE surface (no double-announce), mutes honored everywhere, and an
+    # Interaction survives a handoff between surfaces (voice → mobile → HUD) keeping
+    # its id — presence continuity, not a UI layer. No HA import, no I/O, no clock;
+    # nothing live consumes it yet (the registry + announcement path wire on at the
+    # shadow rung). Ladder: pure → shadow → parity (which satellite speaks) →
+    # enforce (SURFACES_ENFORCE, fail-safe = per-surface current logic), owner-gated.
+    "surfaces":     {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action
