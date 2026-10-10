@@ -89,6 +89,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `household` | · pure |
 | `identity_fabric` | ● enforce |
 | `inquiry` | · pure |
+| `integration` | ◐ shadow |
 | `journal` | ◐ shadow |
 | `learning` | ● enforce |
 | `ledger` | ◐ shadow |

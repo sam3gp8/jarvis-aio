@@ -3113,6 +3113,15 @@ async def _tick():
     _CORE.tick_count += 1
     _CORE.last_tick = time.time()
 
+    # Phase R (integration shadow): signals for this pass's loop trace. perceive
+    # is always true below (we read the world); predict/learn are set where they
+    # genuinely happen; act is derived from what dispatched. _auto_before snapshots
+    # the autonomous-action total so a fresh autonomous act (which records an
+    # outcome → learning) this tick counts as the loop's LEARN stage.
+    _loop_predicted = False
+    _loop_learned = False
+    _auto_before = getattr(_CORE, "autonomous_actions", 0)
+
     # Determine home state (MCU Phase C, C1): read through the kernel WorldModel
     # facade — the canonical context authority — instead of a bare states sweep.
     # WorldModel.devices("person") reads the same person entities, so this is
@@ -3316,10 +3325,12 @@ async def _tick():
                     actions.append(pred)
                     from .websocket import jarvis_log
                     jarvis_log("LEARN", f"anticipation: {pred.get('message','')[:80]}")
+                _loop_predicted = bool(preds)   # Phase R: PREDICT stage ran
                 await hass.async_add_executor_job(
                     cognition.save_to_db,
                     config_path_str("jarvis", "patterns.db", hass=hass),
                 )
+                _loop_learned = True            # Phase R: learned model updated
     except Exception as exc:
         _LOGGER.debug("Cognition anticipation tick error: %s", exc)
 
@@ -3396,6 +3407,21 @@ async def _tick():
         )
     except Exception as exc:
         _LOGGER.debug("working-memory shadow error: %s", exc)
+
+    # ── Phase R (shadow): trace this pass as one perceive→predict→decide→act→
+    # learn loop and log whether it closed. Observe-only; never affects the tick.
+    try:
+        _acted_auto = getattr(_CORE, "autonomous_actions", 0) > _auto_before
+        _emit_integration_loop_shadow(
+            perceived=True,
+            predicted=_loop_predicted,
+            decided=bool(actions),
+            acted=bool(emitted),
+            learned=_loop_learned or _acted_auto,
+            correlation_id=f"tick-{getattr(_CORE, 'tick_count', 0)}",
+        )
+    except Exception as exc:
+        _LOGGER.debug("integration loop shadow emit error: %s", exc)
 
 
 # Phase J (J4): ENFORCE — the proactive dispatch loop IS the kernel
@@ -3537,6 +3563,53 @@ def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
             )
     except Exception:
         _LOGGER.debug("cognitive cycle parity trace: %s", trace.to_dict())
+
+
+# Phase R (Integration Gate — shadow). Trace one full perceive → predict →
+# decide → act → learn pass as a single kernel.integration.LoopTrace, under the
+# tick's correlation id, and log whether the loop CLOSED (all five stages ran) or
+# how far it got. This is the "can the architecture operate as one?" bar made
+# observable: cognition (J–M) and agency (N–V) as one correlated,
+# journal-reconstructable chain rather than five subsystems in a process.
+# Observe-only — nothing gates on closure yet; that is R's parity (closed-loop
+# rate over a representative set) and enforce (the loop owns one end-to-end
+# scenario + a CI gate against open-loop regressions) rungs. Kill-switched
+# (INTEGRATION_LOOP_SHADOW + the integration_loop_shadow config key); never raises
+# into the tick.
+INTEGRATION_LOOP_SHADOW = True
+
+
+def _emit_integration_loop_shadow(*, perceived: bool, predicted: bool,
+                                  decided: bool, acted: bool, learned: bool,
+                                  correlation_id: Optional[str] = None) -> None:
+    """Assemble + log the Phase R closed-loop trace for this tick. Observe-only;
+    drives nothing. Never raises into the caller."""
+    if not INTEGRATION_LOOP_SHADOW:
+        return
+    try:
+        if _CORE and _CORE.config and not _CORE.config.get("integration_loop_shadow", True):
+            return
+    except Exception:
+        pass
+    try:
+        import time as _time
+        from .kernel import integration as II
+        try:
+            from .kernel import correlation as _corr
+            cid = correlation_id or _corr.current()
+        except Exception:
+            cid = correlation_id
+        cid = cid or f"tick-{getattr(_CORE, 'tick_count', 0)}"
+        tr = II.from_flags(
+            cid, started_ts=_time.time(), perceive=perceived, predict=predicted,
+            decide=decided, act=acted, learn=learned)
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("LOOP", f"integration(shadow): {tr.summary()}")
+        except Exception:
+            _LOGGER.debug("integration(shadow): %s", tr.to_dict())
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("integration loop shadow error: %s", exc)
 
 
 # Phase K (shadow): populate the ONE canonical kernel working set (the shared

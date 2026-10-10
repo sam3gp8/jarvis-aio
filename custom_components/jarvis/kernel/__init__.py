@@ -40,6 +40,7 @@ from . import (
     cycle,
     graph,
     identity_fabric,
+    integration,
     journal,
     learning,
     long_horizon,
