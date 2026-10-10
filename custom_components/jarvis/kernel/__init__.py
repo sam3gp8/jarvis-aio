@@ -94,6 +94,7 @@ from .learning import WeightAdjustment, adjust as adjust_weight, plan_adjustment
 from .provenance import Provenance
 from .certification import (
     CLASSES as CERTIFICATION_CLASSES,
+    CertificationLedger,
     CertificationReport,
     ScenarioResult,
     from_map as certification_from_map,
@@ -248,6 +249,7 @@ __all__ = [
     "Provenance",
     "certification",
     "CertificationReport",
+    "CertificationLedger",
     "ScenarioResult",
     "CERTIFICATION_CLASSES",
     "certification_report",

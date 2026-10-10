@@ -171,3 +171,63 @@ def from_map(mapping: Optional[Mapping[str, bool]] = None) -> CertificationRepor
     rows = [result(c, exercised=True, closed_loop=bool(mapping.get(c, False)))
             for c in CLASSES if c in mapping]
     return report(rows)
+
+
+class CertificationLedger:
+    """Accumulates scenario-class observations over a window into a rolling
+    :class:`CertificationReport` — the certification dashboard's live tally.
+
+    **Sticky-best per class**: once a class is observed closing the loop it STAYS
+    closed for the window. Certification asks whether every class has been
+    *demonstrated to close at least once*, not whether the latest run of it
+    closed — so a later open pass of an already-closed class must not un-certify
+    it. ``reset()`` starts a fresh window. Pure: no HA import, no I/O, no clock;
+    non-canonical class names are ignored. Mirrors the shape of
+    ``kernel.integration.LoopAccumulator`` (the Phase R parity tally)."""
+
+    def __init__(self) -> None:
+        self._best: Dict[str, ScenarioResult] = {}
+        self._seen: int = 0
+
+    def observe(self, scenario: str, *, closed_loop: bool = False,
+                note: str = "") -> None:
+        """Record one observation of a scenario class. Non-canonical names are
+        ignored. Sticky-best: a class that has ever closed stays closed."""
+        # observing a class at all means it was exercised; the bool is whether
+        # that run closed the loop (an open observation is exercised-but-open).
+        r = result(scenario, exercised=True, closed_loop=closed_loop, note=note)
+        if r.scenario not in _RANK:
+            return
+        self._seen += 1
+        prev = self._best.get(r.scenario)
+        if prev is not None and prev.closed_loop and not r.closed_loop:
+            # already demonstrated closed this window — keep it, refresh the note
+            if note:
+                self._best[r.scenario] = result(r.scenario, exercised=True,
+                                                closed_loop=True, note=note)
+            return
+        self._best[r.scenario] = r
+
+    @property
+    def observations(self) -> int:
+        """Total observations recorded this window (canonical classes only)."""
+        return self._seen
+
+    def report(self) -> CertificationReport:
+        """The rolling certification report over everything observed so far."""
+        return report(tuple(self._best.values()))
+
+    def summary(self) -> str:
+        """One-line headline: the report's summary, prefixed with the count."""
+        if self._seen == 0:
+            return "no observations recorded"
+        return f"[{self._seen} obs] {self.report().summary()}"
+
+    def to_dict(self) -> dict:
+        d = self.report().to_dict()
+        d["observations"] = self._seen
+        return d
+
+    def reset(self) -> None:
+        self._best.clear()
+        self._seen = 0
