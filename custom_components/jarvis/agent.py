@@ -1053,6 +1053,36 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "usual_times",
+            "description": (
+                "JARVIS's LEARNED daily presence routine — when people usually "
+                "leave and usually get home, derived from weeks of device-tracker / "
+                "person history. Use this for 'what time do I usually get home from "
+                "work', 'when do I normally leave', 'what's my routine', 'when is "
+                "<person> usually back'. This is learned habit, NOT who is home "
+                "right now (use get_home_summary for live presence). Returns each "
+                "person's usual leave/arrive time, or tells you nothing is learned "
+                "yet when there isn't enough history."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "who": {
+                        "type": "string",
+                        "description": (
+                            "Optional name or entity_id to filter to one person "
+                            "(e.g. 'Sam', 'device_tracker.sam_s_jeep'); omit for "
+                            "everyone with a learned routine."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "look_at_camera",
             "description": (
                 "Look at a camera right now and answer a specific visual "
@@ -2670,6 +2700,30 @@ async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc), "found": False, "term": term})
 
 
+async def _exec_usual_times(hass: HomeAssistant, args: dict) -> str:
+    """Report the LEARNED daily presence routine — usual leave / arrive times —
+    from cognition, or say nothing is learned yet. Read-only; never raises."""
+    who = str(args.get("who", "") or "").strip().lower()
+    try:
+        from . import cognition
+        rows = await hass.async_add_executor_job(cognition.presence_schedule, hass)
+    except Exception as exc:
+        return json.dumps({"error": str(exc), "learned": False})
+    if who:
+        rows = [r for r in rows
+                if who in str(r.get("entity_id", "")).lower()
+                or who in str(r.get("name", "")).lower()]
+    if not rows:
+        # Distinguish "no routine for that person" from "nothing learned at all".
+        msg = (f"No usual-times routine learned for '{args.get('who')}' yet."
+               if who else
+               "No usual leave/arrive routine learned yet — this needs about a "
+               "week of day-to-day presence history to settle. Presence-pattern "
+               "learning is on; it will fill in as more days accrue.")
+        return json.dumps({"learned": False, "detail": msg, "routines": []})
+    return json.dumps({"learned": True, "routines": rows})
+
+
 async def _analyze_camera(hass, entity_id: str, prompt: str, announce: bool,
                           honorific: str) -> dict:
     """The camera vision call, isolated as a module-level function so tests can
@@ -2810,6 +2864,7 @@ _TOOL_MAP = {
     "look_at_camera":      _exec_look_at_camera,
     "who_do_you_see":      _exec_who_do_you_see,
     "where_last_seen":     _exec_where_last_seen,
+    "usual_times":         _exec_usual_times,
     "dismiss_intrusion":   _exec_dismiss_intrusion,
     "acknowledge_alert":   _exec_acknowledge_alert,
     "system_diagnostics":  _exec_system_diagnostics,
@@ -3637,6 +3692,17 @@ def _language_directive(hass, lang=None) -> str:
     return f"{directive}\n" if directive else ""
 
 
+def _empty_reply_fallback(config) -> str:
+    """A graceful line for when the model synthesises no text — so the chat never
+    shows a blank turn / "(JARVIS returned no text.)". Honours the household
+    honorific; never raises."""
+    try:
+        hon = (config.get("honorific", "sir") if isinstance(config, dict) else "sir") or "sir"
+    except Exception:
+        hon = "sir"
+    return f"I'm not sure I caught that, {hon} — could you put it another way?"
+
+
 async def run_agent(
     hass: HomeAssistant,
     *,
@@ -3819,7 +3885,14 @@ async def run_agent(
         f"('keep an eye on the workshop for tools left out'), create a goal "
         f"whose recurring action is a look_at_camera check: alert only when the "
         f"thing is found, otherwise stay quiet. Vision is reliable for "
-        f"presence/absence, not fine detail.\n\n"
+        f"presence/absence, not fine detail.\n"
+        f"12. For a question about someone's HABITUAL schedule — 'what time do I "
+        f"usually get home from work', 'when do I normally leave', 'what's my "
+        f"routine', 'when is <person> usually back' — call usual_times (learned "
+        f"from weeks of presence history). That is different from who is home "
+        f"right now (get_home_summary). If usual_times reports nothing learned "
+        f"yet, say so plainly — do not substitute live presence for a learned "
+        f"routine, and never invent a time.\n\n"
         f"## Who you are\n"
         f"You are JARVIS — Tony Stark's JARVIS, serving this household. Dry, "
         f"precise, unflappable, quietly witty. You anticipate the user's actual "
@@ -4036,7 +4109,10 @@ async def run_agent(
         tool_calls = result.get("tool_calls", [])
 
         if not tool_calls:
-            return text
+            # A model (notably a small local one) can return no tool call AND empty
+            # content — synthesising nothing. Never hand the UI a blank turn; fall
+            # back to a graceful line so the user sees a reply, not "(no text)".
+            return text.strip() if (text and text.strip()) else _empty_reply_fallback(config)
 
         _LOGGER.info(
             "Agent iteration %d: %d tool call(s): %s",
@@ -4110,7 +4186,8 @@ async def run_agent(
                 run_state=llm_run_state,
             ),
         )
-        return result.get("text", "")
+        _final = (result.get("text", "") or "").strip()
+        return _final if _final else _empty_reply_fallback(config)
     except Exception:
         try:
             from . import persona

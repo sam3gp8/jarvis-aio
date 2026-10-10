@@ -169,7 +169,7 @@ _NON_ACTUATOR_TOOLS: frozenset[str] = frozenset({
     "energy_status", "hazard_report", "activity_history", "weather_forecast",
     "wellbeing_context", "root_cause", "web_research", "calendar_agenda",
     "read_email", "look_at_camera", "who_do_you_see", "where_last_seen",
-    "search_documents", "ingest_documents",
+    "usual_times", "search_documents", "ingest_documents",
     # memory / preferences
     "remember", "ignore_entity", "unignore_entity",
     # scheduling / goals / suggestions (bookkeeping, not home actuation)

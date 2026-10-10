@@ -1,3 +1,26 @@
+## [8.202.0] — chat: answer "what time do I usually get home?", and never return a blank turn
+
+Two chat-quality fixes prompted by a report where JARVIS answered a routine
+question with live presence ("Sam is currently home") and then returned empty.
+
+- **New `usual_times` tool.** JARVIS already learns each person's daily
+  leave/arrive routine (cognition presence patterns) but the chat brain had no
+  way to read it, so it fell back to a live presence check. `cognition.presence_schedule`
+  now surfaces the learned usual leave/arrive time per presence entity (person /
+  device_tracker) — only when a consistent near-daily routine exists — and the new
+  `usual_times` tool exposes it. System-prompt guidance routes "what time do I
+  usually get home / when do I leave / what's my routine" there, with an explicit
+  "I haven't learned that yet" answer when there isn't enough history (never
+  substitutes live presence, never invents a time).
+- **No more "(JARVIS returned no text.)".** `run_agent` could return an empty
+  string when a model (notably a small local one) synthesised no text and no tool
+  call; the panel then showed a blank turn. Both return paths now fall back to a
+  graceful line ("I'm not sure I caught that, sir — could you put it another
+  way?"), honouring the household honorific.
+
+No actuation change; read-only tool. New `test_usual_times.py`. Four kernel gates
++ audit green. Version 8.201.0 → 8.202.0.
+
 ## [8.201.0] — Phase R (Integration Gate) — shadow: the closed cognitive/agency loop, traced
 
 Opens the **R capstone** (the "can the architecture operate as one?" bar). R is
