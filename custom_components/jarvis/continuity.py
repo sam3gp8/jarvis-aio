@@ -322,19 +322,14 @@ def _live_situations(hass=None) -> List[dict]:
         return []
 
 
-def _long_horizon_shadow(hass=None) -> None:
-    """Model the live active goals as kernel.long_horizon goals and log a progress
-    roll-up (Phase V — shadow). Observe-only: nothing persists or resumes them
-    durably yet (that is the parity/enforce rung — a goal surviving a restart with
-    correct progress). This quantifies goal progress in the primitive's terms,
-    naming each goal's milestones from its steps. Never raises."""
-    if not LONG_HORIZON_SHADOW:
-        return
+def _build_long_horizon_goals(now: float) -> list:
+    """The live active goals modeled as ``kernel.long_horizon`` goals (steps →
+    milestones). Reads ``goals.active()``; returns a list of ``LongHorizonGoal``,
+    or ``[]`` on any error. The single builder both the shadow roll-up and the
+    durable-ledger parity read, so they never diverge."""
     try:
-        import time as _time
         from .kernel import long_horizon as LH
         from . import goals as _goals
-        now = _time.time()
         built = []
         for g in (_goals.active() or []):
             gid = g.get("id")
@@ -352,6 +347,22 @@ def _long_horizon_shadow(hass=None) -> None:
                 milestones.append({"label": label, "status": status})
             title = str(g.get("title") or g.get("outcome") or "").strip()
             built.append(LH.plan_goal(title, milestones, id=f"goal:{gid}", now=now))
+        return built
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("long_horizon build failed: %s", exc)
+        return []
+
+
+def _long_horizon_shadow(hass=None) -> None:
+    """Model the live active goals as kernel.long_horizon goals and log a progress
+    roll-up (Phase V — shadow). Observe-only. Never raises."""
+    if not LONG_HORIZON_SHADOW:
+        return
+    try:
+        import time as _time
+        from .kernel import long_horizon as LH
+        now = _time.time()
+        built = _build_long_horizon_goals(now)
         if built:
             st = LH.summarize(built, now)
             _LOGGER.debug(
@@ -359,6 +370,93 @@ def _long_horizon_shadow(hass=None) -> None:
                 st.count, st.complete, st.avg_progress)
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("long_horizon shadow failed: %s", exc)
+
+
+# PARITY (roadmap Phase V — Long-Horizon Agency). Beyond the shadow roll-up, the
+# live goals are persisted to a durable LEDGER on each capture, and on boot they
+# are RESUMED from that ledger and compared against the goals re-derived from the
+# live store — proving a long-horizon goal (AND its milestone progress, which the
+# agency_state commitment deliberately does not carry) survives a restart with
+# correct progress. Observe-only: the agreement is logged; nothing yet resumes
+# FROM the ledger (that is the owner-gated LONG_HORIZON_ENFORCE rung, whose
+# fail-safe is session-scoped goals). Kill-switch LONG_HORIZON_PARITY. The ledger
+# write never affects capture; the parity read never raises into boot.
+LONG_HORIZON_PARITY = True
+
+_LH_LEDGER_KEEP = 50  # cap on goals retained in the durable ledger
+
+
+def _lh_ledger_path(hass=None) -> str:
+    return config_path_str("jarvis", "long_horizon_ledger.json", hass=hass)
+
+
+def _long_horizon_persist(hass=None) -> int:
+    """Write the live long_horizon goals to the durable ledger so the next boot
+    can resume them. Returns the number of goals written; 0 on any error. Atomic
+    (temp + replace); never raises."""
+    try:
+        import json
+        import os
+        import time as _time
+        now = _time.time()
+        goals = _build_long_horizon_goals(now)[: _LH_LEDGER_KEEP]
+        payload = {"saved_at": now, "goals": [g.to_dict() for g in goals]}
+        path = _lh_ledger_path(hass)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        os.replace(tmp, path)
+        return len(goals)
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("long_horizon ledger persist failed: %s", exc)
+        return 0
+
+
+def _long_horizon_load(now: float, hass=None) -> list:
+    """Reconstruct the long_horizon goals persisted in the ledger (the snapshot
+    from before this restart). Returns ``[]`` on any error / no ledger."""
+    try:
+        import json
+        from .kernel import long_horizon as LH
+        with open(_lh_ledger_path(hass), encoding="utf-8") as f:
+            payload = json.load(f)
+        out = []
+        for d in (payload.get("goals") or []):
+            gid = d.get("id")
+            if not gid:
+                continue
+            out.append(LH.plan_goal(
+                d.get("title", ""), d.get("milestones") or [], id=gid, now=now))
+        return out
+    except Exception:
+        return []
+
+
+def _long_horizon_parity(hass=None) -> None:
+    """Phase V parity: RESUME the long_horizon goals from the durable ledger and
+    compare their progress against the goals re-derived from the live store. Logs
+    how many goals resumed with IDENTICAL progress — the resume-after-restart
+    proof. Observe-only; nothing resumes FROM the ledger yet. Never raises."""
+    if not LONG_HORIZON_PARITY:
+        return
+    try:
+        import time as _time
+        now = _time.time()
+        live = {g.id: g for g in _build_long_horizon_goals(now)}
+        persisted = {g.id: g for g in _long_horizon_load(now, hass)}
+        shared = set(live) & set(persisted)
+        resumed = sum(
+            1 for gid in shared
+            if live[gid].resolved == persisted[gid].resolved
+            and abs(live[gid].progress - persisted[gid].progress) < 1e-6)
+        _LOGGER.debug(
+            "long_horizon(parity): ledger=%d goal(s), live=%d, resumed=%d/%d "
+            "matched (new=%d, dropped=%d)",
+            len(persisted), len(live), resumed, len(shared),
+            len(set(live) - set(persisted)), len(set(persisted) - set(live)))
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("long_horizon parity failed: %s", exc)
 
 
 def capture_now(hass=None) -> Optional[agency_state.AgencyState]:
@@ -374,6 +472,11 @@ def capture_now(hass=None) -> Optional[agency_state.AgencyState]:
         )
         _store(hass).save(state)
         _long_horizon_shadow(hass)   # Phase V: observe-only, never affects capture
+        # Phase V parity: compare the live goals against the ledger from the
+        # PREVIOUS capture/boot (proving durable resume), THEN rewrite the ledger
+        # for the next resume. Order matters — parity reads the old ledger first.
+        _long_horizon_parity(hass)
+        _long_horizon_persist(hass)
         return state
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency capture failed: %s", exc)
@@ -392,6 +495,9 @@ def boot_summary(hass=None) -> str:
         state = _store(hass).load_latest()
         msg = agency_state.continuity_summary(state)
         _LOGGER.info("JARVIS: %s", msg)
+        # Phase V parity: at boot, prove the long-horizon goals resumed from the
+        # ledger written before this restart match the live store. Observe-only.
+        _long_horizon_parity(hass)
         return msg
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency boot summary failed: %s", exc)

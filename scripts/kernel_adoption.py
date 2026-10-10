@@ -184,10 +184,16 @@ _DECLARED: dict[str, dict] = {
     # logs AGREEMENT/DIVERGENCE ("space_time(parity)") — observe-only (kill-
     # switches SPACE_TIME_SHADOW / SPACE_TIME_PARITY), driving nothing. This
     # parity isolates the kernel BFS as a faithful re-implementation of the
-    # incumbent; the camera↔sensor mapping (cf. #140) and the enforce flip
-    # (SPACE_TIME_ENFORCE — presence/coverage/routing reading the model
-    # authoritatively, fail-safe = present mapping) are later, owner-gated rungs.
-    "space_time":   {"stage": "parity",  "owners": ["cognitive_core"]},
+    # incumbent. ENFORCE (Phase Q): the intrusion investigation consumes the
+    # kernel SpatialGraph's breach-depth map AUTHORITATIVELY behind
+    # SPACE_TIME_ENFORCE (or the owner-gated space_time_enforce config key,
+    # DEFAULT-OFF) — adopted only when the kernel reproduces the incumbent map
+    # exactly at room-slug level (the parity agreement test), keyed back to
+    # area-ids via the legacy map; any divergence / empty graph / unmappable key /
+    # error keeps residence_graph.hops_from_breach (fail-safe). Exact-agreement
+    # adoption makes the kernel the authoritative producer without changing the
+    # safety behaviour. Kill-switched. Ladder: pure → shadow → parity → enforce.
+    "space_time":   {"stage": "enforce", "owners": ["cognitive_core"]},
     # identity_fabric: Identity & Trust Fabric (roadmap Phase I½, audit-added).
     # An IdentityAssertion carries who / how-established / confidence / expiry /
     # evidence / scope, and resolve() folds many into one verdict that FAILS
@@ -321,9 +327,18 @@ _DECLARED: dict[str, dict] = {
     # behind LONG_HORIZON_ENFORCE (fail-safe = session-scoped goals). SHADOW:
     # continuity._long_horizon_shadow models the live active goals (their steps →
     # milestones) as long_horizon goals on each capture tick and logs a progress
-    # roll-up (count / complete / avg progress), kill-switch LONG_HORIZON_SHADOW —
-    # observe-only, nothing persists or resumes durably yet.
-    "long_horizon": {"stage": "shadow",  "owners": ["continuity"]},
+    # roll-up (count / complete / avg progress), kill-switch LONG_HORIZON_SHADOW.
+    # PARITY (Phase V): continuity persists those goals to a durable ledger
+    # (long_horizon_ledger.json) on each capture and, on boot, RESUMES them from
+    # the ledger and compares their progress against the goals re-derived from the
+    # live store — _long_horizon_parity logs how many goals resumed with identical
+    # progress (the resume-after-restart proof; the ledger carries milestone
+    # progress the agency_state commitment does not), kill-switch
+    # LONG_HORIZON_PARITY. Observe-only: nothing resumes FROM the ledger yet — that
+    # is the owner-gated enforce rung (LONG_HORIZON_ENFORCE, fail-safe =
+    # session-scoped goals). The ledger write never affects capture; the parity
+    # read never raises into boot.
+    "long_horizon": {"stage": "parity",  "owners": ["continuity"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
@@ -372,6 +387,14 @@ _DECLARED: dict[str, dict] = {
     # written only after the panel's full-explanation confirmation screen — so
     # shipping is behaviour-preserving; fail-safe — any error leaves the legacy
     # gate (grant + mode flag) untouched. Safety never routes through this gate.
+    # CONTEXTUAL (Phase AC, owner-gated + opt-in): atop the N ceiling, a pure
+    # AutonomyContext + contextual_cap layer tightens an earned level DOWNWARD-ONLY
+    # for a restrictive context (a guest in the home); AutonomyManager.is_autonomous
+    # consults autonomy.context_blocks_autonomy so an otherwise-autonomous
+    # convenience action is held to ask-first while a non-resident is present.
+    # Behind CONTEXTUAL_AUTONOMY_ENFORCE / the `contextual_autonomy_enforce` key
+    # (default OFF); safe-directional (can only withhold, never free, and never
+    # loosens the N gate); fail-safe to acting as today on any error.
     "autonomy":     {"stage": "enforce", "owners": ["actuation", "cognitive_core"]},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated
@@ -441,10 +464,16 @@ _DECLARED: dict[str, dict] = {
     # asleep, from the situation item) and logs whether consulting the canonical
     # context would CHANGE the arbitration vs the working-memory-blind baseline
     # (kill-switch WORKING_MEMORY_PARITY). The owner chose the shared-singleton
-    # architecture. Observe-only, drives nothing. Ladder: pure → shadow → parity →
-    # enforce (arbitration reads it authoritatively, behind WORKING_MEMORY_ENFORCE,
-    # fail-safe = current attention inputs) — owner-gated.
-    "working_memory": {"stage": "parity",  "owners": ["cognitive_core", "output_gate"]},
+    # architecture. ENFORCE (Phase K): output_gate's attention arbitration now
+    # reads the shared working set AUTHORITATIVELY — behind WORKING_MEMORY_ENFORCE
+    # (or the owner-gated working_memory_enforce config key, DEFAULT-OFF) it may
+    # WITHHOLD a non-critical announcement the legacy gate allowed when the working
+    # set's knowledge (household asleep) is exactly what tips the kernel
+    # arbitration from ALLOW to DEFER/SUPPRESS. Tighten-only / safe-directional
+    # (never surfaces a withheld announcement, critical always bypasses); fail-safe
+    # to the legacy decision (current attention inputs) on any error or an
+    # unpopulated set. Ladder: pure → shadow → parity → enforce.
+    "working_memory": {"stage": "enforce", "owners": ["cognitive_core", "output_gate"]},
     # router: reasoning_loop computes the kernel local-first provider route
     # alongside its live cloud/local-Mind breaker decision and logs divergence
     # (E3) — shadow.

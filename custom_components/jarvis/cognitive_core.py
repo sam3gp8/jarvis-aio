@@ -862,6 +862,12 @@ class SafetyManager:
             # Phase Q (parity): check the kernel SpatialGraph reproduces the same
             # breach-depth map — observe-only, drives nothing.
             _emit_space_time_parity(self.hass, self.config, breach_area, hops)
+            # Phase Q (enforce, owner-gated, default OFF): let the kernel
+            # SpatialGraph own the breach-depth map authoritatively — adopted only
+            # when it exactly reproduces the incumbent; any divergence/error keeps
+            # the legacy map (fail-safe = residence_graph.hops_from_breach).
+            hops = _space_time_breach_hops(
+                self.hass, self.config, breach_area, hops)
             connected.discard(None)
             # ONE alert, then investigate. An intentionally-open window is still
             # a valid entry point — alert once and watch, rather than ignore it.
@@ -2189,6 +2195,45 @@ def _graduated_autonomy_enforce_on() -> bool:
         return False
 
 
+# Phase AC — Advanced Autonomy (dynamic / contextual). Layers a CONTEXTUAL cap on
+# top of the earned per-capability level and the N ceiling: a restrictive context
+# (a non-resident in the home) tightens an otherwise-autonomous convenience action
+# to ask-first. Downward-only and safe-directional — it can only ever make JARVIS
+# more cautious, never free it, and never loosens the N gate (which runs first).
+# Owner-gated, DEFAULT-OFF (behaviour-preserving), kill-switched, fail-safe.
+CONTEXTUAL_AUTONOMY_ENFORCE = False
+
+
+def _contextual_autonomy_enforce_on() -> bool:
+    """True when the household has opted into contextual-autonomy tightening
+    (`CONTEXTUAL_AUTONOMY_ENFORCE` or the `contextual_autonomy_enforce` config
+    key). Never raises."""
+    if CONTEXTUAL_AUTONOMY_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("contextual_autonomy_enforce", False))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _guests_present(hass) -> bool:
+    """True when a recently-recognised face is a NON-resident — a named visitor,
+    or a name the roster does not know as a resident — i.e. a guest is in the
+    home. Best-effort; any error (or no recognitions) → False, so contextual
+    tightening only ever engages on a positive guest signal (fail-safe)."""
+    try:
+        from . import recognition, face_roster
+        for name in (recognition.who_is_where(hass) or {}).values():
+            if not name:
+                continue
+            if recognition._is_unknown(name) or not face_roster.is_resident(name):
+                return True
+        return False
+    except Exception:
+        return False
+
+
 def _pattern_is_security(pattern_key: str) -> bool:
     """True when a proactive pattern's capability is SECURITY-class per the kernel
     (it must never auto-act). Fail-safe: an unknown / underivable capability
@@ -2331,7 +2376,7 @@ class AutonomyManager:
                 await asyncio.shield(save_task)
                 raise
 
-    def is_autonomous(self, pattern_key: str) -> bool:
+    def is_autonomous(self, pattern_key: str, *, context=None) -> bool:
         """True if JARVIS may perform this convenience action without asking.
         The active operational mode can suppress convenience auto-actions
         (party/movie/lab) — this only affects graduated convenience patterns;
@@ -2341,7 +2386,12 @@ class AutonomyManager:
         kernel-governed autonomy (`autonomy_enforce`, confirmed in the panel), a
         granted pattern whose capability is SECURITY-class never auto-acts — the
         kernel autonomy ladder's hard ceiling — and always falls back to asking.
-        Default OFF (behaviour-preserving); fail-safe."""
+
+        Phase AC enforce (opt-in): atop the N ceiling, a restrictive ``context``
+        (``kernel.autonomy.AutonomyContext`` — e.g. a guest in the home) tightens
+        an otherwise-autonomous convenience action to ask-first. Downward-only: it
+        can only withhold, never grant, and never loosens the N gate above. Both
+        default OFF (behaviour-preserving) and fail-safe to acting as today."""
         g = self._grants.get(pattern_key)
         if not (g and g.get("granted")):
             return False
@@ -2353,6 +2403,13 @@ class AutonomyManager:
             pass
         if _graduated_autonomy_enforce_on() and _pattern_is_security(pattern_key):
             return False
+        if context is not None and _contextual_autonomy_enforce_on():
+            try:
+                from .kernel import autonomy as _auto
+                if _auto.context_blocks_autonomy(context):
+                    return False
+            except Exception:
+                pass
         return True
 
     def revoke(self, pattern_key: str, *, persist: bool = True) -> bool:
@@ -2918,6 +2975,67 @@ def _emit_space_time_parity(hass, config, breach_area, legacy_hops) -> None:
         pass
 
 
+# ENFORCE (Phase Q): the kernel SpatialGraph owns the breach-depth map that the
+# intrusion investigation reasons over (inward-vs-entry motion). Behind
+# SPACE_TIME_ENFORCE (or the owner-gated `space_time_enforce` config key,
+# DEFAULT-OFF) the investigation consumes the kernel-derived depth map instead of
+# residence_graph's — but ONLY when the kernel exactly reproduces the incumbent
+# at room-slug level (the parity rung's agreement test). The kernel map is slug-
+# keyed; the consumer expects area-id keys, so it is keyed back using the legacy
+# map's own area-ids. Any divergence, an empty graph, a key that does not map
+# back, or any error → the incumbent residence_graph.hops_from_breach map stands
+# untouched (fail-safe). Since adoption requires exact slug-level equality, the
+# map handed downstream is identical to today's — this makes the kernel the
+# authoritative producer without changing the safety behaviour. Kill-switched.
+SPACE_TIME_ENFORCE = False
+
+
+def _space_time_enforce_on() -> bool:
+    """True when the household has opted the kernel space/time model into the
+    authoritative breach-depth path (`SPACE_TIME_ENFORCE` or the
+    `space_time_enforce` config key). Never raises."""
+    if SPACE_TIME_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("space_time_enforce", False))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _space_time_breach_hops(hass, config, breach_area, legacy_hops):
+    """Phase Q enforce — the breach-depth map, kernel-owned when it is safe to be.
+
+    Returns the kernel SpatialGraph's ``{area_id: depth}`` breach-depth map when
+    enforce is on AND the kernel reproduces the incumbent map exactly at room-slug
+    level; otherwise returns ``legacy_hops`` unchanged (fail-safe =
+    residence_graph.hops_from_breach). Best-effort; any error → ``legacy_hops``."""
+    if not breach_area or not _space_time_enforce_on():
+        return legacy_hops
+    try:
+        from . import residence_graph
+        from .kernel.world_model import WorldModel
+        g = WorldModel(hass, config or {}).spatial_graph()
+        if g.is_empty():
+            return legacy_hops
+        start = residence_graph._area_slug(hass, breach_area)
+        kernel_slug_hops = g.hops_from(start)                 # {slug: depth}
+        slug_to_aid, legacy_slug_hops = {}, {}
+        for aid, d in (legacy_hops or {}).items():
+            s = residence_graph._area_slug(hass, aid)
+            slug_to_aid[s] = aid
+            legacy_slug_hops[s] = d
+        # Adopt only on exact agreement with the incumbent (the parity test) and
+        # only when every kernel slug maps back to a known area-id. Otherwise the
+        # incumbent map stays authoritative.
+        if (kernel_slug_hops != legacy_slug_hops
+                or not set(kernel_slug_hops) <= set(slug_to_aid)):
+            return legacy_hops
+        return {slug_to_aid[s]: d for s, d in kernel_slug_hops.items()}
+    except Exception:   # pragma: no cover - defensive
+        return legacy_hops
+
+
 def _emit_space_time_shadow(hass, config) -> None:
     """Phase Q — shadow. Build the ``WorldModel`` space/time views (the floor-plan
     ``SpatialGraph`` + the current ``TemporalFrame``) and log a one-line summary.
@@ -3068,6 +3186,18 @@ async def _tick():
             offers = await _CORE.proactive_mgr.tick(sleeping, anyone_home)
             spoke_offer = False  # only ONE spoken offer per tick (avoid stacking
                                  # questions when only one pending_offer is tracked)
+            # Phase AC (contextual autonomy, owner-gated, default OFF): when
+            # enabled, build the live autonomy context once per tick so a granted
+            # convenience action is held to ask-first while a guest is in the home.
+            # Downward-only, atop the N ceiling; nothing built when enforce is off.
+            _ac_ctx = None
+            if _contextual_autonomy_enforce_on():
+                try:
+                    from .kernel import autonomy as _auto
+                    _ac_ctx = _auto.AutonomyContext(
+                        guests_present=_guests_present(_CORE.hass))
+                except Exception:
+                    _ac_ctx = None
             for offer in offers:
                 # Room-scoped mode: stay quiet about the focused room(s) only.
                 if mode_scope_areas:
@@ -3077,7 +3207,7 @@ async def _tick():
                 pkey = offer.get("pattern_key", "")
                 # Graduated autonomy: trusted actions execute silently — all of
                 # them, since they don't need a yes/no.
-                if pkey and _CORE.autonomy_mgr and _CORE.autonomy_mgr.is_autonomous(pkey):
+                if pkey and _CORE.autonomy_mgr and _CORE.autonomy_mgr.is_autonomous(pkey, context=_ac_ctx):
                     ok = await _execute_action_data(_CORE.hass, offer.get("action_data", {}))
                     if ok:
                         _CORE.autonomous_actions += 1

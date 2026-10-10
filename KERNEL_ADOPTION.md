@@ -76,7 +76,7 @@ explicit per-flip owner go/no-go.
 | `journal` | ◐ shadow | `continuity`, `goals` |
 | `learning` | ● enforce | `actuation` |
 | `ledger` | ◐ shadow | `__init__` |
-| `long_horizon` | ◐ shadow | `continuity` |
+| `long_horizon` | ◑ parity | `continuity` |
 | `loop_detect` | ● enforce | `actuation` |
 | `optimize` | ◐ shadow | `decision_record` |
 | `outcome` | ◐ shadow | `actuation` |
@@ -90,12 +90,12 @@ explicit per-flip owner go/no-go.
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `social` | · pure | — |
-| `space_time` | ◑ parity | `cognitive_core` |
+| `space_time` | ● enforce | `cognitive_core` |
 | `surfaces` | · pure | — |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |
 | `uncertainty` | ◑ parity | `identity`, `knowledge` |
-| `working_memory` | ◑ parity | `cognitive_core`, `output_gate` |
+| `working_memory` | ● enforce | `cognitive_core`, `output_gate` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `home_state`, `presence`, `proactive_briefing` |
 <!-- END kernel-adoption -->
 

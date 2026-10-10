@@ -92,7 +92,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `journal` | ◐ shadow |
 | `learning` | ● enforce |
 | `ledger` | ◐ shadow |
-| `long_horizon` | ◐ shadow |
+| `long_horizon` | ◑ parity |
 | `loop_detect` | ● enforce |
 | `optimize` | ◐ shadow |
 | `outcome` | ◐ shadow |
@@ -106,12 +106,12 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `self_model` | ◑ parity |
 | `situation` | ● enforce |
 | `social` | · pure |
-| `space_time` | ◑ parity |
+| `space_time` | ● enforce |
 | `surfaces` | · pure |
 | `temporal` | ◐ shadow |
 | `token_telemetry` | ◐ shadow |
 | `uncertainty` | ◑ parity |
-| `working_memory` | ◑ parity |
+| `working_memory` | ● enforce |
 | `world_model` | ● enforce |
 <!-- END kernel-stage-ledger -->
 

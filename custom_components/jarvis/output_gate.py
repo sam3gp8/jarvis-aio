@@ -187,22 +187,25 @@ def _attention_shadow(*, category: str, urgency: str, reason: str,
 WORKING_MEMORY_PARITY = True
 
 
-def _attention_working_memory_parity(*, category: str, urgency: str,
-                                     budget_multiplier: float,
-                                     max_per_hour: int) -> None:
-    """Phase K parity: recompute the attention arbitration enriched by the shared
-    working set's situation (asleep → quiet hours) and log whether consulting the
-    canonical cognitive context would change the decision vs the working-memory-
-    blind baseline. Best-effort, never raises; reads only, drives nothing."""
-    if not WORKING_MEMORY_PARITY:
-        return
+def _working_memory_signal(*, category: str, urgency: str,
+                           budget_multiplier: float, max_per_hour: int):
+    """Consult the canonical working set and return the pair of kernel
+    arbitrations the Phase K rungs reason over.
+
+    Returns ``(asleep, blind, informed)`` where ``blind`` is the
+    working-memory-*blind* arbitration (quiet-hours unset) and ``informed`` is
+    the same arbitration told, by the shared working set's situation item,
+    whether the household is asleep. Returns ``None`` when there is nothing in
+    the working set to consult (or on any error) — the single source both the
+    parity log and the enforce gate read, so they never diverge. Best-effort;
+    never raises."""
     try:
         from .kernel import attention as A
         from .kernel import working_memory as wm
         mem = wm.shared()
         sit = mem.get(wm.KIND_SITUATION, "home_occupancy")
         if sit is None:
-            return  # nothing in the working set to consult yet
+            return None  # nothing in the working set to consult yet
         asleep = "asleep" in (sit.content or "").lower()
         pri = (A.CRITICAL if urgency == "critical"
                else A.HIGH if urgency == "high" else A.NORMAL)
@@ -219,12 +222,75 @@ def _attention_working_memory_parity(*, category: str, urgency: str,
         # the household is asleep.
         informed = A.arbitrate(
             req, A.AttentionContext(quiet_hours=asleep, **base_kwargs))
-        changed = blind.decision != informed.decision
-        _LOGGER.debug(
-            "attention+working_memory(parity): asleep=%s blind=%s informed=%s "
-            "would_change=%s", asleep, blind.decision, informed.decision, changed)
+        return asleep, blind, informed
     except Exception:  # pragma: no cover - defensive
-        pass
+        return None
+
+
+def _attention_working_memory_parity(*, category: str, urgency: str,
+                                     budget_multiplier: float,
+                                     max_per_hour: int) -> None:
+    """Phase K parity: recompute the attention arbitration enriched by the shared
+    working set's situation (asleep → quiet hours) and log whether consulting the
+    canonical cognitive context would change the decision vs the working-memory-
+    blind baseline. Best-effort, never raises; reads only, drives nothing."""
+    if not WORKING_MEMORY_PARITY:
+        return
+    sig = _working_memory_signal(
+        category=category, urgency=urgency, budget_multiplier=budget_multiplier,
+        max_per_hour=max_per_hour)
+    if sig is None:
+        return
+    asleep, blind, informed = sig
+    changed = blind.decision != informed.decision
+    _LOGGER.debug(
+        "attention+working_memory(parity): asleep=%s blind=%s informed=%s "
+        "would_change=%s", asleep, blind.decision, informed.decision, changed)
+
+
+# ENFORCE (Phase K): attention arbitration reads the canonical working set
+# AUTHORITATIVELY. When WORKING_MEMORY_ENFORCE (or the `working_memory_enforce`
+# config key) is on, the gate consults the shared working set and may WITHHOLD a
+# non-critical announcement the legacy gate allowed, when the working set's
+# knowledge (the household is asleep) is exactly what tips the kernel arbitration
+# from ALLOW to DEFER/SUPPRESS. Tighten-only and safe-directional: it can only
+# withhold, never surface; critical always bypasses; any error or an unpopulated
+# working set falls back to the legacy decision (fail-safe = current attention
+# inputs). Ships DEFAULT-OFF and kill-switched. Non-safety: gates only the
+# announce surface.
+WORKING_MEMORY_ENFORCE = False
+
+
+def _working_memory_enforce_on() -> bool:
+    """Whether the Phase K working-memory enforce rung is live — the module flag
+    OR the owner-gated ``working_memory_enforce`` config key. Fail-safe: any error
+    reading config → treat as off."""
+    if WORKING_MEMORY_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("working_memory_enforce", False))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _working_memory_gates_out(*, allowed: bool, urgency: str,
+                              blind_allowed: bool, informed_allowed: bool) -> bool:
+    """Pure Phase K gate: whether consulting the canonical working set should
+    WITHHOLD an announcement the legacy gate allowed.
+
+    True only when every precondition holds: the legacy gate allowed it, it is
+    not a critical-urgency announcement, the working-memory-*blind* arbitration
+    allowed it, and the working-memory-*informed* arbitration does not — i.e. the
+    working set's knowledge is exactly what tips the decision. Tighten-only: it
+    never promotes a withheld announcement to allowed. Any garbled input →
+    ``False`` so the legacy decision stands (fail-safe)."""
+    try:
+        if not allowed or str(urgency) == "critical":
+            return False
+        return bool(blind_allowed) and not bool(informed_allowed)
+    except Exception:  # pragma: no cover - defensive
+        return False
 
 
 def _can_announce_with_multiplier(
@@ -250,6 +316,25 @@ def _can_announce_with_multiplier(
     _attention_working_memory_parity(category=category, urgency=urgency,
                                      budget_multiplier=budget_multiplier,
                                      max_per_hour=max_per_hour)
+    # Phase K enforce: the canonical working set arbitrates authoritatively, but
+    # tighten-only — it may withhold a non-critical announcement the legacy gate
+    # allowed when the working set says the household is asleep. Fail-safe to the
+    # legacy decision on any error / unpopulated set.
+    if allowed and _working_memory_enforce_on():
+        sig = _working_memory_signal(
+            category=category, urgency=urgency,
+            budget_multiplier=budget_multiplier, max_per_hour=max_per_hour)
+        if sig is not None:
+            _asleep, blind, informed = sig
+            if _working_memory_gates_out(
+                    allowed=allowed, urgency=urgency,
+                    blind_allowed=blind.allowed,
+                    informed_allowed=informed.allowed):
+                _LOGGER.debug(
+                    "working_memory enforce: withholding %s announcement — "
+                    "canonical working set says asleep (informed=%s)",
+                    category, informed.decision)
+                return False, f"working memory: {informed.reason}"
     return allowed, reason
 
 
