@@ -1,3 +1,32 @@
+## [8.205.0] — Phase AE (MCU Certification) — pure: the scenario-class suite as a kernel record
+
+Opens **Phase AE**, the systems-certification phase — *"does the complete JARVIS
+behave as one?"* and the MCU System Done bar. AE is not a single gate but a suite
+of explicit **scenario classes**, each meant to run closed-loop and
+journal-reconstructable. This first release lands the **pure record** of that
+suite, additively; nothing live produces results yet.
+
+- **`kernel/certification.py`** (new, pure — no HA import, no I/O, no clock):
+  the ten canonical scenario classes (`conversational`, `proactive`,
+  `long_horizon`, `delegation`, `failure`, `security`, `conflicting_priorities`,
+  `provider_failure`, `cognitive_error`, `restart`); `ScenarioResult`
+  (exercised? closed-loop? a note); and `CertificationReport` with pure
+  derivations — `coverage` (classes exercised / total), `closed_loop_rate` (of
+  those exercised, how many closed), `missing_classes`, and `is_certified` (True
+  only when EVERY class is exercised AND closed). Builders `result()` / `report()`
+  (canonical order, last-wins per class, drops non-canonical, defensive on junk)
+  / `from_map()`.
+- Exported from `kernel/__init__.py` (`CertificationReport`, `ScenarioResult`,
+  `certification_report` / `certification_result` / `certification_from_map`,
+  `CERTIFICATION_CLASSES`).
+- Declared `certification ○ pure` in the adoption matrix; Constitution
+  regenerated. Full unit coverage of the derivations and builders.
+
+Ladder from here: pure → shadow (traces from live passes) → parity (a
+certification dashboard: coverage %, closed-loop %, invariants green) → enforce
+(every class closes + a certification CI gate). Behaviour unchanged. Five kernel
+gates + audit green. Version 8.204.0 → 8.205.0.
+
 ## [8.204.0] — Phase R (Integration Gate) — enforce: a CI gate against open-loop regressions
 
 Advances Phase R **parity → enforce**. R is an integration *gate*, not a

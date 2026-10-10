@@ -598,6 +598,18 @@ _DECLARED: dict[str, dict] = {
     # (coordinated vs single-agent) → enforce (one task split across peers,
     # AGENCY_ORCHESTRATION_ENFORCE), owner-gated.
     "coordination": {"stage": "pure",    "owners": []},
+    # certification: PURE (Phase AE, MCU Certification — the "does the whole JARVIS
+    # behave as one?" bar). The pure RECORD of the systems-certification suite: the
+    # ten canonical scenario classes (conversational, proactive, long_horizon,
+    # delegation, failure, security, conflicting_priorities, provider_failure,
+    # cognitive_error, restart), a ScenarioResult per class (exercised? closed-loop?),
+    # and a CertificationReport with pure derivations — coverage, closed-loop rate,
+    # and is_certified (every class exercised AND closed). No HA import, no I/O, no
+    # clock; nothing live produces results yet. Ladder: pure → shadow (traces from
+    # live passes) → parity (a certification dashboard: coverage %, closed-loop %,
+    # invariants green) → enforce (every class closes + a certification CI gate),
+    # owner-gated.
+    "certification": {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action
