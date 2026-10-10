@@ -167,3 +167,55 @@ def test_agent_emitters_kill_switched(cc, agent):
     agent._emit_provider_failure_shadow(recovered=True)
     agent._emit_conversational_shadow(acted=True, answered=True)
     assert cc._CERT_LEDGER is None
+
+
+# ── actuation `failure` + continuity `restart` (shared ledger) ───────────────
+@pytest.fixture
+def actuation(load):
+    return load("actuation")
+
+
+@pytest.fixture
+def continuity(load):
+    return load("continuity")
+
+
+def test_actuation_failure_closes_on_recovery(cc, actuation):
+    actuation._emit_failure_shadow(recovered=True)
+    assert cc.certification_ledger().report().closed_classes == ("failure",)
+
+
+def test_actuation_failure_open_when_unrecovered(cc, actuation):
+    actuation._emit_failure_shadow(recovered=False)
+    rep = cc.certification_ledger().report()
+    assert rep.exercised_classes == ("failure",)
+    assert rep.closed_classes == ()
+
+
+def test_continuity_restart_closes_on_resume(cc, continuity):
+    continuity._emit_restart_shadow(resumed=True)
+    assert cc.certification_ledger().report().closed_classes == ("restart",)
+
+
+def test_continuity_restart_open_when_nothing_live(cc, continuity):
+    continuity._emit_restart_shadow(resumed=False)
+    rep = cc.certification_ledger().report()
+    assert rep.exercised_classes == ("restart",)
+    assert rep.closed_classes == ()
+
+
+def test_six_classes_share_one_ledger(cc, agent, actuation, continuity):
+    # all six live surfaces fold into the SAME system-wide certification dashboard
+    cc._emit_certification_shadow(perceived=True, predicted=True, decided=True,
+                                  acted=True, learned=True)        # proactive
+    agent._emit_conversational_shadow(acted=True, answered=True)   # conversational
+    agent._emit_delegation_shadow(succeeded=True)                  # delegation
+    agent._emit_provider_failure_shadow(recovered=True)            # provider_failure
+    actuation._emit_failure_shadow(recovered=True)                 # failure
+    continuity._emit_restart_shadow(resumed=True)                  # restart
+    rep = cc.certification_ledger().report()
+    assert set(rep.closed_classes) == {
+        "proactive", "conversational", "delegation", "provider_failure",
+        "failure", "restart"}
+    assert len(rep.closed_classes) == 6
+    assert cc._CERT_LEDGER.observations == 6

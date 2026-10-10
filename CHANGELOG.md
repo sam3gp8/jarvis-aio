@@ -1,3 +1,30 @@
+## [8.209.0] — Phase AE (MCU Certification) — shadow: failure + restart
+
+Advances Phase AE shadow by observing **two more** scenario classes from their own
+honest live surfaces, folding into the same shared certification ledger. **Six of
+the ten** classes are now observed from live traffic.
+
+- **`actuation.execute_safety_actuator`**: observes the **`failure`** scenario
+  (action → HA failure → recovery). Reaching the fail-open backstop means the
+  universal seam already failed; the class closes iff the direct fail-open call
+  then secures the home, and is exercised-but-open when even that fails. A clean
+  seam success is *not* a failure scenario, so it is not observed.
+- **`continuity.boot_reconcile`**: observes the **`restart`** scenario (mid-agency
+  restart → reconciliation → resume). It closes iff reconciliation found live
+  agency to resume (`still_live` non-empty), and is exercised-but-open when a
+  snapshot existed but nothing was still live. A fresh boot with no snapshot is not
+  observed.
+- Adoption matrix now `certification ◐ shadow` with live callers `actuation`,
+  `agent`, `cognitive_core`, `continuity`; Constitution regenerated. New tests for
+  both emitters and a six-class shared-ledger test.
+
+Behaviour unchanged — the safety fail-open path and boot reconciliation run exactly
+as before; this only watches them. Observe-only, kill-switched (`CERTIFICATION_SHADOW`
+/ the `certification_shadow` config key), fail-safe. Ladder from here: any remaining
+cleanly-observable classes (security, long_horizon; conflicting_priorities /
+cognitive_error if a non-hollow surface exists) → parity dashboard → enforce + a
+certification CI gate. Five kernel gates + audit green. Version 8.208.0 → 8.209.0.
+
 ## [8.208.0] — Phase AE (MCU Certification) — shadow: delegation + provider_failure
 
 Advances Phase AE shadow by observing **two more** scenario classes from their own
