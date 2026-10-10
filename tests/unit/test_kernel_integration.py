@@ -92,3 +92,51 @@ def test_trace_is_order_independent_and_canonical(II):
 def test_trace_is_defensive_on_junk(II):
     tr = II.trace("c9", [None, 123, II.stage(II.PERCEIVE, True), ("decide", True)])
     assert set(tr.present_stages) == {II.PERCEIVE, II.DECIDE}
+
+
+# ── LoopAccumulator (Phase R parity) ─────────────────────────────────────────
+def test_accumulator_empty(II):
+    acc = II.LoopAccumulator()
+    assert acc.total == 0 and acc.closed == 0 and acc.rate == 0.0
+    assert acc.summary() == "no passes recorded"
+
+
+def test_accumulator_rate_and_histogram(II):
+    acc = II.LoopAccumulator()
+    acc.record(II.from_flags("a", perceive=True, predict=True, decide=True,
+                             act=True, learn=True))        # closed
+    acc.record(II.from_flags("b", perceive=True, decide=True))  # open@perceive
+    acc.record(II.from_flags("c", perceive=True, predict=True))  # open@predict
+    assert acc.total == 3 and acc.closed == 1
+    assert abs(acc.rate - (1 / 3)) < 1e-6
+    hist = acc.reached_histogram()
+    assert hist["learn"] == 1 and hist["perceive"] == 1 and hist["predict"] == 1
+    assert "closed 1/3 (33%)" in acc.summary()
+
+
+def test_accumulator_counts_none_for_empty_pass(II):
+    acc = II.LoopAccumulator()
+    acc.record(II.from_flags("x"))   # nothing ran
+    assert acc.reached_histogram() == {"none": 1}
+    assert acc.rate == 0.0
+
+
+def test_accumulator_histogram_is_canonical_order(II):
+    acc = II.LoopAccumulator()
+    acc.record(II.from_flags("a", perceive=True, predict=True, decide=True,
+                             act=True, learn=True))
+    acc.record(II.from_flags("b", perceive=True))
+    acc.record(II.from_flags("c"))
+    # none first, then canonical stage order
+    assert list(acc.reached_histogram().keys()) == ["none", "perceive", "learn"]
+
+
+def test_accumulator_ignores_junk_and_resets(II):
+    acc = II.LoopAccumulator()
+    acc.record(None)
+    acc.record("not a trace")
+    assert acc.total == 0
+    acc.record(II.from_flags("a", perceive=True))
+    assert acc.total == 1
+    acc.reset()
+    assert acc.total == 0 and acc.reached_histogram() == {}

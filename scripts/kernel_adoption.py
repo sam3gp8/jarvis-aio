@@ -159,11 +159,14 @@ _DECLARED: dict[str, dict] = {
     # cognition predictions → decided actions → dispatched actions → learned-model
     # update / autonomous-outcome) and logs whether the loop CLOSED or how far it
     # got (kill-switch INTEGRATION_LOOP_SHADOW + the integration_loop_shadow config
-    # key). Observe-only; drives nothing. Ladder: shadow → parity (closed-loop rate
-    # over a representative set) → enforce (the loop owns one end-to-end scenario +
-    # a CI gate forbidding open-loop regressions). Fail-safe = the current
-    # open-loop behaviour.
-    "integration":  {"stage": "shadow",  "owners": ["cognitive_core"]},
+    # key). PARITY (Phase R): each pass is also folded into a rolling
+    # kernel.integration.LoopAccumulator, and every N passes cognitive_core logs
+    # the closed-loop RATE + the stall distribution (integration(parity): closed
+    # X/Y … reached […]) — the quantified bar over real traffic before anything
+    # gates on closure. Observe-only; drives nothing. Ladder: shadow → parity →
+    # enforce (the loop owns one end-to-end scenario + a CI gate forbidding
+    # open-loop regressions). Fail-safe = the current open-loop behaviour.
+    "integration":  {"stage": "parity",  "owners": ["cognitive_core"]},
     # graph: typed, queryable knowledge graph (roadmap Phase T, Deep World
     # Model). Entities (nodes with attributes) + typed directed relations, built
     # from plain knowledge.py fact/relation rows with a small query surface

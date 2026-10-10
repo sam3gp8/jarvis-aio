@@ -3565,25 +3565,29 @@ def _run_cognitive_cycle_shadow(*, anyone_home: bool, sleeping: bool,
         _LOGGER.debug("cognitive cycle parity trace: %s", trace.to_dict())
 
 
-# Phase R (Integration Gate — shadow). Trace one full perceive → predict →
-# decide → act → learn pass as a single kernel.integration.LoopTrace, under the
-# tick's correlation id, and log whether the loop CLOSED (all five stages ran) or
-# how far it got. This is the "can the architecture operate as one?" bar made
-# observable: cognition (J–M) and agency (N–V) as one correlated,
-# journal-reconstructable chain rather than five subsystems in a process.
-# Observe-only — nothing gates on closure yet; that is R's parity (closed-loop
-# rate over a representative set) and enforce (the loop owns one end-to-end
-# scenario + a CI gate against open-loop regressions) rungs. Kill-switched
-# (INTEGRATION_LOOP_SHADOW + the integration_loop_shadow config key); never raises
-# into the tick.
+# Phase R (Integration Gate — shadow → PARITY). Trace one full perceive → predict
+# → decide → act → learn pass as a single kernel.integration.LoopTrace, under the
+# tick's correlation id, log whether the loop CLOSED (all five stages ran) or how
+# far it got, AND fold it into a rolling LoopAccumulator so the closed-loop RATE
+# and the stall distribution are quantified over real traffic — the parity bar R
+# needs before anything gates on closure (enforce: the loop owns one end-to-end
+# scenario + a CI gate against open-loop regressions). This is the "can the
+# architecture operate as one?" question made measurable: cognition (J–M) and
+# agency (N–V) as one correlated, journal-reconstructable chain. Observe-only;
+# nothing reads the rate yet. Kill-switched (INTEGRATION_LOOP_SHADOW + the
+# integration_loop_shadow config key); never raises into the tick.
 INTEGRATION_LOOP_SHADOW = True
+_INTEGRATION_DASHBOARD_EVERY = 20       # log the rolling rate every N passes
+_LOOP_STATS = None                      # kernel.integration.LoopAccumulator, lazy
 
 
 def _emit_integration_loop_shadow(*, perceived: bool, predicted: bool,
                                   decided: bool, acted: bool, learned: bool,
                                   correlation_id: Optional[str] = None) -> None:
-    """Assemble + log the Phase R closed-loop trace for this tick. Observe-only;
-    drives nothing. Never raises into the caller."""
+    """Assemble + log the Phase R closed-loop trace for this tick, and fold it
+    into the rolling closed-loop-rate dashboard (parity). Observe-only; drives
+    nothing. Never raises into the caller."""
+    global _LOOP_STATS
     if not INTEGRATION_LOOP_SHADOW:
         return
     try:
@@ -3603,9 +3607,16 @@ def _emit_integration_loop_shadow(*, perceived: bool, predicted: bool,
         tr = II.from_flags(
             cid, started_ts=_time.time(), perceive=perceived, predict=predicted,
             decide=decided, act=acted, learn=learned)
+        # Parity: fold the pass into the rolling tally and, every N passes, log
+        # the closed-loop rate + stall distribution.
+        if _LOOP_STATS is None:
+            _LOOP_STATS = II.LoopAccumulator()
+        _LOOP_STATS.record(tr)
         try:
             from .websocket import jarvis_log
             jarvis_log("LOOP", f"integration(shadow): {tr.summary()}")
+            if _LOOP_STATS.total % _INTEGRATION_DASHBOARD_EVERY == 0:
+                jarvis_log("LOOP", f"integration(parity): {_LOOP_STATS.summary()}")
         except Exception:
             _LOGGER.debug("integration(shadow): %s", tr.to_dict())
     except Exception as exc:  # pragma: no cover - defensive
