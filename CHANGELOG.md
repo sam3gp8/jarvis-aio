@@ -1,3 +1,33 @@
+## [8.212.0] — Phase AE (MCU Certification) — enforce: the certification CI gate (Phase AE COMPLETE)
+
+Advances Phase AE **parity → enforce** — the final AE rung. Like Phase R, the
+enforce teeth are a **CI gate**, not a runtime behaviour change.
+
+- **`scripts/kernel_certification_check.py --check`** (new gate): fails the build if
+  the certification suite is silently un-wired or faked. It asserts (1)
+  `kernel/certification.py` still defines the ten `CLASSES`, `CertificationReport`,
+  `CertificationLedger`, and the builders; (2) each of the **8 observable** scenario
+  classes keeps its live observer — the owning module emits `CERT.<CLASS>` into the
+  shared ledger (`proactive`→cognitive_core, `conversational`/`delegation`/
+  `provider_failure`→agent, `failure`→actuation, `restart`/`long_horizon`→
+  continuity, `security`→identity); (3) `cognitive_core` still owns the shared seam
+  (`certification_observe` + `certification_report`) and surfaces the dashboard in
+  `status()`; (4) `certification` is declared `enforce`; and — the HONESTY invariant
+  — (5) the **2 not-yet-observable** classes (`conflicting_priorities`,
+  `cognitive_error`) have NO emit anywhere, so a hollow closure can never be slipped
+  in to fake certification. Wired into `.github/workflows/validate.yml` as the sixth
+  kernel gate.
+- Gate tests (`tests/unit/test_kernel_certification_check.py`): passes on the real
+  tree, and catches a removed observer, a faked closure, and a downgraded stage.
+- Adoption matrix now `certification ● enforce`; Constitution regenerated.
+
+**Phase AE (MCU Certification) is complete** — shadow (8/10 classes observed from
+live surfaces) → parity (the dashboard) → enforce (this gate). The suite behaves
+observe-only and kill-switched; the CI gate is the enforce mechanism. The two
+unobservable classes remain tracked as open work (they need a live safety-vs-
+convenience arbitration and a belief-corrected-by-observation surface,
+respectively). Six kernel gates + audit green. Version 8.211.0 → 8.212.0.
+
 ## [8.211.0] — Phase AE (MCU Certification) — parity: the certification dashboard
 
 Advances Phase AE **shadow → parity**. The rolling certification tally is now
