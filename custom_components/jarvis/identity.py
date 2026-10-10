@@ -375,6 +375,24 @@ def _fabric_establishes_identity(methods) -> bool:
         return True
 
 
+def _emit_security_shadow(*, confirmed: bool) -> None:
+    """Phase AE (MCU Certification — shadow): observe a `security` scenario
+    (ambiguous identity → deny / confirm) into the ONE shared certification ledger
+    via cognitive_core. BOTH outcomes CLOSE the loop — a confident confirm and a
+    deliberate deny are each the identity decision resolving correctly; only a
+    no-signal / disabled resolve (no decision made) is not observed. Observe-only;
+    kill-switched inside cognitive_core; never raises into the resolver."""
+    try:
+        from . import cognitive_core
+        from .kernel import certification as CERT
+        cognitive_core.certification_observe(
+            CERT.SECURITY, closed_loop=True,
+            note="identity confirmed" if confirmed
+                 else "ambiguous identity denied")
+    except Exception:
+        pass
+
+
 def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
             area_id: Optional[str] = None, now: Optional[float] = None) -> Identification:
     """
@@ -444,14 +462,17 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
         _emit_identity_uncertainty_shadow(person, confidence, methods, legacy_known)  # #237
 
     if not legacy_known:
+        _emit_security_shadow(confirmed=False)   # ambiguous identity denied
         return Identification(UNKNOWN, round(confidence, 3), "low_confidence", candidates)
 
     # Phase I½ enforce (default OFF): presence locates a body but does not
     # establish WHO — only face / voiceprint do. When the flip is on, a confident
     # verdict resting only on presence-class signals is downgraded to UNKNOWN.
     if _identity_fabric_enforce_on() and not _fabric_establishes_identity(methods):
+        _emit_security_shadow(confirmed=False)   # presence is not identity — denied
         return Identification(UNKNOWN, round(confidence, 3), "presence_not_identity", candidates)
 
+    _emit_security_shadow(confirmed=True)         # a confident identity established
     return Identification(person, round(confidence, 3),
                           "+".join(sorted(methods)), candidates)
 

@@ -219,3 +219,54 @@ def test_six_classes_share_one_ledger(cc, agent, actuation, continuity):
         "failure", "restart"}
     assert len(rep.closed_classes) == 6
     assert cc._CERT_LEDGER.observations == 6
+
+
+# ── identity `security` + continuity `long_horizon` ──────────────────────────
+@pytest.fixture
+def identity(load):
+    return load("identity")
+
+
+def test_identity_security_confirm_closes(cc, identity):
+    identity._emit_security_shadow(confirmed=True)
+    assert cc.certification_ledger().report().closed_classes == ("security",)
+
+
+def test_identity_security_deny_also_closes(cc, identity):
+    # a deliberate deny is a correct security outcome — it closes the loop too
+    identity._emit_security_shadow(confirmed=False)
+    assert cc.certification_ledger().report().closed_classes == ("security",)
+
+
+def test_continuity_long_horizon_closes_on_resume(cc, continuity):
+    continuity._emit_long_horizon_shadow(resumed=True)
+    assert cc.certification_ledger().report().closed_classes == ("long_horizon",)
+
+
+def test_continuity_long_horizon_open_when_not_resumed(cc, continuity):
+    continuity._emit_long_horizon_shadow(resumed=False)
+    rep = cc.certification_ledger().report()
+    assert rep.exercised_classes == ("long_horizon",)
+    assert rep.closed_classes == ()
+
+
+def test_eight_observable_classes_share_one_ledger(
+        cc, agent, actuation, continuity, identity):
+    # every honestly-observable class folds into ONE system-wide dashboard (8/10)
+    cc._emit_certification_shadow(perceived=True, predicted=True, decided=True,
+                                  acted=True, learned=True)        # proactive
+    agent._emit_conversational_shadow(acted=True, answered=True)   # conversational
+    agent._emit_delegation_shadow(succeeded=True)                  # delegation
+    agent._emit_provider_failure_shadow(recovered=True)            # provider_failure
+    actuation._emit_failure_shadow(recovered=True)                 # failure
+    continuity._emit_restart_shadow(resumed=True)                  # restart
+    continuity._emit_long_horizon_shadow(resumed=True)             # long_horizon
+    identity._emit_security_shadow(confirmed=True)                 # security
+    rep = cc.certification_ledger().report()
+    assert set(rep.closed_classes) == {
+        "proactive", "conversational", "delegation", "provider_failure",
+        "failure", "restart", "long_horizon", "security"}
+    assert len(rep.closed_classes) == 8
+    # the two not-yet-observable classes remain missing
+    assert set(rep.missing_classes) == {"conflicting_priorities", "cognitive_error"}
+    assert rep.is_certified is False

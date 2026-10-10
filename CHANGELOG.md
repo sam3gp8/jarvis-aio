@@ -1,3 +1,34 @@
+## [8.210.0] — Phase AE (MCU Certification) — shadow: security + long_horizon (8 of 10 observed)
+
+Advances Phase AE shadow to **eight of the ten** scenario classes observed from
+live surfaces, and settles the remaining two honestly.
+
+- **`identity.resolve`**: observes the **`security`** scenario (ambiguous identity →
+  deny / confirm). Both a confident confirm (a known person established) and a
+  deliberate deny (low confidence, or presence-is-not-identity under the fabric
+  enforce flip) close the loop — each is the identity decision resolving correctly.
+  A no-signal / disabled resolve makes no decision and is not observed.
+- **`continuity._long_horizon_parity`**: observes the **`long_horizon`** scenario
+  (objective → days → restart → resume → completion). Observed only when goals
+  actually spanned a restart (ledger ∩ live non-empty); closes iff at least one
+  resumed with identical progress — the resume-after-restart proof.
+- Adoption matrix now `certification ◐ shadow` with live callers `actuation`,
+  `agent`, `cognitive_core`, `continuity`, `identity`; Constitution regenerated.
+
+**The last two classes are deliberately left unobserved**, not by omission:
+`conflicting_priorities` needs a live safety-vs-convenience arbitration
+(`kernel.priority` is still pure — nothing arbitrates on it yet) and
+`cognitive_error` needs a belief actually corrected by observation. Wiring either
+today would be a hollow observation, so the parity and enforce rungs will certify
+the **observable set (8/10)** and name these two as open work rather than fabricate
+closures for them.
+
+Behaviour unchanged — identity resolution and long-horizon parity run exactly as
+before; this only watches them. Observe-only, kill-switched (`CERTIFICATION_SHADOW`
+/ the `certification_shadow` config key), fail-safe. Next: the parity dashboard
+(surface coverage % / closed-loop %), then the enforce gate. Five kernel gates +
+audit green. Version 8.209.0 → 8.210.0.
+
 ## [8.209.0] — Phase AE (MCU Certification) — shadow: failure + restart
 
 Advances Phase AE shadow by observing **two more** scenario classes from their own
