@@ -1,3 +1,25 @@
+## [8.193.0] — kernel.coordination (pure): budgeted peer coordination (Phase O)
+
+Lands the peer-coordination half of Phase O (merged O+AB) **pure** — hierarchical
+delegation already lives in `kernel.agency` at enforce. `kernel/coordination.py`
+is a budgeted bid/claim/settle protocol:
+
+- `arbitrate(bids, budget=…)` awards an objective to **exactly one** agency (no
+  double-actuation); bids whose cost would overrun the budget are rejected; and
+  **conflicts resolve by the `kernel.priority` ladder** (a safety-tier bid
+  outranks a convenience one), tie-broken by lower cost then higher confidence —
+  never by bid order.
+- `settle(claim, success=…)` closes an awarded claim (SETTLED/FAILED); an
+  unawarded claim can't be settled. `would_double_actuate(claims)` guards the
+  one-award invariant.
+
+Pure: no HA import, no I/O, no clock, no bus; nothing live consumes it yet (the
+event-bus loop wires on at the shadow rung). Declared `coordination · pure`;
+Constitution regenerated. Tests: `test_kernel_coordination.py` (single award;
+budget rejection; priority-not-order conflict; tie-breaks; settle success/failure;
+unawarded no-op; double-actuation guard). Audit + four kernel gates green. Version
+8.192.0 → 8.193.0. Part of #236.
+
 ## [8.192.0] — kernel.social (pure): consent-bounded personalization (Phase W)
 
 Lands the Phase W primitive **pure**, built directly on the `kernel.privacy`

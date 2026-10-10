@@ -63,6 +63,7 @@ explicit per-flip owner go/no-go.
 | `budget` | ● enforce | `actuation` |
 | `causal` | ◑ parity | `pattern_analyzer` |
 | `conflict` | ◑ parity | `presence` |
+| `coordination` | · pure | — |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `cycle` | ● enforce | `cognitive_core` |
 | `environment` | ● enforce | `energy` |
