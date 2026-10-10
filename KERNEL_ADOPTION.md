@@ -69,6 +69,7 @@ explicit per-flip owner go/no-go.
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `graph` | ● enforce | `knowledge` |
+| `household` | · pure | — |
 | `identity_fabric` | ● enforce | `identity` |
 | `inquiry` | · pure | — |
 | `journal` | ◐ shadow | `continuity`, `goals` |

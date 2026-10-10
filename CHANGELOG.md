@@ -1,3 +1,22 @@
+## [8.190.0] — kernel.household (pure): proactive household intelligence (Phase P)
+
+Lands the Phase P primitive **pure**. `kernel/household.py` derives an occupancy
+**rhythm** (per-daypart occupancy likelihood) and a **routine graph** (recurring
+activity transitions) from plain observation rows. The invariant is structural:
+`anticipate()` emits advisory `Suggestion` objects that **carry no actuator** — the
+household model may only *propose*; acting on a suggestion stays the
+authority/actuation seam's job (suggest, never silent actuation).
+
+- `occupancy_rhythm` / `routines(min_support=…)` / `anticipate(daypart=…,
+  last_activity=…)` / `summarize` — all total, deterministic.
+
+Pure: no HA import, no I/O, no clock; nothing live consumes it yet (an observation
+feed + the proactive loop wire on at the shadow rung). Declared `household · pure`;
+Constitution regenerated. Tests: `test_kernel_household.py` (rhythm; routine
+support threshold; presence + routine suggestions; suggestions always advisory /
+never actuators; empty; summary). Audit + four kernel gates green. Version
+8.189.0 → 8.190.0. Part of #236.
+
 ## [8.189.0] — kernel.inquiry (pure): investigative agency (Phase AD)
 
 Lands the Phase AD primitive **pure**. `kernel/inquiry.py` is bounded, cited
