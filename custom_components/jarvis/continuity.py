@@ -455,6 +455,12 @@ def _long_horizon_parity(hass=None) -> None:
             "matched (new=%d, dropped=%d)",
             len(persisted), len(live), resumed, len(shared),
             len(set(live) - set(persisted)), len(set(persisted) - set(live)))
+        # Phase AE shadow: a long_horizon scenario (objective → days → restart →
+        # resume → completion) — observed only when goals spanned a restart
+        # (shared non-empty); it closes iff at least one resumed with identical
+        # progress (the resume-after-restart proof).
+        if shared:
+            _emit_long_horizon_shadow(resumed=bool(resumed))
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("long_horizon parity failed: %s", exc)
 
@@ -565,6 +571,23 @@ async def announce_resume(hass=None, entry=None) -> bool:
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("continuity resume announce failed: %s", exc)
         return False
+
+
+def _emit_long_horizon_shadow(*, resumed: bool) -> None:
+    """Phase AE (MCU Certification — shadow): observe a `long_horizon` scenario
+    (objective → days → restart → resume → completion) into the ONE shared
+    certification ledger via cognitive_core. Closed iff at least one goal resumed
+    from the durable ledger with identical progress across the restart; observed
+    only when goals actually spanned a restart. Observe-only; never raises."""
+    try:
+        from . import cognitive_core
+        from .kernel import certification as CERT
+        cognitive_core.certification_observe(
+            CERT.LONG_HORIZON, closed_loop=bool(resumed),
+            note="goal(s) resumed across restart with identical progress" if resumed
+                 else "goals spanned a restart but none resumed cleanly")
+    except Exception:
+        pass
 
 
 def _emit_restart_shadow(*, resumed: bool) -> None:

@@ -614,17 +614,25 @@ _DECLARED: dict[str, dict] = {
     # result → synthesis, in _run_delegated) and `provider_failure` (cloud
     # unavailable → fallback-tier recovery, in run_agent's fallback path), actuation
     # observes `failure` (securing action → seam fault → fail-open recovery, in
-    # execute_safety_actuator), and continuity observes `restart` (mid-agency
-    # restart → reconciliation → resume, in boot_reconcile). Each class closes when
-    # it ran end-to-end; logs `certification(shadow)` periodically. Observe-only;
-    # nothing reads the tally; kill-switched (CERTIFICATION_SHADOW /
-    # certification_shadow).
+    # execute_safety_actuator), continuity observes `restart` (mid-agency restart →
+    # reconciliation → resume, in boot_reconcile) and `long_horizon` (goal resumed
+    # across a restart with identical progress, in _long_horizon_parity), and
+    # identity observes `security` (ambiguous identity → deny / confirm, in
+    # resolve()). That is 8 of the 10 classes from live surfaces. The remaining two
+    # are NOT yet observed — deliberately, not by omission: `conflicting_priorities`
+    # needs a live safety-vs-convenience arbitration (kernel.priority is still pure,
+    # nothing arbitrates on it yet) and `cognitive_error` needs a belief actually
+    # corrected by observation; wiring either today would be hollow, so the
+    # parity/enforce rungs certify the observable set and name the two as open work.
+    # Each class closes when it ran end-to-end; logs `certification(shadow)`
+    # periodically. Observe-only; nothing reads the tally; kill-switched
+    # (CERTIFICATION_SHADOW / certification_shadow).
     # Ladder from here: shadow → parity (a certification dashboard: coverage %,
-    # closed-loop %, invariants green, every honestly-observable class wired from its
-    # own live surface) → enforce (every observed class closes + a certification CI
-    # gate), owner-gated.
+    # closed-loop %, invariants green) → enforce (every observable class closes + a
+    # certification CI gate), owner-gated.
     "certification": {"stage": "shadow",
-                      "owners": ["actuation", "agent", "cognitive_core", "continuity"]},
+                      "owners": ["actuation", "agent", "cognitive_core",
+                                 "continuity", "identity"]},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action
