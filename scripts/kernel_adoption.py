@@ -163,10 +163,16 @@ _DECLARED: dict[str, dict] = {
     # kernel.integration.LoopAccumulator, and every N passes cognitive_core logs
     # the closed-loop RATE + the stall distribution (integration(parity): closed
     # X/Y … reached […]) — the quantified bar over real traffic before anything
-    # gates on closure. Observe-only; drives nothing. Ladder: shadow → parity →
-    # enforce (the loop owns one end-to-end scenario + a CI gate forbidding
-    # open-loop regressions). Fail-safe = the current open-loop behaviour.
-    "integration":  {"stage": "parity",  "owners": ["cognitive_core"]},
+    # gates on closure. ENFORCE (Phase R): R is an integration GATE, not a
+    # behaviour flip — its enforce teeth are a CI gate (scripts/kernel_integration_check.py
+    # --check) that FORBIDS OPEN-LOOP REGRESSIONS: it fails the build if the
+    # LoopTrace primitive is removed or stops being assembled from the five real
+    # stage signals in cognitive_core._tick, so the perceive→predict→decide→act→
+    # learn loop can never be silently un-wired while the rest of CI is green. The
+    # loop's own behaviour is unchanged (observe-only); fail-safe is the current
+    # open-loop legacy. Ladder: shadow → parity → enforce (CI-enforced wiring
+    # invariant + a proven closed-loop scenario).
+    "integration":  {"stage": "enforce", "owners": ["cognitive_core"]},
     # graph: typed, queryable knowledge graph (roadmap Phase T, Deep World
     # Model). Entities (nodes with attributes) + typed directed relations, built
     # from plain knowledge.py fact/relation rows with a small query surface

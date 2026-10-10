@@ -73,7 +73,7 @@ explicit per-flip owner go/no-go.
 | `household` | · pure | — |
 | `identity_fabric` | ● enforce | `identity` |
 | `inquiry` | · pure | — |
-| `integration` | ◑ parity | `cognitive_core` |
+| `integration` | ● enforce | `cognitive_core` |
 | `journal` | ◐ shadow | `continuity`, `goals` |
 | `learning` | ● enforce | `actuation` |
 | `ledger` | ◐ shadow | `__init__` |

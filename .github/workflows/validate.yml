@@ -63,6 +63,8 @@ jobs:
         run: python scripts/kernel_docs_sync.py --check
       - name: Actuator bypass gate (Phase H exit criterion)
         run: python scripts/kernel_bypass_check.py --check
+      - name: Integration loop gate (Phase R — no open-loop regressions)
+        run: python scripts/kernel_integration_check.py --check
       - name: Unit tests
         run: python -m pytest tests/ -q
 
