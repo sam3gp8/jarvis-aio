@@ -1,3 +1,25 @@
+## [8.213.0] — Bug & gap audit (roadmap pause)
+
+Docs-only release. With Phase AE complete (shadow → parity → enforce), the roadmap
+is **paused** for a point-in-time **bug & gap audit** before any Phase Ω work or the
+v9.0.0 major bump.
+
+- **`docs/AUDIT_2026-10.md`** (new): an evidence-based review of the kernel/MCU
+  migration at 8.212.0 against its own roadmap and Constitution — the adoption-ladder
+  state (18 enforce / 6 parity / 14 shadow / 9 pure), roadmap-vs-reality gaps,
+  correctness spot-checks, governance/invariant review, and the live-home unit-test
+  contamination — with ranked recommendations.
+- **Headline findings** (none block Phase Ω; all are honesty-of-signal / hygiene,
+  not correctness): (1) eight `pure` kernel primitives are staged ahead of any
+  consumer; (2) the Phase 0–7 Progress table in `KERNEL_PLAN.md` is ~200 releases
+  stale vs. the live adoption matrix; (3) two AE scenario classes
+  (`conflicting_priorities`, `cognitive_error`) are deliberately uncertifiable until
+  honest surfaces exist, so "MCU System Done" is 8/10 observable; (4) the `security`
+  certification signal closes trivially; (5) 8 unit tests fail in-container because
+  they read the owner's live `/config/jarvis` enforce flags — a test-isolation bug.
+- No behaviour change, no primitive stage change. Six kernel gates + audit green.
+  Version 8.212.0 → 8.213.0.
+
 ## [8.212.0] — Phase AE (MCU Certification) — enforce: the certification CI gate (Phase AE COMPLETE)
 
 Advances Phase AE **parity → enforce** — the final AE rung. Like Phase R, the
