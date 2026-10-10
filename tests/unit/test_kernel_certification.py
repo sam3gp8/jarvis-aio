@@ -155,3 +155,83 @@ def test_summary_names_missing_classes(C):
     s = rep.summary()
     assert "incomplete" in s
     assert C.COGNITIVE_ERROR in s and C.RESTART in s
+
+
+# ── CertificationLedger (Phase AE shadow) ────────────────────────────────────
+def test_ledger_empty(C):
+    led = C.CertificationLedger()
+    assert led.observations == 0
+    assert led.summary() == "no observations recorded"
+    assert led.report().is_certified is False
+
+
+def test_ledger_records_a_proactive_observation(C):
+    led = C.CertificationLedger()
+    led.observe(C.PROACTIVE, closed_loop=True, note="loop closed")
+    assert led.observations == 1
+    rep = led.report()
+    assert rep.exercised_classes == (C.PROACTIVE,)
+    assert rep.closed_classes == (C.PROACTIVE,)
+    assert "[1 obs]" in led.summary()
+
+
+def test_ledger_is_sticky_best(C):
+    # once a class closes it STAYS closed, even if a later pass is open
+    led = C.CertificationLedger()
+    led.observe(C.PROACTIVE, closed_loop=True)
+    led.observe(C.PROACTIVE, closed_loop=False)   # a later open pass
+    assert led.observations == 2
+    assert led.report().closed_classes == (C.PROACTIVE,)
+
+
+def test_ledger_open_then_closed_upgrades(C):
+    led = C.CertificationLedger()
+    led.observe(C.PROACTIVE, closed_loop=False)
+    assert led.report().closed_classes == ()
+    assert led.report().exercised_classes == (C.PROACTIVE,)
+    led.observe(C.PROACTIVE, closed_loop=True)    # later pass closes it
+    assert led.report().closed_classes == (C.PROACTIVE,)
+
+
+def test_ledger_tracks_multiple_classes(C):
+    led = C.CertificationLedger()
+    led.observe(C.PROACTIVE, closed_loop=True)
+    led.observe(C.CONVERSATIONAL, closed_loop=True)
+    led.observe(C.FAILURE, closed_loop=False)
+    rep = led.report()
+    assert set(rep.closed_classes) == {C.PROACTIVE, C.CONVERSATIONAL}
+    assert C.FAILURE in rep.exercised_classes and C.FAILURE not in rep.closed_classes
+    assert rep.is_certified is False  # only 3 of 10 touched
+
+
+def test_ledger_ignores_non_canonical(C):
+    led = C.CertificationLedger()
+    led.observe("not_a_class", closed_loop=True)
+    assert led.observations == 0
+    assert led.report().exercised_classes == ()
+
+
+def test_ledger_to_dict_carries_observation_count(C):
+    led = C.CertificationLedger()
+    led.observe(C.PROACTIVE, closed_loop=True)
+    led.observe(C.PROACTIVE, closed_loop=True)
+    d = led.to_dict()
+    assert d["observations"] == 2
+    assert d["closed"] == [C.PROACTIVE]
+
+
+def test_ledger_reset(C):
+    led = C.CertificationLedger()
+    led.observe(C.PROACTIVE, closed_loop=True)
+    led.reset()
+    assert led.observations == 0
+    assert led.report().exercised_classes == ()
+
+
+def test_ledger_full_window_certifies(C):
+    # a ledger that eventually sees every class close is certified
+    led = C.CertificationLedger()
+    for c in C.CLASSES:
+        led.observe(c, closed_loop=True)
+    assert led.report().is_certified is True
+    assert led.observations == 10

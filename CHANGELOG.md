@@ -1,3 +1,34 @@
+## [8.206.0] — Phase AE (MCU Certification) — shadow: the first live scenario observation
+
+Advances Phase AE **pure → shadow**. The certification suite stops being a static
+record and starts **observing live cognitive passes** — the first real data for
+the eventual certification dashboard.
+
+- **`kernel/certification.py`**: new `CertificationLedger` (pure) — accumulates
+  scenario-class observations into a rolling `CertificationReport`, **sticky-best
+  per class** (a class that has ever closed the loop stays closed for the window,
+  because certification asks whether each class has been *demonstrated to close at
+  least once*, not whether its latest run closed). `observe()` / `report()` /
+  `summary()` / `to_dict()` (carries the observation count) / `reset()`; ignores
+  non-canonical names. Exported from `kernel/__init__.py`.
+- **`cognitive_core`**: `_tick` now folds each pass into the ledger as a
+  **`proactive`** scenario observation — the integration loop's
+  perceive→predict→decide→act→learn **is** that scenario's shape (observation →
+  prediction → suggestion → response), so a pass that predicted an anticipation
+  exercises the class and one that ran end-to-end closes it. Logs
+  `certification(shadow)` every 20 observations. Observe-only; nothing reads the
+  tally. Kill-switched (`CERTIFICATION_SHADOW` / the `certification_shadow` config
+  key); never raises into the tick.
+- Adoption matrix now `certification ◐ shadow` (owner `cognitive_core`);
+  Constitution regenerated. New focused tests for the ledger and the live emitter
+  (gate, closed mapping, sticky-best, kill-switches, defensive).
+
+Behaviour unchanged — the proactive loop runs exactly as before; this only
+watches it. Ladder from here: shadow → parity (all ten classes observed from
+their own live surfaces, a coverage/closed-loop dashboard) → enforce (every class
+closes + a certification CI gate). Five kernel gates + audit green. Version
+8.205.0 → 8.206.0.
+
 ## [8.205.0] — Phase AE (MCU Certification) — pure: the scenario-class suite as a kernel record
 
 Opens **Phase AE**, the systems-certification phase — *"does the complete JARVIS

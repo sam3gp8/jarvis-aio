@@ -3423,6 +3423,19 @@ async def _tick():
     except Exception as exc:
         _LOGGER.debug("integration loop shadow emit error: %s", exc)
 
+    # ── Phase AE (shadow): fold this pass into the rolling certification tally as
+    # a `proactive` scenario observation. Observe-only; never affects the tick.
+    try:
+        _emit_certification_shadow(
+            perceived=True,
+            predicted=_loop_predicted,
+            decided=bool(actions),
+            acted=bool(emitted),
+            learned=_loop_learned or _acted_auto,
+        )
+    except Exception as exc:
+        _LOGGER.debug("certification shadow emit error: %s", exc)
+
 
 # Phase J (J4): ENFORCE — the proactive dispatch loop IS the kernel
 # CognitiveCycle. When on, `_cognitive_cycle_plan` runs the canonical
@@ -3621,6 +3634,55 @@ def _emit_integration_loop_shadow(*, perceived: bool, predicted: bool,
             _LOGGER.debug("integration(shadow): %s", tr.to_dict())
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("integration loop shadow error: %s", exc)
+
+
+# Phase AE (MCU Certification — SHADOW). Fold each live cognitive pass into a
+# rolling certification tally. The integration loop's perceive→predict→decide→
+# act→learn IS the `proactive` certification scenario's shape (observation →
+# prediction → suggestion → response), so a pass that PREDICTED an anticipation
+# exercises the proactive class and one that ran end-to-end CLOSES it. This is the
+# first honest observation point; later shadow releases add the other classes
+# (conversational, failure, restart, …) from their own live surfaces. Observe-only;
+# nothing reads the tally. Kill-switched (CERTIFICATION_SHADOW + the
+# certification_shadow config key); never raises into the tick.
+CERTIFICATION_SHADOW = True
+_CERT_DASHBOARD_EVERY = 20          # log the rolling certification tally every N obs
+_CERT_LEDGER = None                 # kernel.certification.CertificationLedger, lazy
+
+
+def _emit_certification_shadow(*, perceived: bool, predicted: bool,
+                               decided: bool, acted: bool, learned: bool) -> None:
+    """Observe this pass as a `proactive` certification scenario and fold it into
+    the rolling CertificationLedger (sticky-best per class). Observe-only; drives
+    nothing, reads nothing back. Never raises into the caller."""
+    global _CERT_LEDGER
+    if not CERTIFICATION_SHADOW:
+        return
+    try:
+        if _CORE and _CORE.config and not _CORE.config.get("certification_shadow", True):
+            return
+    except Exception:
+        pass
+    # A proactive scenario means an anticipation was actually formed this pass; a
+    # bare perceive with no prediction is not one, so it is not observed.
+    if not predicted:
+        return
+    try:
+        from .kernel import certification as CERT
+        if _CERT_LEDGER is None:
+            _CERT_LEDGER = CERT.CertificationLedger()
+        closed = bool(perceived and predicted and decided and acted and learned)
+        _CERT_LEDGER.observe(
+            CERT.PROACTIVE, closed_loop=closed,
+            note="integration loop closed" if closed else "open proactive pass")
+        try:
+            from .websocket import jarvis_log
+            if _CERT_LEDGER.observations % _CERT_DASHBOARD_EVERY == 0:
+                jarvis_log("CERT", f"certification(shadow): {_CERT_LEDGER.summary()}")
+        except Exception:
+            _LOGGER.debug("certification(shadow): %s", _CERT_LEDGER.to_dict())
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("certification shadow error: %s", exc)
 
 
 # Phase K (shadow): populate the ONE canonical kernel working set (the shared
