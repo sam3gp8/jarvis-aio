@@ -199,6 +199,50 @@ CAUSAL_PREDICT_PARITY = True
 _CAUSAL_PARITY_WINDOW_S = 600.0   # match _find_sequence_patterns' pairing window
 _CAUSAL_PARITY_CAP = 10           # top sequence patterns to reconstruct per pass
 
+# ENFORCE (Phase L) — owner-gated, DEFAULT OFF. When on, a detected SEQUENCE
+# pattern is only stored as a proactive suggestion if the kernel causal model
+# confirms it is a genuine cause (real cause/effect contingency ΔP → direction
+# "causes"), not mere co-occurrence — so proactivity is gated on prediction
+# confidence, not just how often two things were seen together. The causal verdict
+# is tagged onto each sequence pattern during the parity pass (where the DB conn is
+# open) as details["causal_confirms"]; the storing loop reads that tag. Kill-switch
+# CAUSAL_PREDICT_ENFORCE / the `causal_predict_enforce` config key. **Fail-safe =
+# current behaviour**: an untagged pattern (no verdict computed / any error) is
+# treated as confirmed, so a failure can only fall back to storing the suggestion
+# as today — never silently drop a suggestion. Non-safety: gates only the
+# learned-suggestion surface, never a safety actuation.
+CAUSAL_PREDICT_ENFORCE = False
+
+
+def _causal_predict_enforce_on() -> bool:
+    """True when the Phase L enforce flip is active (module flag or the
+    `causal_predict_enforce` config key). Never raises."""
+    if CAUSAL_PREDICT_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("causal_predict_enforce", False))
+    except Exception:
+        return False
+
+
+def _causal_gates_out(pattern) -> bool:
+    """Phase L enforce decision (pure): should this pattern be withheld from the
+    suggestion surface because the causal contrast refuted it? True only when the
+    enforce flip is on, the pattern is a SEQUENCE, and its verdict is *explicitly*
+    not-confirmed (``details["causal_confirms"] is False``). An untagged pattern
+    (verdict missing/errored) is NOT gated — fail-safe to current behaviour. Never
+    raises."""
+    try:
+        if not _causal_predict_enforce_on():
+            return False
+        if getattr(pattern, "pattern_type", None) != "sequence":
+            return False
+        details = getattr(pattern, "details", None) or {}
+        return details.get("causal_confirms") is False
+    except Exception:
+        return False
+
 
 def _causal_firing_epochs(conn, entity: str, state: str) -> list:
     """Sorted epochs (last 30 days) of ``entity`` transitioning to ``state``."""
@@ -262,7 +306,9 @@ def _emit_causal_parity(conn, patterns: list) -> None:
     pattern_analyzer's co-occurrence confidence; log AGREEMENT/DIVERGENCE.
     Best-effort, never raises; runs on the executor thread (DB access), drives
     nothing."""
-    if not CAUSAL_PREDICT_PARITY:
+    # Run when EITHER the parity log or the enforce gate needs the verdict, so the
+    # causal_confirms tag is available to the storing loop whenever enforce is on.
+    if not (CAUSAL_PREDICT_PARITY or _causal_predict_enforce_on()):
         return
     try:
         from .kernel import causal
@@ -288,7 +334,14 @@ def _emit_causal_parity(conn, patterns: list) -> None:
                 n11=n11, n10=n10, n01=n01, n00=n00)
             # pattern_analyzer flagged it (it's a detected sequence); does the
             # real causal contrast agree it's a genuine cause?
-            if hyp.direction == "causes":
+            confirmed = (hyp.direction == "causes")
+            # Tag the verdict onto the pattern so the storing loop can gate on it
+            # under the enforce flip (observe-only otherwise).
+            try:
+                p.details["causal_confirms"] = confirmed
+            except Exception:
+                pass
+            if confirmed:
                 confirms += 1
             else:
                 diverges += 1
@@ -296,6 +349,8 @@ def _emit_causal_parity(conn, patterns: list) -> None:
                 example = (p, hyp)
         if confirms == 0 and diverges == 0:
             return
+        if not CAUSAL_PREDICT_PARITY:
+            return   # enforce-only pass: verdicts tagged, no parity log
         msg = ("causal(parity): %d sequence pattern(s) re-scored on real "
                "contingency; causal-confirms=%d, diverges=%d") % (
             confirms + diverges, confirms, diverges)
@@ -1234,8 +1289,17 @@ class PatternAnalyzer:
         _seq_needed = int(_eff_threshold * MIN_OCCURRENCES * 3)
         if _eff_threshold * MIN_OCCURRENCES * 3 > _seq_needed:
             _seq_needed += 1
+        causal_gated = 0
         for p in patterns:
             if p.confidence >= _eff_threshold:
+                # Phase L enforce (default OFF): a sequence suggestion surfaces only
+                # when the kernel causal model confirms a genuine cause. Fail-safe —
+                # an untagged pattern (verdict missing/errored) counts as confirmed,
+                # so this can only ever drop a suggestion the causal contrast
+                # explicitly refuted, never one it didn't evaluate.
+                if _causal_gates_out(p):
+                    causal_gated += 1
+                    continue
                 stored = await hass.async_add_executor_job(
                     self._store_suggestion, p)
                 if stored:
@@ -1256,6 +1320,11 @@ class PatternAnalyzer:
                     "occurrences": p.occurrences,
                     "needed": _seq_needed if p.pattern_type == "sequence" else None,
                 })
+
+        if causal_gated:
+            _LOGGER.debug(
+                "causal(enforce): %d sequence suggestion(s) gated out — causal "
+                "contingency did not confirm a genuine cause", causal_gated)
 
         # Promote the most reliable routines/commands into the curated knowledge
         # store as *observed* facts, so they surface in the Memory tab (marked ~)
