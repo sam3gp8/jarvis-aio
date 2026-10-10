@@ -97,6 +97,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `plan` | ◑ parity |
 | `priority` | · pure |
 | `provenance` | ◐ shadow |
+| `resilience` | · pure |
 | `router` | ◐ shadow |
 | `self_model` | ◑ parity |
 | `situation` | ● enforce |

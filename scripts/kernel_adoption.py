@@ -462,6 +462,16 @@ _DECLARED: dict[str, dict] = {
     # (gating a proactive path, fail-safe = reactive only) is the owner-gated rung.
     "causal":       {"stage": "parity",  "owners": ["pattern_analyzer"]},
     "priority":     {"stage": "pure",    "owners": []},
+    # resilience: PURE (Phase Z, Resilient Compute Federation). A local-first,
+    # offline-safe fallback policy across compute tiers (LOCAL/EDGE/CLOUD × health).
+    # Encodes the HAOS boundary structurally — a canonical-state tier can never be
+    # an offload target (the brain stays under the HA integration; external compute
+    # is disposable) and the chooser fails safe to the local/canonical tier. No HA
+    # import, no I/O, no clock; nothing live consumes it yet (a health poller +
+    # the conservative breaker wire onto it at the shadow rung). Ladder from here:
+    # pure → shadow (would-be tier choice) → parity (vs current breaker) → enforce
+    # (RESILIENCE_ENFORCE, fail-safe = current breaker), owner-gated.
+    "resilience":   {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action

@@ -81,6 +81,7 @@ explicit per-flip owner go/no-go.
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
 | `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
+| `resilience` | · pure | — |
 | `router` | ◐ shadow | `reasoning_loop` |
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |

@@ -1,3 +1,27 @@
+## [8.187.0] — kernel.resilience (pure): resilient compute federation (Phase Z)
+
+Lands the Phase Z primitive **pure**. `kernel/resilience.py` is a local-first,
+offline-safe fallback policy over compute tiers (LOCAL / EDGE / CLOUD × health).
+The load-bearing invariant is the **HAOS boundary**, encoded structurally — this
+is explicitly *not* "distributed JARVIS":
+
+- `can_offload(tier)` is **False for any canonical-state tier** (and for LOCAL),
+  so the canonical brain can never be offloaded off the HA integration; only
+  disposable EDGE/CLOUD tiers are offload targets.
+- `choose(tiers, need_quality=…)` is **local-first** and **fail-safe** — if no
+  tier is usable it falls back to the canonical/local tier (the brain keeps
+  running at home) rather than raising or returning None.
+- `is_offline_safe`, `degrade_order`, `offload_candidates`, `summarize` round it
+  out; every function is total and deterministic.
+
+Pure: no Home Assistant import, no I/O, no clock — tiers + health are injected;
+nothing live consumes it yet (a health poller + the existing conservative breaker
+wire onto it at the shadow rung). Declared `resilience · pure` in the adoption
+matrix; Constitution regenerated. Tests: `test_kernel_resilience.py` (coercion;
+local-first choice; down-skip; quality floor; fail-safe-to-home; canonical never
+offloadable; offline-safety; degrade order; summary). Audit + four kernel gates
+green. Version 8.186.0 → 8.187.0. Part of #236.
+
 ## [8.186.0] — kernel.self_model → parity: self-report vs ground truth (Phase S)
 
 Advances the `self_model` primitive **shadow → parity**. Alongside the shadow
