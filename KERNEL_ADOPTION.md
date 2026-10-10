@@ -88,6 +88,7 @@ explicit per-flip owner go/no-go.
 | `router` | ◐ shadow | `reasoning_loop` |
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
+| `social` | · pure | — |
 | `space_time` | ◑ parity | `cognitive_core` |
 | `surfaces` | · pure | — |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |

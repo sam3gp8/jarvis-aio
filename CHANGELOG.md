@@ -1,3 +1,24 @@
+## [8.192.0] — kernel.social (pure): consent-bounded personalization (Phase W)
+
+Lands the Phase W primitive **pure**, built directly on the `kernel.privacy`
+boundary from 8.191.0. `kernel/social.py` holds per-person `Preference`s and
+personalizes **within strict consent limits**:
+
+- `personalize_for(model, key, audience=…, default=…)` routes a cross-person read
+  through `privacy.can_disclose`, so person A's PERSONAL preference is returned
+  only to A (or a consented audience) — serving person B falls back to the
+  non-personalized `default`. A HOUSEHOLD-classified preference is shared.
+- `preference` (self-read), `remember` (newest-wins, ignores foreign subjects),
+  `purge` (owner drops a person's whole model), `summarize` (owner inspection).
+
+Structurally it **holds no actuator and exposes only preference values**, so it
+can never drive a security/intrusion decision; consent-gated, owner-inspectable,
+purgeable. Pure: no HA import, no I/O, no clock, no storage; nothing live consumes
+it yet. Declared `social · pure`; Constitution regenerated. Tests:
+`test_kernel_social.py` (newest-wins; foreign-subject ignored; self-read;
+cross-person block without consent; consented audience; household shared; purge;
+summary). Audit + four kernel gates green. Version 8.191.0 → 8.192.0. Part of #236.
+
 ## [8.191.0] — kernel.privacy (pure): information-flow boundary (Phase W prerequisite)
 
 Lands the cross-cutting **information-flow / privacy boundary** the audit requires
