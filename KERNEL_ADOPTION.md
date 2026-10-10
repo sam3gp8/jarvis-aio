@@ -76,7 +76,7 @@ explicit per-flip owner go/no-go.
 | `journal` | ◐ shadow | `continuity`, `goals` |
 | `learning` | ● enforce | `actuation` |
 | `ledger` | ◐ shadow | `__init__` |
-| `long_horizon` | ◐ shadow | `continuity` |
+| `long_horizon` | ◑ parity | `continuity` |
 | `loop_detect` | ● enforce | `actuation` |
 | `optimize` | ◐ shadow | `decision_record` |
 | `outcome` | ◐ shadow | `actuation` |

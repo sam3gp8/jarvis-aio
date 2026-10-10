@@ -327,9 +327,18 @@ _DECLARED: dict[str, dict] = {
     # behind LONG_HORIZON_ENFORCE (fail-safe = session-scoped goals). SHADOW:
     # continuity._long_horizon_shadow models the live active goals (their steps →
     # milestones) as long_horizon goals on each capture tick and logs a progress
-    # roll-up (count / complete / avg progress), kill-switch LONG_HORIZON_SHADOW —
-    # observe-only, nothing persists or resumes durably yet.
-    "long_horizon": {"stage": "shadow",  "owners": ["continuity"]},
+    # roll-up (count / complete / avg progress), kill-switch LONG_HORIZON_SHADOW.
+    # PARITY (Phase V): continuity persists those goals to a durable ledger
+    # (long_horizon_ledger.json) on each capture and, on boot, RESUMES them from
+    # the ledger and compares their progress against the goals re-derived from the
+    # live store — _long_horizon_parity logs how many goals resumed with identical
+    # progress (the resume-after-restart proof; the ledger carries milestone
+    # progress the agency_state commitment does not), kill-switch
+    # LONG_HORIZON_PARITY. Observe-only: nothing resumes FROM the ledger yet — that
+    # is the owner-gated enforce rung (LONG_HORIZON_ENFORCE, fail-safe =
+    # session-scoped goals). The ledger write never affects capture; the parity
+    # read never raises into boot.
+    "long_horizon": {"stage": "parity",  "owners": ["continuity"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped

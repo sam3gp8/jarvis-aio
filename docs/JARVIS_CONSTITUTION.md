@@ -92,7 +92,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `journal` | ◐ shadow |
 | `learning` | ● enforce |
 | `ledger` | ◐ shadow |
-| `long_horizon` | ◐ shadow |
+| `long_horizon` | ◑ parity |
 | `loop_detect` | ● enforce |
 | `optimize` | ◐ shadow |
 | `outcome` | ◐ shadow |
