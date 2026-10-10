@@ -1,3 +1,24 @@
+## [8.203.0] — Phase R (Integration Gate) — parity: the closed-loop rate, quantified
+
+Advances Phase R **shadow → parity**. Beyond tracing each pass, cognitive_core
+now folds every perceive→predict→decide→act→learn `LoopTrace` into a rolling
+`kernel.integration.LoopAccumulator` and, every N passes, logs the closed-loop
+**rate** plus where open passes stall (`integration(parity): closed X/Y (Z%);
+reached [none:… perceive:… …]`). That's the quantified bar R needs over real
+traffic before anything gates on closure (enforce).
+
+- `kernel/integration.py` (pure): new `LoopAccumulator` — `record(trace)`, `rate`,
+  `reached_histogram()` (canonical order, `none` first), `summary()`, `to_dict()`,
+  `reset()`; ignores non-`LoopTrace` input.
+- `cognitive_core`: accumulates per pass and emits the rolling dashboard every 20
+  passes, alongside the existing per-pass line. Observe-only; nothing reads the
+  rate yet. Still kill-switched (`INTEGRATION_LOOP_SHADOW` / `integration_loop_shadow`);
+  never raises into the tick.
+
+Adoption matrix now `integration ◑ parity`; Constitution regenerated. Four kernel
+gates + audit green; `test_kernel_integration.py` extended. Version 8.202.0 →
+8.203.0. Part of #236.
+
 ## [8.202.0] — chat: answer "what time do I usually get home?", and never return a blank turn
 
 Two chat-quality fixes prompted by a report where JARVIS answered a routine

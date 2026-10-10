@@ -24,7 +24,7 @@ and additive — the live producer assembles one from a real tick and logs it.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
 # ── the canonical loop, in order ───────────────────────────────────────────────
@@ -149,6 +149,59 @@ def trace(correlation_id: str, stages: Optional[Tuple] = None, *,
     ordered = tuple(by[s] for s in STAGES if s in by)
     return LoopTrace(correlation_id=str(correlation_id or ""),
                      started_ts=float(started_ts or 0.0), stages=ordered)
+
+
+@dataclass
+class LoopAccumulator:
+    """A rolling tally of loop passes — the closed-loop RATE and where open passes
+    stall. Phase R *parity* reads this to quantify closure over real traffic
+    before anything gates on it (enforce). It accumulates, so it is not frozen,
+    but every read (``rate``, ``reached_histogram``, ``summary``) is a pure
+    function of what was recorded."""
+
+    total: int = 0
+    closed: int = 0
+    _reached: Dict[str, int] = field(default_factory=dict)
+
+    def record(self, trace: "LoopTrace") -> None:
+        """Fold one pass into the tally. Ignores anything that is not a
+        :class:`LoopTrace` (defensive)."""
+        if not isinstance(trace, LoopTrace):
+            return
+        self.total += 1
+        if trace.is_closed:
+            self.closed += 1
+        key = trace.reached or "none"
+        self._reached[key] = self._reached.get(key, 0) + 1
+
+    @property
+    def rate(self) -> float:
+        """Fraction of recorded passes that closed the loop (0.0 when none)."""
+        return (self.closed / self.total) if self.total else 0.0
+
+    def reached_histogram(self) -> Dict[str, int]:
+        """How far passes got, in canonical order (``none`` first for passes that
+        did not even perceive)."""
+        order = ("none",) + STAGES
+        return {s: self._reached[s] for s in order if s in self._reached}
+
+    def summary(self) -> str:
+        """One-line dashboard: closed-loop rate + the stall distribution."""
+        if not self.total:
+            return "no passes recorded"
+        hist = " ".join(f"{s}:{n}" for s, n in self.reached_histogram().items())
+        return (f"closed {self.closed}/{self.total} ({self.rate * 100:.0f}%); "
+                f"reached [{hist}]")
+
+    def to_dict(self) -> dict:
+        return {"total": self.total, "closed": self.closed,
+                "rate": round(self.rate, 4),
+                "reached": self.reached_histogram()}
+
+    def reset(self) -> None:
+        self.total = 0
+        self.closed = 0
+        self._reached = {}
 
 
 def from_flags(correlation_id: str, *, started_ts: float = 0.0,
