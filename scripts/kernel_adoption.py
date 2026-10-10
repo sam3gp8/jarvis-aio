@@ -502,6 +502,17 @@ _DECLARED: dict[str, dict] = {
     # (suggestions vs heuristics) → enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe
     # = current heuristics), owner-gated.
     "household":    {"stage": "pure",    "owners": []},
+    # privacy: PURE (Phase W prerequisite — information-flow / privacy boundary).
+    # The audit requires an explicit information-flow policy to land BEFORE the
+    # social model: a pure decision over a labelled DataItem (classification /
+    # subject / purpose / consent / audience / source). The load-bearing rule is
+    # structural and fail-closed: a PERSONAL/SENSITIVE item about person A never
+    # flows to a different person B without A's explicit consent (SENSITIVE also
+    # needs a matching purpose), and an unknown classification denies. No HA import,
+    # no I/O, no clock, no storage; nothing live consumes it yet. Ladder: pure →
+    # shadow → parity → enforce (SOCIAL_MODEL_ENFORCE gates W on top of it),
+    # owner-gated.
+    "privacy":      {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action

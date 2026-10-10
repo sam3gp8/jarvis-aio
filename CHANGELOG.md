@@ -1,3 +1,26 @@
+## [8.191.0] — kernel.privacy (pure): information-flow boundary (Phase W prerequisite)
+
+Lands the cross-cutting **information-flow / privacy boundary** the audit requires
+*before* Phase W (Social & Relationship Intelligence). `kernel/privacy.py` is a
+pure, **fail-closed** decision over a labelled `DataItem` (classification / subject
+/ purpose / consent / audience / source):
+
+- `can_disclose(item, audience=…, purpose=…, owner=…)` — PUBLIC/HOUSEHOLD flow
+  freely; the subject always sees their own; the owner may see PERSONAL; **any
+  other person needs the subject's explicit consent**, and SENSITIVE additionally
+  needs a matching purpose. An unknown classification is coerced to SENSITIVE and
+  denied.
+- `cross_subject_leak(...)` flags the exact boundary W must not cross — person A's
+  PERSONAL/SENSITIVE data flowing to a different person B without consent;
+  `redact(...)` returns only the disclosable subset.
+
+Pure: no HA import, no I/O, no clock, no storage; nothing live consumes it yet (the
+social model + any cross-person surfacing consult it at the shadow rung). Declared
+`privacy · pure`; Constitution regenerated. Tests: `test_kernel_privacy.py`
+(fail-closed unknown; public/household; subject-sees-own; personal cross-person
+block + owner/consent; sensitive consent+purpose; cross-subject-leak; redact;
+defensive). Audit + four kernel gates green. Version 8.190.0 → 8.191.0. Part of #236.
+
 ## [8.190.0] — kernel.household (pure): proactive household intelligence (Phase P)
 
 Lands the Phase P primitive **pure**. `kernel/household.py` derives an occupancy

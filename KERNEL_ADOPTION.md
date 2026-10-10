@@ -82,6 +82,7 @@ explicit per-flip owner go/no-go.
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
+| `privacy` | · pure | — |
 | `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
 | `resilience` | · pure | — |
 | `router` | ◐ shadow | `reasoning_loop` |
