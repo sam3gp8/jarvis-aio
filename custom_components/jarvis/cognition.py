@@ -396,6 +396,49 @@ def stats() -> dict:
     }
 
 
+def presence_schedule(hass=None) -> list:
+    """Learned usual leave / arrive times per presence entity (person or
+    device_tracker).
+
+    Returns a list of ``{entity_id, name, usual_depart, usual_return, …}`` for
+    each presence entity that has a CONSISTENT near-daily routine (``_routine_of_pts``
+    — at least a week of day-to-day data with a ≤45-min spread); ``usual_depart``
+    is when they usually leave, ``usual_return`` when they usually get home (both
+    ``HH:MM``), each with its spread in minutes and the sample count. Entities with
+    no learned routine are omitted, so an empty list means "nothing learned yet".
+    A pure read of the in-memory model; never raises."""
+    out: list = []
+    try:
+        for eid, e in _MODEL.items():
+            if eid.split(".", 1)[0] not in PRESENCE_DOMAINS:
+                continue
+            dep = _routine_of_pts(list(e.depart_first))
+            ret = _routine_of_pts(list(e.return_first))
+            if not dep and not ret:
+                continue
+            name = eid
+            if hass is not None:
+                try:
+                    st = hass.states.get(eid)
+                    if st:
+                        name = st.attributes.get("friendly_name", eid)
+                except Exception:
+                    pass
+            row = {"entity_id": eid, "name": name}
+            if dep:
+                row["usual_depart"] = _hhmm(dep[0])
+                row["depart_spread_min"] = round(dep[1] / 60.0, 1)
+                row["depart_samples"] = len(e.depart_first)
+            if ret:
+                row["usual_return"] = _hhmm(ret[0])
+                row["return_spread_min"] = round(ret[1] / 60.0, 1)
+                row["return_samples"] = len(e.return_first)
+            out.append(row)
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("presence_schedule error: %s", exc)
+    return out
+
+
 # ── Anticipation ─────────────────────────────────────────────────────────────
 def _humanize(state, dclass) -> str:
     """Render a state for speech (door 'on'→open, lock stays locked/unlocked)."""
