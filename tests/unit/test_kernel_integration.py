@@ -49,6 +49,25 @@ def test_empty_pass_reached_is_blank(II):
     assert tr.is_closed is False
 
 
+def test_closed_loop_scenario_is_journal_reconstructable(II):
+    # Phase R enforce proof: a full proactive pass (perceive the world, predict an
+    # anticipation, decide an offer, act autonomously, learn from the outcome)
+    # closes the loop AND is reconstructable from its correlation id.
+    tr = II.from_flags(
+        "tick-1801", started_ts=1000.0,
+        perceive=True, predict=True, decide=True, act=True, learn=True,
+        summaries={II.PERCEIVE: "2 home", II.ACT: "porch light on"})
+    assert tr.is_closed is True
+    d = tr.to_dict()
+    assert d["correlation_id"] == "tick-1801"
+    assert d["is_closed"] is True
+    assert d["present"] == list(II.STAGES)         # every stage recorded, in order
+    assert d["missing"] == []
+    # each stage carries its owning primitive, so the pass is reconstructable
+    owners = {s["stage"]: s["owner"] for s in d["stages"]}
+    assert owners[II.PERCEIVE] == "world_model" and owners[II.LEARN] == "outcome"
+
+
 def test_correlation_id_threads_through(II):
     tr = II.from_flags("corr-xyz", perceive=True)
     assert tr.correlation_id == "corr-xyz"

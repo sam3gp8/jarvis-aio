@@ -1,3 +1,25 @@
+## [8.204.0] — Phase R (Integration Gate) — enforce: a CI gate against open-loop regressions
+
+Advances Phase R **parity → enforce**. R is an integration *gate*, not a
+behaviour flip, so its enforce teeth are a **CI gate** — not a runtime change.
+
+- **`scripts/kernel_integration_check.py --check`** (new gate): fails the build if
+  the perceive→predict→decide→act→learn loop stops being wired — i.e. if
+  `kernel/integration.py` loses `LoopTrace` / `LoopAccumulator` / `from_flags` /
+  the five `STAGES`, if `cognitive_core._tick` stops assembling a `LoopTrace` from
+  the five real stage signals (`perceived=`/`predicted=`/`decided=`/`acted=`/
+  `learned=`), or if `integration` is declared below `enforce`. So the loop can
+  never be silently un-wired while the rest of CI is green. Wired into
+  `.github/workflows/validate.yml` alongside the other kernel gates.
+- A proven closed-loop scenario test (a full proactive pass closes the loop and is
+  journal-reconstructable from its correlation id), plus gate tests that confirm
+  it catches a missing stage signal and a downgraded stage.
+
+The loop's own behaviour is unchanged (still observe-only, kill-switched);
+fail-safe is the current open-loop legacy. Adoption matrix now `integration ●
+enforce`; Constitution regenerated. Five kernel gates + audit green. Version
+8.203.0 → 8.204.0. Part of #236.
+
 ## [8.203.0] — Phase R (Integration Gate) — parity: the closed-loop rate, quantified
 
 Advances Phase R **shadow → parity**. Beyond tracing each pass, cognitive_core
