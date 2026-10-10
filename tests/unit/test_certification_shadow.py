@@ -135,3 +135,35 @@ def test_agent_and_core_share_one_ledger(cc, agent):
     rep = cc.certification_ledger().report()
     assert set(rep.closed_classes) == {"proactive", "conversational"}
     assert cc._CERT_LEDGER.observations == 2
+
+
+def test_agent_delegation_closes_on_success(cc, agent):
+    agent._emit_delegation_shadow(succeeded=True)
+    assert cc.certification_ledger().report().closed_classes == ("delegation",)
+
+
+def test_agent_delegation_open_on_failure(cc, agent):
+    agent._emit_delegation_shadow(succeeded=False)
+    rep = cc.certification_ledger().report()
+    assert rep.exercised_classes == ("delegation",)
+    assert rep.closed_classes == ()
+
+
+def test_agent_provider_failure_closes_on_recovery(cc, agent):
+    agent._emit_provider_failure_shadow(recovered=True)
+    assert cc.certification_ledger().report().closed_classes == ("provider_failure",)
+
+
+def test_agent_provider_failure_open_when_both_fail(cc, agent):
+    agent._emit_provider_failure_shadow(recovered=False)
+    rep = cc.certification_ledger().report()
+    assert rep.exercised_classes == ("provider_failure",)
+    assert rep.closed_classes == ()
+
+
+def test_agent_emitters_kill_switched(cc, agent):
+    cc.CERTIFICATION_SHADOW = False
+    agent._emit_delegation_shadow(succeeded=True)
+    agent._emit_provider_failure_shadow(recovered=True)
+    agent._emit_conversational_shadow(acted=True, answered=True)
+    assert cc._CERT_LEDGER is None

@@ -3669,8 +3669,10 @@ async def _run_delegated(hass, args: dict, *, persona: str, provider_name: str,
             out["profile"] = label
         else:
             out["capability"] = label
+        _emit_delegation_shadow(succeeded=bool(result and str(result).strip()))
         return json.dumps(out)
     except Exception as exc:
+        _emit_delegation_shadow(succeeded=False)
         return json.dumps({"error": "sub-agent failed: %s" % exc})
 
 
@@ -3703,21 +3705,55 @@ def _empty_reply_fallback(config) -> str:
     return f"I'm not sure I caught that, {hon} — could you put it another way?"
 
 
-def _emit_conversational_shadow(*, acted: bool, answered: bool) -> None:
-    """Phase AE (MCU Certification — shadow): observe this agent turn as a
-    `conversational` scenario (request → reasoning → action → verification). A turn
-    that executed a tool action AND produced a verified (model-generated, non-empty)
-    reply CLOSES it; a tool-less Q&A is exercised but open. Folds into the shared
-    certification ledger via cognitive_core. Observe-only; never raises into the
-    caller."""
+def _emit_cert(scenario: str, *, closed_loop: bool, note: str = "") -> None:
+    """Phase AE (MCU Certification — shadow): fold one scenario-class observation
+    into the ONE shared certification ledger via cognitive_core. Observe-only;
+    drives nothing; kill-switched inside cognitive_core; never raises."""
     try:
         from . import cognitive_core
+        cognitive_core.certification_observe(scenario, closed_loop=closed_loop,
+                                             note=note)
+    except Exception:
+        pass
+
+
+def _emit_conversational_shadow(*, acted: bool, answered: bool) -> None:
+    """Observe this agent turn as a `conversational` scenario (request → reasoning →
+    action → verification). A turn that executed a tool action AND produced a
+    verified (model-generated, non-empty) reply CLOSES it; a tool-less Q&A is
+    exercised but open."""
+    try:
         from .kernel import certification as CERT
         closed = bool(acted and answered)
-        cognitive_core.certification_observe(
-            CERT.CONVERSATIONAL, closed_loop=closed,
-            note="tool action + verified reply" if closed
-                 else "answered without a tool action")
+        _emit_cert(CERT.CONVERSATIONAL, closed_loop=closed,
+                   note="tool action + verified reply" if closed
+                        else "answered without a tool action")
+    except Exception:
+        pass
+
+
+def _emit_delegation_shadow(*, succeeded: bool) -> None:
+    """Observe a `delegation` scenario (JARVIS → child → result → synthesis). A
+    sub-agent that returned a usable result for the parent to synthesise CLOSES it;
+    a sub-agent failure is exercised but open."""
+    try:
+        from .kernel import certification as CERT
+        _emit_cert(CERT.DELEGATION, closed_loop=bool(succeeded),
+                   note="child result synthesised" if succeeded
+                        else "sub-agent failed")
+    except Exception:
+        pass
+
+
+def _emit_provider_failure_shadow(*, recovered: bool) -> None:
+    """Observe a `provider_failure` scenario (cloud unavailable → local degradation).
+    A primary-provider failure that the fallback reasoning tier RECOVERS CLOSES it;
+    both providers failing is exercised but open."""
+    try:
+        from .kernel import certification as CERT
+        _emit_cert(CERT.PROVIDER_FAILURE, closed_loop=bool(recovered),
+                   note="fallback tier recovered" if recovered
+                        else "primary and fallback both failed")
     except Exception:
         pass
 
@@ -4096,6 +4132,7 @@ async def run_agent(
                     )
                     llm_run_state = fallback_run_state
                     # Fallback tier recovered — the reasoning backend is up.
+                    _emit_provider_failure_shadow(recovered=True)
                     try:
                         from .diagnostics.service_health import record_usage
                         record_usage("llm", True)
@@ -4104,6 +4141,7 @@ async def run_agent(
                     except Exception:
                         pass
                 except Exception:
+                    _emit_provider_failure_shadow(recovered=False)
                     try:
                         from .websocket import jarvis_log
                         from .diagnostics.service_health import record_usage
