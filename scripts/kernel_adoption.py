@@ -598,7 +598,7 @@ _DECLARED: dict[str, dict] = {
     # (coordinated vs single-agent) → enforce (one task split across peers,
     # AGENCY_ORCHESTRATION_ENFORCE), owner-gated.
     "coordination": {"stage": "pure",    "owners": []},
-    # certification: SHADOW (Phase AE, MCU Certification — the "does the whole JARVIS
+    # certification: PARITY (Phase AE, MCU Certification — the "does the whole JARVIS
     # behave as one?" bar). The RECORD of the systems-certification suite: the ten
     # canonical scenario classes (conversational, proactive, long_horizon,
     # delegation, failure, security, conflicting_priorities, provider_failure,
@@ -625,12 +625,14 @@ _DECLARED: dict[str, dict] = {
     # corrected by observation; wiring either today would be hollow, so the
     # parity/enforce rungs certify the observable set and name the two as open work.
     # Each class closes when it ran end-to-end; logs `certification(shadow)`
-    # periodically. Observe-only; nothing reads the tally; kill-switched
-    # (CERTIFICATION_SHADOW / certification_shadow).
-    # Ladder from here: shadow → parity (a certification dashboard: coverage %,
-    # closed-loop %, invariants green) → enforce (every observable class closes + a
-    # certification CI gate), owner-gated.
-    "certification": {"stage": "shadow",
+    # periodically. PARITY: cognitive_core.certification_report() surfaces the
+    # rolling dashboard (coverage %, closed-loop %, closed/missing classes,
+    # observation count) read-only via status() — the quantified bar, nothing gates
+    # on it; still observe-only + kill-switched (CERTIFICATION_SHADOW /
+    # certification_shadow). Ladder from here: parity → enforce (a certification CI
+    # gate asserting the 8 observable classes stay wired; the 2 unobservable ones
+    # tracked as open work), owner-gated.
+    "certification": {"stage": "parity",
                       "owners": ["actuation", "agent", "cognitive_core",
                                  "continuity", "identity"]},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check

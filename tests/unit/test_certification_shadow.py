@@ -227,6 +227,34 @@ def identity(load):
     return load("identity")
 
 
+# ── parity dashboard (certification_report / status) ─────────────────────────
+def test_certification_report_zero_before_observations(cc):
+    d = cc.certification_report()
+    assert d["observations"] == 0
+    assert d["is_certified"] is False
+    assert d["coverage"] == 0.0
+    assert d["closed"] == []
+
+
+def test_certification_report_reflects_observations(cc):
+    from jc.kernel import certification as CERT
+    cc.certification_observe(CERT.PROACTIVE, closed_loop=True)
+    cc.certification_observe(CERT.CONVERSATIONAL, closed_loop=False)
+    d = cc.certification_report()
+    assert d["observations"] == 2
+    # proactive closed; conversational exercised-but-open
+    assert d["closed"] == ["proactive"]
+    assert set(d["exercised"]) == {"proactive", "conversational"}
+    assert d["is_certified"] is False
+
+
+def test_status_includes_certification_dashboard(cc):
+    st = cc.status()
+    assert "certification" in st
+    assert "coverage" in st["certification"]
+    assert "observations" in st["certification"]
+
+
 def test_identity_security_confirm_closes(cc, identity):
     identity._emit_security_shadow(confirmed=True)
     assert cc.certification_ledger().report().closed_classes == ("security",)

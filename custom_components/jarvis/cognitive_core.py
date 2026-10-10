@@ -3701,6 +3701,27 @@ def certification_observe(scenario: str, *, closed_loop: bool = False,
         _LOGGER.debug("certification observe error: %s", exc)
 
 
+def certification_report() -> dict:
+    """Phase AE PARITY — the MCU certification dashboard, read-only.
+
+    The shared ledger's rolling report: ``coverage`` (classes exercised / 10),
+    ``closed_loop_rate`` (of those exercised, how many closed), the ``closed`` /
+    ``missing`` class lists, ``is_certified``, and the ``observations`` count. This
+    is the quantified "does the whole JARVIS behave as one?" surface — nothing
+    gates on it; it only reports what the live surfaces have demonstrated. Returns
+    a zero-observation report before anything is observed; never raises."""
+    try:
+        led = _CERT_LEDGER
+        if led is not None:
+            return led.to_dict()
+        from .kernel import certification as CERT
+        d = CERT.CertificationReport().to_dict()
+        d["observations"] = 0
+        return d
+    except Exception:
+        return {}
+
+
 def _emit_certification_shadow(*, perceived: bool, predicted: bool,
                                decided: bool, acted: bool, learned: bool) -> None:
     """Observe this tick as a `proactive` certification scenario (observation →
@@ -4483,6 +4504,7 @@ def status() -> dict:
         "ignore_rules": len(list_ignores()),
         "learning": stats,
         "last_analysis": last_analysis,
+        "certification": certification_report(),   # Phase AE parity dashboard
     }
 
 

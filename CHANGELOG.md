@@ -1,3 +1,29 @@
+## [8.211.0] — Phase AE (MCU Certification) — parity: the certification dashboard
+
+Advances Phase AE **shadow → parity**. The rolling certification tally is now
+**surfaced read-only** as a dashboard, so the observable set's coverage and
+closed-loop rate are visible rather than only logged.
+
+- **`cognitive_core.certification_report()`** (new, read-only): returns the shared
+  `CertificationLedger`'s rolling report — `coverage` (classes exercised / 10),
+  `closed_loop_rate` (of those exercised, how many closed), the `closed` /
+  `missing` class lists, `is_certified`, and the `observations` count. Returns a
+  zero-observation report before anything is observed; never raises.
+- **`cognitive_core.status()`** now carries a `certification` key with that
+  dashboard, so diagnostics / the panel can read the quantified "does the whole
+  JARVIS behave as one?" picture.
+- Adoption matrix now `certification ◑ parity`; Constitution regenerated. New
+  tests for the report accessor (empty shape, reflects observations) and the
+  `status()` surfacing.
+
+Still observe-only and kill-switched (`CERTIFICATION_SHADOW` / the
+`certification_shadow` config key); nothing gates on the tally. With 8 of 10
+classes observed from live surfaces, the dashboard reads `incomplete` until the
+two deliberately-unobserved classes (`conflicting_priorities`, `cognitive_error`)
+gain honest surfaces. Next and final AE rung: enforce — a certification CI gate
+asserting the observable classes stay wired. Five kernel gates + audit green.
+Version 8.210.0 → 8.211.0.
+
 ## [8.210.0] — Phase AE (MCU Certification) — shadow: security + long_horizon (8 of 10 observed)
 
 Advances Phase AE shadow to **eight of the ten** scenario classes observed from
