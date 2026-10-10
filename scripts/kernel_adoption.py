@@ -598,7 +598,7 @@ _DECLARED: dict[str, dict] = {
     # (coordinated vs single-agent) → enforce (one task split across peers,
     # AGENCY_ORCHESTRATION_ENFORCE), owner-gated.
     "coordination": {"stage": "pure",    "owners": []},
-    # certification: PARITY (Phase AE, MCU Certification — the "does the whole JARVIS
+    # certification: ENFORCE (Phase AE, MCU Certification — the "does the whole JARVIS
     # behave as one?" bar). The RECORD of the systems-certification suite: the ten
     # canonical scenario classes (conversational, proactive, long_horizon,
     # delegation, failure, security, conflicting_priorities, provider_failure,
@@ -625,14 +625,19 @@ _DECLARED: dict[str, dict] = {
     # corrected by observation; wiring either today would be hollow, so the
     # parity/enforce rungs certify the observable set and name the two as open work.
     # Each class closes when it ran end-to-end; logs `certification(shadow)`
-    # periodically. PARITY: cognitive_core.certification_report() surfaces the
-    # rolling dashboard (coverage %, closed-loop %, closed/missing classes,
-    # observation count) read-only via status() — the quantified bar, nothing gates
-    # on it; still observe-only + kill-switched (CERTIFICATION_SHADOW /
-    # certification_shadow). Ladder from here: parity → enforce (a certification CI
-    # gate asserting the 8 observable classes stay wired; the 2 unobservable ones
-    # tracked as open work), owner-gated.
-    "certification": {"stage": "parity",
+    # periodically. PARITY surfaces the rolling dashboard read-only via
+    # cognitive_core.certification_report() / status() (coverage %, closed-loop %,
+    # closed/missing classes). ENFORCE: scripts/kernel_certification_check.py is the
+    # CI teeth — it fails the build if any of the 8 observable classes loses its
+    # live observer, if the dashboard accessor disappears, OR if either of the 2
+    # not-yet-observable classes (conflicting_priorities, cognitive_error) is
+    # falsely wired, so the suite can neither silently rot nor fake a closure.
+    # Behaviour stays observe-only + kill-switched (CERTIFICATION_SHADOW /
+    # certification_shadow); the gate is the enforce mechanism, exactly as Phase R's
+    # integration gate is. The two unobservable classes remain open work until an
+    # honest live surface exists (a live safety-vs-convenience arbitration on
+    # kernel.priority; a belief corrected by observation).
+    "certification": {"stage": "enforce",
                       "owners": ["actuation", "agent", "cognitive_core",
                                  "continuity", "identity"]},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
