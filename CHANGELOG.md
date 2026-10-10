@@ -1,3 +1,46 @@
+## [8.193.0] — kernel.coordination (pure): budgeted peer coordination (Phase O)
+
+Lands the peer-coordination half of Phase O (merged O+AB) **pure** — hierarchical
+delegation already lives in `kernel.agency` at enforce. `kernel/coordination.py`
+is a budgeted bid/claim/settle protocol:
+
+- `arbitrate(bids, budget=…)` awards an objective to **exactly one** agency (no
+  double-actuation); bids whose cost would overrun the budget are rejected; and
+  **conflicts resolve by the `kernel.priority` ladder** (a safety-tier bid
+  outranks a convenience one), tie-broken by lower cost then higher confidence —
+  never by bid order.
+- `settle(claim, success=…)` closes an awarded claim (SETTLED/FAILED); an
+  unawarded claim can't be settled. `would_double_actuate(claims)` guards the
+  one-award invariant.
+
+Pure: no HA import, no I/O, no clock, no bus; nothing live consumes it yet (the
+event-bus loop wires on at the shadow rung). Declared `coordination · pure`;
+Constitution regenerated. Tests: `test_kernel_coordination.py` (single award;
+budget rejection; priority-not-order conflict; tie-breaks; settle success/failure;
+unawarded no-op; double-actuation guard). Audit + four kernel gates green. Version
+8.192.0 → 8.193.0. Part of #236.
+
+## [8.192.0] — kernel.social (pure): consent-bounded personalization (Phase W)
+
+Lands the Phase W primitive **pure**, built directly on the `kernel.privacy`
+boundary from 8.191.0. `kernel/social.py` holds per-person `Preference`s and
+personalizes **within strict consent limits**:
+
+- `personalize_for(model, key, audience=…, default=…)` routes a cross-person read
+  through `privacy.can_disclose`, so person A's PERSONAL preference is returned
+  only to A (or a consented audience) — serving person B falls back to the
+  non-personalized `default`. A HOUSEHOLD-classified preference is shared.
+- `preference` (self-read), `remember` (newest-wins, ignores foreign subjects),
+  `purge` (owner drops a person's whole model), `summarize` (owner inspection).
+
+Structurally it **holds no actuator and exposes only preference values**, so it
+can never drive a security/intrusion decision; consent-gated, owner-inspectable,
+purgeable. Pure: no HA import, no I/O, no clock, no storage; nothing live consumes
+it yet. Declared `social · pure`; Constitution regenerated. Tests:
+`test_kernel_social.py` (newest-wins; foreign-subject ignored; self-read;
+cross-person block without consent; consented audience; household shared; purge;
+summary). Audit + four kernel gates green. Version 8.191.0 → 8.192.0. Part of #236.
+
 ## [8.191.0] — kernel.privacy (pure): information-flow boundary (Phase W prerequisite)
 
 Lands the cross-cutting **information-flow / privacy boundary** the audit requires

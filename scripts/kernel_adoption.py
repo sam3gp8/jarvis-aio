@@ -513,6 +513,27 @@ _DECLARED: dict[str, dict] = {
     # shadow → parity → enforce (SOCIAL_MODEL_ENFORCE gates W on top of it),
     # owner-gated.
     "privacy":      {"stage": "pure",    "owners": []},
+    # social: PURE (Phase W, Social & Relationship Intelligence). Per-person
+    # preference models that personalize within strict consent/privacy limits —
+    # built ON kernel.privacy: a Preference is a labelled datum and personalize_for
+    # routes a cross-person read through privacy.can_disclose, so person A's
+    # preference never reaches person B without A's consent. Consent-gated,
+    # owner-inspectable, purgeable; holds no actuator and exposes only preference
+    # values, so it can NEVER drive a security/intrusion decision. No HA import, no
+    # I/O, no clock, no storage; nothing live consumes it yet. Ladder: pure →
+    # shadow → parity → enforce (SOCIAL_MODEL_ENFORCE, fail-safe = non-personalized
+    # default), owner-gated.
+    "social":       {"stage": "pure",    "owners": []},
+    # coordination: PURE (Phase O — merged O+AB, the peer-coordination half;
+    # hierarchical delegation already lives in agency at enforce). A budgeted peer
+    # bid/claim/settle protocol: among bids within budget, arbitrate() awards an
+    # objective to EXACTLY ONE agency (no double-actuation), bids over budget are
+    # rejected, and conflicts resolve by the kernel.priority ladder (a safety-tier
+    # bid outranks a convenience one) — never by order. No HA import, no I/O, no
+    # clock, no bus; nothing live consumes it yet. Ladder: pure → shadow → parity
+    # (coordinated vs single-agent) → enforce (one task split across peers,
+    # AGENCY_ORCHESTRATION_ENFORCE), owner-gated.
+    "coordination": {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action

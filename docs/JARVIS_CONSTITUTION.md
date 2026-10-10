@@ -79,6 +79,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `budget` | ● enforce |
 | `causal` | ◑ parity |
 | `conflict` | ◑ parity |
+| `coordination` | · pure |
 | `correlation` | ◐ shadow |
 | `cycle` | ● enforce |
 | `environment` | ● enforce |
@@ -104,6 +105,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `router` | ◐ shadow |
 | `self_model` | ◑ parity |
 | `situation` | ● enforce |
+| `social` | · pure |
 | `space_time` | ◑ parity |
 | `surfaces` | · pure |
 | `temporal` | ◐ shadow |

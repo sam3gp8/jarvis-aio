@@ -63,6 +63,7 @@ explicit per-flip owner go/no-go.
 | `budget` | ● enforce | `actuation` |
 | `causal` | ◑ parity | `pattern_analyzer` |
 | `conflict` | ◑ parity | `presence` |
+| `coordination` | · pure | — |
 | `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
 | `cycle` | ● enforce | `cognitive_core` |
 | `environment` | ● enforce | `energy` |
@@ -88,6 +89,7 @@ explicit per-flip owner go/no-go.
 | `router` | ◐ shadow | `reasoning_loop` |
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
+| `social` | · pure | — |
 | `space_time` | ◑ parity | `cognitive_core` |
 | `surfaces` | · pure | — |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |
