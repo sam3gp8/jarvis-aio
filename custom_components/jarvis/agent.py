@@ -3691,7 +3691,15 @@ async def run_agent(
     except Exception:
         awareness_now = ""
     awareness_block = (
-        f"## What I've noticed lately\n{awareness_now}\n\n" if awareness_now else ""
+        "## What I've noticed lately (recollection — NOT a live camera feed)\n"
+        "These are PAST camera observations from recent days, not what any camera "
+        "shows right now. Never present them as the current scene; if asked what a "
+        "camera sees now ('are there people around the house', 'what's on camera X'), "
+        "use the look_at_camera tool for a live look rather than reciting these. "
+        "When you do refer to a recollection, say it's from memory and render it in "
+        "the language of your reply — don't quote a stored line verbatim if it's in "
+        f"another language.\n{awareness_now}\n\n"
+        if awareness_now else ""
     )
     # Inject cognitive core status
     cog_status = ""

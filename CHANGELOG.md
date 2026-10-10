@@ -1,3 +1,32 @@
+## [8.200.0] — chat: recalled camera observations no longer read as live, and in the reply's language (#341)
+
+Fixes two issues in the chat window reported in #341, where a German question
+got an answer whose camera lines were in Russian and described scenes that were
+not analysed live (no vision model ran).
+
+**Why it happened.** Camera scene summaries from the periodic observer analysis
+loop are stored (conversation memory, observer buffer, scene memory) and later
+recalled into chat via the "What I've noticed lately" block (`awareness.reflect`).
+The chat model composed its answer from that *recollection* — not a live frame —
+so no vision/vLLM call occurred, and it recited the stored lines as if current.
+The lines were in the household/analysis language while the reply followed the
+message language, so a different-language question surfaced verbatim foreign text.
+
+**Fixes:**
+- `agent.py`: the recollection block is now explicitly labelled a PAST, non-live
+  memory. The model is told never to present it as the current scene, to use the
+  `look_at_camera` tool for "what's on camera now" questions, and to render a
+  recalled line in the reply's language rather than quoting a stored foreign-
+  language line verbatim.
+- `camera.py`: the camera *reasoning summary* (what gets stored and later
+  recalled) is now pinned to the household language, like the vision analysis
+  already was (#140/#307) — so stored observations stop drifting into another
+  language. JSON keys/enums stay English so parsing is unaffected.
+
+No actuation or vision-pipeline change; behaviour-preserving for English
+installs (the language clause is empty there). Version 8.199.0 → 8.200.0.
+Fixes #341.
+
 ## [8.199.0] — kernel.long_horizon → parity: durable goal ledger + resume-after-restart proof (Phase V)
 
 Advances `long_horizon` **shadow → parity** with a real durable build. `continuity`
