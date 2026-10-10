@@ -462,9 +462,15 @@ _DECLARED: dict[str, dict] = {
     # "causal(parity)" line comparing the ΔP verdict against pattern_analyzer's
     # co-occurrence confidence (how many patterns survive the base-rate correction
     # vs are explained away) — observe-only (kill-switches CAUSAL_PREDICT_SHADOW /
-    # CAUSAL_PREDICT_PARITY), driving nothing. Enforce behind CAUSAL_PREDICT_ENFORCE
-    # (gating a proactive path, fail-safe = reactive only) is the owner-gated rung.
-    "causal":       {"stage": "parity",  "owners": ["pattern_analyzer"]},
+    # CAUSAL_PREDICT_PARITY), driving nothing. ENFORCE (Phase L, owner-gated,
+    # default OFF): under CAUSAL_PREDICT_ENFORCE / the `causal_predict_enforce` key,
+    # a detected SEQUENCE pattern is stored as a proactive suggestion only when the
+    # kernel causal ΔP verdict confirms a genuine cause (details["causal_confirms"],
+    # tagged during the parity pass) — proactivity gated on prediction confidence,
+    # not co-occurrence. Fail-safe = current behaviour (an untagged/errored pattern
+    # counts as confirmed, so a failure can only fall back to suggesting as today);
+    # non-safety (gates only the learned-suggestion surface).
+    "causal":       {"stage": "enforce", "owners": ["pattern_analyzer"]},
     "priority":     {"stage": "pure",    "owners": []},
     # resilience: PURE (Phase Z, Resilient Compute Federation). A local-first,
     # offline-safe fallback policy across compute tiers (LOCAL/EDGE/CLOUD × health).

@@ -1,3 +1,30 @@
+## [8.195.0] — kernel.causal → enforce: proactive suggestions gated on prediction (Phase L, default OFF)
+
+Advances the `causal` primitive **parity → enforce**. When the flip is on, a
+detected **sequence** pattern is surfaced as a proactive suggestion only if the
+kernel causal model confirms it a *genuine cause* — the real cause/effect
+contingency (ΔP → direction "causes"), not mere co-occurrence. Proactivity is now
+gated on prediction confidence, not just how often two things were seen together.
+
+- `pattern_analyzer.py`: `_emit_causal_parity` tags each re-scored sequence
+  pattern with `details["causal_confirms"]` (runs when parity **or** enforce is
+  on); the suggestion-storing loop calls the pure `_causal_gates_out(pattern)` to
+  withhold a sequence suggestion the causal contrast explicitly refuted. New
+  `CAUSAL_PREDICT_ENFORCE` + `_causal_predict_enforce_on()` (module flag or the
+  `causal_predict_enforce` config key).
+
+**Kill-switched, default OFF** → behaviour-identical as shipped. **Fail-safe =
+current behaviour**: an untagged pattern (verdict missing / any error) counts as
+confirmed, so a failure can only fall back to suggesting as today — it can never
+silently drop a suggestion it didn't evaluate. **Non-safety**: gates only the
+learned-suggestion surface, never a safety actuation.
+
+Adoption matrix + Constitution regenerated (`causal ● enforce`). Tests:
+`test_causal_enforce.py` (default-off / flag / config; off=no-gating;
+refuted-sequence gated; confirmed not gated; untagged fail-safe; non-sequence
+never gated; defensive). Audit + four kernel gates green. Version 8.194.0 →
+8.195.0. Part of #236.
+
 ## [8.194.0] — kernel.optimize → shadow: tuning proposals from the interruption budget (Phase Y)
 
 Advances the `optimize` primitive **pure → shadow** with its first live producer.
