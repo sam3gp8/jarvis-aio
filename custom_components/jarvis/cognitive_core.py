@@ -2195,6 +2195,45 @@ def _graduated_autonomy_enforce_on() -> bool:
         return False
 
 
+# Phase AC — Advanced Autonomy (dynamic / contextual). Layers a CONTEXTUAL cap on
+# top of the earned per-capability level and the N ceiling: a restrictive context
+# (a non-resident in the home) tightens an otherwise-autonomous convenience action
+# to ask-first. Downward-only and safe-directional — it can only ever make JARVIS
+# more cautious, never free it, and never loosens the N gate (which runs first).
+# Owner-gated, DEFAULT-OFF (behaviour-preserving), kill-switched, fail-safe.
+CONTEXTUAL_AUTONOMY_ENFORCE = False
+
+
+def _contextual_autonomy_enforce_on() -> bool:
+    """True when the household has opted into contextual-autonomy tightening
+    (`CONTEXTUAL_AUTONOMY_ENFORCE` or the `contextual_autonomy_enforce` config
+    key). Never raises."""
+    if CONTEXTUAL_AUTONOMY_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("contextual_autonomy_enforce", False))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _guests_present(hass) -> bool:
+    """True when a recently-recognised face is a NON-resident — a named visitor,
+    or a name the roster does not know as a resident — i.e. a guest is in the
+    home. Best-effort; any error (or no recognitions) → False, so contextual
+    tightening only ever engages on a positive guest signal (fail-safe)."""
+    try:
+        from . import recognition, face_roster
+        for name in (recognition.who_is_where(hass) or {}).values():
+            if not name:
+                continue
+            if recognition._is_unknown(name) or not face_roster.is_resident(name):
+                return True
+        return False
+    except Exception:
+        return False
+
+
 def _pattern_is_security(pattern_key: str) -> bool:
     """True when a proactive pattern's capability is SECURITY-class per the kernel
     (it must never auto-act). Fail-safe: an unknown / underivable capability
@@ -2337,7 +2376,7 @@ class AutonomyManager:
                 await asyncio.shield(save_task)
                 raise
 
-    def is_autonomous(self, pattern_key: str) -> bool:
+    def is_autonomous(self, pattern_key: str, *, context=None) -> bool:
         """True if JARVIS may perform this convenience action without asking.
         The active operational mode can suppress convenience auto-actions
         (party/movie/lab) — this only affects graduated convenience patterns;
@@ -2347,7 +2386,12 @@ class AutonomyManager:
         kernel-governed autonomy (`autonomy_enforce`, confirmed in the panel), a
         granted pattern whose capability is SECURITY-class never auto-acts — the
         kernel autonomy ladder's hard ceiling — and always falls back to asking.
-        Default OFF (behaviour-preserving); fail-safe."""
+
+        Phase AC enforce (opt-in): atop the N ceiling, a restrictive ``context``
+        (``kernel.autonomy.AutonomyContext`` — e.g. a guest in the home) tightens
+        an otherwise-autonomous convenience action to ask-first. Downward-only: it
+        can only withhold, never grant, and never loosens the N gate above. Both
+        default OFF (behaviour-preserving) and fail-safe to acting as today."""
         g = self._grants.get(pattern_key)
         if not (g and g.get("granted")):
             return False
@@ -2359,6 +2403,13 @@ class AutonomyManager:
             pass
         if _graduated_autonomy_enforce_on() and _pattern_is_security(pattern_key):
             return False
+        if context is not None and _contextual_autonomy_enforce_on():
+            try:
+                from .kernel import autonomy as _auto
+                if _auto.context_blocks_autonomy(context):
+                    return False
+            except Exception:
+                pass
         return True
 
     def revoke(self, pattern_key: str, *, persist: bool = True) -> bool:
@@ -3135,6 +3186,18 @@ async def _tick():
             offers = await _CORE.proactive_mgr.tick(sleeping, anyone_home)
             spoke_offer = False  # only ONE spoken offer per tick (avoid stacking
                                  # questions when only one pending_offer is tracked)
+            # Phase AC (contextual autonomy, owner-gated, default OFF): when
+            # enabled, build the live autonomy context once per tick so a granted
+            # convenience action is held to ask-first while a guest is in the home.
+            # Downward-only, atop the N ceiling; nothing built when enforce is off.
+            _ac_ctx = None
+            if _contextual_autonomy_enforce_on():
+                try:
+                    from .kernel import autonomy as _auto
+                    _ac_ctx = _auto.AutonomyContext(
+                        guests_present=_guests_present(_CORE.hass))
+                except Exception:
+                    _ac_ctx = None
             for offer in offers:
                 # Room-scoped mode: stay quiet about the focused room(s) only.
                 if mode_scope_areas:
@@ -3144,7 +3207,7 @@ async def _tick():
                 pkey = offer.get("pattern_key", "")
                 # Graduated autonomy: trusted actions execute silently — all of
                 # them, since they don't need a yes/no.
-                if pkey and _CORE.autonomy_mgr and _CORE.autonomy_mgr.is_autonomous(pkey):
+                if pkey and _CORE.autonomy_mgr and _CORE.autonomy_mgr.is_autonomous(pkey, context=_ac_ctx):
                     ok = await _execute_action_data(_CORE.hass, offer.get("action_data", {}))
                     if ok:
                         _CORE.autonomous_actions += 1

@@ -378,6 +378,14 @@ _DECLARED: dict[str, dict] = {
     # written only after the panel's full-explanation confirmation screen — so
     # shipping is behaviour-preserving; fail-safe — any error leaves the legacy
     # gate (grant + mode flag) untouched. Safety never routes through this gate.
+    # CONTEXTUAL (Phase AC, owner-gated + opt-in): atop the N ceiling, a pure
+    # AutonomyContext + contextual_cap layer tightens an earned level DOWNWARD-ONLY
+    # for a restrictive context (a guest in the home); AutonomyManager.is_autonomous
+    # consults autonomy.context_blocks_autonomy so an otherwise-autonomous
+    # convenience action is held to ask-first while a non-resident is present.
+    # Behind CONTEXTUAL_AUTONOMY_ENFORCE / the `contextual_autonomy_enforce` key
+    # (default OFF); safe-directional (can only withhold, never free, and never
+    # loosens the N gate); fail-safe to acting as today on any error.
     "autonomy":     {"stage": "enforce", "owners": ["actuation", "cognitive_core"]},
     "correlation":  {"stage": "shadow",  "owners": ["actuation", "decision_record", "observer", "proactive_audio"]},
     # actor: ambient acting-agent attribution (MCU Phase H, H6). agent._run_delegated

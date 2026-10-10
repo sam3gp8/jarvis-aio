@@ -183,3 +183,55 @@ def grant(capability: str, stats=None, *, current: Optional[str] = None) -> Auto
         success_rate=rate,
         reason=reason,
     )
+
+
+# ── contextual autonomy (Phase AC) ─────────────────────────────────────────────
+# Dynamic, contextual autonomy LAYERED ON TOP of the earned per-capability level.
+# The earned level (above) is trust from evidence × risk; the context is a reason
+# to be *more* cautious right now — and only ever more. A capability's autonomy at
+# any instant is therefore min(earned_level, contextual_cap): the N ceiling still
+# runs first and is never exceeded, so contextual autonomy can tighten JARVIS's
+# hand but never free it. All pure.
+@dataclass(frozen=True)
+class AutonomyContext:
+    """Live context that may TIGHTEN an earned autonomy level downward.
+
+    Each flag is a standing reason for extra caution: a non-resident in the home
+    (``guests_present``), the household asleep / in quiet hours (``asleep``), or a
+    weak/low-confidence triggering perception (``low_confidence``). Flags only ever
+    lower autonomy — there is deliberately no flag that raises it."""
+
+    guests_present: bool = False
+    asleep: bool = False
+    low_confidence: bool = False
+
+    @property
+    def restrictive(self) -> bool:
+        """Whether anything about the current context calls for extra caution."""
+        return bool(self.guests_present or self.asleep or self.low_confidence)
+
+
+def contextual_cap(level: str, context: AutonomyContext) -> str:
+    """Confine an earned autonomy ``level`` to what the current context permits.
+
+    DOWNWARD-ONLY: a restrictive context caps a convenience action at ``CONFIRM``
+    (it must ask first); an unrestricted context leaves the level untouched. The
+    result is always ``min(level, cap)`` on the ladder, so contextual autonomy can
+    only ever make JARVIS *more* cautious — never less — and can never raise a
+    level past the capability's earned N-ceiling (that gate runs first and is
+    unchanged). Pure and total: an unknown level clamps into the band."""
+    cap = CONFIRM if getattr(context, "restrictive", False) else ACT
+    return _clamp(level, SUGGEST, cap)
+
+
+def context_blocks_autonomy(context: AutonomyContext) -> bool:
+    """Whether the context tightens an otherwise-autonomous (``ACT``) convenience
+    action below ``ACT`` — i.e. it must now ask first rather than act silently.
+
+    The boolean adapter the live auto-act gate consults atop the earned-level and
+    N-ceiling checks. Pure; a malformed/None context never blocks (fail-safe =
+    the incumbent autonomy decision stands)."""
+    try:
+        return contextual_cap(ACT, context) != ACT
+    except Exception:  # pragma: no cover - defensive
+        return False
