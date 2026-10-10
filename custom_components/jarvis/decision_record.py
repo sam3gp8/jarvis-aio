@@ -27,11 +27,23 @@ import json
 import sqlite3
 import time
 from pathlib import Path
+import logging
 from typing import Optional
 
 from .paths import config_path_str
 
+_LOGGER = logging.getLogger(__name__)
+
 _DEFAULT_DB = config_path_str("jarvis", "decisions.db")
+
+# Phase Y (shadow): alongside the interruption-budget read, map the budget's
+# health into a kernel.optimize tuning PROPOSAL and log it — observe-only, nothing
+# auto-applies. interrupt_threshold is a SENSITIVE parameter, so the proposal is
+# owner-gated (proposal_only), demonstrating the tiered guardrail: the optimizer
+# can only *propose* a sensitive tuning, never self-apply it (SAFE-tier self-tuning
+# and the forbidden-tier immutability are the enforce rung's concern). Flip
+# OPTIMIZE_SHADOW off to silence it; the budget read is unchanged either way.
+OPTIMIZE_SHADOW = True
 
 # Recognised outcome verdicts (set by the outcome-capture layer in a later phase).
 OUTCOME_GOOD = "good"            # the decision was useful / acted upon
@@ -524,7 +536,50 @@ def interruption_budget(db_path: Optional[str] = None,
     out["multiplier"] = round(max(floor, 1.0 - rate * (1.0 - floor)), 3)
     out["assessment"] = ("over-interrupting" if rate >= 0.5
                          else "borderline" if rate >= 0.25 else "healthy")
+    _emit_optimize_shadow(out)   # Phase Y shadow (observe-only)
     return out
+
+
+def _optimize_proposal_from_budget(budget: dict):
+    """Pure. Map an interruption-budget assessment to a kernel.optimize tuning
+    PROPOSAL for the (SENSITIVE) ``interrupt_threshold``: the more JARVIS is
+    over-interrupting (multiplier below 1.0), the more it would propose *raising*
+    the threshold so it interrupts less. Returns an ``OptimizationReport``, or
+    None when there's no data. Because ``interrupt_threshold`` is SENSITIVE, the
+    proposal is ``proposal_only`` (owner-gated) — never ``auto_applicable``. Never
+    raises."""
+    try:
+        from .kernel import optimize as OPT
+        if not budget or budget.get("judged", 0) <= 0:
+            return None
+        mult = float(budget.get("multiplier", 1.0) or 1.0)
+        current = 0.5
+        proposed = round(min(0.9, current + (1.0 - mult)), 3)
+        prop = OPT.propose(
+            "interrupt_threshold", current, proposed,
+            bound=OPT.Bound("interrupt_threshold", 0.0, 1.0),
+            rationale=f"interruption {budget.get('assessment', '?')} "
+                      f"(multiplier={mult}, unwelcome_rate={budget.get('unwelcome_rate')})")
+        return OPT.report([prop])
+    except Exception:   # pragma: no cover - defensive
+        return None
+
+
+def _emit_optimize_shadow(budget: dict) -> None:
+    """Phase Y — shadow. Build the tuning proposal from the budget and log it.
+    Observe-only; nothing applies it. Never raises into the caller."""
+    if not OPTIMIZE_SHADOW:
+        return
+    try:
+        report = _optimize_proposal_from_budget(budget)
+        if report is None or not report.proposals:
+            return
+        p = report.proposals[0]
+        _LOGGER.debug(
+            "optimize(shadow): %s %.3f→%.3f tier=%s proposal_only=%s auto=%s",
+            p.param, p.current, p.proposed, p.tier, p.proposal_only, p.auto_applicable)
+    except Exception:   # pragma: no cover - defensive
+        pass
 
 
 def outcome_rate(kind: str, window_s: Optional[float] = None,
