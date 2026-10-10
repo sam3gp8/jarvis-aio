@@ -1,3 +1,30 @@
+## [8.208.0] — Phase AE (MCU Certification) — shadow: delegation + provider_failure
+
+Advances Phase AE shadow by observing **two more** scenario classes from their own
+honest live surfaces, folding into the same shared certification ledger. Four of
+the ten classes are now observed from live traffic.
+
+- **`agent._run_delegated`**: observes the **`delegation`** scenario (JARVIS →
+  child → result → synthesis). A sub-agent that returned a usable result for the
+  parent to synthesise closes it; a sub-agent failure is exercised but open.
+- **`agent.run_agent` fallback path**: observes the **`provider_failure`** scenario
+  (cloud unavailable → local degradation). A primary-provider failure the fallback
+  reasoning tier recovers from closes it; both providers failing is exercised but
+  open.
+- The agent-side emitters are refactored behind one `_emit_cert()` helper that
+  routes every observation through `cognitive_core.certification_observe` (the one
+  shared, kill-switched seam).
+- Adoption matrix unchanged (`certification ◐ shadow`, callers `agent`,
+  `cognitive_core`); the declared comment now lists all four observed classes. New
+  tests for both emitters (closes on success/recovery, open on failure, kill-switch).
+
+Behaviour unchanged — delegation and the provider fallback run exactly as before;
+this only watches them. Observe-only, kill-switched (`CERTIFICATION_SHADOW` / the
+`certification_shadow` config key), fail-safe. Ladder from here: the remaining
+classes (failure, restart, security, long_horizon, conflicting_priorities,
+cognitive_error) → parity dashboard → enforce + a certification CI gate. Five
+kernel gates + audit green. Version 8.207.0 → 8.208.0.
+
 ## [8.207.0] — Phase AE (MCU Certification) — shadow: the conversational scenario + one shared ledger
 
 Advances Phase AE shadow by adding the **second** scenario class and routing every

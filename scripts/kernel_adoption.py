@@ -609,10 +609,13 @@ _DECLARED: dict[str, dict] = {
     # report. SHADOW: live surfaces fold observations into ONE shared ledger via
     # cognitive_core.certification_observe() — cognitive_core._tick observes the
     # `proactive` class (the integration loop's perceive→predict→decide→act→learn IS
-    # that scenario's shape), and agent.run_agent observes the `conversational` class
-    # (request → reasoning → tool action → verified reply). Each class closes when it
-    # ran end-to-end; logs `certification(shadow)` periodically. Observe-only; nothing
-    # reads the tally; kill-switched (CERTIFICATION_SHADOW / certification_shadow).
+    # that scenario's shape), and agent.py observes `conversational` (request →
+    # reasoning → tool action → verified reply), `delegation` (JARVIS → child →
+    # result → synthesis, in _run_delegated) and `provider_failure` (cloud
+    # unavailable → fallback-tier recovery, in run_agent's fallback path). Each class
+    # closes when it ran end-to-end; logs `certification(shadow)` periodically.
+    # Observe-only; nothing reads the tally; kill-switched (CERTIFICATION_SHADOW /
+    # certification_shadow).
     # Ladder from here: shadow → parity (a certification dashboard: coverage %,
     # closed-loop %, invariants green, all ten classes observed from their own live
     # surfaces) → enforce (every class closes + a certification CI gate), owner-gated.
