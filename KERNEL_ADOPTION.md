@@ -70,6 +70,7 @@ explicit per-flip owner go/no-go.
 | `event_bus` | ◐ shadow | `__init__` |
 | `graph` | ● enforce | `knowledge` |
 | `identity_fabric` | ● enforce | `identity` |
+| `inquiry` | · pure | — |
 | `journal` | ◐ shadow | `continuity`, `goals` |
 | `learning` | ● enforce | `actuation` |
 | `ledger` | ◐ shadow | `__init__` |

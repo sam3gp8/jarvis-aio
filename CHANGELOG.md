@@ -1,3 +1,26 @@
+## [8.189.0] — kernel.inquiry (pure): investigative agency (Phase AD)
+
+Lands the Phase AD primitive **pure**. `kernel/inquiry.py` is bounded, cited
+inquiry with **evidence provenance, not merely citations**:
+
+- A `Finding` is a **typed** claim (fact / observation / inference / prediction /
+  hypothesis / recommendation) with source, confidence and an injected
+  valid-as-of timestamp.
+- `record()` enforces a **hard spend cap** — a finding whose cost would overrun
+  the budget is refused (zero-cost always allowed), so a bounded investigation
+  can never silently overspend.
+- `synthesize()` prefers the best-*grounded*, highest-confidence claim and
+  **caps confidence when a contradiction is present** (never false certainty),
+  surfacing contradictions rather than hiding them; `contradictions()` detects
+  opposing claims.
+
+Pure: no HA import, no I/O, no clock, no network; nothing live consumes it yet
+(the tool-using gather loop wires on at the shadow rung). Declared `inquiry ·
+pure`; Constitution regenerated. Tests: `test_kernel_inquiry.py` (type coercion;
+hard cap; zero-vs-positive cost at zero budget; best-grounded synthesis;
+contradiction confidence cap; contradiction detection; budget accounting). Audit
++ four kernel gates green. Version 8.188.0 → 8.189.0. Part of #236.
+
 ## [8.188.0] — kernel.surfaces (pure): presence continuity (Phase AA)
 
 Lands the Phase AA primitive **pure**. `kernel/surfaces.py` is a surface registry

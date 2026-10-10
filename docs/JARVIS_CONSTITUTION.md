@@ -86,6 +86,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `event_bus` | ◐ shadow |
 | `graph` | ● enforce |
 | `identity_fabric` | ● enforce |
+| `inquiry` | · pure |
 | `journal` | ◐ shadow |
 | `learning` | ● enforce |
 | `ledger` | ◐ shadow |

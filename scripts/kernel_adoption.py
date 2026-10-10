@@ -481,6 +481,17 @@ _DECLARED: dict[str, dict] = {
     # shadow rung). Ladder: pure → shadow → parity (which satellite speaks) →
     # enforce (SURFACES_ENFORCE, fail-safe = per-surface current logic), owner-gated.
     "surfaces":     {"stage": "pure",    "owners": []},
+    # inquiry: PURE (Phase AD, Research & Discovery — investigative agency).
+    # Bounded, cited inquiry with evidence provenance: a Finding is a TYPED claim
+    # (fact/observation/inference/prediction/hypothesis/recommendation) with source,
+    # confidence and an injected valid-as-of; record() enforces a HARD spend cap
+    # (a finding that would overrun the budget is refused); synthesize() picks the
+    # best-grounded claim and CAPS confidence when a contradiction is present (never
+    # false certainty), surfacing contradictions rather than hiding them. No HA
+    # import, no I/O, no clock, no network; nothing live consumes it yet. Ladder:
+    # pure → shadow (dry investigations) → parity (vs direct answer) → enforce
+    # (INQUIRY_ENFORCE, fail-safe = direct answer / no investigation), owner-gated.
+    "inquiry":      {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action
