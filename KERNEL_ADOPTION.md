@@ -69,7 +69,9 @@ explicit per-flip owner go/no-go.
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `graph` | ● enforce | `knowledge` |
+| `household` | · pure | — |
 | `identity_fabric` | ● enforce | `identity` |
+| `inquiry` | · pure | — |
 | `journal` | ◐ shadow | `continuity`, `goals` |
 | `learning` | ● enforce | `actuation` |
 | `ledger` | ◐ shadow | `__init__` |
@@ -80,11 +82,14 @@ explicit per-flip owner go/no-go.
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — |
+| `privacy` | · pure | — |
 | `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
+| `resilience` | · pure | — |
 | `router` | ◐ shadow | `reasoning_loop` |
-| `self_model` | ◐ shadow | `agent` |
+| `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `space_time` | ◑ parity | `cognitive_core` |
+| `surfaces` | · pure | — |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |
 | `uncertainty` | ◑ parity | `identity`, `knowledge` |

@@ -85,7 +85,9 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `event` | ◑ parity |
 | `event_bus` | ◐ shadow |
 | `graph` | ● enforce |
+| `household` | · pure |
 | `identity_fabric` | ● enforce |
+| `inquiry` | · pure |
 | `journal` | ◐ shadow |
 | `learning` | ● enforce |
 | `ledger` | ◐ shadow |
@@ -96,11 +98,14 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `persistence` | · pure |
 | `plan` | ◑ parity |
 | `priority` | · pure |
+| `privacy` | · pure |
 | `provenance` | ◐ shadow |
+| `resilience` | · pure |
 | `router` | ◐ shadow |
-| `self_model` | ◐ shadow |
+| `self_model` | ◑ parity |
 | `situation` | ● enforce |
 | `space_time` | ◑ parity |
+| `surfaces` | · pure |
 | `temporal` | ◐ shadow |
 | `token_telemetry` | ◐ shadow |
 | `uncertainty` | ◑ parity |

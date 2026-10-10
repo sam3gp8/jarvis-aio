@@ -298,8 +298,13 @@ _DECLARED: dict[str, dict] = {
     # activate or widen anything (authority lives in the authority primitive).
     # Ladder: pure → shadow → parity (self-report vs ground truth) → enforce
     # (self-answers sourced from the model, no confabulation), owner-gated behind
-    # SELF_MODEL_ENFORCE (fail-safe = static capability list).
-    "self_model":   {"stage": "shadow",  "owners": ["agent"]},
+    # SELF_MODEL_ENFORCE (fail-safe = static capability list). PARITY (8.186.0):
+    # `agent._emit_self_model_parity` compares the self-model's reported capability
+    # availability against an independent ground truth (switch live-enabled AND its
+    # backing module resolves) and logs agreement/divergence — isolating the
+    # confabulation (reported-available but not actually performable) the enforce
+    # rung must forbid. Observe-only; drives nothing.
+    "self_model":   {"stage": "parity",  "owners": ["agent"]},
     # long_horizon: durable, resumable, progress-tracked goals spanning days/weeks
     # (roadmap Phase V) — the direct payoff of Phase I (continuity). Models a goal
     # as an ordered set of milestones with a stable id, pure progress derivations
@@ -457,6 +462,57 @@ _DECLARED: dict[str, dict] = {
     # (gating a proactive path, fail-safe = reactive only) is the owner-gated rung.
     "causal":       {"stage": "parity",  "owners": ["pattern_analyzer"]},
     "priority":     {"stage": "pure",    "owners": []},
+    # resilience: PURE (Phase Z, Resilient Compute Federation). A local-first,
+    # offline-safe fallback policy across compute tiers (LOCAL/EDGE/CLOUD × health).
+    # Encodes the HAOS boundary structurally — a canonical-state tier can never be
+    # an offload target (the brain stays under the HA integration; external compute
+    # is disposable) and the chooser fails safe to the local/canonical tier. No HA
+    # import, no I/O, no clock; nothing live consumes it yet (a health poller +
+    # the conservative breaker wire onto it at the shadow rung). Ladder from here:
+    # pure → shadow (would-be tier choice) → parity (vs current breaker) → enforce
+    # (RESILIENCE_ENFORCE, fail-safe = current breaker), owner-gated.
+    "resilience":   {"stage": "pure",    "owners": []},
+    # surfaces: PURE (Phase AA, Omnipresent Multimodal — presence continuity). A
+    # surface registry + a single cross-surface arbiter: one utterance is emitted
+    # on exactly ONE surface (no double-announce), mutes honored everywhere, and an
+    # Interaction survives a handoff between surfaces (voice → mobile → HUD) keeping
+    # its id — presence continuity, not a UI layer. No HA import, no I/O, no clock;
+    # nothing live consumes it yet (the registry + announcement path wire on at the
+    # shadow rung). Ladder: pure → shadow → parity (which satellite speaks) →
+    # enforce (SURFACES_ENFORCE, fail-safe = per-surface current logic), owner-gated.
+    "surfaces":     {"stage": "pure",    "owners": []},
+    # inquiry: PURE (Phase AD, Research & Discovery — investigative agency).
+    # Bounded, cited inquiry with evidence provenance: a Finding is a TYPED claim
+    # (fact/observation/inference/prediction/hypothesis/recommendation) with source,
+    # confidence and an injected valid-as-of; record() enforces a HARD spend cap
+    # (a finding that would overrun the budget is refused); synthesize() picks the
+    # best-grounded claim and CAPS confidence when a contradiction is present (never
+    # false certainty), surfacing contradictions rather than hiding them. No HA
+    # import, no I/O, no clock, no network; nothing live consumes it yet. Ladder:
+    # pure → shadow (dry investigations) → parity (vs direct answer) → enforce
+    # (INQUIRY_ENFORCE, fail-safe = direct answer / no investigation), owner-gated.
+    "inquiry":      {"stage": "pure",    "owners": []},
+    # household: PURE (Phase P, Proactive Household Intelligence). An occupancy
+    # rhythm (per-daypart occupancy likelihood) + a routine graph (recurring
+    # activity transitions) derived from plain observation rows. The invariant is
+    # structural: anticipate() emits advisory Suggestions that carry NO actuator —
+    # the model may only propose; acting stays the authority/actuation seam's job
+    # (suggest, never silent actuation). No HA import, no I/O, no clock; nothing
+    # live consumes it yet. Ladder: pure → shadow (infer routines) → parity
+    # (suggestions vs heuristics) → enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe
+    # = current heuristics), owner-gated.
+    "household":    {"stage": "pure",    "owners": []},
+    # privacy: PURE (Phase W prerequisite — information-flow / privacy boundary).
+    # The audit requires an explicit information-flow policy to land BEFORE the
+    # social model: a pure decision over a labelled DataItem (classification /
+    # subject / purpose / consent / audience / source). The load-bearing rule is
+    # structural and fail-closed: a PERSONAL/SENSITIVE item about person A never
+    # flows to a different person B without A's explicit consent (SENSITIVE also
+    # needs a matching purpose), and an unknown classification denies. No HA import,
+    # no I/O, no clock, no storage; nothing live consumes it yet. Ladder: pure →
+    # shadow → parity → enforce (SOCIAL_MODEL_ENFORCE gates W on top of it),
+    # owner-gated.
+    "privacy":      {"stage": "pure",    "owners": []},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action

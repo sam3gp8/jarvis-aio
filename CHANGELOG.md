@@ -1,3 +1,138 @@
+## [8.191.0] — kernel.privacy (pure): information-flow boundary (Phase W prerequisite)
+
+Lands the cross-cutting **information-flow / privacy boundary** the audit requires
+*before* Phase W (Social & Relationship Intelligence). `kernel/privacy.py` is a
+pure, **fail-closed** decision over a labelled `DataItem` (classification / subject
+/ purpose / consent / audience / source):
+
+- `can_disclose(item, audience=…, purpose=…, owner=…)` — PUBLIC/HOUSEHOLD flow
+  freely; the subject always sees their own; the owner may see PERSONAL; **any
+  other person needs the subject's explicit consent**, and SENSITIVE additionally
+  needs a matching purpose. An unknown classification is coerced to SENSITIVE and
+  denied.
+- `cross_subject_leak(...)` flags the exact boundary W must not cross — person A's
+  PERSONAL/SENSITIVE data flowing to a different person B without consent;
+  `redact(...)` returns only the disclosable subset.
+
+Pure: no HA import, no I/O, no clock, no storage; nothing live consumes it yet (the
+social model + any cross-person surfacing consult it at the shadow rung). Declared
+`privacy · pure`; Constitution regenerated. Tests: `test_kernel_privacy.py`
+(fail-closed unknown; public/household; subject-sees-own; personal cross-person
+block + owner/consent; sensitive consent+purpose; cross-subject-leak; redact;
+defensive). Audit + four kernel gates green. Version 8.190.0 → 8.191.0. Part of #236.
+
+## [8.190.0] — kernel.household (pure): proactive household intelligence (Phase P)
+
+Lands the Phase P primitive **pure**. `kernel/household.py` derives an occupancy
+**rhythm** (per-daypart occupancy likelihood) and a **routine graph** (recurring
+activity transitions) from plain observation rows. The invariant is structural:
+`anticipate()` emits advisory `Suggestion` objects that **carry no actuator** — the
+household model may only *propose*; acting on a suggestion stays the
+authority/actuation seam's job (suggest, never silent actuation).
+
+- `occupancy_rhythm` / `routines(min_support=…)` / `anticipate(daypart=…,
+  last_activity=…)` / `summarize` — all total, deterministic.
+
+Pure: no HA import, no I/O, no clock; nothing live consumes it yet (an observation
+feed + the proactive loop wire on at the shadow rung). Declared `household · pure`;
+Constitution regenerated. Tests: `test_kernel_household.py` (rhythm; routine
+support threshold; presence + routine suggestions; suggestions always advisory /
+never actuators; empty; summary). Audit + four kernel gates green. Version
+8.189.0 → 8.190.0. Part of #236.
+
+## [8.189.0] — kernel.inquiry (pure): investigative agency (Phase AD)
+
+Lands the Phase AD primitive **pure**. `kernel/inquiry.py` is bounded, cited
+inquiry with **evidence provenance, not merely citations**:
+
+- A `Finding` is a **typed** claim (fact / observation / inference / prediction /
+  hypothesis / recommendation) with source, confidence and an injected
+  valid-as-of timestamp.
+- `record()` enforces a **hard spend cap** — a finding whose cost would overrun
+  the budget is refused (zero-cost always allowed), so a bounded investigation
+  can never silently overspend.
+- `synthesize()` prefers the best-*grounded*, highest-confidence claim and
+  **caps confidence when a contradiction is present** (never false certainty),
+  surfacing contradictions rather than hiding them; `contradictions()` detects
+  opposing claims.
+
+Pure: no HA import, no I/O, no clock, no network; nothing live consumes it yet
+(the tool-using gather loop wires on at the shadow rung). Declared `inquiry ·
+pure`; Constitution regenerated. Tests: `test_kernel_inquiry.py` (type coercion;
+hard cap; zero-vs-positive cost at zero budget; best-grounded synthesis;
+contradiction confidence cap; contradiction detection; budget accounting). Audit
++ four kernel gates green. Version 8.188.0 → 8.189.0. Part of #236.
+
+## [8.188.0] — kernel.surfaces (pure): presence continuity (Phase AA)
+
+Lands the Phase AA primitive **pure**. `kernel/surfaces.py` is a surface registry
++ a single cross-surface arbiter, built around **presence continuity, not a UI
+layer**:
+
+- `arbitrate(surfaces)` picks **exactly one** surface to emit on — a focused
+  surface wins over mere presence, else the lowest effective priority — so a
+  notification is announced **once**, never N times across N surfaces. A muted or
+  absent surface never wins; `None` means stay silent.
+- Mutes are honored everywhere (`muted_surfaces`), and `would_double_announce`
+  shows when arbitration is doing real work.
+- An `Interaction` survives a `handoff` between surfaces (voice → mobile → HUD)
+  **keeping its id** — `is_same_interaction` is the continuity test; a same-surface
+  handoff is a no-op.
+
+Pure: no Home Assistant import, no I/O, no clock; nothing live consumes it yet
+(the registry + announcement path wire on at the shadow rung). Declared
+`surfaces · pure`; Constitution regenerated. Tests: `test_kernel_surfaces.py`
+(focused/priority/override arbitration; mute+absent exclusion; single-emit;
+handoff identity continuity; same-surface no-op; summary). Audit + four kernel
+gates green. Version 8.187.0 → 8.188.0. Part of #236.
+
+## [8.187.0] — kernel.resilience (pure): resilient compute federation (Phase Z)
+
+Lands the Phase Z primitive **pure**. `kernel/resilience.py` is a local-first,
+offline-safe fallback policy over compute tiers (LOCAL / EDGE / CLOUD × health).
+The load-bearing invariant is the **HAOS boundary**, encoded structurally — this
+is explicitly *not* "distributed JARVIS":
+
+- `can_offload(tier)` is **False for any canonical-state tier** (and for LOCAL),
+  so the canonical brain can never be offloaded off the HA integration; only
+  disposable EDGE/CLOUD tiers are offload targets.
+- `choose(tiers, need_quality=…)` is **local-first** and **fail-safe** — if no
+  tier is usable it falls back to the canonical/local tier (the brain keeps
+  running at home) rather than raising or returning None.
+- `is_offline_safe`, `degrade_order`, `offload_candidates`, `summarize` round it
+  out; every function is total and deterministic.
+
+Pure: no Home Assistant import, no I/O, no clock — tiers + health are injected;
+nothing live consumes it yet (a health poller + the existing conservative breaker
+wire onto it at the shadow rung). Declared `resilience · pure` in the adoption
+matrix; Constitution regenerated. Tests: `test_kernel_resilience.py` (coercion;
+local-first choice; down-skip; quality floor; fail-safe-to-home; canonical never
+offloadable; offline-safety; degrade order; summary). Audit + four kernel gates
+green. Version 8.186.0 → 8.187.0. Part of #236.
+
+## [8.186.0] — kernel.self_model → parity: self-report vs ground truth (Phase S)
+
+Advances the `self_model` primitive **shadow → parity**. Alongside the shadow
+projection on the cognitive-status read, `agent._emit_self_model_parity` now
+compares the self-model's reported capability availability against an
+**independent ground truth** — a capability is really available only when its
+enforcement switch is live-enabled **and** its backing module actually resolves —
+and logs agreement/divergence (`self(parity): n=… agree=… report_only=…
+truth_only=…`). `report_only` isolates exactly what the enforce rung must forbid:
+the model reporting a capability *available* that JARVIS cannot actually perform
+(confabulation).
+
+- `agent.py`: pure `_self_model_parity(capabilities, ground_truth)` comparator +
+  `_emit_self_model_parity(sm)` (builds ground truth from the enforcement
+  registry), called from `_exec_cognitive_status` after the shadow log.
+  Kill-switch `SELF_MODEL_PARITY`.
+
+Observe-only — no decision consumes it; the hard rule holds structurally (the
+model only *describes*, it grants nothing). Adoption matrix + Constitution
+regenerated (`self_model ◑ parity`). Tests: `test_self_model_parity.py` (agree /
+confabulation / under-report / unknown-key skip / defensive-empty). Four kernel
+gates + audit green. Version 8.185.0 → 8.186.0. Part of #236.
+
 ## [8.185.0] — fix: Faces panel resets to 0 on every restart (#331)
 
 The Household Faces tab emptied on every Home Assistant / JARVIS restart — the
