@@ -567,6 +567,23 @@ async def announce_resume(hass=None, entry=None) -> bool:
         return False
 
 
+def _emit_restart_shadow(*, resumed: bool) -> None:
+    """Phase AE (MCU Certification — shadow): observe a `restart` scenario
+    (mid-agency restart → reconciliation → resume) into the ONE shared
+    certification ledger via cognitive_core. Closed when reconciliation found live
+    agency to resume; exercised-but-open when a snapshot existed but nothing was
+    still live. Observe-only; kill-switched inside cognitive_core; never raises."""
+    try:
+        from . import cognitive_core
+        from .kernel import certification as CERT
+        cognitive_core.certification_observe(
+            CERT.RESTART, closed_loop=bool(resumed),
+            note="agency resumed after restart" if resumed
+                 else "reconciled, nothing still live to resume")
+    except Exception:
+        pass
+
+
 def boot_reconcile(hass=None):
     """Reconcile the pre-restart snapshot against what is still live (I3 — parity).
 
@@ -596,6 +613,9 @@ def boot_reconcile(hass=None):
             "JARVIS: continuity reconcile — %d still live, %d vanished while down",
             len(report.still_live), len(report.vanished),
         )
+        # Phase AE shadow: a restart scenario — it closes iff something was still
+        # live to resume (a snapshot existed, so this IS a reconciliation pass).
+        _emit_restart_shadow(resumed=bool(report.still_live))
         # I-B parity: compare the reloaded *cognitive* snapshot (what JARVIS was
         # thinking before the restart) against live cognitive state now, and log
         # which fields persisted vs changed. Observe-only; drives nothing, never

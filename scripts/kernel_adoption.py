@@ -609,17 +609,22 @@ _DECLARED: dict[str, dict] = {
     # report. SHADOW: live surfaces fold observations into ONE shared ledger via
     # cognitive_core.certification_observe() — cognitive_core._tick observes the
     # `proactive` class (the integration loop's perceive→predict→decide→act→learn IS
-    # that scenario's shape), and agent.py observes `conversational` (request →
+    # that scenario's shape), agent.py observes `conversational` (request →
     # reasoning → tool action → verified reply), `delegation` (JARVIS → child →
     # result → synthesis, in _run_delegated) and `provider_failure` (cloud
-    # unavailable → fallback-tier recovery, in run_agent's fallback path). Each class
-    # closes when it ran end-to-end; logs `certification(shadow)` periodically.
-    # Observe-only; nothing reads the tally; kill-switched (CERTIFICATION_SHADOW /
+    # unavailable → fallback-tier recovery, in run_agent's fallback path), actuation
+    # observes `failure` (securing action → seam fault → fail-open recovery, in
+    # execute_safety_actuator), and continuity observes `restart` (mid-agency
+    # restart → reconciliation → resume, in boot_reconcile). Each class closes when
+    # it ran end-to-end; logs `certification(shadow)` periodically. Observe-only;
+    # nothing reads the tally; kill-switched (CERTIFICATION_SHADOW /
     # certification_shadow).
     # Ladder from here: shadow → parity (a certification dashboard: coverage %,
-    # closed-loop %, invariants green, all ten classes observed from their own live
-    # surfaces) → enforce (every class closes + a certification CI gate), owner-gated.
-    "certification": {"stage": "shadow",  "owners": ["agent", "cognitive_core"]},
+    # closed-loop %, invariants green, every honestly-observable class wired from its
+    # own live surface) → enforce (every observed class closes + a certification CI
+    # gate), owner-gated.
+    "certification": {"stage": "shadow",
+                      "owners": ["actuation", "agent", "cognitive_core", "continuity"]},
     # loop_detect: ENFORCE (G2, owner-approved staged roll-out). actuation.loop_detect_check
     # is authoritative for the discretionary autonomous proactive path
     # (cognitive_core._execute_action_data): a thrashing/self-triggering action

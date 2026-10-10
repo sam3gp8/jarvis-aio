@@ -724,6 +724,23 @@ async def _safety_verify(hass, areq, entity_id: str, service: str) -> None:
         pass
 
 
+def _emit_failure_shadow(*, recovered: bool) -> None:
+    """Phase AE (MCU Certification — shadow): observe a `failure` scenario (action →
+    HA failure → recovery) into the ONE shared certification ledger via
+    cognitive_core. Closed when the fail-open backstop recovered the securing
+    action; exercised-but-open when even the direct call failed. Observe-only;
+    kill-switched inside cognitive_core; never raises into the caller."""
+    try:
+        from . import cognitive_core
+        from .kernel import certification as CERT
+        cognitive_core.certification_observe(
+            CERT.FAILURE, closed_loop=bool(recovered),
+            note="failed securing action recovered via fail-open" if recovered
+                 else "securing action failed, direct recovery also failed")
+    except Exception:
+        pass
+
+
 async def execute_safety_actuator(hass, *, capability: str, entity_id: str,
                                   domain: str, service: str,
                                   data: Optional[dict] = None,
@@ -766,9 +783,14 @@ async def execute_safety_actuator(hass, *, capability: str, entity_id: str,
 
     # Fail toward protection: secure directly so a safety response is never
     # blocked by a seam fault. Idempotent, so this cannot un-secure anything.
+    # Reaching here means the seam already failed — a `failure` certification
+    # scenario; it closes iff this fail-open recovery secures the home.
     try:
-        return await _direct()
+        _recovered = await _direct()
+        _emit_failure_shadow(recovered=_recovered)
+        return _recovered
     except Exception as exc:   # pragma: no cover - defensive
+        _emit_failure_shadow(recovered=False)
         _LOGGER.warning("safety direct call failed on %s (%s): %s",
                         entity_id, capability, exc)
         return False
