@@ -1,3 +1,28 @@
+## [8.201.0] — Phase R (Integration Gate) — shadow: the closed cognitive/agency loop, traced
+
+Opens the **R capstone** (the "can the architecture operate as one?" bar). R is
+not a new capability — it proves a single real pass runs the whole way round
+**perceive → predict → decide → act → learn**, tying cognition (J–M) and agency
+(N–V) into one correlated, journal-reconstructable chain.
+
+- `kernel/integration.py` (pure, new): a `LoopTrace` of the five canonical stages
+  under one correlation id, each present/absent with a summary + owning primitive,
+  and pure derivations — `is_closed` (all five ran), `reached`/`depth` (how far a
+  partial pass got), `summary`/`to_dict`. Deterministic, no HA import.
+- `cognitive_core._tick`: assembles a `LoopTrace` from each pass's **real**
+  signals — world_model read (perceive), `cognition.predict*` (predict), decided
+  actions (decide), dispatched actions (act), learned-model update / fresh
+  autonomous outcome (learn) — and logs whether the loop CLOSED or how far it got
+  (`integration(shadow): …`). Observe-only; kill-switched (`INTEGRATION_LOOP_SHADOW`
+  + the `integration_loop_shadow` config key); never raises into the tick.
+
+Most passes are *open* (perceive + decide, no act) — which is exactly what the
+trace shows; R's job is to make closure observable before measuring it (parity)
+and owning one end-to-end scenario (enforce + a CI gate against open-loop
+regressions). Adoption matrix adds `integration ◐ shadow` (owner `cognitive_core`);
+Constitution regenerated. Four kernel gates + audit green. Version 8.200.0 →
+8.201.0. Part of #236.
+
 ## [8.200.0] — chat: recalled camera observations no longer read as live, and in the reply's language (#341)
 
 Fixes two issues in the chat window reported in #341, where a German question

@@ -64,7 +64,7 @@ explicit per-flip owner go/no-go.
 | `causal` | ● enforce | `pattern_analyzer` |
 | `conflict` | ◑ parity | `presence` |
 | `coordination` | · pure | — |
-| `correlation` | ◐ shadow | `actuation`, `decision_record`, `observer`, `proactive_audio` |
+| `correlation` | ◐ shadow | `actuation`, `cognitive_core`, `decision_record`, `observer`, `proactive_audio` |
 | `cycle` | ● enforce | `cognitive_core` |
 | `environment` | ● enforce | `energy` |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
@@ -73,6 +73,7 @@ explicit per-flip owner go/no-go.
 | `household` | · pure | — |
 | `identity_fabric` | ● enforce | `identity` |
 | `inquiry` | · pure | — |
+| `integration` | ◐ shadow | `cognitive_core` |
 | `journal` | ◐ shadow | `continuity`, `goals` |
 | `learning` | ● enforce | `actuation` |
 | `ledger` | ◐ shadow | `__init__` |

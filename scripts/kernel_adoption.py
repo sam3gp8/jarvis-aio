@@ -148,6 +148,22 @@ _DECLARED: dict[str, dict] = {
     # The J3 parity log is the real-traffic evidence the household watches before
     # flipping it on.
     "cycle":        {"stage": "enforce", "owners": ["cognitive_core"]},
+    # integration: the closed cognitive/agency loop as ONE record (roadmap Phase R
+    # — the Integration Gate). Not a new capability: kernel/integration.py holds a
+    # pure LoopTrace of the canonical perceive → predict → decide → act → learn
+    # stages under one correlation id, with is_closed / reached / depth
+    # derivations — the "can the architecture operate as one?" bar made inspectable
+    # (cognition J–M + agency N–V as one correlated, journal-reconstructable chain,
+    # not five subsystems in a process). SHADOW (Phase R): cognitive_core._tick
+    # assembles a LoopTrace from each pass's real signals (world_model read →
+    # cognition predictions → decided actions → dispatched actions → learned-model
+    # update / autonomous-outcome) and logs whether the loop CLOSED or how far it
+    # got (kill-switch INTEGRATION_LOOP_SHADOW + the integration_loop_shadow config
+    # key). Observe-only; drives nothing. Ladder: shadow → parity (closed-loop rate
+    # over a representative set) → enforce (the loop owns one end-to-end scenario +
+    # a CI gate forbidding open-loop regressions). Fail-safe = the current
+    # open-loop behaviour.
+    "integration":  {"stage": "shadow",  "owners": ["cognitive_core"]},
     # graph: typed, queryable knowledge graph (roadmap Phase T, Deep World
     # Model). Entities (nodes with attributes) + typed directed relations, built
     # from plain knowledge.py fact/relation rows with a small query surface
