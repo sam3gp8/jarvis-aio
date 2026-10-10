@@ -1,3 +1,30 @@
+## [8.207.0] — Phase AE (MCU Certification) — shadow: the conversational scenario + one shared ledger
+
+Advances Phase AE shadow by adding the **second** scenario class and routing every
+observer through **one shared certification ledger**, so the dashboard reflects the
+whole system rather than a single loop.
+
+- **`cognitive_core`**: the certification tally becomes a shared seam —
+  `certification_ledger()` (the one lazily-created `CertificationLedger`) and
+  `certification_observe(scenario, *, closed_loop, note)` (the single entry point
+  any live surface calls; kill-switched, defensive, logs the rolling dashboard
+  every 20 observations). The proactive emitter now routes through it.
+- **`agent.run_agent`**: observes each turn as a **`conversational`** scenario
+  (request → reasoning → tool action → verified reply). A turn that executed a tool
+  action **and** produced a model-generated (non-empty) reply closes the class; a
+  tool-less Q&A is exercised but open. Folds into the same shared ledger via
+  `cognitive_core.certification_observe`.
+- Adoption matrix now `certification ◐ shadow` with live callers `agent`,
+  `cognitive_core`; Constitution regenerated. New tests for the shared observer,
+  the conversational wiring, and that agent + core share one ledger.
+
+Behaviour unchanged — both the proactive loop and the agent turn run exactly as
+before; this only watches them. Observe-only, kill-switched (`CERTIFICATION_SHADOW`
+/ the `certification_shadow` config key), fail-safe (any error swallowed). Ladder
+from here: the remaining classes from their own live surfaces → parity dashboard →
+enforce + a certification CI gate. Five kernel gates + audit green. Version
+8.206.0 → 8.207.0.
+
 ## [8.206.0] — Phase AE (MCU Certification) — shadow: the first live scenario observation
 
 Advances Phase AE **pure → shadow**. The certification suite stops being a static

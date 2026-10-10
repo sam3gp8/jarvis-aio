@@ -3703,6 +3703,25 @@ def _empty_reply_fallback(config) -> str:
     return f"I'm not sure I caught that, {hon} — could you put it another way?"
 
 
+def _emit_conversational_shadow(*, acted: bool, answered: bool) -> None:
+    """Phase AE (MCU Certification — shadow): observe this agent turn as a
+    `conversational` scenario (request → reasoning → action → verification). A turn
+    that executed a tool action AND produced a verified (model-generated, non-empty)
+    reply CLOSES it; a tool-less Q&A is exercised but open. Folds into the shared
+    certification ledger via cognitive_core. Observe-only; never raises into the
+    caller."""
+    try:
+        from . import cognitive_core
+        from .kernel import certification as CERT
+        closed = bool(acted and answered)
+        cognitive_core.certification_observe(
+            CERT.CONVERSATIONAL, closed_loop=closed,
+            note="tool action + verified reply" if closed
+                 else "answered without a tool action")
+    except Exception:
+        pass
+
+
 async def run_agent(
     hass: HomeAssistant,
     *,
@@ -3936,6 +3955,7 @@ async def run_agent(
     working = list(full_messages)
     llm_run_state: dict[str, Any] = {}
     slim_retried = False   # one-shot 413 recovery (drop HA tools + home-state)
+    _acted = False         # Phase AE shadow: did this turn execute a tool action?
 
     _cap = MAX_TOOL_ITERATIONS
     if max_iterations is not None:
@@ -4112,7 +4132,9 @@ async def run_agent(
             # A model (notably a small local one) can return no tool call AND empty
             # content — synthesising nothing. Never hand the UI a blank turn; fall
             # back to a graceful line so the user sees a reply, not "(no text)".
-            return text.strip() if (text and text.strip()) else _empty_reply_fallback(config)
+            _has_text = bool(text and text.strip())
+            _emit_conversational_shadow(acted=_acted, answered=_has_text)
+            return text.strip() if _has_text else _empty_reply_fallback(config)
 
         _LOGGER.info(
             "Agent iteration %d: %d tool call(s): %s",
@@ -4168,6 +4190,7 @@ async def run_agent(
                 result_str = await _execute_tool(
                     hass, call["name"], call["args"], hass_api, user_input,
                 )
+            _acted = True   # Phase AE shadow: the turn took a tool action
             working.append({
                 "role": "tool",
                 "tool_call_id": call.get("id", ""),
@@ -4187,6 +4210,7 @@ async def run_agent(
             ),
         )
         _final = (result.get("text", "") or "").strip()
+        _emit_conversational_shadow(acted=_acted, answered=bool(_final))
         return _final if _final else _empty_reply_fallback(config)
     except Exception:
         try:
