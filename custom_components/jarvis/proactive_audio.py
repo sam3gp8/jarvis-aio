@@ -75,6 +75,76 @@ CONF_INFRA_AUDIT_AREA = "infra_audit_area"
 # autonomy; until then due preemptions are logged as suggestions only.
 PREDICTOR_AUTOEXECUTE = False
 
+# ── Phase P shadow: household anticipation (observe-only) ───────────────────────
+# Fold each audit tick's occupancy sample into the kernel household model and log
+# what it WOULD anticipate — an occupancy rhythm (per-daypart occupancy) and a
+# routine graph (recurring area transitions) — alongside the live
+# PredictiveHabitMatrix. Observe-only: the household model carries NO actuator, so
+# this drives nothing; it never raises into the audit tick. Kill-switched by the
+# module flag below and the `household_shadow` config key (default on). This is
+# the pure→shadow rung for the `household` primitive (roadmap Phase P).
+HOUSEHOLD_SHADOW = True
+_HOUSEHOLD_WINDOW_MAX = 240       # bounded rolling observation window per entry
+_HOUSEHOLD_LOG_EVERY = 12         # log the rollup at most every N quiet ticks
+
+
+def _household_enabled() -> bool:
+    if not HOUSEHOLD_SHADOW:
+        return False
+    try:
+        from . import jarvis_config
+        if jarvis_config.get("household_shadow", True) is False:
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def _emit_household_shadow(entry_data: dict, occupied_areas) -> None:
+    """Append this tick's occupancy sample to a bounded rolling window and log what
+    the kernel household model WOULD anticipate (occupancy rhythm + routine graph).
+
+    Observe-only — the household model emits advisory ``Suggestion`` objects that
+    carry no actuator, so nothing here acts. Kill-switched, bounded, and defensive:
+    any failure is swallowed, never propagated into the audit tick. Phase P shadow.
+    """
+    if not _household_enabled():
+        return
+    try:
+        from .kernel import household, space_time
+        from homeassistant.util import dt as dt_util
+
+        now = dt_util.now()
+        areas = sorted(str(a) for a in (occupied_areas or []))
+        # The primary occupied area is the routine-mining activity label; "away"
+        # when the home reads empty. Consecutive ticks become area→area routines.
+        activity = areas[0] if areas else "away"
+        daypart = space_time.daypart_of(now.hour)
+        obs = household.Observation(
+            daypart=daypart, weekday=now.weekday(),
+            occupied=bool(areas), activity=activity)
+
+        window = entry_data.setdefault("_household_window", [])
+        window.append(obs)
+        if len(window) > _HOUSEHOLD_WINDOW_MAX:
+            del window[: len(window) - _HOUSEHOLD_WINDOW_MAX]
+
+        prev = entry_data.get("_household_last_activity", "")
+        suggestions = household.anticipate(window, daypart=daypart, last_activity=prev)
+        entry_data["_household_last_activity"] = activity
+
+        ticks = entry_data.get("_household_ticks", 0) + 1
+        entry_data["_household_ticks"] = ticks
+        # Log whenever the model would suggest something, else only periodically so
+        # a quiet home doesn't spam the log every AUDIT_INTERVAL.
+        if suggestions or ticks % _HOUSEHOLD_LOG_EVERY == 0:
+            _LOGGER.info(
+                "household(shadow): %s; would-suggest=%s",
+                household.summarize(window),
+                [s.to_dict() for s in suggestions])
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("household shadow skipped", exc_info=True)
+
 # Spoken-duration estimate.
 WORDS_PER_SECOND = 2.6                  # ≈ 156 wpm at normal rate
 TTS_PADDING_S = 0.9
@@ -484,10 +554,13 @@ def _history_phrase(matches: list[dict], honorific: str) -> str:
     return f" For context, {honorific.title()}, this has occurred {count} times before."
 
 
-async def _run_predictor(hass: HomeAssistant, predictor: PredictiveHabitMatrix) -> None:
+async def _run_predictor(hass: HomeAssistant, predictor: PredictiveHabitMatrix) -> list[str]:
     """Sample current occupancy into the habit matrix and surface due
     pre-emptions. Execution is gated behind PREDICTOR_AUTOEXECUTE (default off) —
     until JARVIS has earned that autonomy, candidates are logged as suggestions.
+
+    Returns the sampled occupied-area list so the caller can fold the same sample
+    into the Phase P household shadow without re-reading presence.
     """
     try:
         occupied = audio_routing.currently_occupied_areas(hass)
@@ -508,6 +581,7 @@ async def _run_predictor(hass: HomeAssistant, predictor: PredictiveHabitMatrix) 
                 "Predictor suggestion: %s likely soon (p=%.2f); auto-execute off",
                 item["key"], item["probability"],
             )
+    return list(occupied)
 
 
 # ── Service registration ──────────────────────────────────────────────────────
@@ -792,7 +866,10 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
                     )
 
             # Habit modelling: sample occupancy and surface likely upcoming actions.
-            await _run_predictor(hass, predictor)
+            occupied_areas = await _run_predictor(hass, predictor)
+            # Phase P shadow: fold the same occupancy sample into the kernel
+            # household model and log what it would anticipate (observe-only).
+            _emit_household_shadow(entry_data, occupied_areas)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Infrastructure audit failed")
         finally:

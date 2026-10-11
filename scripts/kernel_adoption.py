@@ -556,16 +556,19 @@ _DECLARED: dict[str, dict] = {
     # pure → shadow (dry investigations) → parity (vs direct answer) → enforce
     # (INQUIRY_ENFORCE, fail-safe = direct answer / no investigation), owner-gated.
     "inquiry":      {"stage": "pure",    "owners": [], "staged_ahead": True},
-    # household: PURE (Phase P, Proactive Household Intelligence). An occupancy
+    # household: SHADOW (Phase P, Proactive Household Intelligence). An occupancy
     # rhythm (per-daypart occupancy likelihood) + a routine graph (recurring
     # activity transitions) derived from plain observation rows. The invariant is
     # structural: anticipate() emits advisory Suggestions that carry NO actuator —
     # the model may only propose; acting stays the authority/actuation seam's job
-    # (suggest, never silent actuation). No HA import, no I/O, no clock; nothing
-    # live consumes it yet. Ladder: pure → shadow (infer routines) → parity
-    # (suggestions vs heuristics) → enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe
-    # = current heuristics), owner-gated.
-    "household":    {"stage": "pure",    "owners": [], "staged_ahead": True},
+    # (suggest, never silent actuation). SHADOW: proactive_audio's audit tick folds
+    # each occupancy sample into the model (_emit_household_shadow) and logs what it
+    # WOULD anticipate alongside the live PredictiveHabitMatrix — observe-only,
+    # kill-switched (HOUSEHOLD_SHADOW / household_shadow), drives nothing. Ladder
+    # from here: shadow → parity (household suggestions vs the predictor's) →
+    # enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe = current heuristics),
+    # owner-gated.
+    "household":    {"stage": "shadow",  "owners": ["proactive_audio"]},
     # privacy: PURE (Phase W prerequisite — information-flow / privacy boundary).
     # The audit requires an explicit information-flow policy to land BEFORE the
     # social model: a pure decision over a labelled DataItem (classification /
