@@ -9,9 +9,10 @@ that carry no actuator and are explicitly advisory, so proactivity here can only
 
 Pure: no Home Assistant import, no I/O, no clock — observations (with their
 injected daypart/weekday) are passed in, and every derivation is total and
-deterministic. The live binder is ``proactive_audio`` (Phase P shadow): its audit
-tick folds each occupancy sample into this model and logs what it would
-anticipate, observe-only, beside the existing PredictiveHabitMatrix.
+deterministic. The live binder is ``proactive_audio`` (Phase P shadow+parity): its
+audit tick folds each occupancy sample into this model, logs what it would
+anticipate, and records a log-only agreement tally of this model's "proactivity
+warranted?" verdict against the existing PredictiveHabitMatrix — observe-only.
 """
 from __future__ import annotations
 

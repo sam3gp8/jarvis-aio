@@ -1,3 +1,38 @@
+## [8.218.0] — Phase P (Proactive Household Intelligence) — parity rung
+
+Second rung of Phase P: a log-only agreement check between the kernel `household`
+model and the live heuristic (`PredictiveHabitMatrix`), still observe-only.
+
+- **`proactive_audio.py`**: both models answer the same question each audit tick —
+  *is proactivity warranted right now?* The predictor fires when it flags any due
+  pre-emption; the household model fires when `anticipate()` would surface any
+  suggestion. `_emit_household_shadow` now takes the predictor's due list and folds
+  the two verdicts into a rolling agreement tally (`_household_parity_record`):
+  `both_fire` / `both_quiet` (agreement) vs `hh_only` / `pred_only` (divergence),
+  logged periodically with the agreement rate. `_run_predictor` now returns
+  `(occupied, due)` so the parity check reuses the predictor's own verdict without
+  recomputing it.
+- **Why a boolean parity**: the two models have different native output shapes
+  (the predictor ranks `{area}_entry` recurrences; the household model emits
+  presence + routine suggestions), so the honest comparison is at the decision that
+  the eventual enforce actually gates — *when does proactivity fire*. Keeping the
+  `hh_only` / `pred_only` breakdown makes any divergence visible **before** the
+  owner is asked to consider the enforce flip (household may surface more than the
+  predictor — that broadening is exactly the owner's call, not an automatic one).
+- **Still observe-only / fail-safe**: no actuator, no behaviour change — one
+  enriched `household(shadow)` log line. Same `HOUSEHOLD_SHADOW` / `household_shadow`
+  kill-switches; any failure swallowed, never raised into the tick.
+- Adoption: `household` advances **shadow → parity** (`_DECLARED`). Regenerated the
+  adoption matrix + Constitution ledger.
+- Tests: `test_household_shadow.py` adds the parity cases (no tally without the
+  predictor verdict, both-quiet / pred-only / both-fire agreement, and the pure
+  `_household_parity_record` bookkeeping).
+
+Ladder from here: parity → enforce (`HOUSEHOLD_PROACTIVE_ENFORCE`, fail-safe =
+current heuristics) — **owner-gated, paused for review** before any flip. Six
+kernel gates + audit + docs-sync + changelog-extract green. Version
+8.217.0 → 8.218.0.
+
 ## [8.217.0] — Phase P (Proactive Household Intelligence) — shadow rung
 
 Resumes the roadmap after the audit cleanup. First rung of Phase P: the pure

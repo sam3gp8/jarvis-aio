@@ -75,14 +75,18 @@ CONF_INFRA_AUDIT_AREA = "infra_audit_area"
 # autonomy; until then due preemptions are logged as suggestions only.
 PREDICTOR_AUTOEXECUTE = False
 
-# ── Phase P shadow: household anticipation (observe-only) ───────────────────────
+# ── Phase P shadow+parity: household anticipation (observe-only) ────────────────
 # Fold each audit tick's occupancy sample into the kernel household model and log
 # what it WOULD anticipate — an occupancy rhythm (per-daypart occupancy) and a
 # routine graph (recurring area transitions) — alongside the live
-# PredictiveHabitMatrix. Observe-only: the household model carries NO actuator, so
-# this drives nothing; it never raises into the audit tick. Kill-switched by the
-# module flag below and the `household_shadow` config key (default on). This is
-# the pure→shadow rung for the `household` primitive (roadmap Phase P).
+# PredictiveHabitMatrix. PARITY: each tick also compares the household model's
+# "proactivity warranted?" verdict against the live predictor's (does it flag a
+# due pre-emption?) and accumulates a rolling agreement tally, logged periodically.
+# Observe-only throughout: the household model carries NO actuator, so this drives
+# nothing and changes no live behaviour; it never raises into the audit tick.
+# Kill-switched by the module flag below and the `household_shadow` config key
+# (default on). This is the pure→shadow→parity climb for the `household` primitive
+# (roadmap Phase P); enforce (HOUSEHOLD_PROACTIVE_ENFORCE) is owner-gated.
 HOUSEHOLD_SHADOW = True
 _HOUSEHOLD_WINDOW_MAX = 240       # bounded rolling observation window per entry
 _HOUSEHOLD_LOG_EVERY = 12         # log the rollup at most every N quiet ticks
@@ -100,13 +104,42 @@ def _household_enabled() -> bool:
     return True
 
 
-def _emit_household_shadow(entry_data: dict, occupied_areas) -> None:
-    """Append this tick's occupancy sample to a bounded rolling window and log what
-    the kernel household model WOULD anticipate (occupancy rhythm + routine graph).
+def _household_parity_record(entry_data: dict, *, hh_fires: bool,
+                             pred_fires: bool) -> dict:
+    """Fold one tick's agreement into the rolling parity tally and return it.
+
+    The two models answer the same question — *is proactivity warranted now?* — so
+    agreement is simply whether their booleans match. We keep the breakdown
+    (both-fire / both-quiet / each-only) so a divergence is visible before anyone
+    considers the owner-gated enforce flip. Pure bookkeeping; never raises."""
+    tally = entry_data.setdefault("_household_parity", {
+        "total": 0, "agree": 0, "both_fire": 0, "both_quiet": 0,
+        "hh_only": 0, "pred_only": 0})
+    tally["total"] += 1
+    if hh_fires and pred_fires:
+        tally["both_fire"] += 1
+        tally["agree"] += 1
+    elif not hh_fires and not pred_fires:
+        tally["both_quiet"] += 1
+        tally["agree"] += 1
+    elif hh_fires:
+        tally["hh_only"] += 1
+    else:
+        tally["pred_only"] += 1
+    return tally
+
+
+def _emit_household_shadow(entry_data: dict, occupied_areas,
+                           due_preemptions=None) -> None:
+    """Append this tick's occupancy sample to a bounded rolling window, log what the
+    kernel household model WOULD anticipate (occupancy rhythm + routine graph), and
+    — when the live predictor's due pre-emptions are passed — record a log-only
+    parity tally of the two models' "proactivity warranted?" verdicts.
 
     Observe-only — the household model emits advisory ``Suggestion`` objects that
     carry no actuator, so nothing here acts. Kill-switched, bounded, and defensive:
-    any failure is swallowed, never propagated into the audit tick. Phase P shadow.
+    any failure is swallowed, never propagated into the audit tick. Phase P
+    shadow+parity.
     """
     if not _household_enabled():
         return
@@ -133,15 +166,28 @@ def _emit_household_shadow(entry_data: dict, occupied_areas) -> None:
         suggestions = household.anticipate(window, daypart=daypart, last_activity=prev)
         entry_data["_household_last_activity"] = activity
 
+        # Parity: compare the two models' "proactivity warranted?" verdict. The
+        # predictor fires when it flags any due pre-emption; the household model
+        # fires when it would surface any suggestion.
+        tally = None
+        if due_preemptions is not None:
+            tally = _household_parity_record(
+                entry_data,
+                hh_fires=bool(suggestions),
+                pred_fires=bool(due_preemptions))
+
         ticks = entry_data.get("_household_ticks", 0) + 1
         entry_data["_household_ticks"] = ticks
         # Log whenever the model would suggest something, else only periodically so
         # a quiet home doesn't spam the log every AUDIT_INTERVAL.
         if suggestions or ticks % _HOUSEHOLD_LOG_EVERY == 0:
+            rate = (round(tally["agree"] / tally["total"], 4)
+                    if tally and tally["total"] else None)
             _LOGGER.info(
-                "household(shadow): %s; would-suggest=%s",
+                "household(shadow): %s; would-suggest=%s; parity=%s agree=%s",
                 household.summarize(window),
-                [s.to_dict() for s in suggestions])
+                [s.to_dict() for s in suggestions],
+                tally, rate)
     except Exception:  # noqa: BLE001
         _LOGGER.debug("household shadow skipped", exc_info=True)
 
@@ -554,13 +600,16 @@ def _history_phrase(matches: list[dict], honorific: str) -> str:
     return f" For context, {honorific.title()}, this has occurred {count} times before."
 
 
-async def _run_predictor(hass: HomeAssistant, predictor: PredictiveHabitMatrix) -> list[str]:
+async def _run_predictor(
+    hass: HomeAssistant, predictor: PredictiveHabitMatrix
+) -> tuple[list[str], list[dict]]:
     """Sample current occupancy into the habit matrix and surface due
     pre-emptions. Execution is gated behind PREDICTOR_AUTOEXECUTE (default off) —
     until JARVIS has earned that autonomy, candidates are logged as suggestions.
 
-    Returns the sampled occupied-area list so the caller can fold the same sample
-    into the Phase P household shadow without re-reading presence.
+    Returns ``(occupied_areas, due_preemptions)`` so the caller can fold the same
+    sample and the predictor's verdict into the Phase P household shadow/parity
+    check without re-reading presence or recomputing the pre-emptions.
     """
     try:
         occupied = audio_routing.currently_occupied_areas(hass)
@@ -581,7 +630,7 @@ async def _run_predictor(hass: HomeAssistant, predictor: PredictiveHabitMatrix) 
                 "Predictor suggestion: %s likely soon (p=%.2f); auto-execute off",
                 item["key"], item["probability"],
             )
-    return list(occupied)
+    return list(occupied), list(due)
 
 
 # ── Service registration ──────────────────────────────────────────────────────
@@ -866,10 +915,11 @@ async def async_setup_proactive_audio(hass: HomeAssistant, entry: ConfigEntry) -
                     )
 
             # Habit modelling: sample occupancy and surface likely upcoming actions.
-            occupied_areas = await _run_predictor(hass, predictor)
-            # Phase P shadow: fold the same occupancy sample into the kernel
-            # household model and log what it would anticipate (observe-only).
-            _emit_household_shadow(entry_data, occupied_areas)
+            occupied_areas, due_preemptions = await _run_predictor(hass, predictor)
+            # Phase P shadow+parity: fold the same occupancy sample into the kernel
+            # household model, log what it would anticipate, and record a log-only
+            # agreement tally vs the predictor's verdict (observe-only).
+            _emit_household_shadow(entry_data, occupied_areas, due_preemptions)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Infrastructure audit failed")
         finally:

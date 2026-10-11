@@ -556,19 +556,20 @@ _DECLARED: dict[str, dict] = {
     # pure → shadow (dry investigations) → parity (vs direct answer) → enforce
     # (INQUIRY_ENFORCE, fail-safe = direct answer / no investigation), owner-gated.
     "inquiry":      {"stage": "pure",    "owners": [], "staged_ahead": True},
-    # household: SHADOW (Phase P, Proactive Household Intelligence). An occupancy
+    # household: PARITY (Phase P, Proactive Household Intelligence). An occupancy
     # rhythm (per-daypart occupancy likelihood) + a routine graph (recurring
     # activity transitions) derived from plain observation rows. The invariant is
     # structural: anticipate() emits advisory Suggestions that carry NO actuator —
     # the model may only propose; acting stays the authority/actuation seam's job
-    # (suggest, never silent actuation). SHADOW: proactive_audio's audit tick folds
-    # each occupancy sample into the model (_emit_household_shadow) and logs what it
-    # WOULD anticipate alongside the live PredictiveHabitMatrix — observe-only,
-    # kill-switched (HOUSEHOLD_SHADOW / household_shadow), drives nothing. Ladder
-    # from here: shadow → parity (household suggestions vs the predictor's) →
-    # enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe = current heuristics),
-    # owner-gated.
-    "household":    {"stage": "shadow",  "owners": ["proactive_audio"]},
+    # (suggest, never silent actuation). SHADOW+PARITY: proactive_audio's audit tick
+    # folds each occupancy sample into the model (_emit_household_shadow) and logs
+    # what it WOULD anticipate; PARITY additionally compares the model's
+    # "proactivity warranted?" verdict against the live PredictiveHabitMatrix's and
+    # accumulates a rolling agreement tally — observe-only, kill-switched
+    # (HOUSEHOLD_SHADOW / household_shadow), drives nothing. Ladder from here:
+    # parity → enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe = current
+    # heuristics), owner-gated.
+    "household":    {"stage": "parity",  "owners": ["proactive_audio"]},
     # privacy: PURE (Phase W prerequisite — information-flow / privacy boundary).
     # The audit requires an explicit information-flow policy to land BEFORE the
     # social model: a pure decision over a labelled DataItem (classification /
