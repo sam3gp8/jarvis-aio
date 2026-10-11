@@ -131,3 +131,53 @@ def test_shadow_never_raises_on_bad_entry(pa):
         def get(self, *a, **k):
             return None
     pa._emit_household_shadow(_Bad(), ["kitchen"])  # should not raise
+
+
+# ── parity: agreement tally vs the live predictor ────────────────────────────
+def test_parity_no_tally_when_due_not_passed(pa):
+    # the shadow-only call (no predictor verdict) records no parity tally
+    entry: dict = {}
+    pa._emit_household_shadow(entry, ["kitchen"])
+    assert "_household_parity" not in entry
+
+
+def test_parity_both_quiet_is_agreement(pa):
+    # a cold model with no suggestions and an empty predictor verdict agree (quiet)
+    entry: dict = {}
+    pa._emit_household_shadow(entry, [], due_preemptions=[])
+    t = entry["_household_parity"]
+    assert t["total"] == 1 and t["agree"] == 1 and t["both_quiet"] == 1
+
+
+def test_parity_pred_only_is_disagreement(pa):
+    # predictor flags a due pre-emption but the cold model surfaces nothing
+    entry: dict = {}
+    pa._emit_household_shadow(
+        entry, [], due_preemptions=[{"key": "office_entry", "probability": 0.9}])
+    t = entry["_household_parity"]
+    assert t["total"] == 1 and t["agree"] == 0 and t["pred_only"] == 1
+
+
+def test_parity_both_fire_is_agreement(pa):
+    # prime the model so a presence suggestion fires, with the predictor also due
+    entry: dict = {}
+    # feed enough occupied samples in the current daypart to push rhythm >= 0.5
+    for _ in range(6):
+        pa._emit_household_shadow(
+            entry, ["kitchen"],
+            due_preemptions=[{"key": "kitchen_entry", "probability": 0.9}])
+    t = entry["_household_parity"]
+    assert t["total"] == 6
+    # once the model warms up it fires alongside the predictor (both_fire > 0)
+    assert t["both_fire"] >= 1
+    assert t["agree"] + t["hh_only"] + t["pred_only"] == t["total"]
+
+
+def test_parity_record_is_pure_bookkeeping(pa):
+    entry: dict = {}
+    t1 = pa._household_parity_record(entry, hh_fires=True, pred_fires=True)
+    assert t1["both_fire"] == 1 and t1["agree"] == 1
+    t2 = pa._household_parity_record(entry, hh_fires=False, pred_fires=True)
+    assert t2["total"] == 2 and t2["pred_only"] == 1 and t2["agree"] == 1
+    t3 = pa._household_parity_record(entry, hh_fires=True, pred_fires=False)
+    assert t3["hh_only"] == 1 and t3["total"] == 3
