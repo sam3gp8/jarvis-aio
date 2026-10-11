@@ -375,20 +375,22 @@ def _fabric_establishes_identity(methods) -> bool:
         return True
 
 
-def _emit_security_shadow(*, confirmed: bool) -> None:
+def _emit_security_shadow(*, closed: bool, note: str) -> None:
     """Phase AE (MCU Certification — shadow): observe a `security` scenario
     (ambiguous identity → deny / confirm) into the ONE shared certification ledger
-    via cognitive_core. BOTH outcomes CLOSE the loop — a confident confirm and a
-    deliberate deny are each the identity decision resolving correctly; only a
-    no-signal / disabled resolve (no decision made) is not observed. Observe-only;
-    kill-switched inside cognitive_core; never raises into the resolver."""
+    via cognitive_core.
+
+    Closure is reserved for a REAL identity decision so the signal is meaningful
+    (audit 2026-10 §B2): a confident CONFIRM backed by an identity-establishing
+    method (face/voice), or an ENFORCED deny (presence located a body but could not
+    establish WHO, so the fabric refused). A plain low-confidence UNKNOWN is a weak,
+    inconclusive read — exercised but NOT closed. Observe-only; kill-switched inside
+    cognitive_core; never raises into the resolver."""
     try:
         from . import cognitive_core
         from .kernel import certification as CERT
         cognitive_core.certification_observe(
-            CERT.SECURITY, closed_loop=True,
-            note="identity confirmed" if confirmed
-                 else "ambiguous identity denied")
+            CERT.SECURITY, closed_loop=bool(closed), note=note)
     except Exception:
         pass
 
@@ -462,17 +464,27 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
         _emit_identity_uncertainty_shadow(person, confidence, methods, legacy_known)  # #237
 
     if not legacy_known:
-        _emit_security_shadow(confirmed=False)   # ambiguous identity denied
+        # Weak, inconclusive read — exercised but not a clean decision, so open.
+        _emit_security_shadow(closed=False, note="low-confidence read (inconclusive)")
         return Identification(UNKNOWN, round(confidence, 3), "low_confidence", candidates)
 
     # Phase I½ enforce (default OFF): presence locates a body but does not
     # establish WHO — only face / voiceprint do. When the flip is on, a confident
     # verdict resting only on presence-class signals is downgraded to UNKNOWN.
     if _identity_fabric_enforce_on() and not _fabric_establishes_identity(methods):
-        _emit_security_shadow(confirmed=False)   # presence is not identity — denied
+        # Enforced deny — the fabric refused to treat presence as identity: a real
+        # security decision, so it CLOSES the loop.
+        _emit_security_shadow(closed=True, note="enforced deny: presence is not identity")
         return Identification(UNKNOWN, round(confidence, 3), "presence_not_identity", candidates)
 
-    _emit_security_shadow(confirmed=True)         # a confident identity established
+    # A confident identity established. Closure requires an identity-ESTABLISHING
+    # method (face/voice); a confident verdict resting only on presence-class votes
+    # is a located body, not an established WHO, so it stays open.
+    _established = _fabric_establishes_identity(methods)
+    _emit_security_shadow(
+        closed=_established,
+        note=("identity confirmed (face/voice)" if _established
+              else "located, not identity-established (presence-class only)"))
     return Identification(person, round(confidence, 3),
                           "+".join(sorted(methods)), candidates)
 

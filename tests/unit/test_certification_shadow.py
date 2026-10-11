@@ -256,14 +256,23 @@ def test_status_includes_certification_dashboard(cc):
 
 
 def test_identity_security_confirm_closes(cc, identity):
-    identity._emit_security_shadow(confirmed=True)
+    # a confident confirm backed by an identity-establishing method closes it
+    identity._emit_security_shadow(closed=True, note="identity confirmed (face/voice)")
     assert cc.certification_ledger().report().closed_classes == ("security",)
 
 
-def test_identity_security_deny_also_closes(cc, identity):
-    # a deliberate deny is a correct security outcome — it closes the loop too
-    identity._emit_security_shadow(confirmed=False)
+def test_identity_security_enforced_deny_closes(cc, identity):
+    # an enforced deny (presence is not identity) is a real decision — closes it
+    identity._emit_security_shadow(closed=True, note="enforced deny: presence is not identity")
     assert cc.certification_ledger().report().closed_classes == ("security",)
+
+
+def test_identity_security_low_confidence_is_open(cc, identity):
+    # a weak, inconclusive read is exercised but NOT closed (audit §B2)
+    identity._emit_security_shadow(closed=False, note="low-confidence read (inconclusive)")
+    rep = cc.certification_ledger().report()
+    assert rep.exercised_classes == ("security",)
+    assert rep.closed_classes == ()
 
 
 def test_continuity_long_horizon_closes_on_resume(cc, continuity):
@@ -289,7 +298,8 @@ def test_eight_observable_classes_share_one_ledger(
     actuation._emit_failure_shadow(recovered=True)                 # failure
     continuity._emit_restart_shadow(resumed=True)                  # restart
     continuity._emit_long_horizon_shadow(resumed=True)             # long_horizon
-    identity._emit_security_shadow(confirmed=True)                 # security
+    identity._emit_security_shadow(                                # security
+        closed=True, note="identity confirmed (face/voice)")
     rep = cc.certification_ledger().report()
     assert set(rep.closed_classes) == {
         "proactive", "conversational", "delegation", "provider_failure",
