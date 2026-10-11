@@ -565,20 +565,24 @@ _DECLARED: dict[str, dict] = {
     # pure → shadow (dry investigations) → parity (vs direct answer) → enforce
     # (INQUIRY_ENFORCE, fail-safe = direct answer / no investigation), owner-gated.
     "inquiry":      {"stage": "pure",    "owners": [], "staged_ahead": True},
-    # household: PARITY (Phase P, Proactive Household Intelligence). An occupancy
+    # household: ENFORCE (Phase P, Proactive Household Intelligence). An occupancy
     # rhythm (per-daypart occupancy likelihood) + a routine graph (recurring
     # activity transitions) derived from plain observation rows. The invariant is
     # structural: anticipate() emits advisory Suggestions that carry NO actuator —
     # the model may only propose; acting stays the authority/actuation seam's job
     # (suggest, never silent actuation). SHADOW+PARITY: proactive_audio's audit tick
-    # folds each occupancy sample into the model (_emit_household_shadow) and logs
-    # what it WOULD anticipate; PARITY additionally compares the model's
-    # "proactivity warranted?" verdict against the live PredictiveHabitMatrix's and
-    # accumulates a rolling agreement tally — observe-only, kill-switched
-    # (HOUSEHOLD_SHADOW / household_shadow), drives nothing. Ladder from here:
-    # parity → enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe = current
-    # heuristics), owner-gated.
-    "household":    {"stage": "parity",  "owners": ["proactive_audio"]},
+    # folds each occupancy sample into the model (_emit_household_shadow), logs what
+    # it WOULD anticipate, and tallies its "proactivity warranted?" verdict against
+    # the live PredictiveHabitMatrix's. ENFORCE (owner-authorized,
+    # HOUSEHOLD_PROACTIVE_ENFORCE): the model's suggestions are promoted to an
+    # AUTHORITATIVE proactive advisory (surfaced at INFO as household(proactive)) —
+    # a live proactive voice. It AUGMENTS, never replaces, the predictor (left
+    # untouched as the fail-safe heuristic floor), and the suggestions carry no
+    # actuator, so enforce changes only what JARVIS proposes, never what it does
+    # (execution stays gated behind PREDICTOR_AUTOEXECUTE). Kill-switch back to
+    # parity: HOUSEHOLD_PROACTIVE_ENFORCE / household_proactive_enforce; fail-safe =
+    # current heuristics (the predictor alone).
+    "household":    {"stage": "enforce", "owners": ["proactive_audio"]},
     # privacy: PURE (Phase W prerequisite — information-flow / privacy boundary).
     # The audit requires an explicit information-flow policy to land BEFORE the
     # social model: a pure decision over a labelled DataItem (classification /

@@ -181,3 +181,57 @@ def test_parity_record_is_pure_bookkeeping(pa):
     assert t2["total"] == 2 and t2["pred_only"] == 1 and t2["agree"] == 1
     t3 = pa._household_parity_record(entry, hh_fires=True, pred_fires=False)
     assert t3["hh_only"] == 1 and t3["total"] == 3
+
+
+# ── enforce: household promoted to an authoritative proactive advisory ───────
+import logging
+
+
+def _proactive_lines(caplog):
+    # the advisory is logged as `_LOGGER.info("household(proactive): %s", [dicts])`,
+    # so each record's args is a 1-tuple whose sole element is the suggestion list.
+    return [r.args[0] for r in caplog.records
+            if r.getMessage().startswith("household(proactive):")]
+
+
+def test_enforce_surfaces_authoritative_advisory(pa, caplog):
+    assert pa.HOUSEHOLD_PROACTIVE_ENFORCE is True
+    entry: dict = {}
+    # warm the model so a presence suggestion fires in the current daypart
+    with caplog.at_level(logging.INFO):
+        for _ in range(6):
+            pa._emit_household_shadow(entry, ["kitchen"])
+    lines = _proactive_lines(caplog)
+    assert lines, "expected an authoritative household(proactive) advisory"
+    # the advisory carries the model's suggestion dicts (advisory, no actuator)
+    advisory = lines[-1]
+    assert isinstance(advisory, list) and advisory
+    assert all(s.get("advisory") is True and "kind" in s for s in advisory)
+
+
+def test_enforce_silent_when_no_suggestion(pa, caplog):
+    entry: dict = {}
+    # a single empty-home tick yields no suggestion → no authoritative advisory
+    with caplog.at_level(logging.INFO):
+        pa._emit_household_shadow(entry, [])
+    assert _proactive_lines(caplog) == []
+
+
+def test_enforce_kill_switch_module_flag(pa, caplog, monkeypatch):
+    monkeypatch.setattr(pa, "HOUSEHOLD_PROACTIVE_ENFORCE", False)
+    assert pa._household_proactive_enforce_enabled() is False
+    entry: dict = {}
+    with caplog.at_level(logging.INFO):
+        for _ in range(6):
+            pa._emit_household_shadow(entry, ["kitchen"])
+    # shadow still logs, but no authoritative proactive advisory
+    assert _proactive_lines(caplog) == []
+
+
+def test_enforce_kill_switch_config_key(pa, monkeypatch):
+    import jc.jarvis_config as cfg
+    monkeypatch.setattr(
+        cfg, "get",
+        lambda key, default=None: False if key == "household_proactive_enforce"
+        else default)
+    assert pa._household_proactive_enforce_enabled() is False

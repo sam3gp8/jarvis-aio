@@ -9,10 +9,12 @@ that carry no actuator and are explicitly advisory, so proactivity here can only
 
 Pure: no Home Assistant import, no I/O, no clock — observations (with their
 injected daypart/weekday) are passed in, and every derivation is total and
-deterministic. The live binder is ``proactive_audio`` (Phase P shadow+parity): its
-audit tick folds each occupancy sample into this model, logs what it would
-anticipate, and records a log-only agreement tally of this model's "proactivity
-warranted?" verdict against the existing PredictiveHabitMatrix — observe-only.
+deterministic. The live binder is ``proactive_audio`` (Phase P): its audit tick
+folds each occupancy sample into this model, tallies its "proactivity warranted?"
+verdict against the existing PredictiveHabitMatrix, and — at the owner-authorized
+enforce rung (HOUSEHOLD_PROACTIVE_ENFORCE) — surfaces its suggestions as an
+authoritative proactive advisory that AUGMENTS the predictor. Still advisory-only:
+a Suggestion carries no actuator, so the model only ever proposes.
 """
 from __future__ import annotations
 

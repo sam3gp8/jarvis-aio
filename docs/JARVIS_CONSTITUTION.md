@@ -91,7 +91,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `event` | ◑ parity |
 | `event_bus` | ◐ shadow |
 | `graph` | ● enforce |
-| `household` | ◑ parity |
+| `household` | ● enforce |
 | `identity_fabric` | ● enforce |
 | `inquiry` | · pure |
 | `integration` | ● enforce |
