@@ -1,3 +1,32 @@
+## [8.216.0] — Audit follow-up: docs hygiene (stale progress table, staged-ahead marker, kill-switch prose)
+
+Clears the audit's documentation findings (§3, §2a, §5) so the written record
+matches the implementation. Docs + the adoption generator only — no behaviour
+changes, no primitive stage changes.
+
+- **`docs/KERNEL_PLAN.md` (§3)**: retired the stale, hand-kept Phase 0–7 Progress
+  table that still marked phases 4–7 "🚧 In progress" long after they shipped and
+  enforced. Replaced it with a pointer to **`KERNEL_ADOPTION.md`** as the generated,
+  CI-guarded source of truth for every primitive's live stage, so no hand-kept
+  stage table can drift again.
+- **`scripts/kernel_adoption.py` (§2a)**: the eight pure primitives built *ahead*
+  of the roadmap phase that will consume them (`priority`, `resilience`, `surfaces`,
+  `inquiry`, `household`, `privacy`, `social`, `coordination`) now carry a
+  `staged_ahead` flag in `_DECLARED`. `render_markdown` renders them as
+  `— *(staged ahead)*` with a legend so the matrix isn't misread as adoption drift —
+  zero live callers is the *intended* state for these, not a gap. `persistence`
+  (an internal kernel seam, pure for a different reason) is deliberately not marked.
+  The annotation lives at the generator, so `KERNEL_ADOPTION.md` regenerates cleanly
+  and the `kernel_docs_sync` gate stays green.
+- **`docs/JARVIS_CONSTITUTION.md` (§5)**: added one sentence to Invariant A2 making
+  explicit that an `enforce` flag landing in code is a capability made *available*,
+  not a behaviour switched *on* — it defaults to its fail-safe until the owner flips
+  it, and the flip back is always one switch away. Prose only (the generated ledger
+  block is untouched).
+
+Regenerated via `kernel_docs_sync.py --write`. Six kernel gates + audit +
+docs-sync + changelog-extract green. Version 8.215.0 → 8.216.0.
+
 ## [8.215.0] — Audit follow-up: the `security` certification signal closes only on a real decision
 
 Acts on the audit's §B2 finding: `identity._emit_security_shadow` closed the loop on

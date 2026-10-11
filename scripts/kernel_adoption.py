@@ -525,7 +525,7 @@ _DECLARED: dict[str, dict] = {
     # counts as confirmed, so a failure can only fall back to suggesting as today);
     # non-safety (gates only the learned-suggestion surface).
     "causal":       {"stage": "enforce", "owners": ["pattern_analyzer"]},
-    "priority":     {"stage": "pure",    "owners": []},
+    "priority":     {"stage": "pure",    "owners": [], "staged_ahead": True},
     # resilience: PURE (Phase Z, Resilient Compute Federation). A local-first,
     # offline-safe fallback policy across compute tiers (LOCAL/EDGE/CLOUD × health).
     # Encodes the HAOS boundary structurally — a canonical-state tier can never be
@@ -535,7 +535,7 @@ _DECLARED: dict[str, dict] = {
     # the conservative breaker wire onto it at the shadow rung). Ladder from here:
     # pure → shadow (would-be tier choice) → parity (vs current breaker) → enforce
     # (RESILIENCE_ENFORCE, fail-safe = current breaker), owner-gated.
-    "resilience":   {"stage": "pure",    "owners": []},
+    "resilience":   {"stage": "pure",    "owners": [], "staged_ahead": True},
     # surfaces: PURE (Phase AA, Omnipresent Multimodal — presence continuity). A
     # surface registry + a single cross-surface arbiter: one utterance is emitted
     # on exactly ONE surface (no double-announce), mutes honored everywhere, and an
@@ -544,7 +544,7 @@ _DECLARED: dict[str, dict] = {
     # nothing live consumes it yet (the registry + announcement path wire on at the
     # shadow rung). Ladder: pure → shadow → parity (which satellite speaks) →
     # enforce (SURFACES_ENFORCE, fail-safe = per-surface current logic), owner-gated.
-    "surfaces":     {"stage": "pure",    "owners": []},
+    "surfaces":     {"stage": "pure",    "owners": [], "staged_ahead": True},
     # inquiry: PURE (Phase AD, Research & Discovery — investigative agency).
     # Bounded, cited inquiry with evidence provenance: a Finding is a TYPED claim
     # (fact/observation/inference/prediction/hypothesis/recommendation) with source,
@@ -555,7 +555,7 @@ _DECLARED: dict[str, dict] = {
     # import, no I/O, no clock, no network; nothing live consumes it yet. Ladder:
     # pure → shadow (dry investigations) → parity (vs direct answer) → enforce
     # (INQUIRY_ENFORCE, fail-safe = direct answer / no investigation), owner-gated.
-    "inquiry":      {"stage": "pure",    "owners": []},
+    "inquiry":      {"stage": "pure",    "owners": [], "staged_ahead": True},
     # household: PURE (Phase P, Proactive Household Intelligence). An occupancy
     # rhythm (per-daypart occupancy likelihood) + a routine graph (recurring
     # activity transitions) derived from plain observation rows. The invariant is
@@ -565,7 +565,7 @@ _DECLARED: dict[str, dict] = {
     # live consumes it yet. Ladder: pure → shadow (infer routines) → parity
     # (suggestions vs heuristics) → enforce (HOUSEHOLD_PROACTIVE_ENFORCE, fail-safe
     # = current heuristics), owner-gated.
-    "household":    {"stage": "pure",    "owners": []},
+    "household":    {"stage": "pure",    "owners": [], "staged_ahead": True},
     # privacy: PURE (Phase W prerequisite — information-flow / privacy boundary).
     # The audit requires an explicit information-flow policy to land BEFORE the
     # social model: a pure decision over a labelled DataItem (classification /
@@ -576,7 +576,7 @@ _DECLARED: dict[str, dict] = {
     # no I/O, no clock, no storage; nothing live consumes it yet. Ladder: pure →
     # shadow → parity → enforce (SOCIAL_MODEL_ENFORCE gates W on top of it),
     # owner-gated.
-    "privacy":      {"stage": "pure",    "owners": []},
+    "privacy":      {"stage": "pure",    "owners": [], "staged_ahead": True},
     # social: PURE (Phase W, Social & Relationship Intelligence). Per-person
     # preference models that personalize within strict consent/privacy limits —
     # built ON kernel.privacy: a Preference is a labelled datum and personalize_for
@@ -587,7 +587,7 @@ _DECLARED: dict[str, dict] = {
     # I/O, no clock, no storage; nothing live consumes it yet. Ladder: pure →
     # shadow → parity → enforce (SOCIAL_MODEL_ENFORCE, fail-safe = non-personalized
     # default), owner-gated.
-    "social":       {"stage": "pure",    "owners": []},
+    "social":       {"stage": "pure",    "owners": [], "staged_ahead": True},
     # coordination: PURE (Phase O — merged O+AB, the peer-coordination half;
     # hierarchical delegation already lives in agency at enforce). A budgeted peer
     # bid/claim/settle protocol: among bids within budget, arbitrate() awards an
@@ -597,7 +597,7 @@ _DECLARED: dict[str, dict] = {
     # clock, no bus; nothing live consumes it yet. Ladder: pure → shadow → parity
     # (coordinated vs single-agent) → enforce (one task split across peers,
     # AGENCY_ORCHESTRATION_ENFORCE), owner-gated.
-    "coordination": {"stage": "pure",    "owners": []},
+    "coordination": {"stage": "pure",    "owners": [], "staged_ahead": True},
     # certification: ENFORCE (Phase AE, MCU Certification — the "does the whole JARVIS
     # behave as one?" bar). The RECORD of the systems-certification suite: the ten
     # canonical scenario classes (conversational, proactive, long_horizon,
@@ -784,6 +784,11 @@ def scan() -> dict[str, dict]:
             "stage": decl["stage"],
             "declared_owners": decl.get("owners", []),
             "live_users": users,
+            # A primitive built ahead of the roadmap phase that will consume it —
+            # pure, no live caller yet, and deliberately so (see its _DECLARED
+            # note). Marked so the matrix isn't misread as "adopted". (Audit
+            # 2026-10 §2a.)
+            "staged_ahead": bool(decl.get("staged_ahead")),
         }
     return rows
 
@@ -811,11 +816,25 @@ def render_markdown(rows: dict[str, dict]) -> str:
         "| Primitive | Stage | Live callers |",
         "| --- | --- | --- |",
     ]
+    staged_ahead_seen = False
     for prim in sorted(rows):
         row = rows[prim]
         icon = _STAGE_ICON.get(row["stage"], "?")
-        users = ", ".join(f"`{u}`" for u in row["live_users"]) or "—"
+        if row["live_users"]:
+            users = ", ".join(f"`{u}`" for u in row["live_users"])
+        elif row.get("staged_ahead"):
+            users = "— *(staged ahead)*"
+            staged_ahead_seen = True
+        else:
+            users = "—"
         lines.append(f"| `{prim}` | {icon} {row['stage']} | {users} |")
+    if staged_ahead_seen:
+        lines.append("")
+        lines.append(
+            "> *(staged ahead)* — a pure primitive built before the roadmap phase "
+            "that will consume it: fully tested, zero live callers, deliberately so. "
+            "No live caller is the intended state, not adoption drift."
+        )
     return "\n".join(lines)
 
 

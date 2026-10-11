@@ -47,7 +47,11 @@ process, prompt, scheduled trigger, or external input may flip it. Where authori
 the legacy gate allows it **and** the engine allows it, so enforcement can only ever
 *add* a confirmation, never remove the legacy gate or loosen a decision. Every
 enforced path fails safe to the legacy outcome on an engine fault and carries a
-one-line kill-switch back to parity. The live stage of each primitive is recorded in
+one-line kill-switch back to parity. An `enforce` flag landing in code is therefore
+a capability made *available*, not a behaviour switched *on*: it defaults to its
+fail-safe (today's legacy outcome) until the owner deliberately flips it, and the
+flip back is always one switch away — so shipping the enforce path never, by itself,
+changes what the live home does. The live stage of each primitive is recorded in
 the generated ledger below (§ *Enforcement ledger*), which CI keeps in agreement
 with the implementation.
 

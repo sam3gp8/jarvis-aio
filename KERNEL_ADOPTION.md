@@ -64,16 +64,16 @@ explicit per-flip owner go/no-go.
 | `causal` | ● enforce | `pattern_analyzer` |
 | `certification` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `identity` |
 | `conflict` | ◑ parity | `presence` |
-| `coordination` | · pure | — |
+| `coordination` | · pure | — *(staged ahead)* |
 | `correlation` | ◐ shadow | `actuation`, `cognitive_core`, `decision_record`, `observer`, `proactive_audio` |
 | `cycle` | ● enforce | `cognitive_core` |
 | `environment` | ● enforce | `energy` |
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `graph` | ● enforce | `knowledge` |
-| `household` | · pure | — |
+| `household` | · pure | — *(staged ahead)* |
 | `identity_fabric` | ● enforce | `identity` |
-| `inquiry` | · pure | — |
+| `inquiry` | · pure | — *(staged ahead)* |
 | `integration` | ● enforce | `cognitive_core` |
 | `journal` | ◐ shadow | `continuity`, `goals` |
 | `learning` | ● enforce | `actuation` |
@@ -84,21 +84,23 @@ explicit per-flip owner go/no-go.
 | `outcome` | ◐ shadow | `actuation` |
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
-| `priority` | · pure | — |
-| `privacy` | · pure | — |
+| `priority` | · pure | — *(staged ahead)* |
+| `privacy` | · pure | — *(staged ahead)* |
 | `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
-| `resilience` | · pure | — |
+| `resilience` | · pure | — *(staged ahead)* |
 | `router` | ◐ shadow | `reasoning_loop` |
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
-| `social` | · pure | — |
+| `social` | · pure | — *(staged ahead)* |
 | `space_time` | ● enforce | `cognitive_core` |
-| `surfaces` | · pure | — |
+| `surfaces` | · pure | — *(staged ahead)* |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |
 | `uncertainty` | ◑ parity | `identity`, `knowledge` |
 | `working_memory` | ● enforce | `cognitive_core`, `output_gate` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `home_state`, `presence`, `proactive_briefing` |
+
+> *(staged ahead)* — a pure primitive built before the roadmap phase that will consume it: fully tested, zero live callers, deliberately so. No live caller is the intended state, not adoption drift.
 <!-- END kernel-adoption -->
 
 ## Notes on specific primitives
