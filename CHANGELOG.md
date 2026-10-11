@@ -1,3 +1,24 @@
+## [8.215.0] — Audit follow-up: the `security` certification signal closes only on a real decision
+
+Acts on the audit's §B2 finding: `identity._emit_security_shadow` closed the loop on
+*every* `resolve()` with signal (both confirm and deny), so the certification
+dashboard's `security`-closed was near-constant and weak evidence.
+
+- **`identity.py`**: closure is now reserved for a REAL identity decision. The loop
+  closes only on (a) a confident CONFIRM backed by an identity-establishing method
+  (face/voice — `_fabric_establishes_identity`), or (b) an ENFORCED deny (presence
+  located a body but the fabric refused to treat it as identity). A plain
+  low-confidence UNKNOWN, and a confident verdict resting only on presence-class
+  votes, are now observed as **exercised-but-open** — a located body is not an
+  established *who*. The helper takes `(*, closed, note)` so the call sites express
+  the real outcome.
+- Tests updated: confirm closes, enforced-deny closes, low-confidence is open.
+
+Observe-only, kill-switched, behaviour-preserving (the `Identification` returned by
+`resolve()` is unchanged; only the certification observation's `closed_loop` flag
+changed). Six kernel gates + audit + certification suite green. Version
+8.214.0 → 8.215.0.
+
 ## [8.214.0] — Audit follow-up: hermetic test config (fixes live-home contamination)
 
 Acts on the audit's #1 recommendation (the one real bug): unit tests read the
