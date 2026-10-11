@@ -1053,6 +1053,39 @@ walking every subsystem up the shadow → parity → enforce ladder (this docume
 v9.0.0 marks the shift from *building* the spine to *evolving* on a spine that is
 already authoritative: the major-version bump lands with Phase Ω, not before.
 
+**Ω reached — v9.0.0 (2026-10).** The capstone shipped. All three definition-of-done
+bars are met (Kernel Foundation **H**, Cognitive/Agency Architecture **R**, MCU-system
+certification **AE**); the top-level `README` carries the mature-architecture refresh;
+and the version crossed to the 9.x line. The kernel is now the authoritative core and
+Ω's standing discipline (ladder → gates → kill-switch → Constitution update for every
+new capability) governs all further growth.
+
+Several primitives are intentionally parked below enforce as **evergreen staged-ahead
+work** — each is fully built and tested but deliberately has no live caller yet,
+because the real-world surface it would make authoritative does not exist on this
+deployment. They climb the remaining ladder rungs when (and only when) that surface
+arrives, under the same discipline:
+
+- **`surfaces` (AA)** — a cross-surface announcement arbiter; awaits a live
+  multi-surface fan-out (one utterance eligible on voice *and* mobile *and* panel).
+- **`privacy` + `social` (W)** — information-flow boundary + per-person preference
+  models; await labelled cross-subject data flows to govern.
+- **`coordination` (O+AB peer half)** — a budgeted peer bid/claim/settle protocol;
+  awaits live *peer* agencies (hierarchical delegation already enforces via `agency`).
+- **`inquiry` (AD)** — bounded, cited investigative agency; awaits a live research
+  surface.
+- **`resilience` (Z)** — at **shadow**; the HAOS-boundary tier policy is observed
+  against the live breaker, and climbs to parity/enforce when a real EDGE compute
+  tier exists to federate onto (a parity-vs-breaker would be circular today).
+- **`optimize` (Y)** — at **parity**; its honest ceiling until a **SAFE-tier** live
+  tuning surface exists. Today's only live tuning surface proposes a SENSITIVE
+  parameter, which is structurally proposal-only and never auto-applied, so
+  `SELF_OPTIMIZE_ENFORCE` has no honest live apply point to flip onto yet.
+
+This is Ω working as designed: the architecture is complete and governed, and new
+capability lands incrementally as the deployment grows into it — never by relaxing a
+gate or faking a rung.
+
 ### Cross-cutting invariant (binds every phase above)
 
 Each phase's enforce step must leave intact (and the four gates enforce): no

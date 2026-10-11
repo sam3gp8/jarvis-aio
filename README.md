@@ -272,6 +272,32 @@ JARVIS is a **Home Assistant custom integration** (domain `jarvis`, ~90 top-leve
 
 The reasoning pipeline is layered for resilience and cost: local templates → learned cache → (cloud, or soon a local model) → the **Local Mind** offline brain as the floor beneath everything. A connectivity breaker guards cloud calls, and every local decision logs its reasoning chain to the dashboard's log view.
 
+### The kernel — one coherent operating core (MCU)
+
+Under the features, JARVIS's subsystems converge on a single **kernel**: a set of
+small, pure decision primitives (world model, situations, authority, agency,
+beliefs, planning, the Epistemic Fabric, and more — ~47 in all) that the live
+modules consume instead of each re-deciding on its own. The kernel was introduced
+as a **strangler-fig migration**, never a flag-day rewrite, so JARVIS stayed
+shippable throughout. Each primitive climbs a disciplined **shadow → parity →
+enforce** ladder — first observing what it *would* decide, then proving agreement
+with the incumbent on real traffic, and only then (owner-gated) becoming
+authoritative — and every enforce step is a kill-switched, fail-safe capability
+that defaults to the legacy behaviour until the owner flips it on. The live stage
+of every primitive is tracked in [`KERNEL_ADOPTION.md`](KERNEL_ADOPTION.md),
+generated from the code and guarded by CI so it can never drift.
+
+Three definition-of-done bars mark the architecture mature: the **Kernel
+Foundation** (every consequential actuation converges on the kernel,
+authority-gated and journal-reconstructable), the **Cognitive/Agency Architecture**
+(cognition and agency run as one closed loop), and **MCU-system certification**
+(the whole assistant behaves as one across the canonical scenario classes). A
+governing [Constitution](docs/JARVIS_CONSTITUTION.md) fixes the invariants —
+a precedence ladder (safety over convenience), owner-gated enforcement that may
+only *tighten*, and capabilities that expire — and six CI kernel gates plus a
+static audit hold the line that **more capability never means less governance**.
+The phased plan and its roadmap live in [`docs/KERNEL_PLAN.md`](docs/KERNEL_PLAN.md).
+
 ## Privacy & your data
 
 JARVIS is **local-first**. Everything it learns and stores lives inside your Home Assistant instance under `/config/jarvis/` — there is no JARVIS cloud, no telemetry, and nothing is sent anywhere except the LLM/vision calls you configure.

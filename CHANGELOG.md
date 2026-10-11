@@ -1,3 +1,43 @@
+## [9.0.0] — Phase Ω — Continuous Evolution: the MCU architecture is complete
+
+The capstone. JARVIS crosses from *building* the kernel spine to *evolving* on a
+spine that is already authoritative — the major-version line opens with Phase Ω.
+
+**All three definition-of-done bars are met:**
+- **Kernel Foundation (H)** — every consequential actuation converges on the kernel,
+  authority-gated, verify-after-act, journal-reconstructable, zero bypasses.
+- **Cognitive/Agency Architecture (R)** — cognition and agency run as one closed loop.
+- **MCU-system certification (AE)** — the whole assistant is certified across the
+  canonical scenario classes, folding every live surface into one dashboard.
+
+**What this release lands:**
+- **`README.md`** — the top-level README gains an honest "The kernel (MCU
+  architecture)" section: the strangler-fig migration, the shadow → parity → enforce
+  adoption ladder, the kill-switched/fail-safe enforce discipline, the three
+  done-bars, the Constitution's invariants, and the six CI kernel gates — pointing to
+  `KERNEL_ADOPTION.md`, `docs/JARVIS_CONSTITUTION.md`, and `docs/KERNEL_PLAN.md`.
+- **`docs/KERNEL_PLAN.md`** — the Phase Ω section records the capstone reached and
+  names the **evergreen staged-ahead** primitives that remain deliberately below
+  enforce, each awaiting the real-world surface it would govern: `surfaces` (AA),
+  `privacy`+`social` (W), `coordination` (O+AB peer), `inquiry` (AD),
+  `resilience` (Z, at shadow), and `optimize` (Y, at parity). They climb the
+  remaining rungs only when that surface exists — never by relaxing a gate or faking
+  a rung.
+- **Version** — manifest 8.223.0 → **9.0.0** (major).
+
+**The arc this session completed** (on the post-audit roadmap): the October audit
+cleanup (hermetic test config, security-signal hardening, docs hygiene) →
+Phase P (Proactive Household) laddered pure → shadow → parity → **enforce** →
+Phase Z (Resilient Compute) **shadow** → the owner-authorized enforce flips
+(`self_model`/S, `household`/P, `long_horizon`/V to **enforce**) → `optimize`/Y to
+**parity** → this Ω / v9.0.0 capstone. Every step shipped as its own green release,
+kill-switched and fail-safe, holding the standing invariant: **more capability never
+means less governance.**
+
+Phase Ω is evergreen — there is no exit. New capability folds in forever under the
+same discipline (ladder → gates → kill-switch → Constitution update). Six kernel
+gates + audit + docs-sync + changelog-extract green.
+
 ## [8.223.0] — Phase Y (Self-Optimization) — parity
 
 Advances the `optimize` primitive shadow → parity, and records an important honesty
