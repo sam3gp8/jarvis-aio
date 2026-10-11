@@ -1,3 +1,32 @@
+## [8.223.0] — Phase Y (Self-Optimization) — parity
+
+Advances the `optimize` primitive shadow → parity, and records an important honesty
+boundary about its enforce rung.
+
+- **`decision_record.py`**: alongside the Phase Y shadow (which maps the
+  interruption-budget assessment into a `kernel.optimize` tuning proposal for the
+  SENSITIVE `interrupt_threshold`), `_emit_optimize_shadow` now logs a **parity**
+  check (`OPTIMIZE_PARITY`): the optimizer proposes *raising* the threshold exactly
+  when the live output gate is already damping its announcement cap
+  (budget `multiplier < 1.0`), so parity logs whether the two agree on "interrupt
+  less" — proving the SENSITIVE proposal tracks the live mechanism. Observe-only.
+- **Honesty note on enforce**: `SELF_OPTIMIZE_ENFORCE` auto-applies **SAFE-tier**
+  tunings only (SENSITIVE stays proposal-only, FORBIDDEN immutable, UNKNOWN →
+  FORBIDDEN by `classify()`). The *only* live tuning surface today proposes a
+  SENSITIVE parameter, which is structurally never auto-applied — so enforce has **no
+  honest live apply point yet**. Rather than fabricate a SAFE-tier tuning surface
+  the system doesn't have, **parity is `optimize`'s honest ceiling** until a genuine
+  SAFE-tier live tuning surface exists; that remains evergreen work (Phase Ω). The
+  tiered guardrail (safety thresholds / authority / identity can never be tuned)
+  holds at every rung.
+- Adoption: `optimize` advances **shadow → parity** (`_DECLARED`). Regenerated the
+  adoption matrix + Constitution ledger.
+- Tests: `test_optimize_shadow.py` adds the parity cases (agreement logged when
+  over-interrupting and when healthy).
+
+Six kernel gates + audit + docs-sync + changelog-extract green. Version
+8.222.0 → 8.223.0.
+
 ## [8.222.0] — Phase V (Long-Horizon Agency) — enforce (owner-authorized)
 
 Third owner-authorized enforce flip. The durable long-horizon ledger is promoted to
