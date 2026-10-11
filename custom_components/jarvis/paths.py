@@ -1,10 +1,16 @@
 """Home Assistant config-directory path helpers for JARVIS storage."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
-DEFAULT_CONFIG_DIR = Path("/config")
+# HA always supplies its real config dir via the live ``hass`` object, so this
+# default is only the fallback for sync-only modules that have no hass. The
+# ``JARVIS_CONFIG_DIR`` env override exists so a test harness (or a non-standard
+# deployment) can point that fallback somewhere hermetic instead of ``/config`` —
+# in production the variable is unset and behaviour is unchanged.
+DEFAULT_CONFIG_DIR = Path(os.environ.get("JARVIS_CONFIG_DIR") or "/config")
 
 _config_dir = DEFAULT_CONFIG_DIR
 
