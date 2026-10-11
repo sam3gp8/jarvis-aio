@@ -1881,6 +1881,49 @@ SELF_MODEL_SHADOW = True
 # off to silence it. Advances self_model shadow → parity.
 SELF_MODEL_PARITY = True
 
+# Phase S (ENFORCE, owner-authorized): the self-report is now SOURCED FROM the
+# model with its confabulations removed — a capability whose switch is enabled but
+# whose backing module does not resolve is demoted to *unavailable* (and stated as
+# a limit) rather than reported available. So "what can you do / are you sure?" can
+# never claim a capability JARVIS cannot actually perform. This only DESCRIBES and
+# strictly TIGHTENS the self-answer (it can remove a claim, never add one); it
+# carries no authority and actuates nothing. Kill-switch back to parity:
+# SELF_MODEL_ENFORCE / the `self_model_enforce` config key. FAIL-SAFE: if the
+# ground-truth read fails the projection falls back to the unfiltered (parity)
+# self-model, so a fault can only ever restore today's behaviour.
+SELF_MODEL_ENFORCE = True
+
+
+def _self_model_enforce_enabled() -> bool:
+    if not SELF_MODEL_ENFORCE:
+        return False
+    try:
+        from . import jarvis_config
+        if jarvis_config.get("self_model_enforce", True) is False:
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def _self_model_ground_truth() -> dict:
+    """Map each governed capability key → whether it is REALLY performable (its
+    enforcement switch is live-enabled AND its backing module resolves). A switch
+    can be on while its module fails to import, and reporting that capability
+    available would be confabulation. Never raises; returns ``{}`` on failure."""
+    gt: dict = {}
+    try:
+        from . import enforcement
+        for sw in enforcement.all_switches():
+            try:
+                gt[sw.key] = bool(enforcement.live_value(sw)) and (
+                    enforcement._resolve(sw.module) is not None)
+            except Exception:  # noqa: BLE001
+                gt[sw.key] = False
+    except Exception:  # noqa: BLE001
+        return {}
+    return gt
+
 
 def _self_model_parity(capabilities, ground_truth):
     """Pure. Compare the self-model's reported capability availability (each
@@ -1918,14 +1961,7 @@ def _emit_self_model_parity(sm) -> None:
     if not SELF_MODEL_PARITY or sm is None:
         return
     try:
-        from . import enforcement
-        gt = {}
-        for sw in enforcement.all_switches():
-            try:
-                gt[sw.key] = bool(enforcement.live_value(sw)) and (
-                    enforcement._resolve(sw.module) is not None)
-            except Exception:
-                gt[sw.key] = False
+        gt = _self_model_ground_truth()
         caps = sm.to_dict().get("capabilities", [])
         checked, agree, report_only, truth_only = _self_model_parity(caps, gt)
         _LOGGER.debug(
@@ -1935,12 +1971,18 @@ def _emit_self_model_parity(sm) -> None:
         pass
 
 
-def _project_self_model(switches, goals_rows, situation_labels):
+def _project_self_model(switches, goals_rows, situation_labels, ground_truth=None):
     """Pure projection of live-read rows into a kernel.self_model.SelfModel:
     governed capabilities (each *available* when its enforcement switch is on,
     *unavailable* when off), commitments (active goals + open situations),
     confidence = the share of capabilities currently active, and the inactive
-    ones stated as limits. Read-only — it grants nothing. Never raises."""
+    ones stated as limits. Read-only — it grants nothing. Never raises.
+
+    When ``ground_truth`` is provided (Phase S enforce), a capability is available
+    only if its switch is on AND ground truth agrees it is really performable —
+    a switch-on-but-unresolvable capability is demoted to *unavailable* (stated as
+    a limit) so the self-report cannot confabulate. A name absent from
+    ``ground_truth`` is left to the switch alone (nothing to demote on)."""
     from .kernel import self_model as SM
     caps, limits = [], []
     for sw in (switches or []):
@@ -1950,6 +1992,8 @@ def _project_self_model(switches, goals_rows, situation_labels):
         if not name:
             continue
         on = bool(sw.get("enabled"))
+        if on and ground_truth is not None and not ground_truth.get(name, True):
+            on = False   # enforce: demote a confabulated (unresolvable) capability
         caps.append({"name": name,
                      "status": SM.AVAILABLE if on else SM.UNAVAILABLE,
                      "note": str(sw.get("category") or "")})
@@ -1996,8 +2040,16 @@ def _build_self_model_snapshot(hass):
             sit_labels.append(s.kind + (f" · {subj}" if subj else ""))
     except Exception:
         sit_labels = []
+    # Phase S enforce: cross-check capabilities against ground truth so the
+    # self-report cannot confabulate. Fail-safe — if the ground-truth read fails
+    # or is empty, project unfiltered (today's parity behaviour).
+    ground_truth = None
+    if _self_model_enforce_enabled():
+        gt = _self_model_ground_truth()
+        if gt:
+            ground_truth = gt
     try:
-        return _project_self_model(switches, goals_rows, sit_labels)
+        return _project_self_model(switches, goals_rows, sit_labels, ground_truth)
     except Exception:   # pragma: no cover - defensive
         return None
 

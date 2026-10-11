@@ -333,13 +333,18 @@ _DECLARED: dict[str, dict] = {
     # activate or widen anything (authority lives in the authority primitive).
     # Ladder: pure → shadow → parity (self-report vs ground truth) → enforce
     # (self-answers sourced from the model, no confabulation), owner-gated behind
-    # SELF_MODEL_ENFORCE (fail-safe = static capability list). PARITY (8.186.0):
-    # `agent._emit_self_model_parity` compares the self-model's reported capability
-    # availability against an independent ground truth (switch live-enabled AND its
-    # backing module resolves) and logs agreement/divergence — isolating the
-    # confabulation (reported-available but not actually performable) the enforce
-    # rung must forbid. Observe-only; drives nothing.
-    "self_model":   {"stage": "parity",  "owners": ["agent"]},
+    # SELF_MODEL_ENFORCE (fail-safe = unfiltered/static capability list). PARITY
+    # (8.186.0): `agent._emit_self_model_parity` compares the self-model's reported
+    # capability availability against an independent ground truth (switch
+    # live-enabled AND its backing module resolves) and logs agreement/divergence.
+    # ENFORCE (owner-authorized): `_build_self_model_snapshot` now projects with
+    # that ground truth so a switch-on-but-unresolvable capability is demoted to
+    # unavailable — the self-report (cognitive_status) can no longer confabulate a
+    # capability JARVIS cannot perform. Read-only and strictly tightening (removes a
+    # claim, never adds one); carries no authority, actuates nothing. Kill-switch
+    # SELF_MODEL_ENFORCE / self_model_enforce; fail-safe = unfiltered projection on
+    # any ground-truth fault.
+    "self_model":   {"stage": "enforce", "owners": ["agent"]},
     # long_horizon: durable, resumable, progress-tracked goals spanning days/weeks
     # (roadmap Phase V) — the direct payoff of Phase I (continuity). Models a goal
     # as an ordered set of milestones with a stable id, pure progress derivations
