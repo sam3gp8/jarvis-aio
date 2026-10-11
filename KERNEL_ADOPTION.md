@@ -71,7 +71,7 @@ explicit per-flip owner go/no-go.
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `graph` | ● enforce | `knowledge` |
-| `household` | · pure | — *(staged ahead)* |
+| `household` | ◐ shadow | `proactive_audio` |
 | `identity_fabric` | ● enforce | `identity` |
 | `inquiry` | · pure | — *(staged ahead)* |
 | `integration` | ● enforce | `cognitive_core` |
@@ -92,7 +92,7 @@ explicit per-flip owner go/no-go.
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `social` | · pure | — *(staged ahead)* |
-| `space_time` | ● enforce | `cognitive_core` |
+| `space_time` | ● enforce | `cognitive_core`, `proactive_audio` |
 | `surfaces` | · pure | — *(staged ahead)* |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |
 | `token_telemetry` | ◐ shadow | `llm_provider` |

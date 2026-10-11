@@ -1,3 +1,39 @@
+## [8.217.0] — Phase P (Proactive Household Intelligence) — shadow rung
+
+Resumes the roadmap after the audit cleanup. First rung of Phase P: the pure
+`kernel.household` model (occupancy rhythm + routine graph) gets its live binder,
+observe-only.
+
+- **`proactive_audio.py`**: the infrastructure-audit tick already samples current
+  occupancy for the `PredictiveHabitMatrix`. `_emit_household_shadow` now folds the
+  *same* occupancy sample into `kernel.household` — appending one `Observation`
+  (daypart from `kernel.space_time`, weekday, occupied, and the primary occupied
+  area as the routine-mining activity label) to a bounded rolling window, then
+  logging what the model *would* anticipate (occupancy rhythm + the most-supported
+  next routine) beside the live predictor. `_run_predictor` now returns the sampled
+  occupancy so the shadow reuses it without re-reading presence.
+- **Observe-only / fail-safe**: the household model's `anticipate()` emits advisory
+  `Suggestion` objects that carry **no actuator**, so this drives nothing and
+  changes no live behaviour — it only adds a `household(shadow)` log line.
+  Kill-switched by the `HOUSEHOLD_SHADOW` module flag and the `household_shadow`
+  config key (both default on); any failure is swallowed, never propagated into the
+  audit tick. The rolling window is bounded (240 samples) and lives in runtime
+  `entry_data` only (not persisted).
+- **`kernel/household.py`**: docstring updated to name `proactive_audio` as the
+  live shadow binder.
+- Adoption: `household` advances **pure → shadow** (`_DECLARED`), with
+  `proactive_audio` as its live caller; the `staged_ahead` marker is dropped now
+  that it has one. Regenerated the adoption matrix + Constitution ledger via
+  `kernel_docs_sync.py --write`.
+- Tests: `test_household_shadow.py` pins the binder (observation shape, routine
+  label, bounded window, last-activity tracking, both kill-switches, never-raises);
+  the model's own derivations stay covered by `test_kernel_household.py`.
+
+Ladder from here: shadow → parity (household suggestions vs. the predictor's) →
+enforce (`HOUSEHOLD_PROACTIVE_ENFORCE`, fail-safe = current heuristics), owner-gated.
+Six kernel gates + audit + docs-sync + changelog-extract green. Version
+8.216.0 → 8.217.0.
+
 ## [8.216.0] — Audit follow-up: docs hygiene (stale progress table, staged-ahead marker, kill-switch prose)
 
 Clears the audit's documentation findings (§3, §2a, §5) so the written record

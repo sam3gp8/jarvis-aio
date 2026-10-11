@@ -40,6 +40,7 @@ from . import (
     temporal,
     cycle,
     graph,
+    household,
     identity_fabric,
     integration,
     journal,
