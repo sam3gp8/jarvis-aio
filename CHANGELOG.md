@@ -1,3 +1,36 @@
+## [8.220.0] — Phase S (Self Model) — enforce (owner-authorized)
+
+First of the owner-authorized enforce flips. The self-report is now **sourced from
+the self-model with its confabulations removed** — the safest flip to make live: it
+only changes how JARVIS *answers* "what can you do / are you sure?", carries no
+authority, and actuates nothing.
+
+- **`agent.py`**: `_build_self_model_snapshot` now, when `SELF_MODEL_ENFORCE` is on,
+  projects the self-model against an independent **ground truth** (a capability is
+  really performable only when its enforcement switch is live-enabled AND its
+  backing module resolves). A switch-on-but-unresolvable capability is **demoted to
+  unavailable** (and stated as a limit) instead of being reported available — so
+  `cognitive_status` can no longer confabulate a capability JARVIS cannot perform.
+  The ground-truth helper (`_self_model_ground_truth`) is factored out and shared
+  with the existing parity check; `_project_self_model` gains an optional
+  `ground_truth` arg for the demotion.
+- **Strictly tightening / fail-safe**: enforce can only *remove* a capability claim,
+  never add one — it cannot grant, activate, or widen anything (authority lives in
+  the authority primitive). Kill-switch back to parity: `SELF_MODEL_ENFORCE` /
+  the `self_model_enforce` config key. If the ground-truth read fails or is empty,
+  the projection falls back to the unfiltered (parity) self-model, so a fault can
+  only ever restore today's behaviour.
+- Adoption: `self_model` advances **parity → enforce** (`_DECLARED`). Regenerated the
+  adoption matrix + Constitution ledger.
+- Tests: `test_self_model_enforce.py` pins the demotion of a confabulated capability,
+  that a genuinely-available one is kept, the "absent from ground truth → not
+  demoted" and "no ground truth → legacy" fail-safes, an off switch staying
+  unavailable, and both kill-switches.
+
+Owner-authorized per the roadmap's owner-gated enforce policy (Constitution A2);
+kill-switched and fail-safe. Six kernel gates + audit + docs-sync + changelog-extract
+green. Version 8.219.0 → 8.220.0.
+
 ## [8.219.0] — Phase Z (Resilient Compute Federation) — shadow rung
 
 Opens Phase Z: the pure `kernel.resilience` policy (local-first, offline-safe

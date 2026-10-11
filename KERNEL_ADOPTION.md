@@ -89,7 +89,7 @@ explicit per-flip owner go/no-go.
 | `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
 | `resilience` | ◐ shadow | `connectivity` |
 | `router` | ◐ shadow | `reasoning_loop` |
-| `self_model` | ◑ parity | `agent` |
+| `self_model` | ● enforce | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `social` | · pure | — *(staged ahead)* |
 | `space_time` | ● enforce | `cognitive_core`, `proactive_audio` |
