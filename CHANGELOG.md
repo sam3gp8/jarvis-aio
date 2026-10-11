@@ -1,3 +1,32 @@
+## [8.221.0] — Phase P (Proactive Household Intelligence) — enforce (owner-authorized)
+
+Second owner-authorized enforce flip. The `kernel.household` model is promoted from
+observe-only to an **authoritative proactive advisory** — but as an *augment*, so
+it can only ever add a proposal, never change what JARVIS does.
+
+- **`proactive_audio.py`**: when `HOUSEHOLD_PROACTIVE_ENFORCE` is on, the household
+  model's `anticipate()` suggestions are surfaced at INFO as a live
+  `household(proactive)` advisory (a real proactive voice), not merely the
+  "would-suggest" shadow line. It **augments, never replaces** the
+  `PredictiveHabitMatrix`: the predictor is left exactly as-is as the fail-safe
+  heuristic floor, so a household fault or an empty model leaves today's behaviour
+  untouched.
+- **Advisory-only / non-actuating**: a household `Suggestion` carries **no
+  actuator** (the primitive's structural invariant), so enforce changes only what
+  JARVIS *proposes*, never what it does — proactive *execution* stays gated behind
+  `PREDICTOR_AUTOEXECUTE` (off). Kill-switch back to parity:
+  `HOUSEHOLD_PROACTIVE_ENFORCE` / the `household_proactive_enforce` config key;
+  fail-safe = current heuristics (the predictor alone).
+- Adoption: `household` advances **parity → enforce** (`_DECLARED`). Regenerated the
+  adoption matrix + Constitution ledger.
+- Tests: `test_household_shadow.py` adds the enforce cases (an authoritative advisory
+  surfaces once the model warms up, silence when there's no suggestion, and both
+  kill-switches).
+
+Owner-authorized per the owner-gated enforce policy (Constitution A2); kill-switched,
+augment-only, fail-safe. Six kernel gates + audit + docs-sync + changelog-extract
+green. Version 8.220.0 → 8.221.0.
+
 ## [8.220.0] — Phase S (Self Model) — enforce (owner-authorized)
 
 First of the owner-authorized enforce flips. The self-report is now **sourced from

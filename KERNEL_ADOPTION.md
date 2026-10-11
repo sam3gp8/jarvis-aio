@@ -71,7 +71,7 @@ explicit per-flip owner go/no-go.
 | `event` | ◑ parity | `actuation`, `camera`, `events`, `observer`, `proactive_audio` |
 | `event_bus` | ◐ shadow | `__init__` |
 | `graph` | ● enforce | `knowledge` |
-| `household` | ◑ parity | `proactive_audio` |
+| `household` | ● enforce | `proactive_audio` |
 | `identity_fabric` | ● enforce | `identity` |
 | `inquiry` | · pure | — *(staged ahead)* |
 | `integration` | ● enforce | `cognitive_core` |

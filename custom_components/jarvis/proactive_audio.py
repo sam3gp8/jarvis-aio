@@ -86,10 +86,23 @@ PREDICTOR_AUTOEXECUTE = False
 # nothing and changes no live behaviour; it never raises into the audit tick.
 # Kill-switched by the module flag below and the `household_shadow` config key
 # (default on). This is the pure→shadow→parity climb for the `household` primitive
-# (roadmap Phase P); enforce (HOUSEHOLD_PROACTIVE_ENFORCE) is owner-gated.
+# (roadmap Phase P).
 HOUSEHOLD_SHADOW = True
 _HOUSEHOLD_WINDOW_MAX = 240       # bounded rolling observation window per entry
 _HOUSEHOLD_LOG_EVERY = 12         # log the rollup at most every N quiet ticks
+
+# Phase P ENFORCE (owner-authorized): when on, the household model's anticipation
+# is promoted from observe-only to an AUTHORITATIVE proactive advisory — its
+# suggestions are surfaced (logged at INFO as `household(proactive)`) as a live
+# proactive voice, not merely "would-suggest". This AUGMENTS, never replaces, the
+# PredictiveHabitMatrix: the predictor is left exactly as-is as the fail-safe
+# heuristic floor, so a household fault or an empty model leaves today's behaviour
+# untouched. Strictly advisory — a household Suggestion carries NO actuator (the
+# structural invariant), so enforce changes only what JARVIS *proposes*, never what
+# it does; proactive execution stays gated behind PREDICTOR_AUTOEXECUTE. Kill-switch
+# back to parity: HOUSEHOLD_PROACTIVE_ENFORCE / the `household_proactive_enforce`
+# config key.
+HOUSEHOLD_PROACTIVE_ENFORCE = True
 
 
 def _household_enabled() -> bool:
@@ -98,6 +111,18 @@ def _household_enabled() -> bool:
     try:
         from . import jarvis_config
         if jarvis_config.get("household_shadow", True) is False:
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def _household_proactive_enforce_enabled() -> bool:
+    if not HOUSEHOLD_PROACTIVE_ENFORCE:
+        return False
+    try:
+        from . import jarvis_config
+        if jarvis_config.get("household_proactive_enforce", True) is False:
             return False
     except Exception:  # noqa: BLE001
         pass
@@ -136,10 +161,16 @@ def _emit_household_shadow(entry_data: dict, occupied_areas,
     — when the live predictor's due pre-emptions are passed — record a log-only
     parity tally of the two models' "proactivity warranted?" verdicts.
 
-    Observe-only — the household model emits advisory ``Suggestion`` objects that
-    carry no actuator, so nothing here acts. Kill-switched, bounded, and defensive:
-    any failure is swallowed, never propagated into the audit tick. Phase P
-    shadow+parity.
+    When HOUSEHOLD_PROACTIVE_ENFORCE is on (Phase P enforce), the model's
+    suggestions are additionally surfaced at INFO as an AUTHORITATIVE
+    `household(proactive)` advisory — a live proactive voice. This augments, never
+    replaces, the predictor (left untouched as the fail-safe floor); and the
+    suggestions carry no actuator, so it changes only what JARVIS proposes.
+
+    Still advisory-only — the household model's ``Suggestion`` objects carry no
+    actuator, so nothing here acts. Kill-switched, bounded, and defensive: any
+    failure is swallowed, never propagated into the audit tick. Phase P
+    shadow+parity+enforce.
     """
     if not _household_enabled():
         return
@@ -175,6 +206,14 @@ def _emit_household_shadow(entry_data: dict, occupied_areas,
                 entry_data,
                 hh_fires=bool(suggestions),
                 pred_fires=bool(due_preemptions))
+
+        # Phase P enforce: promote the model to an AUTHORITATIVE proactive voice —
+        # surface its suggestions as a live advisory (the predictor is untouched as
+        # the fail-safe floor). Advisory only; nothing actuates.
+        if suggestions and _household_proactive_enforce_enabled():
+            _LOGGER.info(
+                "household(proactive): %s",
+                [s.to_dict() for s in suggestions])
 
         ticks = entry_data.get("_household_ticks", 0) + 1
         entry_data["_household_ticks"] = ticks
