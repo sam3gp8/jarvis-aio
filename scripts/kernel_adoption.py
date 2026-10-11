@@ -77,10 +77,17 @@ _DECLARED: dict[str, dict] = {
     # maps its live over-interruption assessment into an optimize tuning PROPOSAL for
     # the SENSITIVE interrupt_threshold and logs it (OPTIMIZE_SHADOW) — observe-only,
     # proposal_only (owner-gated, never auto-applied), demonstrating the tiered
-    # guardrail. Drives nothing. Ladder from here: shadow → parity (tuned vs
-    # baseline) → enforce (SELF_OPTIMIZE_ENFORCE — self-tunes SAFE-tier only; the
-    # forbidden tier stays immutable at every rung), owner-gated.
-    "optimize":     {"stage": "shadow",  "owners": ["decision_record"]},
+    # guardrail. PARITY (8.223.0): decision_record also logs whether the optimizer's
+    # proposal AGREES with the live interruption-budget mechanism — the optimizer
+    # proposes raising interrupt_threshold exactly when the output gate is already
+    # damping its announcement cap (multiplier < 1.0), proving the SENSITIVE proposal
+    # tracks the live mechanism (OPTIMIZE_PARITY, observe-only). ENFORCE
+    # (SELF_OPTIMIZE_ENFORCE — auto-apply SAFE-tier only; SENSITIVE proposal-only,
+    # FORBIDDEN immutable) has NO honest live apply point yet: this sole live tuning
+    # surface proposes a SENSITIVE parameter, which is structurally never
+    # auto-applied, so parity is optimize's honest ceiling until a SAFE-tier live
+    # tuning surface exists (evergreen — see Phase Ω). Owner-gated.
+    "optimize":     {"stage": "parity",  "owners": ["decision_record"]},
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},

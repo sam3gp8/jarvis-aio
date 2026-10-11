@@ -45,6 +45,18 @@ _DEFAULT_DB = config_path_str("jarvis", "decisions.db")
 # OPTIMIZE_SHADOW off to silence it; the budget read is unchanged either way.
 OPTIMIZE_SHADOW = True
 
+# Phase Y (parity): log whether the optimizer's PROPOSAL agrees with the live
+# interruption-budget mechanism. The optimizer proposes *raising* interrupt_threshold
+# exactly when JARVIS is over-interrupting; the live output gate already damps its
+# announcement cap (budget multiplier < 1.0) on the same signal. Parity logs whether
+# the two agree on "interrupt less" — proving the SENSITIVE proposal tracks the live
+# mechanism before anyone considers applying it. Observe-only; OPTIMIZE_PARITY off
+# silences it. NOTE: the enforce rung (SELF_OPTIMIZE_ENFORCE — auto-apply SAFE-tier
+# only) has no honest live apply point yet: this sole live tuning surface proposes a
+# SENSITIVE parameter, which is structurally proposal-only and never auto-applied. So
+# parity is optimize's honest ceiling until a SAFE-tier live tuning surface exists.
+OPTIMIZE_PARITY = True
+
 # Recognised outcome verdicts (set by the outcome-capture layer in a later phase).
 OUTCOME_GOOD = "good"            # the decision was useful / acted upon
 OUTCOME_UNNECESSARY = "unnecessary"  # dismissed as not needed (not wrong, just noise)
@@ -566,18 +578,30 @@ def _optimize_proposal_from_budget(budget: dict):
 
 
 def _emit_optimize_shadow(budget: dict) -> None:
-    """Phase Y — shadow. Build the tuning proposal from the budget and log it.
-    Observe-only; nothing applies it. Never raises into the caller."""
-    if not OPTIMIZE_SHADOW:
+    """Phase Y — shadow + parity. Build the tuning proposal from the budget and log
+    it; at parity, also log whether the proposal agrees with the live budget
+    mechanism. Observe-only; nothing applies it. Never raises into the caller."""
+    if not (OPTIMIZE_SHADOW or OPTIMIZE_PARITY):
         return
     try:
         report = _optimize_proposal_from_budget(budget)
         if report is None or not report.proposals:
             return
         p = report.proposals[0]
-        _LOGGER.debug(
-            "optimize(shadow): %s %.3f→%.3f tier=%s proposal_only=%s auto=%s",
-            p.param, p.current, p.proposed, p.tier, p.proposal_only, p.auto_applicable)
+        if OPTIMIZE_SHADOW:
+            _LOGGER.debug(
+                "optimize(shadow): %s %.3f→%.3f tier=%s proposal_only=%s auto=%s",
+                p.param, p.current, p.proposed, p.tier, p.proposal_only, p.auto_applicable)
+        if OPTIMIZE_PARITY:
+            # The optimizer proposes raising interrupt_threshold exactly when the
+            # live output gate is already damping its announcement cap (multiplier
+            # < 1.0). Log whether the two agree on "interrupt less" — observe-only.
+            optimizer_active = abs(p.proposed - p.current) > 1e-9
+            live_active = float(budget.get("multiplier", 1.0) or 1.0) < 1.0
+            _LOGGER.debug(
+                "optimize(parity): optimizer_wants_change=%s live_budget_damping=%s "
+                "agree=%s", optimizer_active, live_active,
+                optimizer_active == live_active)
     except Exception:   # pragma: no cover - defensive
         pass
 

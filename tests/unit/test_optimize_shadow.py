@@ -55,3 +55,37 @@ def test_emit_never_raises(dr):
     # Defensive: a junk budget must not raise through the observe-only emitter.
     dr._emit_optimize_shadow({"judged": 3, "multiplier": "oops"})
     dr._emit_optimize_shadow(None)
+
+
+# ── Phase Y parity — proposal agrees with the live budget mechanism ──────────
+def test_parity_flag_default(dr):
+    assert dr.OPTIMIZE_PARITY is True
+
+
+def test_parity_logs_agreement_when_over_interrupting(dr, caplog):
+    import logging
+    # over-interrupting: optimizer proposes a change AND the live gate damps → agree
+    budget = {"judged": 20, "multiplier": 0.4, "assessment": "over-interrupting",
+              "unwelcome_rate": 0.6}
+    with caplog.at_level(logging.DEBUG):
+        dr._emit_optimize_shadow(budget)
+    line = next((r.getMessage() for r in caplog.records
+                 if "optimize(parity):" in r.getMessage()), None)
+    assert line is not None
+    assert "optimizer_wants_change=True" in line
+    assert "live_budget_damping=True" in line
+    assert "agree=True" in line
+
+
+def test_parity_logs_agreement_when_healthy(dr, caplog):
+    import logging
+    # healthy: optimizer proposes no change AND the live gate is not damping → agree
+    budget = {"judged": 20, "multiplier": 1.0, "assessment": "healthy"}
+    with caplog.at_level(logging.DEBUG):
+        dr._emit_optimize_shadow(budget)
+    line = next((r.getMessage() for r in caplog.records
+                 if "optimize(parity):" in r.getMessage()), None)
+    assert line is not None
+    assert "optimizer_wants_change=False" in line
+    assert "live_budget_damping=False" in line
+    assert "agree=True" in line
