@@ -383,7 +383,58 @@ def _long_horizon_shadow(hass=None) -> None:
 # write never affects capture; the parity read never raises into boot.
 LONG_HORIZON_PARITY = True
 
+# ENFORCE (roadmap Phase V — owner-authorized). At boot, the durable ledger (the
+# pre-restart snapshot) becomes the AUTHORITATIVE source of a long-horizon
+# continuity view: boot_summary surfaces the in-flight multi-day goals it is
+# resuming — their titles, progress and next milestone — which nothing surfaced
+# before (the parity only logs a match count at debug). This is non-redundant with
+# the durable goals store (that silently persists the goals; this gives JARVIS a
+# spoken-at-boot continuity view of what it is picking back up) and strictly
+# non-actuating — it only surfaces a continuity line, never drives an action.
+# Kill-switch back to parity: LONG_HORIZON_ENFORCE / the `long_horizon_enforce`
+# config key. FAIL-SAFE: no ledger, nothing in flight, or any error → no line
+# (session-scoped, today's silent boot), so a fault can only restore today.
+LONG_HORIZON_ENFORCE = True
+
 _LH_LEDGER_KEEP = 50  # cap on goals retained in the durable ledger
+
+
+def _long_horizon_enforce_enabled() -> bool:
+    if not LONG_HORIZON_ENFORCE:
+        return False
+    try:
+        from . import jarvis_config
+        if jarvis_config.get("long_horizon_enforce", True) is False:
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def _long_horizon_resume_line(hass=None) -> str:
+    """The authoritative boot continuity view of the multi-day goals being resumed
+    FROM the durable ledger (the pre-restart snapshot) — their titles, progress and
+    next milestone. Returns ``""`` when enforce is off, nothing is in flight, or on
+    any error (fail-safe = today's silent boot). Never raises."""
+    if not _long_horizon_enforce_enabled():
+        return ""
+    try:
+        import time as _time
+        now = _time.time()
+        resumed = [g for g in _long_horizon_load(now, hass) if not g.is_complete]
+        if not resumed:
+            return ""
+        parts = []
+        for g in resumed[:5]:
+            title = g.title or g.id
+            nxt = g.next_milestone()
+            tail = f", next: {nxt.label}" if nxt is not None and nxt.label else ""
+            parts.append(f"'{title}' ({int(round(g.progress * 100))}%{tail})")
+        more = f" (+{len(resumed) - 5} more)" if len(resumed) > 5 else ""
+        return f"resuming {len(resumed)} multi-day goal(s): " + "; ".join(parts) + more
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.debug("long_horizon resume line failed: %s", exc)
+        return ""
 
 
 def _lh_ledger_path(hass=None) -> str:
@@ -504,6 +555,12 @@ def boot_summary(hass=None) -> str:
         # Phase V parity: at boot, prove the long-horizon goals resumed from the
         # ledger written before this restart match the live store. Observe-only.
         _long_horizon_parity(hass)
+        # Phase V enforce (owner-authorized): surface the authoritative boot
+        # continuity view of the multi-day goals being resumed from the ledger.
+        # Non-actuating, fail-safe (empty line → nothing surfaced).
+        resume_line = _long_horizon_resume_line(hass)
+        if resume_line:
+            _LOGGER.info("JARVIS (long-horizon): %s", resume_line)
         return msg
     except Exception as exc:  # pragma: no cover - defensive
         _LOGGER.debug("agency boot summary failed: %s", exc)

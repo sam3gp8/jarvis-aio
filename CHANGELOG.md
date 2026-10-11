@@ -1,3 +1,31 @@
+## [8.222.0] — Phase V (Long-Horizon Agency) — enforce (owner-authorized)
+
+Third owner-authorized enforce flip. The durable long-horizon ledger is promoted to
+the **authoritative boot continuity view**: on boot JARVIS surfaces the multi-day
+goals it is resuming.
+
+- **`continuity.py`**: when `LONG_HORIZON_ENFORCE` is on, `boot_summary` surfaces a
+  `JARVIS (long-horizon): resuming N multi-day goal(s): …` line built by
+  `_long_horizon_resume_line` from the durable ledger (the pre-restart snapshot) —
+  each in-flight goal's title, progress %, and next milestone. Nothing surfaced
+  long-horizon goals at boot before (the parity only logged a match count at debug).
+- **Non-redundant, non-actuating, fail-safe**: this is *not* a redundant
+  "restore progress" step — the goals store is already durable sqlite, so progress
+  already survives restart; the enforce adds the thing that was missing, a boot
+  continuity *view* of what JARVIS is picking back up. It only surfaces a line
+  (never drives an action). Kill-switch back to parity: `LONG_HORIZON_ENFORCE` /
+  the `long_horizon_enforce` config key; fail-safe = session-scoped (no resume line,
+  today's silent boot) on no-ledger / nothing-in-flight / any error.
+- Adoption: `long_horizon` advances **parity → enforce** (`_DECLARED`). Regenerated
+  the adoption matrix + Constitution ledger.
+- Tests: `test_long_horizon_enforce.py` pins the resume line (in-flight goals with
+  progress + next milestone), that complete goals are omitted, the boot-summary
+  surfacing, both kill-switches, and never-raises.
+
+Owner-authorized per the owner-gated enforce policy (Constitution A2); kill-switched,
+non-actuating, fail-safe. Six kernel gates + audit + docs-sync + changelog-extract
+green. Version 8.221.0 → 8.222.0.
+
 ## [8.221.0] — Phase P (Proactive Household Intelligence) — enforce (owner-authorized)
 
 Second owner-authorized enforce flip. The `kernel.household` model is promoted from
