@@ -9,18 +9,16 @@ JARVIS stays shippable throughout.
 
 ### Progress
 
-| Phase | Status | Release(s) |
-| --- | --- | --- |
-| 0 — Foundations & guardrails | ✅ Shipped | 8.4.3 (HA lifecycle tests + CI gate), 8.5.0 (`JarvisEvent` + persistence seam) |
-| 1 — Event bus + correlated ledger | ✅ Shipped | 8.6.0 |
-| 2 — World-model facade | ✅ Shipped | 8.7.0 |
-| 3 — Situation manager | ✅ Shipped | 8.8.0 (machine), 8.8.1 (intrusion shadow) |
-| 4 — Authority / capability engine | 🚧 In progress | 8.9.0 |
-| 5 — Planner → Executor → Verifier | 🚧 In progress | 8.10.0 |
-| 6 — Beliefs · Attention · Model Router | 🚧 In progress | 8.11.0 |
-| 7 — Causal learning | 🚧 In progress | 8.12.0 |
-
-_Kept current as each phase merges._ **All phase primitives (0–7) are now shipped additively** (shadow / parity / opt-in); 🚧 marks phases whose remaining work is wiring the existing consumers to enforce the new primitive (tracked in each phase's section).
+The foundational phases (0–7 — event bus, world-model facade, situation manager,
+authority engine, planner/executor/verifier, beliefs/attention/router, causal
+learning) are all **shipped and enforced**; they are history now, not open work.
+Per-phase status is no longer tracked in a hand-kept table here — a stage table
+drifts the moment a primitive advances. **The live source of truth for every
+primitive's stage (pure / shadow / parity / enforce) and its real callers is
+[`KERNEL_ADOPTION.md`](../KERNEL_ADOPTION.md)**, generated from the adoption
+scan and guarded by the `kernel_docs_sync` CI gate so it can never go stale. The
+post-H maturity roadmap — the phases still in flight — is tracked in "Roadmap —
+post-H maturity tiers" below.
 
 The audit's own conclusion is the premise here: the gap is **consolidation, not
 features**. Most of the "missing" pieces already exist as strong but parallel
