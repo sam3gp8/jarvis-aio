@@ -87,7 +87,7 @@ explicit per-flip owner go/no-go.
 | `priority` | · pure | — *(staged ahead)* |
 | `privacy` | · pure | — *(staged ahead)* |
 | `provenance` | ◐ shadow | `knowledge`, `presence`, `recognition` |
-| `resilience` | · pure | — *(staged ahead)* |
+| `resilience` | ◐ shadow | `connectivity` |
 | `router` | ◐ shadow | `reasoning_loop` |
 | `self_model` | ◑ parity | `agent` |
 | `situation` | ● enforce | `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |

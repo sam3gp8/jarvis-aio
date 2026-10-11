@@ -1,3 +1,43 @@
+## [8.219.0] — Phase Z (Resilient Compute Federation) — shadow rung
+
+Opens Phase Z: the pure `kernel.resilience` policy (local-first, offline-safe
+compute-tier fallback) gets its live binder on the connectivity circuit breaker,
+observe-only.
+
+- **`connectivity.py`**: the breaker already tracks whether the cloud LLM is
+  reachable (CLOSED ↔ OPEN). At each real transition — cloud reachable again
+  (`record_success` closes the breaker) or cloud lost (`record_failure` opens it) —
+  `_emit_resilience_shadow` folds the real health into `kernel.resilience` as two
+  tiers (a canonical `haos-local` tier, always healthy; a disposable `cloud-llm`
+  tier, healthy iff the breaker is closed) and logs the would-be tier policy:
+  `chosen` (always `haos-local` — local-first), `offline_safe` (always true — the
+  canonical brain stays under the HA integration), and `offload_targets` (cloud,
+  only while healthy). The emit fires strictly on a state *transition* (computed
+  inside the lock, emitted after releasing it), so a steady breaker and
+  sub-threshold failures stay quiet.
+- **Why this surface**: the breaker is the "conservative breaker" the resilience
+  primitive was written against, and a cloud outage is a real, observable event.
+  The shadow makes the **HAOS boundary** visible live — when cloud drops, the
+  offload set empties and JARVIS keeps running locally; the canonical tier is never
+  an offload target.
+- **Observe-only / fail-safe**: the breaker's own CLOSED/OPEN verdict is unchanged;
+  this only adds a `resilience(shadow)` log line. Kill-switched by `RESILIENCE_SHADOW`
+  and the `resilience_shadow` config key (both default on); any failure is swallowed,
+  never propagated into the breaker path.
+- **`kernel/__init__.py`**: re-export the `resilience` submodule (audit IMPORTS
+  convention). **`kernel/resilience.py`** docstring names `connectivity` as the live
+  binder.
+- Adoption: `resilience` advances **pure → shadow** (`_DECLARED`), with `connectivity`
+  as its live caller; `staged_ahead` dropped. Regenerated the adoption matrix +
+  Constitution ledger.
+- Tests: `test_resilience_shadow.py` pins the binder — open/recovery transitions
+  fire it (and non-transitions / duplicate-open do not), the local-first /
+  offline-safe / cloud-as-disposable-offload policy it logs, and both kill-switches.
+
+Ladder from here: shadow → parity (vs the breaker's own online/offline call) →
+enforce (`RESILIENCE_ENFORCE`, fail-safe = current breaker), owner-gated. Six kernel
+gates + audit + docs-sync + changelog-extract green. Version 8.218.0 → 8.219.0.
+
 ## [8.218.0] — Phase P (Proactive Household Intelligence) — parity rung
 
 Second rung of Phase P: a log-only agreement check between the kernel `household`

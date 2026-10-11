@@ -526,16 +526,20 @@ _DECLARED: dict[str, dict] = {
     # non-safety (gates only the learned-suggestion surface).
     "causal":       {"stage": "enforce", "owners": ["pattern_analyzer"]},
     "priority":     {"stage": "pure",    "owners": [], "staged_ahead": True},
-    # resilience: PURE (Phase Z, Resilient Compute Federation). A local-first,
+    # resilience: SHADOW (Phase Z, Resilient Compute Federation). A local-first,
     # offline-safe fallback policy across compute tiers (LOCAL/EDGE/CLOUD × health).
     # Encodes the HAOS boundary structurally — a canonical-state tier can never be
     # an offload target (the brain stays under the HA integration; external compute
-    # is disposable) and the chooser fails safe to the local/canonical tier. No HA
-    # import, no I/O, no clock; nothing live consumes it yet (a health poller +
-    # the conservative breaker wire onto it at the shadow rung). Ladder from here:
-    # pure → shadow (would-be tier choice) → parity (vs current breaker) → enforce
+    # is disposable) and the chooser fails safe to the local/canonical tier. SHADOW:
+    # the live binder is connectivity's conservative breaker — at each breaker
+    # transition (cloud reachable ↔ not) _emit_resilience_shadow folds the real
+    # health into the model and logs the would-be tier policy (always local-first,
+    # always offline-safe, cloud as a disposable offload target only when healthy)
+    # — observe-only, kill-switched (RESILIENCE_SHADOW / resilience_shadow), drives
+    # nothing (the breaker's own CLOSED/OPEN verdict is unchanged). Ladder from here:
+    # shadow → parity (vs the breaker's own online/offline call) → enforce
     # (RESILIENCE_ENFORCE, fail-safe = current breaker), owner-gated.
-    "resilience":   {"stage": "pure",    "owners": [], "staged_ahead": True},
+    "resilience":   {"stage": "shadow",  "owners": ["connectivity"]},
     # surfaces: PURE (Phase AA, Omnipresent Multimodal — presence continuity). A
     # surface registry + a single cross-surface arbiter: one utterance is emitted
     # on exactly ONE surface (no double-announce), mutes honored everywhere, and an

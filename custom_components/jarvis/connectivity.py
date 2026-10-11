@@ -50,6 +50,56 @@ class _BreakerState:
 _BREAKER = _BreakerState()
 
 
+# ── Phase Z shadow: resilient compute federation (observe-only) ────────────────
+# At each breaker transition (cloud reachable ↔ not) fold the real breaker health
+# into the kernel resilience model and log the would-be compute-tier policy: which
+# tier it would run on (always LOCAL — local-first), whether JARVIS stays
+# offline-safe (always yes — the canonical brain is home under the HA integration),
+# and whether CLOUD is available as a *disposable* offload target. This makes the
+# HAOS boundary observable against the live breaker: the canonical tier is never an
+# offload target, and an all-down fleet falls back home rather than failing.
+# Observe-only: the model carries no actuator and the breaker's own CLOSED/OPEN
+# decision is unchanged — this only adds a log line and never raises. Kill-switched
+# (RESILIENCE_SHADOW / the `resilience_shadow` config key). Pure→shadow rung for
+# the `resilience` primitive (roadmap Phase Z).
+RESILIENCE_SHADOW = True
+
+
+def _resilience_enabled() -> bool:
+    if not RESILIENCE_SHADOW:
+        return False
+    try:
+        from . import jarvis_config
+        if jarvis_config.get("resilience_shadow", True) is False:
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def _emit_resilience_shadow(*, cloud_online: bool) -> None:
+    """Log what the kernel resilience policy WOULD choose given the real breaker
+    health (local canonical tier + a cloud tier healthy iff the breaker is closed).
+
+    Observe-only — the model drives nothing and the breaker's verdict is unchanged;
+    any failure is swallowed, never propagated into the caller. Phase Z shadow."""
+    if not _resilience_enabled():
+        return
+    try:
+        from .kernel import resilience
+
+        tiers = [
+            resilience.Tier(name="haos-local", kind=resilience.LOCAL,
+                            health=resilience.HEALTHY, canonical=True),
+            resilience.Tier(
+                name="cloud-llm", kind=resilience.CLOUD,
+                health=resilience.HEALTHY if cloud_online else resilience.DOWN),
+        ]
+        _LOGGER.info("resilience(shadow): %s", resilience.summarize(tiers))
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("resilience shadow skipped", exc_info=True)
+
+
 def allow_request() -> bool:
     """
     Return True if an LLM call should be attempted.
@@ -93,12 +143,17 @@ def record_success() -> None:
         _BREAKER.total_successes += 1
         if was_down:
             _LOGGER.info("Connectivity: LLM reachable again — breaker closed")
+    # Phase Z shadow: on a real recovery transition, observe the resilience policy
+    # with cloud healthy again (outside the lock — it only logs). Observe-only.
+    if was_down:
+        _emit_resilience_shadow(cloud_online=True)
 
 
 def record_failure() -> None:
     """Call after a failed LLM call. May open the breaker."""
     with _BREAKER.lock:
         now = time.time()
+        prev_state = _BREAKER.state
         _BREAKER.consecutive_failures += 1
         _BREAKER.last_failure = now
         _BREAKER.total_failures += 1
@@ -118,6 +173,12 @@ def record_failure() -> None:
                 )
             _BREAKER.state = _OPEN
             _BREAKER.opened_at = now
+        opened = prev_state != _OPEN and _BREAKER.state == _OPEN
+    # Phase Z shadow: on a real transition INTO the open state (cloud now down),
+    # observe the resilience policy — JARVIS stays offline-safe on the local
+    # canonical tier and cloud drops out as an offload target. Observe-only.
+    if opened:
+        _emit_resilience_shadow(cloud_online=False)
 
 
 def is_online() -> bool:

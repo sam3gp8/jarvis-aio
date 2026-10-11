@@ -10,9 +10,10 @@ and the chooser is local-first and fail-safe — an all-unhealthy fleet falls ba
 to the local/canonical tier rather than raising.
 
 Pure: no Home Assistant import, no I/O, no clock — the tiers and their health are
-injected, and every function is a total, deterministic derivation. A live binder
-(a health poller + the existing conservative breaker) wires real compute tiers
-onto it at the shadow rung; nothing live consumes it yet.
+injected, and every function is a total, deterministic derivation. The live binder
+is ``connectivity`` (Phase Z shadow): at each breaker transition (cloud reachable
+↔ not) it folds the real breaker health into this model and logs the would-be tier
+policy, observe-only — the breaker's own CLOSED/OPEN verdict is unchanged.
 """
 from __future__ import annotations
 
