@@ -364,11 +364,18 @@ _DECLARED: dict[str, dict] = {
     # live store — _long_horizon_parity logs how many goals resumed with identical
     # progress (the resume-after-restart proof; the ledger carries milestone
     # progress the agency_state commitment does not), kill-switch
-    # LONG_HORIZON_PARITY. Observe-only: nothing resumes FROM the ledger yet — that
-    # is the owner-gated enforce rung (LONG_HORIZON_ENFORCE, fail-safe =
-    # session-scoped goals). The ledger write never affects capture; the parity
-    # read never raises into boot.
-    "long_horizon": {"stage": "parity",  "owners": ["continuity"]},
+    # LONG_HORIZON_PARITY. ENFORCE (owner-authorized, LONG_HORIZON_ENFORCE): at boot
+    # the ledger (the pre-restart snapshot) becomes the AUTHORITATIVE source of a
+    # long-horizon continuity view — boot_summary (via _long_horizon_resume_line)
+    # surfaces the in-flight multi-day goals being resumed, with their progress and
+    # next milestone, which nothing surfaced before (the parity only logged a match
+    # count at debug). Non-redundant with the durable goals store (that silently
+    # persists the goals; this gives JARVIS a boot continuity view of what it is
+    # picking back up) and strictly non-actuating — it only surfaces a line.
+    # Kill-switch back to parity: LONG_HORIZON_ENFORCE / long_horizon_enforce;
+    # fail-safe = session-scoped (no resume line, today's silent boot) on any error.
+    # The ledger write never affects capture; the boot read never raises into boot.
+    "long_horizon": {"stage": "enforce", "owners": ["continuity"]},
     # learning: closed-loop learning & adaptation (roadmap Phase M). Turns
     # structured kernel.outcome.Outcome records into bounded, reversible
     # WeightAdjustments — a prior nudged toward the mean learning_signal, capped
