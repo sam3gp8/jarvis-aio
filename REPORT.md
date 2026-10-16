@@ -1,23 +1,23 @@
-# JARVIS traction report — 2026-10-15
+# JARVIS traction report — 2026-10-16
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-13 vs the 7 before
+## 7 days to 2026-10-15 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 748 | 688 | +9% |
-| Unique visitors (sum of daily) | 179 | 193 | -7% |
-| Clones | 4901 | 4198 | +17% |
-| Unique cloners (sum of daily) | 1203 | 1007 | +19% |
+| Views | 508 | 884 | -43% |
+| Unique visitors (sum of daily) | 158 | 196 | -19% |
+| Clones | 4353 | 4760 | -9% |
+| Unique cloners (sum of daily) | 1061 | 1143 | -7% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 26 | +1 | +9 |
+| Stars | 27 | +2 | +10 |
 | Forks | 6 | +2 | +3 |
 | Watchers | 1 | +0 | -1 |
 | HA analytics installs | — | — | — |
@@ -27,32 +27,33 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| github.com | 56 | 34 |
-| community.home-assistant.io | 40 | 38 |
-| Google | 15 | 13 |
+| github.com | 56 | 35 |
+| community.home-assistant.io | 42 | 40 |
+| Google | 14 | 12 |
 | chatgpt.com | 4 | 3 |
 | claude.ai | 1 | 1 |
-| l.facebook.com | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 398 | 218 |
-| `/sam3gp8/jarvis-aio/issues` | 199 | 46 |
-| `/sam3gp8/jarvis-aio/releases` | 53 | 23 |
-| `/sam3gp8/jarvis-aio/tree/main/custom_components/jarvis` | 47 | 14 |
-| `/sam3gp8/jarvis-aio/pulls` | 42 | 5 |
+| `/sam3gp8/jarvis-aio` | 379 | 210 |
+| `/sam3gp8/jarvis-aio/issues` | 195 | 45 |
+| `/sam3gp8/jarvis-aio/releases` | 51 | 21 |
+| `/sam3gp8/jarvis-aio/tree/main/custom_components/jarvis` | 46 | 13 |
+| `/sam3gp8/jarvis-aio/pulls` | 38 | 5 |
 | `/sam3gp8/jarvis-aio/tree/main/docs` | 27 | 12 |
-| `/sam3gp8/jarvis-aio/issues/140` | 23 | 7 |
-| `/sam3gp8/jarvis-aio/tree/main` | 22 | 11 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 21 | 18 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/floor-plan-import.md` | 15 | 7 |
+| `/sam3gp8/jarvis-aio/issues/140` | 24 | 7 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 23 | 20 |
+| `/sam3gp8/jarvis-aio/tree/main` | 21 | 10 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 15 | 13 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-15 | 26 | 14 | 189 | 45 |
+| 2026-10-14 | 35 | 12 | 149 | 44 |
 | 2026-10-13 | 41 | 13 | 84 | 41 |
 | 2026-10-12 | 102 | 32 | 442 | 114 |
 | 2026-10-11 | 64 | 31 | 1016 | 281 |
@@ -80,4 +81,3 @@ include CI checkouts, so treat views and referrers as the audience signal.
 | 2026-09-19 | 46 | 15 | 424 | 108 |
 | 2026-09-18 | 219 | 17 | 199 | 36 |
 | 2026-09-17 | 56 | 12 | 41 | 16 |
-| 2026-09-16 | 28 | 17 | 64 | 16 |
