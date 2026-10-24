@@ -107,17 +107,19 @@ decision.
 
 **Phase A (the third MCU audit's one actionable recommendation)** is complete
 for the `control_device` path: its pre-action read (`world_model` ◑), outcome
-(`outcome` ●), event emission (`event` ◑) and plan expression (`plan` ◐) are
-wired, alongside the pre-existing authority parity (◑, log-only) and
+(`outcome` ●), event emission (`event` ◑) and plan execution (`plan` ●) are
+wired, alongside authority (◑ — log-only on the spine for most capabilities,
+with the scoped security-capability allowlist now **enforced**, G4) and
 verify-after-act (●). `situation` stays `·` by design — not every single
 actuation is a situation, and forcing it would be the inflation this matrix
 exists to prevent. It shipped one contract at a time (8.30.0–8.33.0), each its
-own release, with authority staying **log-only / owner-gated** — the spine is
-built structurally; the enforce flip is a separate, explicit decision. The next
-move is to *template* this onto the other consequential paths (`bulk_control`,
-`execute_plan`, `run_scene_or_script`, `set_mode`, …) and, eventually, route
-execution itself through the plan/actuator contract. The async plan driver this
-needs now exists — `kernel.plan.aexecute_plan` (B-async, 8.39.0).
+own release, with authority kept **log-only** at the time — the spine built
+structurally first, each enforce flip a separate, explicit decision (the scoped
+G4 flip has since been taken). The next move is to *template* this onto the other
+consequential paths (`bulk_control`, `execute_plan`, `run_scene_or_script`,
+`set_mode`, …); execution itself already routes through the plan/actuator
+contract on `control_device` via the async plan driver `kernel.plan.aexecute_plan`
+(B-async, 8.39.0 → B4b), which is why its `plan` cell is `●`.
 
 **Phase B is underway.** B0 (8.36.0) extracted the golden-path wiring into a
 shared **`actuation`** envelope (`actuation.py`: `context` / `request` /
@@ -146,7 +148,8 @@ one release at a time.
   (`aexecute_plan`) — a one-step plan whose run_step performs the awaited
   service call — so the planner owns execution. The farthest-along path: only
   `situation` (n/a `–` by design — a one-shot toggle is not a situation) is
-  excluded, and the owner-gated `authority` enforce flip is all that remains.
+  excluded; the scoped `authority` enforce flip (G4) is live, and the remaining
+  move is the broader, unscoped flip — owner-gated.
 - **`intrusion`** — mirrors its lifecycle into the kernel **Situation** state
   machine at parity, and (D1) **verifies** the mirrored state agrees with the
   legacy intrusion verdict after every episode event (`_record_parity`,
@@ -226,13 +229,12 @@ one release at a time.
 > idempotency/**expected_outcome**), and the verify step now produces the
 > matching `ActuatorOutcome` (requested → executed → observed → verified). That
 > is why the **outcome** cell above is `●` and `KERNEL_ADOPTION.md` lists
-> `actuator` at **parity** (8.31.0), up from shadow. The actuation also now
-> publishes a canonical `JarvisEvent` (8.32.0, `event` ◑) and is expressed as a
-> one-step `kernel.plan.Plan` (8.33.0, `plan` ◐). Still ahead: routing
-> *execution itself* through the plan/actuator contract (so the kernel, not the
-> legacy branch, performs the `await`ed service call) — the step that raises
-> `plan` from shadow to full, now unblocked by the async plan driver
-> (`kernel.plan.aexecute_plan`, B-async).
+> `actuator` at **parity** (8.31.0), up from shadow. The actuation also
+> publishes a canonical `JarvisEvent` (8.32.0, `event` ◑) and runs *execution
+> itself* through a one-step `kernel.plan.Plan` executed by the async plan driver
+> (`kernel.plan.aexecute_plan`, B-async, 8.39.0 → B4b): the kernel, not the legacy
+> branch, performs the `await`ed service call, which is why the **plan** cell
+> above is `●` (full), up from the shadow expression it started as (8.33.0).
 
 ## How to raise the number
 
@@ -247,8 +249,12 @@ progress:
    stage has no evidence.
 4. Regenerate the block above with `--markdown`.
 
-No primitive is at `enforce` and authority stays **log-only / owner-gated**; this
-matrix measures wiring, not a licence to flip enforcement.
+This matrix measures **wiring depth** on the pipeline spine — a separate axis from
+the **enforce ladder** tracked in `KERNEL_ADOPTION.md`. A `●` cell means the
+contract is fully *wired* on the path, **not** that its decision binds. Several
+primitives are at enforce there (agency budget G1, loop-detect G2, authority G4 —
+scoped to a security-capability allowlist), each its own owner-gated flip; raising
+a cell here is wiring, not a licence to flip enforcement.
 
 ## Governance rule (8.34.0): new consequential actions enter through the kernel
 
