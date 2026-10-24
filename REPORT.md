@@ -1,4 +1,4 @@
-# JARVIS traction report — 2026-10-23
+# JARVIS traction report — 2026-10-24
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
@@ -17,11 +17,19 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 30 | +3 | +13 |
+| Stars | 30 | +2 | +13 |
 | Forks | 6 | +0 | +3 |
 | Watchers | 1 | +0 | -1 |
-| HA analytics installs | 105 | — | — |
+| HA analytics installs | 108 | — | — |
 | Release asset downloads | 0 | +0 | +0 |
+
+## HA forum thread
+
+[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **904** views, **4** replies.
+
+New posts in the last 7 days:
+- #4 @williammorran (2026-10-23): I cant get Jarvis to read my email, ive set up the app password put it in my secrets.yaml file and everytime I try to access it Jarvis says its not in the secrets.yaml file yet it clearly is. any ide…
+- #5 @sam3gp8 (2026-10-24): @williammorran thanks for reporting this. It turned up a real bug. JARVIS was reading secrets.yaml more strictly than Home Assistant does. If the file had a Home Assistant-only tag anywhere in it, li…
 
 ## Top referrers (rolling 14 days)
 
@@ -80,4 +88,3 @@ include CI checkouts, so treat views and referrers as the audience signal.
 | 2026-09-27 | 162 | 70 | 95 | 39 |
 | 2026-09-26 | 185 | 19 | 447 | 117 |
 | 2026-09-25 | 67 | 16 | 234 | 85 |
-| 2026-09-24 | 162 | 22 | 376 | 76 |
