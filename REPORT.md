@@ -4,14 +4,14 @@ Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-22 vs the 7 before
+## 7 days to 2026-10-23 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 287 | 508 | -44% |
-| Unique visitors (sum of daily) | 138 | 158 | -13% |
-| Clones | 584 | 4353 | -87% |
-| Unique cloners (sum of daily) | 212 | 1061 | -80% |
+| Views | 217 | 444 | -51% |
+| Unique visitors (sum of daily) | 114 | 166 | -31% |
+| Clones | 501 | 2946 | -83% |
+| Unique cloners (sum of daily) | 191 | 824 | -77% |
 
 ## Totals
 
@@ -25,7 +25,7 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **904** views, **4** replies.
+[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **917** views, **4** replies.
 
 New posts in the last 7 days:
 - #4 @williammorran (2026-10-23): I cant get Jarvis to read my email, ive set up the app password put it in my secrets.yaml file and everytime I try to access it Jarvis says its not in the secrets.yaml file yet it clearly is. any ide…
@@ -35,31 +35,31 @@ New posts in the last 7 days:
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 57 | 36 |
-| github.com | 33 | 27 |
+| community.home-assistant.io | 59 | 36 |
+| github.com | 29 | 25 |
 | Google | 13 | 11 |
 | Bing | 1 | 1 |
-| chatgpt.com | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 282 | 178 |
-| `/sam3gp8/jarvis-aio/issues` | 142 | 40 |
-| `/sam3gp8/jarvis-aio/pulls` | 22 | 7 |
-| `/sam3gp8/jarvis-aio/releases` | 17 | 5 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 16 | 16 |
+| `/sam3gp8/jarvis-aio` | 265 | 170 |
+| `/sam3gp8/jarvis-aio/issues` | 122 | 38 |
 | `/sam3gp8/jarvis-aio/issues/334` | 16 | 11 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 14 | 14 |
+| `/sam3gp8/jarvis-aio/releases` | 12 | 5 |
 | `/sam3gp8/jarvis-aio/discussions` | 10 | 8 |
 | `/sam3gp8/jarvis-aio/tree/main/docs` | 10 | 6 |
-| `/sam3gp8/jarvis-aio/issues/236` | 9 | 4 |
-| `/sam3gp8/jarvis-aio/issues/237` | 8 | 6 |
+| `/sam3gp8/jarvis-aio/pulls` | 9 | 7 |
+| `/sam3gp8/jarvis-aio/issues/400` | 7 | 3 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 6 | 6 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-23 | 21 | 14 | 71 | 33 |
 | 2026-10-22 | 17 | 9 | 189 | 47 |
 | 2026-10-21 | 8 | 8 | 115 | 36 |
 | 2026-10-20 | 24 | 11 | 21 | 17 |
