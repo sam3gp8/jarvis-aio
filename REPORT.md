@@ -1,64 +1,68 @@
-# JARVIS traction report — 2026-10-24
+# JARVIS traction report — 2026-10-25
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-23 vs the 7 before
+## 7 days to 2026-10-24 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 217 | 444 | -51% |
+| Views | 258 | 420 | -39% |
 | Unique visitors (sum of daily) | 114 | 166 | -31% |
-| Clones | 501 | 2946 | -83% |
-| Unique cloners (sum of daily) | 191 | 824 | -77% |
+| Clones | 702 | 2077 | -66% |
+| Unique cloners (sum of daily) | 225 | 601 | -63% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
 | Stars | 30 | +2 | +13 |
-| Forks | 6 | +0 | +3 |
+| Forks | 7 | +1 | +4 |
 | Watchers | 1 | +0 | -1 |
-| HA analytics installs | 108 | — | — |
+| HA analytics installs | 111 | — | — |
 | Release asset downloads | 0 | +0 | +0 |
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **917** views, **4** replies.
+[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **976** views, **5** replies.
+
+> **Waiting on a reply:** the newest post is from @williammorran (2026-10-24).
 
 New posts in the last 7 days:
 - #4 @williammorran (2026-10-23): I cant get Jarvis to read my email, ive set up the app password put it in my secrets.yaml file and everytime I try to access it Jarvis says its not in the secrets.yaml file yet it clearly is. any ide…
 - #5 @sam3gp8 (2026-10-24): @williammorran thanks for reporting this. It turned up a real bug. JARVIS was reading secrets.yaml more strictly than Home Assistant does. If the file had a Home Assistant-only tag anywhere in it, li…
+- #6 @williammorran (2026-10-24): Thanks ill take a look when they restore internet to the area, cloud routers suck so I cant even access my internal network as the cloud based settings control even dhcp. But thanks for the change il…
 
 ## Top referrers (rolling 14 days)
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 59 | 36 |
-| github.com | 29 | 25 |
-| Google | 13 | 11 |
+| community.home-assistant.io | 62 | 36 |
+| github.com | 28 | 24 |
+| Google | 15 | 12 |
 | Bing | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 265 | 170 |
-| `/sam3gp8/jarvis-aio/issues` | 122 | 38 |
-| `/sam3gp8/jarvis-aio/issues/334` | 16 | 11 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 14 | 14 |
-| `/sam3gp8/jarvis-aio/releases` | 12 | 5 |
-| `/sam3gp8/jarvis-aio/discussions` | 10 | 8 |
-| `/sam3gp8/jarvis-aio/tree/main/docs` | 10 | 6 |
-| `/sam3gp8/jarvis-aio/pulls` | 9 | 7 |
+| `/sam3gp8/jarvis-aio` | 280 | 168 |
+| `/sam3gp8/jarvis-aio/issues` | 112 | 36 |
+| `/sam3gp8/jarvis-aio/pulls` | 18 | 9 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 13 | 13 |
+| `/sam3gp8/jarvis-aio/issues/334` | 11 | 10 |
+| `/sam3gp8/jarvis-aio/discussions` | 11 | 9 |
+| `/sam3gp8/jarvis-aio/releases` | 10 | 3 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 7 | 7 |
 | `/sam3gp8/jarvis-aio/issues/400` | 7 | 3 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 6 | 6 |
+| `/sam3gp8/jarvis-aio/releases/9.0.0` | 6 | 6 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-24 | 102 | 26 | 244 | 56 |
 | 2026-10-23 | 21 | 14 | 71 | 33 |
 | 2026-10-22 | 17 | 9 | 189 | 47 |
 | 2026-10-21 | 8 | 8 | 115 | 36 |
@@ -87,4 +91,3 @@ New posts in the last 7 days:
 | 2026-09-28 | 55 | 28 | 173 | 44 |
 | 2026-09-27 | 162 | 70 | 95 | 39 |
 | 2026-09-26 | 185 | 19 | 447 | 117 |
-| 2026-09-25 | 67 | 16 | 234 | 85 |
