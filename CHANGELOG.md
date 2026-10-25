@@ -1,3 +1,21 @@
+## [9.31.0] — Throttle automatic camera analyses to protect your vision token budget (#421)
+
+Reported by a user hitting Groq's daily token limit (TPD): JARVIS's automatic
+camera analyses (generic HA motion → silent vision, auto event reviews) could
+fire often enough to exhaust the day's budget early.
+
+- **New setting: vision auto-analysis minimum interval.** A global minimum gap, in
+  seconds, between *automatic* camera analyses — Settings → AI Models → Vision →
+  "Auto-analysis min interval" (config key `vision_min_interval`). When the gap
+  hasn't elapsed, the automatic analysis is skipped **before any snapshot or
+  vision request**, so a throttled one costs neither tokens nor work.
+- **Off by default (`0`) — nothing changes unless you set it.** Set it to, say,
+  `300` to cap automatic vision to at most one call every five minutes.
+- **Only the discretionary paths are throttled.** Things you or a safety path
+  explicitly asked for are never dropped: the `analyze_camera` service and the
+  agent's "look at the camera" tool, doorbell presses, and person-confirmation.
+  The existing per-camera motion debounce still applies on top.
+
 ## [9.30.2] — Email: find the IMAP password in a secrets.yaml HA can read, and say why when it's missing
 
 Reported on the community forum: JARVIS said the Gmail app password was "not in

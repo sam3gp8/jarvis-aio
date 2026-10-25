@@ -84,6 +84,46 @@ def _cfg_opt(hass: HomeAssistant, key: str, default=None):
 
 VISION_THINKING_MAX_TOKENS_DEFAULT = 1024
 
+# ── Discretionary-vision rate limit (issue #421) ───────────────────────────────
+# Automatic / event-triggered camera analyses (generic HA motion, auto event
+# reviews) can burn through a provider's daily token budget — e.g. Groq's TPD
+# cap — when they fire often. ``vision_min_interval`` (seconds; 0 = off, the
+# default, so behaviour is unchanged unless opted in) sets a GLOBAL minimum gap
+# between these DISCRETIONARY analyses. Explicit calls — the analyze_camera
+# service / agent tool, doorbell presses, person-confirmation — are never
+# throttled (they are things the user or a safety path asked for). The existing
+# per-camera motion debounce still applies on top of this.
+VISION_MIN_INTERVAL_DEFAULT = 0
+_last_auto_vision_ts: float = float("-inf")
+
+
+def _auto_vision_interval(hass: HomeAssistant) -> float:
+    """Configured minimum seconds between discretionary vision analyses, or 0
+    (off). Never raises; a non-numeric / negative value reads as off."""
+    try:
+        n = float(_cfg_opt(hass, "vision_min_interval", VISION_MIN_INTERVAL_DEFAULT) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return n if n > 0 else 0.0
+
+
+def _claim_auto_vision_slot(hass: HomeAssistant, now: Optional[float] = None) -> bool:
+    """For a DISCRETIONARY analysis: True if it may run now (and claims the slot),
+    False if it falls within ``vision_min_interval`` of the last allowed one. A
+    zero/unset interval always allows (behaviour unchanged). Single event loop +
+    no await between the check and the claim, so no lock is needed. ``now`` is
+    injectable for tests; production passes none and uses the monotonic clock."""
+    global _last_auto_vision_ts
+    interval = _auto_vision_interval(hass)
+    if interval <= 0:
+        return True
+    import time as _time
+    t = _time.monotonic() if now is None else float(now)
+    if t - _last_auto_vision_ts < interval:
+        return False
+    _last_auto_vision_ts = t
+    return True
+
 
 def _vision_max_tokens(hass: HomeAssistant, base: int, thinking: bool) -> int:
     """Effective max_tokens for a vision-pipeline call. A thinking model spends
@@ -1182,6 +1222,7 @@ async def async_analyze_camera(
     speakers: list[str],
     gate_announce: bool = False,
     force_images: Optional[list] = None,
+    throttle: bool = False,
 ) -> dict:
     """
     Service: jarvis.analyze_camera
@@ -1190,6 +1231,12 @@ async def async_analyze_camera(
     and incorporates the result into JARVIS's awareness. When gate_announce is
     True (auto/event-triggered reviews), only notable scenes are spoken; manual
     service calls always report.
+
+    When ``throttle`` is True (automatic / event-triggered analyses, #421), the
+    call is dropped before any capture or vision request if it falls within the
+    configured ``vision_min_interval`` of the last discretionary analysis — so a
+    frequent trigger can't exhaust a provider's daily token budget. Explicit
+    calls leave it False and are never throttled.
     """
     entity_id: str = call.data["entity_id"]
     prompt: str    = call.data.get("prompt", "Describe what you see. Note anything unusual or worth attention.")
@@ -1197,6 +1244,20 @@ async def async_analyze_camera(
 
     camera_name = _camera_friendly_name(hass, entity_id)
     integration = _camera_integration(hass, entity_id)
+
+    # Discretionary-vision rate limit (#421): skip BEFORE capturing a frame or
+    # calling the model, so a throttled analysis costs neither tokens nor work.
+    if throttle and not _claim_auto_vision_slot(hass):
+        _LOGGER.debug(
+            "JARVIS: vision throttled (vision_min_interval) — skipping auto-analysis of %s",
+            entity_id)
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("CAMERA",
+                       f"{camera_name}: auto-analysis throttled (vision_min_interval)")
+        except Exception:
+            pass
+        return {"success": False, "error": "throttled", "camera": camera_name}
 
     _LOGGER.info("JARVIS: analyzing %s (%s, source=%s)", entity_id, camera_name, integration)
 
@@ -1893,5 +1954,5 @@ async def async_auto_analyze_on_event(
     await async_analyze_camera(
         hass, call, groq_client, honorific,
         tts_entity if announce else None, speakers if announce else [],
-        gate_announce=True,
+        gate_announce=True, throttle=True,
     )

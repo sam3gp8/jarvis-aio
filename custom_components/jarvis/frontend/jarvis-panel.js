@@ -2367,6 +2367,24 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       </div>`;
   }
 
+  // Throttle for AUTOMATIC camera analyses (#421): a minimum gap (seconds)
+  // between motion/auto-event vision calls, so a frequent trigger doesn't burn
+  // through a provider's daily token budget (e.g. Groq's TPD cap). 0 = off.
+  // Explicit "analyze camera" requests and doorbell presses are never throttled.
+  _visionThrottleRow(cfg) {
+    const v = cfg.vision_min_interval ?? 0;
+    return `
+      <div class="model-hint model-thinking-row">
+        <span>Auto-analysis min interval</span>
+        <span class="model-thinking-tokens">
+          <input id="vision-min-interval" class="cfg-field cfg-num" type="number" min="0" max="86400" step="30"
+                 data-cfg-key="vision_min_interval" value="${v}"
+                 title="Minimum seconds between automatic (motion / auto-event) camera analyses, to cap vision token use. 0 = off. Explicit requests and doorbell presses are never throttled.">
+          <label for="vision-min-interval">sec (0 = off)</label>
+        </span>
+      </div>`;
+  }
+
   _renderModelRoles(d) {
     const ALL_PROVIDERS = ['groq', 'openai', 'gemini', 'ollama', 'anthropic', 'custom'];
     const cfg = d.config || {};
@@ -2406,6 +2424,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           ${r.role === 'vision' ? `<div class="model-hint">Needs an image-capable model — e.g. moondream on Ollama, or a Groq vision model. Text-only models (like gpt-oss) will fail on camera analysis.</div>` : ''}
           ${r.role === 'review' ? this._reviewToggleRow(cfg) : ''}
           ${this._thinkingToggleRow(cfg, r.role)}
+          ${r.role === 'vision' ? this._visionThrottleRow(cfg) : ''}
         </div>`;
     }).join('');
   }

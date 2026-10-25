@@ -261,6 +261,7 @@ This lives in `/config/jarvis/config.json` (merge it into the existing object �
 | `rich_reasoning` | Cloud-first judgment for medium/high-urgency events (cheap, sharper). |
 | `visitor_learning` | Silently learn from person events at the door — never spoken. |
 | `package_detection` | Watch porch cameras for packages and mail; courier motion and mailbox sensors trigger a prompt announcement. |
+| `vision_min_interval` | **Throttle automatic camera analyses** to protect your vision provider's daily token budget (e.g. Groq's TPD cap). A minimum gap, in seconds, between *automatic* analyses (motion → silent vision, auto event reviews); `0` (default) is off. Set it in **Settings → AI Models → Vision**. Explicit requests (the `analyze_camera` service / "look at the camera" tool), doorbell presses, and person-confirmation are never throttled. |
 | `cognition_threshold` | How salient an event must be before JARVIS escalates it. |
 | `memory_backend` / `memory_pgvector_dsn` | **Advanced, opt-in.** Long-term memory stays on local SQLite/ChromaDB by default (no setup). Set `memory_backend: pgvector` and a `memory_pgvector_dsn` to move the semantic store to your own Postgres + pgvector for a large memory. Requires the `psycopg` driver and a reachable Postgres with the `vector` extension; if either is missing it falls back to the local default, so it can't break a working install. |
 

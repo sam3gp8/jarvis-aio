@@ -929,6 +929,10 @@ async def ws_get_panel_data(
                 # before the answer, so it needs more room than the tight
                 # non-thinking defaults (220/300 tokens).
                 "vision_thinking_max_tokens":    _runtime_opt(hass, entry, "vision_thinking_max_tokens", 1024),
+                # Global minimum seconds between AUTOMATIC camera analyses (motion
+                # / auto event reviews) — a throttle so frequent triggers don't
+                # exhaust a provider's daily token budget. 0 = off (#421).
+                "vision_min_interval":    _runtime_opt(hass, entry, "vision_min_interval", 0),
                 "review_enabled":      bool(_runtime_opt(hass, entry, "review_enabled", False)),
                 "review_provider":     str(_runtime_opt(hass, entry, "review_provider", "") or ""),
                 "review_model":        str(_runtime_opt(hass, entry, "review_model", "") or ""),
@@ -1606,6 +1610,7 @@ PANEL_WRITABLE_KEYS = {
     "camera_reasoning_model",
     "vision_thinking_enabled",     # bool: let the vision pipeline's model think (default off)
     "vision_thinking_max_tokens",     # int: token budget when vision thinking is on
+    "vision_min_interval",         # int seconds: global min gap between AUTOMATIC camera analyses (0 = off) — #421
     "classifier_rate_limit",
     "cognition_enabled",
     "cognition_threshold",
