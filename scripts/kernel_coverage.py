@@ -156,13 +156,16 @@ _PATHS: dict[str, dict] = {
     },
     # Activates scenes/scripts/automations. Routed through the shared actuation
     # envelope (B1): WorldModel context, actuation event, shadow plan. No
-    # deterministic end-state, so no verify/outcome. Authority is a *gap* (not
-    # N/A): a scene/script can do anything a confirm-gate would guard, so it is
-    # honestly counted as applicable-but-unwired.
+    # deterministic end-state, so no verify/outcome. Authority at parity
+    # (authority-breadth): the activation now records the kernel authority
+    # engine's verdict (record_control_parity, log-only) against the path's
+    # no-gate allow — a scene/script can do anything a confirm-gate would guard,
+    # so its authority contract is measured, not blank. Log-only; never gates.
     "run_scene_or_script": {
         "module": "agent.py",
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
+            "authority": {"stage": "parity", "evidence": "record_control_parity"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
             "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
         },
@@ -179,11 +182,15 @@ _PATHS: dict[str, dict] = {
     # through the actuation envelope (B2): actuation event + shadow plan for the
     # mode change. No single-entity context (so no world_model) and no
     # deterministic end-state (so no verify/outcome); the target is the mode.
-    # Authority is a *gap* (not N/A): a mode change applies scenes that can be
-    # consequential, so it is honestly counted as applicable-but-unwired.
+    # Authority at parity (authority-breadth): the mode change now records the
+    # kernel authority engine's verdict (record_control_parity, log-only)
+    # against the path's no-gate allow — a mode change applies scenes that can
+    # be consequential, so its authority contract is measured, not blank.
+    # Log-only; never gates the directive.
     "set_mode": {
         "module": "agent.py",
         "contracts": {
+            "authority": {"stage": "parity", "evidence": "record_control_parity"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
             "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
         },

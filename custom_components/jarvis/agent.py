@@ -1567,6 +1567,18 @@ async def _exec_run_scene_script(hass: HomeAssistant, args: dict) -> str:
         capability = f"{domain}.{svc}"
         areq = actuation.request(capability, entity_id,
                                  params={"entity_id": entity_id}, action=svc)
+        # Authority parity (#4b, log-only): record the kernel authority engine's
+        # verdict for activating this scene/script/automation against the path's
+        # (no-gate) allow, so the authority contract is MEASURED, not blank — a
+        # scene can do anything a confirm-gate would guard. Never gates the
+        # activation; it is unchanged. (authority-breadth)
+        try:
+            from . import authority_bridge
+            authority_bridge.record_control_parity(
+                hass, domain, svc, allowed=True, scope=entity_id,
+                intent="activate")
+        except Exception:  # pragma: no cover - log-only, never disrupt activation
+            pass
         ok, detail = await actuation.execute_actuator(
             hass, capability=capability, entity_id=entity_id, domain=domain,
             service=svc, data={"entity_id": entity_id}, action=svc, areq=areq,
@@ -2751,6 +2763,18 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
             _areq = actuation.request(_cap, _mode, params={"mode": _mode},
                                       action="set_mode",
                                       intent=f"set mode to {_mode}")
+            # Authority parity (#4b, log-only): record the kernel authority
+            # engine's verdict for this mode change against the path's (no-gate)
+            # allow, so the set_mode authority contract is MEASURED, not blank —
+            # a mode change applies scenes that can be consequential. Never gates
+            # the directive; the mode switch is unchanged. (authority-breadth)
+            try:
+                from . import authority_bridge
+                authority_bridge.record_control_parity(
+                    hass, "jarvis", "set_mode", allowed=True, scope=_mode,
+                    intent=f"set mode to {_mode}")
+            except Exception:  # pragma: no cover - log-only, never disrupt the mode switch
+                pass
             actuation.plan_shadow(_cap, _mode, "set_mode", None)
             actuation.emit_event(hass, _cap, _mode, action="set_mode",
                                  request=_areq)
