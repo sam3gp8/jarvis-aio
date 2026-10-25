@@ -39,8 +39,8 @@ grid) are kept underneath for continuity.
 | `control_device` | ◑ | ◑ | – | ◑ | ● | ● | ● |
 | `bulk_control` | ◑ | ◑ | – | ◑ | ◐ | – | – |
 | `execute_plan` | ◑ | · | – | ◑ | ● | – | – |
-| `run_scene_or_script` | ◑ | ◑ | – | · | ◐ | – | – |
-| `set_mode` | ◑ | – | – | · | ◐ | – | – |
+| `run_scene_or_script` | ◑ | ◑ | – | ◑ | ◐ | – | – |
+| `set_mode` | ◑ | – | – | ◑ | ◐ | – | – |
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
@@ -49,9 +49,9 @@ grid) are kept underneath for continuity.
 | `friday` | · | · | – | · | · | · | · |
 | `homer` | · | · | – | · | · | · | · |
 
-**Kernel coverage (applicable): 29.6%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 54 cells that can actually be wired. The 30 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 32.1%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 54 cells that can actually be wired. The 30 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 20.6% weighted / 19.0% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 22.2% weighted / 20.6% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -190,14 +190,18 @@ one release at a time.
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
   shared `actuation` envelope for its WorldModel context (`world_model` ◑),
   actuation event (`event` ◑) and shadow plan (`plan` ◐). verify/outcome are
-  **n/a** (`–`, no deterministic end-state). `authority` is an un-wired **gap**
-  (`·`), *not* n/a — a scene/script can do anything a confirm-gate would guard, so
-  it is honestly counted as applicable-but-unwired.
+  **n/a** (`–`, no deterministic end-state). **Authority** at **parity** (◑,
+  authority-breadth): activation now records the kernel authority engine's verdict
+  (`record_control_parity`, log-only) against the path's no-gate allow — a
+  scene/script can do anything a confirm-gate would guard, so its authority
+  contract is measured, not blank. Log-only; it never gates the activation.
 - **`set_mode`** (B2) — the mode directive records its change through the envelope
   (`event` ◑, `plan` ◐). `world_model` and verify/outcome are **n/a** (`–`): the
-  target is an abstract mode, not a single entity with pre/post state. `authority`
-  is an un-wired **gap** (`·`) — a mode change applies scenes that can be
-  consequential — not n/a.
+  target is an abstract mode, not a single entity with pre/post state. **Authority**
+  at **parity** (◑, authority-breadth): the mode change now records the authority
+  engine's verdict (`record_control_parity`, log-only) against the path's no-gate
+  allow — a mode change applies scenes that can be consequential, so its authority
+  contract is measured, not blank. Log-only; it never gates the directive.
 - **`execute_plan`** (B4) — each step's execution routes through the kernel planner
   (`aexecute_plan`, `plan` ●) and publishes an actuation event (`event` ◑), each
   run through the authority engine (`authority` ◑). Steps are arbitrary services,

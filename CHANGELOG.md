@@ -1,3 +1,22 @@
+## [9.32.0] — Authority coverage for scene/script activation and mode changes (log-only)
+
+Two consequential paths now record the kernel authority engine's verdict, closing
+a measurement gap the MCU audit flagged: a scene/script or a mode change can apply
+anything a confirmation gate would guard, yet neither was measured against the
+authority contract.
+
+- **`run_scene_or_script` and `set_mode` now record authority parity.** At the
+  point each activates, it logs what the kernel authority engine *would* decide
+  for that capability/target, against the path's current (no-gate) allow — the
+  same log-only treatment the bulk-control path already has.
+- **Strictly log-only — nothing about behaviour changes.** It never gates or
+  delays an activation or a mode switch, and a fault in the parity path is
+  swallowed so it can never disrupt the action. This is evidence-gathering, not
+  enforcement; any future enforce flip stays a separate, owner-gated decision.
+- **Behavioural kernel coverage rises 29.6% → 32.1%** (applicable cells): the two
+  `authority` cells move from un-wired gaps to parity. The matrix and its prose
+  are regenerated together.
+
 ## [9.31.0] — Throttle automatic camera analyses to protect your vision token budget (#421)
 
 Reported by a user hitting Groq's daily token limit (TPD): JARVIS's automatic
