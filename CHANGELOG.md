@@ -1,3 +1,23 @@
+## [9.33.0] — Auto-detect room shapes from a vacuum map (#405 follow-up)
+
+9.26.0 pulled a robot-vacuum map in as the floor-plan background. This closes the
+other half the issue asked for: detecting the room **shapes** from that map, so
+rooms are placed for you instead of traced by hand.
+
+- **New "Detect Rooms" button** in the Residence → floor-plan editor, beside
+  "Import Map". Pick your vacuum/map entity and it segments the map's distinct
+  room-fill colours into room polygons, drops them into the editor for you to
+  review, rename and position, then Save. (A vacuum-map PNG rarely carries room
+  names, so they come in as "Room 1…"; the shapes and relative layout are the
+  win.)
+- **No new dependency.** The segmentation — colour masking, morphology, the
+  largest-region trace and polygon simplification — is done entirely on Pillow +
+  numpy, which Home Assistant already ships. No OpenCV, no SciPy. If a
+  stripped-down install somehow lacks numpy, the button reports it cleanly
+  instead of failing.
+- Thanks to **@ThatJeffGuy** on the issue for the concrete color-segmentation
+  approach that shaped this (re-implemented here without the OpenCV dependency).
+
 ## [9.32.0] — Authority coverage for scene/script activation and mode changes (log-only)
 
 Two consequential paths now record the kernel authority engine's verdict, closing
