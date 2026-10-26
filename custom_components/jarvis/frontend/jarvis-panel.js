@@ -3965,6 +3965,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     // entity — no manual upload (#405). Populated from jarvis/floorplan_sources.
     html += '<select class="fp-import-entity ctrl" title="Import a floor plan from a vacuum map or image entity" style="padding:5px 8px;font-size:9px;max-width:170px;"><option value="">Map/vacuum…</option></select>';
     html += '<button class="ctrl" id="fp-import-entity-btn" style="padding:5px 10px;font-size:9px;">Import Map</button>';
+    // Auto-detect room SHAPES from the selected vacuum/map entity (#405 follow-up)
+    // — segments the map's room colours into polygons you review, then Save.
+    html += '<button class="ctrl" id="fp-detect-rooms-btn" title="Auto-detect room shapes from the selected vacuum/map entity" style="padding:5px 10px;font-size:9px;">Detect Rooms</button>';
     html += '<button class="ctrl" id="fp-export" style="padding:5px 10px;font-size:9px;">Export</button>';
     html += '<label class="ctrl" style="padding:5px 10px;font-size:9px;cursor:pointer;">Import <input type="file" accept=".json,application/json" class="fp-import-layout" style="display:none"/></label>';
     html += '<button class="ctrl" id="fp-add-room" style="padding:5px 10px;font-size:9px;">+ Add Room</button>';
@@ -7182,6 +7185,33 @@ ${this._renderExcludedEntities(d)}
           this._rerenderFloorEditor();
         } catch (err) {
           this._toast("✗ Import failed — " + (err?.message || err), "err");
+        }
+      });
+    }
+
+    // Detect room SHAPES from the selected vacuum/map entity (#405 follow-up):
+    // the backend segments the map into room polygons; we append them to the
+    // editing plan for the user to review/rename/position, then Save.
+    const fpDetectBtn = this.shadowRoot.getElementById("fp-detect-rooms-btn");
+    if (fpDetectBtn) {
+      fpDetectBtn.addEventListener("click", async () => {
+        const sel = this.shadowRoot.querySelector(".fp-import-entity");
+        const entity_id = sel && sel.value;
+        if (!entity_id) { this._toast("Pick a map/image entity first", "err"); return; }
+        const floor = this._editorFloor || "1f";
+        this._toast("Detecting rooms from " + entity_id + "…", "ok");
+        try {
+          const res = await this._hass.callWS({ type: "jarvis/segment_floorplan_rooms", entity_id });
+          const rooms = (res && res.rooms) || [];
+          if (!rooms.length) { this._toast("No rooms detected in that map", "err"); return; }
+          const plan = this._getEditingPlan();
+          if (!plan[floor]) return;
+          plan[floor].rooms = plan[floor].rooms || [];
+          for (const r of rooms) plan[floor].rooms.push(r);
+          this._rerenderFloorEditor();
+          this._toast("✓ Detected " + rooms.length + " room(s) — review, rename, position, then Save", "ok");
+        } catch (err) {
+          this._toast("✗ Room detection failed — " + (err?.message || err), "err");
         }
       });
     }

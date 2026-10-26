@@ -95,6 +95,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_set_enforcement)
         websocket_api.async_register_command(hass, ws_floorplan_sources)
         websocket_api.async_register_command(hass, ws_import_floorplan)
+        websocket_api.async_register_command(hass, ws_segment_floorplan_rooms)
     except Exception as exc:
         _LOGGER.debug("WS command register note: %s", exc)
 
@@ -2258,6 +2259,45 @@ async def ws_import_floorplan(
     except Exception as exc:
         _LOGGER.warning("ws_import_floorplan failed: %s", exc)
         connection.send_error(msg["id"], "import_failed", str(exc))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/segment_floorplan_rooms",
+    vol.Required("entity_id"): str,
+    vol.Optional("target_span", default=60.0): vol.Coerce(float),
+})
+@websocket_api.async_response
+async def ws_segment_floorplan_rooms(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Auto-detect room polygons from a vacuum/map image entity (#405 follow-up).
+
+    Fetches the entity's current image and segments it into room polygons the
+    floor-plan editor can render — read-only (it returns candidate rooms for the
+    panel to apply; it does not write the plan itself). Admin-gated and run off
+    the event loop (numpy/Pillow are blocking)."""
+    try:
+        from . import floorplan_import, floorplan_segment
+        content, _ctype = await floorplan_import._fetch_image_bytes(
+            hass, msg["entity_id"])
+        _span = float(msg.get("target_span", 60.0))
+        res = await hass.async_add_executor_job(
+            lambda: floorplan_segment.extract_rooms(content, target_span=_span))
+        if res.get("ok"):
+            _LOGGER.info("JARVIS panel: detected %d room(s) from %s",
+                         res.get("count", 0), msg["entity_id"])
+            connection.send_result(msg["id"], res)
+        else:
+            connection.send_error(msg["id"], res.get("error", "segment_failed"),
+                                  res.get("message", "Room detection failed."))
+    except ValueError as exc:
+        connection.send_error(msg["id"], "segment_failed", str(exc))
+    except Exception as exc:
+        _LOGGER.warning("ws_segment_floorplan_rooms failed: %s", exc)
+        connection.send_error(msg["id"], "segment_failed", str(exc))
 
 
 def _resolve_provider_key(hass: HomeAssistant, entry, provider: str) -> str:
