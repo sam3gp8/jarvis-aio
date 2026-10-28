@@ -262,14 +262,6 @@ _PATHS: dict[str, dict] = {
             "outcome": "nothing is actuated — no actuator outcome record",
         },
     },
-    # The four still-legacy actuation paths. Each acts on the home, so every
-    # actuation contract (event/world_model/authority/plan and, pending their
-    # shape, verify/outcome) is applicable and currently an un-wired gap — they
-    # are the biggest lever on the honest number. Only `situation` is N/A (an
-    # imperative action is not a situation lifecycle). verify/outcome are left as
-    # gaps, not pre-emptively N/A: whether a path has a deterministic end-state
-    # is decided when it is wired, and a conservative gap counts against us until
-    # then.
     # goals is an orchestration path: when a goal comes due it runs the headless
     # agent, whose tool-calls actuate through the already-wired paths. What goals
     # itself owns on the spine: the goal-as-Plan (F1/F2, shadow) and the lifecycle
@@ -292,23 +284,75 @@ _PATHS: dict[str, dict] = {
         "na": {"situation": "goal-driven actuation is imperative, not a "
                             "situation lifecycle"},
     },
+    # proactive — JARVIS acting on a learned/trusted pattern of its own accord
+    # (the *discretionary autonomous* device path). The live path is
+    # `cognitive_core._execute_action_data`, NOT the `proactive_audio.py`
+    # announcement/TTS path this row used to name (that is communication, not
+    # actuation on the home); re-pointed here so the row measures the real
+    # device autonomy. It routes each target through the universal actuation
+    # seam (`actuation.execute_actuator`): the kernel planner owns execution
+    # (plan ●, via aexecute_plan inside the seam) and the canonical actuation
+    # JarvisEvent is published (event ◑). Authority at parity (log-only): the
+    # engine verdict is recorded (`record_control_parity`) against the path's
+    # proceed decision. world_model/verify/outcome stay honest gaps — the path
+    # takes no pre-action WorldModel snapshot and passes verify=None (no
+    # read-back), so there is no outcome record either; conservative, counts
+    # against us. (The G1/G2 agency-budget and loop-detect ENFORCE gates that
+    # decide *whether* a proactive action runs are a separate rate/loop
+    # governor, not the authority permission engine measured here.)
     "proactive": {
-        "module": "proactive_audio.py",
-        "contracts": {},
-        "na": {"situation": "proactive actuation is imperative, not a situation "
-                            "lifecycle"},
+        "module": "cognitive_core.py",
+        "contracts": {
+            "plan": {"stage": "full", "evidence": "execute_actuator"},
+            "event": {"stage": "parity", "evidence": "execute_actuator"},
+            "authority": {"stage": "parity", "evidence": "record_control_parity"},
+        },
+        "na": {"situation": "discretionary autonomous actuation is imperative, "
+                            "not a situation lifecycle"},
     },
+    # friday — the FRIDAY background-automator sub-agent, the one profile that
+    # may actuate. It acts ONLY through its grant set
+    # (control_device / bulk_control / run_scene_or_script), each of which
+    # records the kernel authority engine's verdict (parity). The H6 delegation
+    # scope (`_DELEGATION_ATTRIBUTION`) brackets friday's run so every such
+    # verdict is recorded against actor="friday" — so friday's authority
+    # contract is measured (at parity), attributed to the sub-agent, not blank.
+    # The remaining actuation contracts (event/world_model/plan/verify/outcome)
+    # are performed inside those grant-set handlers and counted on *their* rows;
+    # friday's own path adds no wiring there, so they stay conservative gaps
+    # here rather than double-count.
     "friday": {
         "module": "agent.py",
-        "contracts": {},
+        "contracts": {
+            "authority": {"stage": "parity", "evidence": "_DELEGATION_ATTRIBUTION"},
+        },
         "na": {"situation": "a persona actuation path is imperative, not a "
                             "situation lifecycle"},
     },
+    # homer — the HOMER diagnostic sub-agent: read-only (`actuating: False`),
+    # its tool set is entirely observational. It investigates and reports a root
+    # cause to its parent; it never actuates, raises no lifecycle and publishes
+    # no actuation event. Every contract is therefore N/A-by-design — the same
+    # shape as a detection path's actuation cells, extended to the whole row
+    # because homer isn't even a situation path. Kept as an explicit all-N/A row
+    # so the census records this profile as non-actuating by design.
     "homer": {
         "module": "agent.py",
         "contracts": {},
-        "na": {"situation": "a persona actuation path is imperative, not a "
-                            "situation lifecycle"},
+        "na": {
+            "event": "read-only diagnostic sub-agent (actuating: False) — it "
+                     "raises no lifecycle and publishes no actuation event",
+            "world_model": "read-only — it takes no action, so there is no "
+                           "pre-action context to snapshot",
+            "situation": "read-only diagnostic sub-agent — not a situation "
+                         "lifecycle",
+            "authority": "read-only diagnostic sub-agent — it observes and "
+                         "reports, it never actuates, so there is no authority "
+                         "decision",
+            "plan": "read-only — produces no actuation plan",
+            "verify": "nothing is actuated by this path — nothing to verify",
+            "outcome": "nothing is actuated — no actuator outcome record",
+        },
     },
 }
 

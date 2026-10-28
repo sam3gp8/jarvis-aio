@@ -170,3 +170,49 @@ async def test_kill_switch_reverts_to_jarvis(friday_on, spy_actor_during_run, mo
     monkeypatch.setattr(friday_on, "_DELEGATION_ATTRIBUTION", False)
     await _delegate(friday_on, {"objective": "x", "profile": "FRIDAY"})
     assert spy_actor_during_run["actor"] == "jarvis"   # attribution disabled
+
+
+# ── friday's authority-parity matrix cell is kept honest ─────────────────────
+# The kernel-coverage matrix credits FRIDAY with exactly one wired cell —
+# authority at parity — on the strength of two facts: (1) delegation attribution
+# is on, so the authority verdict for each friday actuation is recorded against
+# actor="friday"; and (2) friday can actuate ONLY through its grant set, every
+# member of which is a declared coverage path that records the authority engine's
+# verdict (parity-or-better). These tests pin both, so the matrix claim cannot
+# silently become fiction — e.g. adding a non-authority-recording actuator to
+# _FRIDAY_GRANTS would fail here.
+
+import importlib.util          # noqa: E402
+import pathlib                 # noqa: E402
+
+_KC_SCRIPT = (pathlib.Path(__file__).resolve().parents[2]
+              / "scripts" / "kernel_coverage.py")
+
+
+def _load_kc():
+    spec = importlib.util.spec_from_file_location("kernel_coverage", _KC_SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_delegation_attribution_is_on(agent):
+    # The matrix's friday authority cell assumes attribution is live.
+    assert agent._DELEGATION_ATTRIBUTION is True
+
+
+def test_friday_grants_only_authority_recording_paths(agent):
+    kc = _load_kc()
+    rows = kc.scan()
+    for tool in agent._FRIDAY_GRANTS:
+        assert tool in kc._PATHS, f"{tool} is not a declared coverage path"
+        stage = rows[tool]["authority"]
+        assert stage in ("parity", "full"), (
+            f"friday may actuate through {tool}, whose authority cell is "
+            f"{stage!r} — friday must only reach authority-recording paths")
+
+
+def test_matrix_credits_friday_authority_parity(agent):
+    # The claim this whole file underwrites: friday's own row is authority=parity.
+    kc = _load_kc()
+    assert kc.scan()["friday"]["authority"] == "parity"

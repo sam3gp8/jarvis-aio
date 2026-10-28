@@ -4491,6 +4491,20 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
     capability = f"{domain}.{service}"
     successes = 0
     for eid in entity_ids:
+        # MCU authority-breadth (parity, log-only): record the kernel authority
+        # engine's verdict for this *discretionary autonomous* actuation against
+        # the path's proceed decision (G1/G2 already let it through, so the gate
+        # outcome is allow). This is the same log-only treatment control_device /
+        # bulk_control / run_scene_or_script carry — JARVIS acting of its own
+        # accord is exactly the class of action whose authority must be measured.
+        # Never gates the action, never raises: a parity fault is swallowed.
+        try:
+            from . import authority_bridge
+            authority_bridge.record_control_parity(
+                hass, domain, service, allowed=True, scope=eid,
+                intent="proactive")
+        except Exception:   # pragma: no cover - defensive, log-only
+            pass
         try:
             from . import actuation
             data = {"entity_id": eid, **extra}
