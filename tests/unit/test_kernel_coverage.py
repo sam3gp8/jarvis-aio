@@ -51,18 +51,64 @@ def test_control_device_authority_and_verify_declared(kc):
     assert rows["control_device"]["event"] == "parity"
     # B4b: control_device's actuation routes through the kernel planner.
     assert rows["control_device"]["plan"] == "full"
-    # A path with no kernel wiring is all 'none' (friday/homer are still legacy).
-    assert set(rows["friday"].values()) == {"none"}
+    # homer is read-only: its row carries no kernel-wired stage at all (every
+    # cell is N/A, which scans as the 'none' stage). See the dedicated homer test.
+    assert set(rows["homer"].values()) == {"none"}
 
 
 def test_goals_plan_shadow_and_event_parity(kc):
     # goals onto the spine #1: the goal→Plan is credited at shadow (F1/F2) and the
-    # goal.transition events are parity. The other three legacy paths stay blank.
+    # goal.transition events are parity.
     rows = kc.scan()
     assert rows["goals"]["plan"] == "shadow"
     assert rows["goals"]["event"] == "parity"
-    for p in ("proactive", "friday", "homer"):
+    # proactive (9.34.0) is now the real discretionary-autonomous device path and
+    # routes through the universal actuation seam, so plan is full and event parity.
+    assert rows["proactive"]["plan"] == "full"
+    assert rows["proactive"]["event"] == "parity"
+    # friday/homer add no event/plan wiring of their own.
+    for p in ("friday", "homer"):
         assert rows[p]["event"] == "none" and rows[p]["plan"] == "none"
+
+
+# ── 9.34.0: proactive re-pointed, friday authority parity, homer read-only ───
+
+def test_proactive_points_at_cognitive_core_and_is_wired(kc):
+    # The 'proactive' row names the REAL discretionary-autonomous device path
+    # (cognitive_core._execute_action_data), not the proactive_audio TTS path it
+    # used to point at. It routes through the universal seam, so plan is full and
+    # the actuation event is published (parity); authority is recorded at parity.
+    assert kc._PATHS["proactive"]["module"] == "cognitive_core.py"
+    rows = kc.scan()
+    assert rows["proactive"]["plan"] == "full"
+    assert rows["proactive"]["event"] == "parity"
+    assert rows["proactive"]["authority"] == "parity"
+    # Conservative gaps: no pre-action WorldModel snapshot, no deterministic
+    # read-back (verify=None) so no outcome record.
+    assert rows["proactive"]["world_model"] == "none"
+    assert rows["proactive"]["verify"] == "none"
+    assert rows["proactive"]["outcome"] == "none"
+    # situation is the only N/A for this imperative path.
+    assert kc._is_na("proactive", "situation")
+
+
+def test_friday_authority_is_delegation_attributed_parity(kc):
+    # FRIDAY's own row credits exactly ONE cell — authority at parity — because it
+    # actuates only through its (authority-recording) grant set and the H6
+    # delegation scope attributes each verdict to actor="friday". It claims no
+    # other actuation contract (those are owned/counted on the grant-set rows).
+    rows = kc.scan()
+    assert rows["friday"]["authority"] == "parity"
+    wired = {c: s for c, s in rows["friday"].items() if s != "none"}
+    assert wired == {"authority": "parity"}
+
+
+def test_homer_is_entirely_na_readonly(kc):
+    # HOMER is read-only (actuating: False): every contract is N/A-by-design, so
+    # it contributes zero applicable cells (neither numerator nor denominator).
+    for contract in kc._CONTRACTS:
+        assert kc._is_na("homer", contract), f"homer.{contract} should be N/A"
+    assert kc._PATHS["homer"]["contracts"] == {}
 
 
 def test_drift_detects_a_bad_declaration(kc, monkeypatch):

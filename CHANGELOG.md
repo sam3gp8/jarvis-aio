@@ -1,3 +1,38 @@
+## [9.34.0] — Authority coverage for the autonomous path; honest matrix for the sub-agents
+
+The kernel-coverage matrix gets its three remaining "legacy" rows straightened
+out — one real new wiring, two long-standing mis-classifications corrected.
+
+- **Discretionary autonomous actions now record authority parity.** When JARVIS
+  acts on a learned/trusted pattern *of its own accord*
+  (`cognitive_core._execute_action_data`), it now logs what the kernel authority
+  engine *would* decide for each target, against the path's proceed decision —
+  the same log-only treatment `control_device`, `bulk_control` and the
+  scene/script and mode paths already carry. This is the one genuinely new wire
+  this release, and it is the autonomous path precisely where authority most
+  needs measuring. Strictly log-only: it never gates an action, and a fault in it
+  is swallowed so it can never disrupt one.
+- **The matrix's `proactive` row now points at the real path.** It named
+  `proactive_audio.py` (the TTS/announcement path — communication, not actuation
+  on the home), so it was crediting nothing. Pointed at the real autonomous
+  device path, it surfaces wiring that already existed: execution runs through
+  the universal actuation seam, so `plan` is full and the actuation event is
+  published (`event` parity).
+- **FRIDAY and HOMER are now classified honestly.** FRIDAY (the one actuating
+  sub-agent) acts only through authority-recording paths, and the H6 delegation
+  scope attributes each verdict to it — so its `authority` cell is parity,
+  attributed to the sub-agent. HOMER is read-only (`actuating: False`): it never
+  actuates, so its whole row is N/A-by-design rather than six phantom
+  "un-wired-actuation" gaps it could never fill. Both are pinned by tests.
+- **Behavioural kernel coverage rises 32.1% → 42.4%** (applicable cells). Most of
+  the move is correction, not new credit: ~4.0 points from no longer penalising
+  HOMER for actuation it is designed never to do, ~3.5 points from crediting the
+  `proactive` seam wiring (plan + event) that the mis-pointed row hid, and
+  ~2.8 points from the two genuinely-new `authority` parity cells (proactive +
+  friday). Only those last two cells are new wiring this release. Every N/A
+  exclusion is listed with its reason in `KERNEL_COVERAGE.md`; the matrix, its
+  figures and its prose are regenerated together and gated by CI.
+
 ## [9.33.0] — Auto-detect room shapes from a vacuum map (#405 follow-up)
 
 9.26.0 pulled a robot-vacuum map in as the floor-plan background. This closes the

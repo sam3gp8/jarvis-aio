@@ -45,13 +45,13 @@ grid) are kept underneath for continuity.
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
 | `goals` | ◑ | · | – | · | ◐ | · | · |
-| `proactive` | · | · | – | · | · | · | · |
-| `friday` | · | · | – | · | · | · | · |
-| `homer` | · | · | – | · | · | · | · |
+| `proactive` | ◑ | · | – | ◑ | ● | · | · |
+| `friday` | · | · | – | ◑ | · | · | · |
+| `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 32.1%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 54 cells that can actually be wired. The 30 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 42.4%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 22.2% weighted / 20.6% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 25.8% weighted / 24.2% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -82,9 +82,15 @@ Across all 84 cells (N/A counted as un-wired): 22.2% weighted / 20.6% honest. Le
 - `delivery` · **verify** — nothing is actuated by this path — nothing to verify
 - `delivery` · **outcome** — nothing is actuated — no actuator outcome record
 - `goals` · **situation** — goal-driven actuation is imperative, not a situation lifecycle
-- `proactive` · **situation** — proactive actuation is imperative, not a situation lifecycle
+- `proactive` · **situation** — discretionary autonomous actuation is imperative, not a situation lifecycle
 - `friday` · **situation** — a persona actuation path is imperative, not a situation lifecycle
-- `homer` · **situation** — a persona actuation path is imperative, not a situation lifecycle
+- `homer` · **event** — read-only diagnostic sub-agent (actuating: False) — it raises no lifecycle and publishes no actuation event
+- `homer` · **world_model** — read-only — it takes no action, so there is no pre-action context to snapshot
+- `homer` · **situation** — read-only diagnostic sub-agent — not a situation lifecycle
+- `homer` · **authority** — read-only diagnostic sub-agent — it observes and reports, it never actuates, so there is no authority decision
+- `homer` · **plan** — read-only — produces no actuation plan
+- `homer` · **verify** — nothing is actuated by this path — nothing to verify
+- `homer` · **outcome** — nothing is actuated — no actuator outcome record
 <!-- END kernel-coverage -->
 
 **The headline figure above is the one to move** — most paths are still legacy,
@@ -221,12 +227,45 @@ one release at a time.
   reacts yet). `world_model`/`authority`/`verify`/`outcome` stay honest **gaps**
   (`·`): goals doesn't read state or actuate directly (the agent does), so they
   are not claimed here; `situation` is n/a (`–`).
-- **`proactive` / `friday` / `homer`** — the three still-legacy actuation paths,
-  not yet wired to any kernel contract. Every actuation contract
-  (event/world_model/authority/plan, and verify/outcome pending each path's shape)
-  is an applicable **gap** (`·`) counting against the number; only `situation` is
-  n/a (`–`, an imperative action is not a situation lifecycle). These are the
-  biggest remaining lever on the headline figure.
+- **`proactive`** (9.34.0) — JARVIS acting on a learned/trusted pattern *of its
+  own accord*, the discretionary autonomous device path. This row now names the
+  real path, `cognitive_core._execute_action_data` — **not** the
+  `proactive_audio.py` TTS/announcement path it used to point at (that is
+  communication, not actuation on the home, and so was crediting nothing). The
+  path routes each target through the universal actuation seam
+  (`actuation.execute_actuator`), so the kernel planner owns execution (`plan` ●,
+  via `aexecute_plan` inside the seam) and the canonical actuation `JarvisEvent`
+  is published (`event` ◑) — wiring that already existed but went uncredited
+  while the row was mis-pointed. **Authority** at **parity** (◑, log-only,
+  *new* this release): the engine verdict is recorded (`record_control_parity`)
+  against the path's proceed decision. `world_model`/`verify`/`outcome` stay
+  honest **gaps** (`·`): the path takes no pre-action WorldModel snapshot and
+  passes `verify=None` (no deterministic read-back, so no outcome record);
+  `situation` is n/a (`–`). The G1/G2 agency-budget + loop-detect **enforce**
+  gates that decide *whether* a proactive action runs are a separate rate/loop
+  governor, not the authority permission engine measured here.
+- **`friday`** (9.34.0) — the FRIDAY background-automator sub-agent, the one
+  profile that may actuate. It acts **only** through its grant set
+  (`control_device` / `bulk_control` / `run_scene_or_script`), each of which
+  records the kernel authority engine's verdict; the H6 delegation scope
+  (`_DELEGATION_ATTRIBUTION`) brackets friday's run so every verdict is recorded
+  against `actor="friday"`. So **authority** is at **parity** (◑), attributed to
+  the sub-agent — measured, not blank. The other actuation contracts
+  (`event`/`world_model`/`plan`/`verify`/`outcome`) are performed inside the
+  grant-set handlers and counted on **their** rows; friday's own path adds no
+  wiring there, so they stay conservative **gaps** (`·`) rather than
+  double-count. `situation` is n/a (`–`).
+- **`homer`** (9.34.0) — the HOMER diagnostic sub-agent is **read-only**
+  (`actuating: False`): its tool set is entirely observational, it investigates
+  and reports a root cause to its parent, and it never actuates, raises no
+  lifecycle, and publishes no event. Every contract is therefore **n/a-by-design**
+  (`–`) — the same shape as a detection path's actuation cells, extended across
+  the whole row because homer isn't even a situation path. It was previously
+  mis-counted as six applicable actuation **gaps**; those were never wireable
+  (homer must never actuate), so reclassifying them N/A — with every reason
+  listed in the ledger — corrects a false penalty rather than flattering the
+  figure. The row is kept, all-N/A, so the census records this profile as
+  non-actuating by design.
 
 > **Actuator contract (8.26.0 → 8.31.0):** `control_device` constructs a
 > canonical `kernel.actuator.ActuatorRequest` (who/intent/target/correlation/
