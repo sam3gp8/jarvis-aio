@@ -1,23 +1,23 @@
-# JARVIS traction report — 2026-10-27
+# JARVIS traction report — 2026-10-28
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-26 vs the 7 before
+## 7 days to 2026-10-27 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 259 | 340 | -24% |
-| Unique visitors (sum of daily) | 117 | 149 | -21% |
-| Clones | 783 | 681 | +15% |
-| Unique cloners (sum of daily) | 234 | 242 | -3% |
+| Views | 284 | 323 | -12% |
+| Unique visitors (sum of daily) | 133 | 147 | -10% |
+| Clones | 799 | 618 | +29% |
+| Unique cloners (sum of daily) | 241 | 218 | +11% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 31 | +2 | +13 |
+| Stars | 31 | +2 | +11 |
 | Forks | 7 | +1 | +4 |
 | Watchers | 1 | +0 | -1 |
 | HA analytics installs | 117 | — | — |
@@ -25,46 +25,37 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1101** views, **8** replies.
-
-> **Waiting on a reply:** the newest post is from @biancapascal (2026-10-27).
-
-New posts in the last 7 days:
-- #4 @williammorran (2026-10-23): I cant get Jarvis to read my email, ive set up the app password put it in my secrets.yaml file and everytime I try to access it Jarvis says its not in the secrets.yaml file yet it clearly is. any ide…
-- #5 @sam3gp8 (2026-10-24): @williammorran thanks for reporting this. It turned up a real bug. JARVIS was reading secrets.yaml more strictly than Home Assistant does. If the file had a Home Assistant-only tag anywhere in it, li…
-- #6 @williammorran (2026-10-24): Thanks ill take a look when they restore internet to the area, cloud routers suck so I cant even access my internal network as the cloud based settings control even dhcp. But thanks for the change il…
-- #7 @biancapascal (2026-10-26): I installed Yarvis, also i have credits on openrouter.ai but for some reasons he dos’nt speak. in settalite speakers i also have no speaker what i try Can anybody help me please?
-- #8 @sam3gp8 (2026-10-27): Hi! Two separate things are probably going on here — let’s split them, because one is the “brain” (OpenRouter) and one is the “voice” (speaking). The quickest way to tell which: open the JARVIS panel…
-- #9 @biancapascal (2026-10-27): a.> JARVIS AI Assistant HA OS b.> allot of speakers i have, sonos, tv , chrome cast. c.> Jarvis replies very good in de chat, if i try in my setting off HA the tts pipe i hear it speak. I tryed many…
+_Forum thread not reachable today._
 
 ## Top referrers (rolling 14 days)
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 65 | 40 |
-| github.com | 21 | 17 |
-| Google | 17 | 14 |
+| community.home-assistant.io | 69 | 42 |
+| github.com | 22 | 18 |
+| Google | 19 | 15 |
 | Bing | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 271 | 165 |
-| `/sam3gp8/jarvis-aio/issues` | 92 | 34 |
-| `/sam3gp8/jarvis-aio/pulls` | 19 | 10 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 15 | 13 |
-| `/sam3gp8/jarvis-aio/discussions` | 8 | 7 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 7 | 7 |
+| `/sam3gp8/jarvis-aio` | 285 | 171 |
+| `/sam3gp8/jarvis-aio/issues` | 87 | 35 |
+| `/sam3gp8/jarvis-aio/pulls` | 18 | 9 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 17 | 15 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 10 | 9 |
+| `/sam3gp8/jarvis-aio/discussions` | 7 | 6 |
 | `/sam3gp8/jarvis-aio/issues/334` | 7 | 6 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/activity-feed.png` | 7 | 5 |
 | `/sam3gp8/jarvis-aio/issues/400` | 7 | 3 |
-| `/sam3gp8/jarvis-aio/issues/394` | 5 | 2 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/activity-feed.png` | 6 | 4 |
+| `/sam3gp8/jarvis-aio/issues/413` | 6 | 3 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-27 | 49 | 27 | 37 | 24 |
 | 2026-10-26 | 59 | 31 | 50 | 18 |
 | 2026-10-25 | 28 | 18 | 93 | 27 |
 | 2026-10-24 | 102 | 26 | 244 | 56 |
@@ -93,4 +84,5 @@ New posts in the last 7 days:
 | 2026-10-01 | 47 | 22 | 195 | 56 |
 | 2026-09-30 | 58 | 22 | 129 | 39 |
 | 2026-09-29 | 20 | 8 | 14 | 12 |
-| 2026-09-28 | 55 | 28 | 173 | 44 |
+
+> Sources that failed today: forum
