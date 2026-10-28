@@ -99,6 +99,14 @@ No. You need Home Assistant 2024.10+ with HACS and one LLM provider, and you can
 **Will it take actions on its own?**
 Not at first. By default JARVIS offers, and you decide. Only after you've accepted the same kind of offer three times does it start doing that one thing on its own. It still logs the action, and you can revoke that trust at any time. Sensitive actions such as unlocking can require voice confirmation.
 
+**How close is this to the JARVIS from the movies?**
+An honest answer, by part:
+- **The mind is the real work — but it isn't finished.** JARVIS isn't if-this-then-that; it runs an agentic loop over a decision kernel (world model → situations → authority → plan → verify). That architecture genuinely exists, but it isn't yet the whole operating system: by the project's own tracked metric, only about **a third of behaviour-bearing paths are kernel-authoritative today** (the goal is ~80%), and most paths are still legacy-led. And the ceiling is real — it's an LLM reasoning over *your home's* state, not something that invents new physics.
+- **The body is deliberately bounded.** JARVIS senses and acts entirely through Home Assistant, by design. It has "eyes" (cameras), "senses" (sensors) and "hands" (anything HA can control) — but no robotics and no ubiquity, and that's the point of being an integration rather than a platform.
+- **The persona is there; the reflexes aren't.** It has a voice, a personality, and banter. What's missing is sub-second, interrupt-me-mid-sentence fluidity — the response latency of today's LLMs. That's the genuine frontier, and it's partly an engineering problem the design chips at (tiered routing so the big model isn't in every loop, local-first, anticipating so it acts before you finish asking) and partly a safety boundary kept on purpose (consequential actions hold for a human — see *"Will it take actions on its own?"* above).
+
+Short version: a sophisticated, layered autonomous kernel with a high-fidelity persona — **strong mind, real voice, deliberately HA-bounded body — where the frontier is reflex speed, not intelligence.**
+
 **Where does my data go?**
 It stays in your Home Assistant instance under `/config/jarvis/`. There is no JARVIS cloud and no telemetry. The only things sent out are calls to the LLM and vision providers you configure, and nothing at all if those are local. See [Privacy & your data](#privacy--your-data).
 
