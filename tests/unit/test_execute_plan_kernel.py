@@ -116,6 +116,52 @@ async def test_confirm_gate_blocks_a_step(agent, fake_hass, load, monkeypatch, p
     assert ("lock", "lock") not in [(c[0], c[1]) for c in fake_hass.service_calls]
 
 
+async def test_each_step_reads_world_model_and_area_tags_event(
+        agent, fake_hass, load, monkeypatch, published):
+    # MCU world_model parity: each step reads its target's pre-action context
+    # through the WorldModel facade (actuation.context) — the canonical context
+    # authority — and the emitted event is area-tagged, the same read
+    # control_device/bulk do, rather than acting on raw state alone.
+    actuation = load("actuation")
+    seen = []
+    real_ctx = actuation.context
+
+    def _spy(hass, eid):
+        seen.append(eid)
+        c = dict(real_ctx(hass, eid))
+        c["area"] = f"area-of-{eid.split('.')[-1]}"   # resolved area for this target
+        return c
+
+    monkeypatch.setattr(actuation, "context", _spy)
+    fake_hass.states.set("light.den", "off")
+    fake_hass.states.set("switch.fan", "off")
+    await agent._exec_execute_plan(fake_hass, {"steps": _steps(
+        ("light", "turn_on", "light.den"),
+        ("switch", "turn_on", "switch.fan"))})
+    # context read exactly once per step, for that step's own target
+    assert seen == ["light.den", "switch.fan"]
+    # each successful step's actuation event carries its resolved area (location)
+    locs = {e.data["capability"]: e.location for e in published}
+    assert locs == {"light.turn_on": "area-of-den", "switch.turn_on": "area-of-fan"}
+
+
+async def test_world_model_read_is_best_effort_never_blocks_step(
+        agent, fake_hass, load, monkeypatch, published):
+    # The context read is best-effort: even if the facade raised, the step must
+    # still run (behaviour preserved). actuation.context itself never raises, but
+    # a defensive path shouldn't let world_model wiring gate execution.
+    actuation = load("actuation")
+    monkeypatch.setattr(actuation, "context",
+                        lambda hass, eid: {"area": None, "exists": True})
+    fake_hass.states.set("light.den", "off")
+    out = await agent._exec_execute_plan(fake_hass, {"steps": _steps(
+        ("light", "turn_on", "light.den"))})
+    res = json.loads(out)
+    assert res["succeeded"] == 1 and res["failed"] == 0
+    assert ("light", "turn_on") in [(c[0], c[1]) for c in fake_hass.service_calls]
+    assert len(published) == 1 and published[0].location is None
+
+
 async def test_empty_plan(agent, fake_hass):
     out = await agent._exec_execute_plan(fake_hass, {"steps": []})
     assert "no steps provided" in out

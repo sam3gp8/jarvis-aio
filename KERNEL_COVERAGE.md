@@ -34,11 +34,12 @@ grid) are kept underneath for continuity.
 ## Current matrix
 
 <!-- BEGIN kernel-coverage (python3 scripts/kernel_coverage.py --markdown) -->
+
 | Path | event | world_model | situation | authority | plan | verify | outcome |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `control_device` | ◑ | ◑ | – | ◑ | ● | ● | ● |
 | `bulk_control` | ◑ | ◑ | – | ◑ | ● | – | – |
-| `execute_plan` | ◑ | · | – | ◑ | ● | – | – |
+| `execute_plan` | ◑ | ◑ | – | ◑ | ● | – | – |
 | `run_scene_or_script` | ◑ | ◑ | – | ◑ | ● | – | – |
 | `set_mode` | ◑ | – | – | ◑ | ◐ | – | – |
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
@@ -49,9 +50,9 @@ grid) are kept underneath for continuity.
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 53.5%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 54.9%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 31.0% weighted / 30.6% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 31.7% weighted / 31.3% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -91,6 +92,7 @@ Across all 84 cells (N/A counted as un-wired): 31.0% weighted / 30.6% honest. Le
 - `homer` · **plan** — read-only — produces no actuation plan
 - `homer` · **verify** — nothing is actuated by this path — nothing to verify
 - `homer` · **outcome** — nothing is actuated — no actuator outcome record
+
 <!-- END kernel-coverage -->
 
 **The headline figure above is the one to move** — most paths are still legacy,
@@ -222,9 +224,12 @@ one release at a time.
   contract is measured, not blank. Log-only; it never gates the directive.
 - **`execute_plan`** (B4) — each step's execution routes through the kernel planner
   (`aexecute_plan`, `plan` ●) and publishes an actuation event (`event` ◑), each
-  run through the authority engine (`authority` ◑). Steps are arbitrary services,
-  so verify/outcome are **n/a** (`–`). `world_model` is an un-wired **gap** (`·`).
-  Behaviour preserved: continue-on-failure, per-step results.
+  run through the authority engine (`authority` ◑). **`world_model`** at **parity**
+  (`◑`): each step target's pre-action context is read through the facade
+  (`actuation.context`) and the event is area-tagged, the same read
+  `control_device`/`bulk_control` do, rather than acting on raw state alone. Steps
+  are arbitrary services, so verify/outcome stay **n/a** (`–`). Behaviour
+  preserved: best-effort read, continue-on-failure, per-step results.
 - **`bulk_control`** (B3) — each executed target routed through the envelope
   (`world_model` ◑, `event` ◑, `authority` ◑). **Plan** at **full** (`●`): every
   target's execution runs *through* the kernel planner — the universal seam

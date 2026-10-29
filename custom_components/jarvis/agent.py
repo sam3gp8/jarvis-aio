@@ -1864,6 +1864,12 @@ async def _exec_execute_plan(hass: HomeAssistant, args: dict) -> str:
 
         capability = f"{domain}.{service}"
         svc_data = {"entity_id": entity_id, **extra}
+        # MCU world_model parity: read the step target's pre-action context
+        # through the WorldModel facade (the canonical context authority) and
+        # area-tag the actuation event, the same read control_device/bulk do,
+        # rather than acting on raw state alone. Best-effort; context never
+        # raises and the resolved area only enriches the emitted event.
+        _ctx = actuation.context(hass, entity_id)
         areq = actuation.request(capability, entity_id, params=svc_data,
                                  action=service)
         kstep = _kplan.Step(action=capability, params=svc_data,
@@ -1883,7 +1889,7 @@ async def _exec_execute_plan(hass: HomeAssistant, args: dict) -> str:
         if report.ok:
             succeeded += 1
             actuation.emit_event(hass, capability, entity_id, action=service,
-                                 request=areq)
+                                 area=_ctx["area"], request=areq)
             results.append({"step": i + 1, "description": desc, "ok": True})
         else:
             detail = (report.outcomes[0].detail if report.outcomes else "") \
