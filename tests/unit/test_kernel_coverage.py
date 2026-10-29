@@ -48,7 +48,7 @@ def test_control_device_authority_and_verify_declared(kc):
     # 8.31.0 (MCU Phase A): the verify step produces a canonical ActuatorOutcome.
     assert rows["control_device"]["outcome"] == "full"
     # 8.32.0 (MCU Phase A): the actuation publishes a canonical JarvisEvent.
-    assert rows["control_device"]["event"] == "parity"
+    assert rows["control_device"]["event"] == "full"   # consumed by the thrash reactor (H)
     # B4b: control_device's actuation routes through the kernel planner.
     assert rows["control_device"]["plan"] == "full"
     # homer is read-only: its row carries no kernel-wired stage at all (every
@@ -66,7 +66,7 @@ def test_goals_plan_full_and_event_parity(kc):
     # proactive (9.34.0) is now the real discretionary-autonomous device path and
     # routes through the universal actuation seam, so plan is full and event parity.
     assert rows["proactive"]["plan"] == "full"
-    assert rows["proactive"]["event"] == "parity"
+    assert rows["proactive"]["event"] == "full"   # consumed by the thrash reactor (H)
     # friday/homer add no event/plan wiring of their own.
     for p in ("friday", "homer"):
         assert rows[p]["event"] == "none" and rows[p]["plan"] == "none"
@@ -82,7 +82,7 @@ def test_proactive_points_at_cognitive_core_and_is_wired(kc):
     assert kc._PATHS["proactive"]["module"] == "cognitive_core.py"
     rows = kc.scan()
     assert rows["proactive"]["plan"] == "full"
-    assert rows["proactive"]["event"] == "parity"
+    assert rows["proactive"]["event"] == "full"   # consumed by the thrash reactor (H)
     assert rows["proactive"]["authority"] == "full"
     # Verify-after-act for deterministic autonomous targets (9.36.0): the path
     # reads the target back and records the canonical outcome.

@@ -37,22 +37,22 @@ grid) are kept underneath for continuity.
 
 | Path | event | world_model | situation | authority | plan | verify | outcome |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `control_device` | ◑ | ◑ | – | ● | ● | ● | ● |
-| `bulk_control` | ◑ | ◑ | – | ● | ● | – | – |
-| `execute_plan` | ◑ | ◑ | – | ● | ● | – | – |
-| `run_scene_or_script` | ◑ | ◑ | – | ● | ● | – | – |
+| `control_device` | ● | ◑ | – | ● | ● | ● | ● |
+| `bulk_control` | ● | ◑ | – | ● | ● | – | – |
+| `execute_plan` | ● | ◑ | – | ● | ● | – | – |
+| `run_scene_or_script` | ● | ◑ | – | ● | ● | – | – |
 | `set_mode` | ◑ | – | – | ● | ● | – | – |
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
 | `goals` | ◑ | · | – | · | ● | · | · |
-| `proactive` | ◑ | ◑ | – | ● | ● | ● | ● |
+| `proactive` | ● | ◑ | – | ● | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 61.8%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 65.3%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 35.3% weighted / 35.3% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 37.3% weighted / 37.3% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -115,7 +115,7 @@ decision.
 
 **Phase A (the third MCU audit's one actionable recommendation)** is complete
 for the `control_device` path: its pre-action read (`world_model` ◑), outcome
-(`outcome` ●), event emission (`event` ◑) and plan execution (`plan` ●) are
+(`outcome` ●), event emission (`event` ●, consumed by the thrash reactor) and plan execution (`plan` ●) are
 wired, alongside authority (● — **general enforce**, G4b: the kernel engine's
 verdict now gates the action under the max-restriction belt, not just the scoped
 security allowlist) and verify-after-act (●). `situation` stays `·` by design —
@@ -149,11 +149,11 @@ one release at a time.
   the verify step produces the canonical `kernel.actuator.ActuatorOutcome`
   (requested → executed → observed → **verified / mismatch / failed**) as the
   path's real outcome record — the audit's point 18, *"the service returned
-  success" is not "the world reached the expected state"*. **Event** at parity
-  (8.32.0): the actuation is published as a canonical `JarvisEvent`
-  (`from_actuation`) onto the kernel event bus, which the ledger records —
-  parity, not full, because it enters the stream but no cognitive consumer
-  reacts to it yet (the audit's item #8, the event bus as nervous system).
+  success" is not "the world reached the expected state"*. **Event** at **full**
+  (H): the actuation is published as a canonical `JarvisEvent` (`from_actuation`)
+  onto the kernel event bus, which the ledger records **and** the cross-path
+  thrash reactor now *consumes* to drive the autonomous back-off — the audit's
+  item #8, the event bus as a live nervous system rather than a passive ledger.
   **Plan** at full (B4b): the actuation runs *through* the kernel planner
   (`aexecute_plan`) — a one-step plan whose run_step performs the awaited
   service call — so the planner owns execution. The farthest-along path: only
@@ -199,7 +199,7 @@ one release at a time.
   handling. This is the step that lifts coverage back up (15.5% → 17.9%).
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
   shared `actuation` envelope for its WorldModel context (`world_model` ◑) and
-  actuation event (`event` ◑). verify/outcome are **n/a** (`–`, no deterministic
+  actuation event (`event` ●, consumed by the thrash reactor). verify/outcome are **n/a** (`–`, no deterministic
   end-state). **Plan** at **full** (`●`): the activation runs *through* the kernel
   planner — the universal seam (`execute_actuator`) executes it as a one-step
   `aexecute_plan` whose run_step performs the awaited service call, exactly as
@@ -228,7 +228,8 @@ one release at a time.
   applies scenes that can be consequential, so it proceeds only if the engine
   returns ALLOW, fail-safe to allow on an engine fault.
 - **`execute_plan`** (B4) — each step's execution routes through the kernel planner
-  (`aexecute_plan`, `plan` ●) and publishes an actuation event (`event` ◑), each
+  (`aexecute_plan`, `plan` ●) and publishes an actuation event (`event` ●,
+  consumed by the thrash reactor), each
   run through the authority engine (`authority` ●, G4b — general enforce). **`world_model`** at **parity**
   (`◑`): each step target's pre-action context is read through the facade
   (`actuation.context`) and the event is area-tagged, the same read
@@ -236,8 +237,9 @@ one release at a time.
   are arbitrary services, so verify/outcome stay **n/a** (`–`). Behaviour
   preserved: best-effort read, continue-on-failure, per-step results.
 - **`bulk_control`** (B3) — each executed target routed through the envelope
-  (`world_model` ◑, `event` ◑, `authority` ● — G4b: each target is gated on the
-  engine's verdict, held targets skipped and reported like protected ones).
+  (`world_model` ◑, `event` ● (consumed by the thrash reactor), `authority` ● —
+  G4b: each target is gated on the engine's verdict, held targets skipped and
+  reported like protected ones).
   **Plan** at **full** (`●`): every
   target's execution runs *through* the kernel planner — the universal seam
   (`execute_actuator`) drives each as a one-step `aexecute_plan`, the same
@@ -274,7 +276,8 @@ one release at a time.
   path routes each target through the universal actuation seam
   (`actuation.execute_actuator`), so the kernel planner owns execution (`plan` ●,
   via `aexecute_plan` inside the seam) and the canonical actuation `JarvisEvent`
-  is published (`event` ◑). **Authority** at **full** (●, G4b): each target is
+  is published (`event` ●, consumed by the cross-path thrash reactor, which the
+  autonomous path itself then consults to back off). **Authority** at **full** (●, G4b): each target is
   gated on the engine's verdict (`enforced_decision`, max-restriction) — a held
   verdict means JARVIS does **not** act of its own accord on that target (no one
   to confirm an autonomous action, so it fails closed and skips; the engine never
@@ -324,7 +327,8 @@ one release at a time.
 > matching `ActuatorOutcome` (requested → executed → observed → verified). That
 > is why the **outcome** cell above is `●` and `KERNEL_ADOPTION.md` lists
 > `actuator` at **parity** (8.31.0), up from shadow. The actuation also
-> publishes a canonical `JarvisEvent` (8.32.0, `event` ◑) and runs *execution
+> publishes a canonical `JarvisEvent` (8.32.0, `event` ● — consumed by the
+> cross-path thrash reactor) and runs *execution
 > itself* through a one-step `kernel.plan.Plan` executed by the async plan driver
 > (`kernel.plan.aexecute_plan`, B-async, 8.39.0 → B4b): the kernel, not the legacy
 > branch, performs the `await`ed service call, which is why the **plan** cell

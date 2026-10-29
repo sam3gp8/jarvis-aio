@@ -99,8 +99,10 @@ _PATHS: dict[str, dict] = {
             # the envelope — requested→executed→observed→verified (audit #18).
             "outcome": {"stage": "full", "evidence": "actuation.outcome"},
             # The actuation is published as a canonical JarvisEvent on the bus
-            # (8.32.0). Parity — it enters the stream, no consumer reacts yet.
-            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            # (8.32.0). FULL (H): the cross-path thrash reactor now CONSUMES this
+            # stream to drive the autonomous back-off — the bus is a live nervous
+            # system, not just a ledger.
+            "event": {"stage": "full", "evidence": "actuation.emit_event"},
             # Execution routes through the kernel planner (B4b): a one-step plan
             # whose run_step performs the awaited service call (aexecute_plan).
             # Full — the planner owns execution, not just a shadow description.
@@ -128,7 +130,8 @@ _PATHS: dict[str, dict] = {
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "authority": {"stage": "full", "evidence": "enforced_decision"},
-            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            # event FULL (H): consumed by the cross-path thrash reactor.
+            "event": {"stage": "full", "evidence": "actuation.emit_event"},
             "plan": {"stage": "full", "evidence": "execute_actuator"},
         },
         "na": {
@@ -155,7 +158,8 @@ _PATHS: dict[str, dict] = {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "authority": {"stage": "full", "evidence": "enforced_decision"},
             "plan": {"stage": "full", "evidence": "aexecute_plan"},
-            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            # event FULL (H): consumed by the cross-path thrash reactor.
+            "event": {"stage": "full", "evidence": "actuation.emit_event"},
         },
         "na": {
             "situation": "an imperative multi-step plan is not a situation "
@@ -181,7 +185,8 @@ _PATHS: dict[str, dict] = {
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "authority": {"stage": "full", "evidence": "enforced_decision"},
-            "event": {"stage": "parity", "evidence": "actuation.emit_event"},
+            # event FULL (H): consumed by the cross-path thrash reactor.
+            "event": {"stage": "full", "evidence": "actuation.emit_event"},
             "plan": {"stage": "full", "evidence": "execute_actuator"},
         },
         "na": {
@@ -337,7 +342,7 @@ _PATHS: dict[str, dict] = {
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "plan": {"stage": "full", "evidence": "execute_actuator"},
-            "event": {"stage": "parity", "evidence": "execute_actuator"},
+            "event": {"stage": "full", "evidence": "execute_actuator"},
             "authority": {"stage": "full", "evidence": "enforced_decision"},
             "verify": {"stage": "full", "evidence": "_proactive_verify_factory"},
             "outcome": {"stage": "full", "evidence": "actuation.outcome"},

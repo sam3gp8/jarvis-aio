@@ -1,3 +1,24 @@
+## [9.43.0] — The event bus becomes a nervous system (cross-path thrash reactor)
+
+Stage 3a of the enforce-flip track. JARVIS has long published every actuation as
+a canonical event on the kernel event bus, where the ledger recorded it — but
+nothing *reacted* to the stream. This adds the first real consumer: a **cross-path
+thrash reactor** that watches the whole actuation stream (every path) and lets
+JARVIS's own autonomous actions back off on a system-wide oscillation that no
+single path's inline loop-gate could see (e.g. a device turned on by one path,
+off by a scene, on again by a learned pattern, round and round).
+
+- **Bounded and safe.** It only ever suppresses *discretionary autonomous*
+  actions — never a user request or a safety response — exactly like the existing
+  autonomous loop/budget gates. It fails open (any error → the action proceeds)
+  and is reversible with one switch (`STREAM_THRASH_ENFORCE`).
+- **Behavioural kernel coverage rises 61.8% → 65.3%** — the `event` cell moves
+  from parity to full on the five device-actuation paths (`control_device`,
+  `bulk_control`, `execute_plan`, `run_scene_or_script`, `proactive`) whose events
+  the reactor consumes to drive that back-off. `set_mode` (a mode directive that
+  never participates in device thrash) and the situation/goal event streams stay
+  at parity — they're published but not consumed by this reactor.
+
 ## [9.42.0] — Mode changes run through the kernel planner
 
 Stage 2 of the enforce-flip track. Switching the operational mode (`set_mode`)
