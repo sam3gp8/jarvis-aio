@@ -40,24 +40,28 @@ degrade gracefully (worst case: one learned-convenience action is skipped and
 re-surfaces next cycle — never an unsafe or missed-safety outcome), each with a
 fail-open gate and a one-line kill-switch: **`budget` → enforce** (G1, a
 self-imposed hourly ceiling) and **`loop_detect` → enforce** (G2, suppress a
-thrashing action). The third is **`authority` → enforce** (G4), taken in a
-deliberately **scoped** form: the engine is authoritative only for a bounded
-allowlist of security capabilities (unlock, latch-open, garage/cover open, alarm
-arm/disarm) via a max-restriction belt that can only *tighten* the legacy gate,
-never loosen it, fails safe to the legacy outcome on any engine fault, and is
-kill-switchable (`AUTHORITY_ENFORCE`). The exact boundary — which paths consult
-it, and the deliberate safety-critical exemption — is in the per-primitive
-**`authority`** note below, and the allowlist is drift-guarded by
-`test_authority_enforce.py`.
+thrashing action). The third is **`authority` → enforce**, now taken in full: first scoped (G4) to a
+bounded allowlist of security capabilities (unlock, latch-open, garage/cover
+open, alarm arm/disarm), then **generalised to every capability** (G4b,
+owner-approved) once the engine had run in parity. Both rest on the same
+**max-restriction belt**: the engine can only ever *tighten* the legacy gate
+(turn an allow into a hold), never loosen it; it fails safe to the legacy outcome
+on any engine fault; and it is kill-switchable in two steps
+(`AUTHORITY_ENFORCE_ALL` reverts to the scoped allowlist, `AUTHORITY_ENFORCE` to
+pure parity). Because `default_policy` returns ALLOW for safe and in-policy
+sensitive actions at normal confidence, the general flip holds only
+security-sensitive or low-confidence actions — the safe direction. The exact
+boundary — which paths enforce it — is in the per-primitive **`authority`** note
+below, and the allowlist is drift-guarded by `test_authority_enforce.py`.
 
-The remaining flips are still un-taken: the `hazard`/`delivery` situations (G3),
-the **`intrusion`** situation (G5), and the **unscoped** authority flip (making
-the engine authoritative *beyond* that security allowlist) — these stay behind an
-explicit per-flip owner go/no-go. In short: a read facade may reach enforce on
-its own; a *non-safety, self-imposed* decision primitive may reach it with owner
-approval and a kill-switch; a safety/authority decision may reach it only in an
-owner-approved, kill-switched, **fail-safe-bounded** form — and a *broad* flip
-beyond that bound may not, except by an explicit per-flip owner go/no-go.
+The remaining flips are still un-taken: the `hazard`/`delivery` situations (G3)
+and the **`intrusion`** situation (G5) — these stay behind an explicit per-flip
+owner go/no-go. In short: a read facade may reach enforce on its own; a
+*non-safety, self-imposed* decision primitive may reach it with owner approval
+and a kill-switch; a safety/authority decision may reach it only in an
+owner-approved, kill-switched, **fail-safe-bounded** form (which the authority
+flip is) — and a *situation* flip that would make the kernel, not the legacy
+SafetyManager, own a safety verdict stays behind its own per-flip go/no-go.
 
 ## Current matrix
 

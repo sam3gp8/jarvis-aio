@@ -1,3 +1,29 @@
+## [9.41.0] — The kernel authority engine now gates every action (G4b)
+
+JARVIS has long run every consequential action past a kernel **authority engine**
+and *recorded* whether its verdict agreed with the live confirm-gate — enforcing
+only a scoped set of security-sensitive capabilities (locks, alarms). This flips
+the engine to **general enforce**: its verdict now gates **every** actuation
+across every path — `control_device`, `bulk_control`, `execute_plan`,
+`run_scene_or_script`, `set_mode`, and JARVIS's own autonomous (`proactive`)
+actions.
+
+- **Max-restriction belt.** The engine can only ever *add* a confirmation (turn
+  an allow into a hold), **never loosen** the legacy gate. An action proceeds only
+  if the legacy gate allows it **and** the engine returns ALLOW.
+- **Low friction by design.** The engine ALLOWs safe and in-policy sensitive
+  actions at normal confidence, so everyday actions (lights, switches, scenes,
+  modes) are unaffected; only security-sensitive or low-confidence actions are
+  held — the safe direction. For autonomous (`proactive`) actions a held verdict
+  means JARVIS simply doesn't act (there's no one to confirm), so it can never, on
+  its own initiative, do something like unlock a door.
+- **Fail-safe & reversible.** Any engine fault leaves the legacy outcome unchanged
+  (a kernel error can never block a legitimate action). Two kill-switches:
+  `AUTHORITY_ENFORCE_ALL=False` reverts to the scoped security allowlist;
+  `AUTHORITY_ENFORCE=False` reverts to pure log-only parity.
+- **Behavioural kernel coverage rises 55.6% → 59.7%** — the `authority` cell moves
+  from parity to full on all six actuation paths.
+
 ## [9.40.0] — Goals: the kernel plan is now authoritative (H4b)
 
 The goal planner completes its arc. A goal has long been expressed as a durable

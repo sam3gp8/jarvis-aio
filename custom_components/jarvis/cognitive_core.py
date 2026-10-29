@@ -4604,20 +4604,24 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
     _expected = _PROACTIVE_EXPECTED.get(service)
     successes = 0
     for eid in entity_ids:
-        # MCU authority-breadth (parity, log-only): record the kernel authority
-        # engine's verdict for this *discretionary autonomous* actuation against
-        # the path's proceed decision (G1/G2 already let it through, so the gate
-        # outcome is allow). This is the same log-only treatment control_device /
-        # bulk_control / run_scene_or_script carry — JARVIS acting of its own
-        # accord is exactly the class of action whose authority must be measured.
-        # Never gates the action, never raises: a parity fault is swallowed.
+        # Authority ENFORCE (MCU Phase G4b): the kernel engine's verdict gates this
+        # *discretionary autonomous* actuation per target, max-restriction. G1/G2
+        # already decided WHETHER to proceed (legacy allow); the engine can only
+        # tighten that. A held verdict means JARVIS does NOT act of its own accord
+        # on this target — there is no one to confirm an autonomous action, so it
+        # FAILS CLOSED and skips (the engine never lets an autonomous security
+        # action through). Fail-safe to the legacy allow on any engine fault.
         try:
             from . import authority_bridge
-            authority_bridge.record_control_parity(
-                hass, domain, service, allowed=True, scope=eid,
+            _eff_ok, _authz = authority_bridge.enforced_decision(
+                hass, domain, service, legacy_ok=True, scope=eid,
                 intent="proactive")
-        except Exception:   # pragma: no cover - defensive, log-only
-            pass
+        except Exception:   # pragma: no cover - fail-safe to legacy allow
+            _eff_ok = True
+        if not _eff_ok:
+            _LOGGER.info("Proactive action held by the authority engine, "
+                         "skipped: %s.%s on %s", domain, service, eid)
+            continue
         try:
             from . import actuation
             data = {"entity_id": eid, **extra}

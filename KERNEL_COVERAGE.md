@@ -37,22 +37,22 @@ grid) are kept underneath for continuity.
 
 | Path | event | world_model | situation | authority | plan | verify | outcome |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `control_device` | ◑ | ◑ | – | ◑ | ● | ● | ● |
-| `bulk_control` | ◑ | ◑ | – | ◑ | ● | – | – |
-| `execute_plan` | ◑ | ◑ | – | ◑ | ● | – | – |
-| `run_scene_or_script` | ◑ | ◑ | – | ◑ | ● | – | – |
-| `set_mode` | ◑ | – | – | ◑ | ◐ | – | – |
+| `control_device` | ◑ | ◑ | – | ● | ● | ● | ● |
+| `bulk_control` | ◑ | ◑ | – | ● | ● | – | – |
+| `execute_plan` | ◑ | ◑ | – | ● | ● | – | – |
+| `run_scene_or_script` | ◑ | ◑ | – | ● | ● | – | – |
+| `set_mode` | ◑ | – | – | ● | ◐ | – | – |
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
 | `goals` | ◑ | · | – | · | ● | · | · |
-| `proactive` | ◑ | ◑ | – | ◑ | ● | ● | ● |
+| `proactive` | ◑ | ◑ | – | ● | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 55.6%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 59.7%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 32.1% weighted / 31.7% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 34.5% weighted / 34.1% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -116,17 +116,18 @@ decision.
 **Phase A (the third MCU audit's one actionable recommendation)** is complete
 for the `control_device` path: its pre-action read (`world_model` ◑), outcome
 (`outcome` ●), event emission (`event` ◑) and plan execution (`plan` ●) are
-wired, alongside authority (◑ — log-only on the spine for most capabilities,
-with the scoped security-capability allowlist now **enforced**, G4) and
-verify-after-act (●). `situation` stays `·` by design — not every single
-actuation is a situation, and forcing it would be the inflation this matrix
-exists to prevent. It shipped one contract at a time (8.30.0–8.33.0), each its
-own release, with authority kept **log-only** at the time — the spine built
-structurally first, each enforce flip a separate, explicit decision (the scoped
-G4 flip has since been taken). The next move is to *template* this onto the other
-consequential paths (`bulk_control`, `execute_plan`, `run_scene_or_script`,
-`set_mode`, …); execution itself already routes through the plan/actuator
-contract on `control_device` via the async plan driver `kernel.plan.aexecute_plan`
+wired, alongside authority (● — **general enforce**, G4b: the kernel engine's
+verdict now gates the action under the max-restriction belt, not just the scoped
+security allowlist) and verify-after-act (●). `situation` stays `·` by design —
+not every single actuation is a situation, and forcing it would be the inflation
+this matrix exists to prevent. It shipped one contract at a time (8.30.0–8.33.0),
+each its own release, with authority kept log-only at first — the spine built
+structurally first, each enforce flip a separate, explicit decision (log-only →
+scoped allowlist G4 → general G4b, all now taken). That authority enforce was
+*templated* across the other consequential paths (`bulk_control`, `execute_plan`,
+`run_scene_or_script`, `set_mode`, `proactive`), so every one of them now gates on
+the engine's verdict (authority ●); execution itself already routes through the
+plan/actuator contract on `control_device` via the async plan driver `kernel.plan.aexecute_plan`
 (B-async, 8.39.0 → B4b), which is why its `plan` cell is `●`.
 
 **Phase B is underway.** B0 (8.36.0) extracted the golden-path wiring into a
@@ -142,8 +143,9 @@ one release at a time.
   parity (8.30.0): its pre-action context snapshot is read through the
   `WorldModel` facade, the canonical context authority, rather than a bare
   `states.get` (parity, not full, because the post-action read-back still reads
-  raw HA state). Authority at **parity** (`authority_bridge`, log-only) and a
-  real verify-after-act (`_verify_control`, `●`). **Outcome** at full (8.31.0):
+  raw HA state). Authority at **full** (`enforced_decision`, G4b — the engine's
+  verdict gates the action under the max-restriction belt) and a real
+  verify-after-act (`_verify_control`, `●`). **Outcome** at full (8.31.0):
   the verify step produces the canonical `kernel.actuator.ActuatorOutcome`
   (requested → executed → observed → **verified / mismatch / failed**) as the
   path's real outcome record — the audit's point 18, *"the service returned
@@ -156,8 +158,8 @@ one release at a time.
   (`aexecute_plan`) — a one-step plan whose run_step performs the awaited
   service call — so the planner owns execution. The farthest-along path: only
   `situation` (n/a `–` by design — a one-shot toggle is not a situation) is
-  excluded; the scoped `authority` enforce flip (G4) is live, and the remaining
-  move is the broader, unscoped flip — owner-gated.
+  excluded; the `authority` enforce flip is complete — log-only → scoped
+  allowlist (G4) → general (G4b) — so the engine now gates every capability.
 - **`intrusion`** — mirrors its lifecycle into the kernel **Situation** state
   machine at parity, and (D1) **verifies** the mirrored state agrees with the
   legacy intrusion verdict after every episode event (`_record_parity`,
@@ -203,12 +205,11 @@ one release at a time.
   `aexecute_plan` whose run_step performs the awaited service call, exactly as
   `control_device` does. B1/H3 replaced the old hand-logged shadow plan with this
   seam execution, so the planner owns execution here; the cell was corrected from
-  `◐` to `●` to reflect the wiring already in place. **Authority** at
-  **parity** (◑, authority-breadth): activation records the kernel authority
-  engine's verdict (`record_control_parity`, log-only) against the path's no-gate
-  allow — a scene/script can do anything a confirm-gate would guard, so its
-  authority contract is measured, not blank. Log-only; it never gates the
-  activation.
+  `◐` to `●` to reflect the wiring already in place. **Authority** at **full**
+  (●, G4b): the activation is gated on the kernel engine's verdict
+  (`enforced_decision`, max-restriction) — a scene/script can do anything a
+  confirm-gate would guard, so it runs only if the engine returns ALLOW,
+  fail-safe to the path's allow on an engine fault.
 - **`set_mode`** (B2) — the mode directive records its change through the envelope
   (`event` ◑, `plan` ◐). `world_model` and verify/outcome are **n/a** (`–`): the
   target is an abstract mode, not a single entity with pre/post state. **Plan
@@ -218,20 +219,22 @@ one release at a time.
   *does* route through the planner, but in `mode_scene`). Promoting the cell to
   `●` would over-credit every non-movie mode, so it is deliberately left shadow —
   the conservative, honest call the matrix exists to protect. **Authority** at
-  **parity** (◑, authority-breadth): the mode change records the authority
-  engine's verdict (`record_control_parity`, log-only) against the path's no-gate
-  allow — a mode change applies scenes that can be consequential, so its authority
-  contract is measured, not blank. Log-only; it never gates the directive.
+  **full** (●, G4b): the mode directive is gated on the kernel engine's verdict
+  (`enforced_decision`, max-restriction) *before* it is applied — a mode change
+  applies scenes that can be consequential, so it proceeds only if the engine
+  returns ALLOW, fail-safe to allow on an engine fault.
 - **`execute_plan`** (B4) — each step's execution routes through the kernel planner
   (`aexecute_plan`, `plan` ●) and publishes an actuation event (`event` ◑), each
-  run through the authority engine (`authority` ◑). **`world_model`** at **parity**
+  run through the authority engine (`authority` ●, G4b — general enforce). **`world_model`** at **parity**
   (`◑`): each step target's pre-action context is read through the facade
   (`actuation.context`) and the event is area-tagged, the same read
   `control_device`/`bulk_control` do, rather than acting on raw state alone. Steps
   are arbitrary services, so verify/outcome stay **n/a** (`–`). Behaviour
   preserved: best-effort read, continue-on-failure, per-step results.
 - **`bulk_control`** (B3) — each executed target routed through the envelope
-  (`world_model` ◑, `event` ◑, `authority` ◑). **Plan** at **full** (`●`): every
+  (`world_model` ◑, `event` ◑, `authority` ● — G4b: each target is gated on the
+  engine's verdict, held targets skipped and reported like protected ones).
+  **Plan** at **full** (`●`): every
   target's execution runs *through* the kernel planner — the universal seam
   (`execute_actuator`) drives each as a one-step `aexecute_plan`, the same
   mechanism `control_device` and `proactive` use, so the planner owns execution
@@ -267,9 +270,12 @@ one release at a time.
   path routes each target through the universal actuation seam
   (`actuation.execute_actuator`), so the kernel planner owns execution (`plan` ●,
   via `aexecute_plan` inside the seam) and the canonical actuation `JarvisEvent`
-  is published (`event` ◑). **Authority** at **parity** (◑, log-only): the engine
-  verdict is recorded (`record_control_parity`) against the path's proceed
-  decision. **Verify** (`●`) + **outcome** (`●`): for the deterministic services
+  is published (`event` ◑). **Authority** at **full** (●, G4b): each target is
+  gated on the engine's verdict (`enforced_decision`, max-restriction) — a held
+  verdict means JARVIS does **not** act of its own accord on that target (no one
+  to confirm an autonomous action, so it fails closed and skips; the engine never
+  lets an autonomous security action through), fail-safe to the path's proceed
+  decision on an engine fault. **Verify** (`●`) + **outcome** (`●`): for the deterministic services
   JARVIS actuates of its own accord (turn_on/off, lock/unlock, open/close) a
   verify-after-act (`_proactive_verify_factory`) reads the target back and
   records the canonical `ActuatorOutcome` (`actuation.outcome`) — VERIFIED when

@@ -79,7 +79,25 @@ async def test_bulk_skips_protected_without_event(agent, fake_hass, load, monkey
     assert published == []   # protected devices never executed → no event
 
 
-# ── #4b: authority parity recorded per target (log-only, covers skipped too) ──
+# ── authority: enforced per target (G4b), recorded per target (covers skipped) ──
+async def test_bulk_enforces_an_engine_hold(
+        agent, fake_hass, no_confirm, published, load, monkeypatch):
+    # G4b: a target the engine holds — even one the legacy gate allows — is skipped
+    # and reported blocked, with no actuation event (fails closed, like a
+    # protected device).
+    from types import SimpleNamespace
+    ab = load("authority_bridge")
+    monkeypatch.setattr(ab, "record_control_parity",
+                        lambda *a, **k: SimpleNamespace(decision="confirm", reason="held"))
+    fake_hass.states.set("light.ea", "off")
+    fake_hass.states.set("light.eb", "off")
+    out = await agent._exec_bulk_control(
+        fake_hass, {"domain": "light", "action": "turn_on"})
+    res = json.loads(out)
+    assert res["count"] == 0 and res.get("blocked") == 2
+    assert published == []
+
+
 async def test_authority_parity_recorded_for_executed_targets(
         agent, fake_hass, no_confirm, published, authority_parity):
     fake_hass.states.set("light.a", "off")

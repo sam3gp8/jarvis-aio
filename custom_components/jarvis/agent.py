@@ -1567,18 +1567,21 @@ async def _exec_run_scene_script(hass: HomeAssistant, args: dict) -> str:
         capability = f"{domain}.{svc}"
         areq = actuation.request(capability, entity_id,
                                  params={"entity_id": entity_id}, action=svc)
-        # Authority parity (#4b, log-only): record the kernel authority engine's
-        # verdict for activating this scene/script/automation against the path's
-        # (no-gate) allow, so the authority contract is MEASURED, not blank — a
-        # scene can do anything a confirm-gate would guard. Never gates the
-        # activation; it is unchanged. (authority-breadth)
+        # Authority ENFORCE (MCU Phase G4b): the kernel engine's verdict gates this
+        # activation, max-restriction — a scene can do anything a confirm-gate
+        # would guard, so it runs only if the engine returns ALLOW. Fail-safe to
+        # the path's (no-gate) allow on any engine fault.
         try:
             from . import authority_bridge
-            authority_bridge.record_control_parity(
-                hass, domain, svc, allowed=True, scope=entity_id,
+            eff_ok, _authz = authority_bridge.enforced_decision(
+                hass, domain, svc, legacy_ok=True, scope=entity_id,
                 intent="activate")
-        except Exception:  # pragma: no cover - log-only, never disrupt activation
-            pass
+        except Exception:  # pragma: no cover - fail-safe to legacy allow
+            eff_ok = True
+        if not eff_ok:
+            return json.dumps({
+                "error": "held for confirmation by the authority engine",
+                "entity_id": entity_id, "needs_confirmation": True})
         ok, detail = await actuation.execute_actuator(
             hass, capability=capability, entity_id=entity_id, domain=domain,
             service=svc, data={"entity_id": entity_id}, action=svc, areq=areq,
@@ -1722,21 +1725,20 @@ async def _exec_bulk_control(hass: HomeAssistant, args: dict) -> str:
             }
             if action in svc_map:
                 sd, sn = svc_map[action]
-                # Authority parity (MCU #4b, log-only): record the kernel
-                # authority engine's verdict for this target against the legacy
-                # skip decision — observe-only, covering the skipped (protected)
-                # targets too, so bulk's authority contract is measured, not blank.
-                # Never changes what bulk does (fire-and-forget, protected skipped).
+                # Authority ENFORCE (MCU Phase G4b): the kernel authority engine's
+                # verdict gates this target, max-restriction — it runs only if the
+                # legacy skip decision allows it AND the engine returns ALLOW.
+                # Fail-safe: on any engine fault the legacy outcome stands.
                 held = policy.requires_confirmation(hass, sd, sn, eid)
                 try:
-                    authority_bridge.record_control_parity(
-                        hass, sd, sn, allowed=(not held), scope=eid, intent=action)
-                except Exception:  # pragma: no cover - log-only, never disrupt bulk
-                    pass
-                # Protected actions are not run in bulk — a batch can't be
-                # meaningfully voice-confirmed per device. Skip and report so
-                # the agent confirms each one via control_device instead.
-                if held:
+                    eff_ok, _authz = authority_bridge.enforced_decision(
+                        hass, sd, sn, legacy_ok=(not held), scope=eid, intent=action)
+                except Exception:  # pragma: no cover - fail-safe to legacy
+                    eff_ok = (not held)
+                # Protected actions (legacy gate) OR actions the engine holds are
+                # not run in bulk — a batch can't be voice-confirmed per device.
+                # Skip and report so the agent confirms each via control_device.
+                if not eff_ok:
                     blocked += 1
                     continue
                 capability = f"{sd}.{sn}"
@@ -2749,8 +2751,24 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
     """Switch the operational mode (Directive Layer, v6.61.0)."""
     try:
         from . import modes
+        _mode_req = args.get("mode", "")
+        # Authority ENFORCE (MCU Phase G4b): gate the mode directive on the kernel
+        # engine's verdict BEFORE it is applied, max-restriction — a mode change
+        # applies scenes that can be consequential, so it proceeds only if the
+        # engine returns ALLOW. Fail-safe to allow on any engine fault.
+        try:
+            from . import authority_bridge
+            _eff_ok, _authz = authority_bridge.enforced_decision(
+                hass, "jarvis", "set_mode", legacy_ok=True, scope=_mode_req,
+                intent=f"set mode to {_mode_req}")
+        except Exception:  # pragma: no cover - fail-safe to legacy allow
+            _eff_ok = True
+        if not _eff_ok:
+            return json.dumps({
+                "error": "mode change held for confirmation by the authority engine",
+                "mode": _mode_req, "needs_confirmation": True})
         res = await hass.async_add_executor_job(
-            modes.set_mode, args.get("mode", ""), args.get("reason", ""))
+            modes.set_mode, _mode_req, args.get("reason", ""))
         if res.get("ok"):
             try:
                 from . import mode_scene
@@ -2769,18 +2787,8 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
             _areq = actuation.request(_cap, _mode, params={"mode": _mode},
                                       action="set_mode",
                                       intent=f"set mode to {_mode}")
-            # Authority parity (#4b, log-only): record the kernel authority
-            # engine's verdict for this mode change against the path's (no-gate)
-            # allow, so the set_mode authority contract is MEASURED, not blank —
-            # a mode change applies scenes that can be consequential. Never gates
-            # the directive; the mode switch is unchanged. (authority-breadth)
-            try:
-                from . import authority_bridge
-                authority_bridge.record_control_parity(
-                    hass, "jarvis", "set_mode", allowed=True, scope=_mode,
-                    intent=f"set mode to {_mode}")
-            except Exception:  # pragma: no cover - log-only, never disrupt the mode switch
-                pass
+            # Authority is ENFORCED up front (before the mode was applied), so
+            # there is nothing to record here — the engine already gated it (G4b).
             actuation.plan_shadow(_cap, _mode, "set_mode", None)
             actuation.emit_event(hass, _cap, _mode, action="set_mode",
                                  request=_areq)
