@@ -8133,6 +8133,10 @@ ${this._renderExcludedEntities(d)}
       <button class="toggle-btn ${this._liveData?.config?.intrusion_vision_confirm !== false ? 'on' : 'off'}" data-cfg-key="intrusion_vision_confirm" data-cfg-val="${this._liveData?.config?.intrusion_vision_confirm !== false ? 'false' : 'true'}">${this._liveData?.config?.intrusion_vision_confirm !== false ? 'ON' : 'OFF'}</button>
     </div>`;
     html += `<div class="intr-timeout-row">
+      <label>Stay silent when JARVIS's own cameras clearly show no one (recommended) — turn OFF to stay ever-vigilant and alert on any unanswered activity</label>
+      <button class="toggle-btn ${this._liveData?.config?.intrusion_vision_veto !== false ? 'on' : 'off'}" data-cfg-key="intrusion_vision_veto" data-cfg-val="${this._liveData?.config?.intrusion_vision_veto !== false ? 'false' : 'true'}">${this._liveData?.config?.intrusion_vision_veto !== false ? 'ON' : 'OFF'}</button>
+    </div>`;
+    html += `<div class="intr-timeout-row">
       <label>Require confinement (Lockdown or armed alarm) for intrusion monitoring</label>
       <button class="toggle-btn ${this._liveData?.config?.intrusion_requires_confinement === true ? 'on' : 'off'}" data-cfg-key="intrusion_requires_confinement" data-cfg-val="${this._liveData?.config?.intrusion_requires_confinement === true ? 'false' : 'true'}">${this._liveData?.config?.intrusion_requires_confinement === true ? 'ON' : 'OFF'}</button>
     </div>`;

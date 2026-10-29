@@ -646,6 +646,25 @@ class SafetyManager:
             return cam        # best-effort handle even if not yet resolvable
         return None
 
+    def _breach_camera(self, breach_area: Optional[str]) -> Optional[str]:
+        """The camera whose saved coverage best sees ``breach_area`` — so JARVIS
+        can get its OWN eyes on the point of entry — falling back to any
+        person-capable camera. None if nothing covers it. (Shared by the initial
+        intrusion gate and the mid-investigation vision confirm.)"""
+        cam = None
+        try:
+            if breach_area:
+                from . import camera_coverage as _cc
+                cam = _cc.camera_for_area(self.hass, breach_area)
+        except Exception:
+            cam = None
+        if not cam:
+            try:
+                cam = self._person_camera_entity()
+            except Exception:
+                cam = None
+        return cam
+
     def _resident_on_camera(self) -> bool:
         """Whether a flagged household resident was recognized on camera recently
         (face whitelist, #140). Used to stand intrusion monitoring down when the
@@ -939,6 +958,24 @@ class SafetyManager:
             finally:
                 if _dec_gen is not None:
                     _intr_rec.clear_pending_generation(_dec_gen)
+            # Vision veto (the owner's rule: "if JARVIS has eyes on it and there
+            # is no problem, it shouldn't say there is"). Before even the initial
+            # low-confidence ping, get JARVIS's OWN eyes on the camera covering the
+            # breach: if it plainly shows NO person, stay QUIET and keep watching
+            # silently — a real person on any later tick still confirms and alarms
+            # (the investigation created above keeps running). Inconclusive vision
+            # or no covering camera never vetoes (fail toward safety → still
+            # alerts). Ever-vigilant by choice: intrusion_vision_veto (default on)
+            # turned off restores alerting on any unanswered activity.
+            vision_clear = False
+            if self.config.get("intrusion_vision_veto", True):
+                try:
+                    _bcam = self._breach_camera(breach_area)
+                    if _bcam:
+                        vision_clear = (
+                            await self._confirm_person_with_vision(_bcam)) is False
+                except Exception:
+                    vision_clear = False
             # Learned damping (v6.76.0): if this location/time pattern has been
             # repeatedly labelled a false alarm, stay QUIET on this initial
             # low-confidence ping. The investigation still runs underneath, so a
@@ -949,16 +986,20 @@ class SafetyManager:
                 from . import intrusion as _intr
                 await _intr.async_load(self.hass)
                 damped = _intr.should_damp_weak_alert(breach_area, None)
+                _init_reason = ("vision shows no one at the breach" if vision_clear
+                                else "damped (learned benign)" if damped
+                                else "motion while away")
                 await _intr.async_record_event(
-                    self.hass, "investigating", reason=("damped (learned benign)" if damped
-                                             else "motion while away"),
+                    self.hass, "investigating", reason=_init_reason,
                     breach=breach_name, breach_area=breach_area,
                     zones=[start_zone], max_depth=start_depth)
             except Exception:
                 pass
-            if damped:
-                _LOGGER.info("intrusion: initial alert damped for learned-benign "
-                             "pattern at %s (still investigating)", breach_area)
+            if damped or vision_clear:
+                _LOGGER.info(
+                    "intrusion: initial alert %s at %s (still investigating)",
+                    "vetoed by vision — no person seen" if vision_clear
+                    else "damped for learned-benign pattern", breach_area)
                 return None
             return {
                 "type": "intrusion_investigating", "urgency": "high",
@@ -1108,18 +1149,16 @@ class SafetyManager:
         # JARVIS confirm a person via a camera in an adjacent room with a sightline
         # (e.g. the dining camera seeing the living room through the open staircase),
         # not only a camera physically in that room (v7.20.0).
-        cam_entity = None
-        try:
-            _ba = inv.get("breach_area") if isinstance(inv, dict) else None
-            if _ba:
-                from . import camera_coverage as _cc
-                cam_entity = _cc.camera_for_area(self.hass, _ba)
-        except Exception:
-            cam_entity = None
-        if not cam_entity:
-            cam_entity = self._person_camera_entity()
+        cam_entity = self._breach_camera(
+            inv.get("breach_area") if isinstance(inv, dict) else None)
         camera = cam_entity is not None
 
+        # Tracks a clear visual negative THIS tick (JARVIS's own eyes on the
+        # covering camera plainly showed no person). Used by the vision veto below
+        # so an unanswered timeout never cries wolf about a scene it can see is
+        # empty. Only an affirmative "no person" sets it — inconclusive/absent
+        # vision leaves it False (fail toward safety).
+        vision_saw_empty = False
         if camera:
             # Frigate flagged a person — but Frigate false-positives, so get a
             # second opinion from JARVIS's OWN vision before escalating (v6.73.0).
@@ -1147,6 +1186,7 @@ class SafetyManager:
                     "intrusion: breach cleared by vision on %s (no person visible) "
                     "— not confirming on motion alone", cam_entity)
                 confirmed = False
+                vision_saw_empty = True
                 reason = "motion while away, but the covering camera shows no one"
             elif (INTRUSION_DEGRADED_CONFIRM_HARDEN
                   and self._confinement_degraded()):
@@ -1221,7 +1261,16 @@ class SafetyManager:
             except (ValueError, TypeError):
                 resp_timeout = INTRUSION_RESPONSE_TIMEOUT_SECS
             still_active = quiet_for < INTRUSION_CLEAR_QUIET_SECS
-            if not acknowledged and still_active and elapsed >= resp_timeout:
+            # Vision veto: if JARVIS's own eyes on the covering camera plainly
+            # showed no person this tick, an unanswered timeout must NOT
+            # manufacture a "please check" alert — it keeps watching silently and
+            # still escalates the instant vision sees a real person (the confirmed
+            # path above). Inconclusive/absent vision never vetoes. Ever-vigilant
+            # by choice: intrusion_vision_veto (default on) off restores the alert.
+            vetoed = (vision_saw_empty
+                      and self.config.get("intrusion_vision_veto", True))
+            if (not acknowledged and still_active
+                    and elapsed >= resp_timeout and not vetoed):
                 timed_out = True
 
         # A confirmed intrusion (real inward route, or a person confirmed on

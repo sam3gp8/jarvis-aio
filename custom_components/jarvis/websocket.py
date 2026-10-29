@@ -956,6 +956,7 @@ async def ws_get_panel_data(
                 "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
                 "intrusion_response_timeout": _runtime_opt(hass, entry, "intrusion_response_timeout", 120),
                 "intrusion_vision_confirm": bool(_runtime_opt(hass, entry, "intrusion_vision_confirm", True)),
+                "intrusion_vision_veto": bool(_runtime_opt(hass, entry, "intrusion_vision_veto", True)),
                 "intrusion_requires_confinement": bool(_runtime_opt(hass, entry, "intrusion_requires_confinement", False)),
                 # Scheduled briefings (v6.78.0)
                 "briefing_morning_enabled": bool(_runtime_opt(hass, entry, "briefing_morning_enabled", False)),
@@ -1573,6 +1574,7 @@ PANEL_WRITABLE_KEYS = {
     "hazard_quake_min_mag",       # float: min magnitude to alert
     "hazard_disaster_radius_km",  # float: disaster radius
     "intrusion_vision_confirm",   # bool: verify Frigate person detection with JARVIS vision before escalating
+    "intrusion_vision_veto",      # bool: a clear visual "no person" vetoes low-confidence intrusion alerts (default on; off = ever-vigilant)
     "intrusion_inward_depth",     # int: rooms deep from breach motion must reach to confirm
     "intrusion_requires_confinement", # bool: gate intrusion on Lockdown/alarm-armed instead of auto away/sleep (#111)
     # Scheduled briefings (v6.78.0)

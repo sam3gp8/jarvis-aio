@@ -1,3 +1,31 @@
+## [9.35.0] — Don't cry wolf: a vision veto on false intrusion alarms
+
+If JARVIS has its own eyes on the scene and sees no one, it should not raise an
+alarm saying someone is there. This fixes the false intrusion alerts some setups
+saw — a camera whose Frigate person sensor false-positives (an indoor garage cam
+on shadows, an object, a reflection) could, while armed/locked down, drive an
+unanswered "I flagged possible activity — please check" alert even though JARVIS's
+own vision confirmed **no person** on every look.
+
+- **Vision veto on low-confidence intrusion alerts.** When the camera covering
+  the breach plainly shows no person, JARVIS now stays silent on the two
+  low-confidence alerts — the initial "investigating" ping and the no-response
+  "please check" soft check-in — and keeps watching instead of crying wolf.
+- **Vigilance is untouched.** It still looks every tick, the silent investigation
+  keeps running, and the moment vision sees a **real** person — or a genuine
+  inward route when vision can't resolve — the full confirmed alarm fires exactly
+  as before. The veto only ever silences an alert JARVIS can *see* is unfounded;
+  it never suppresses a confirmed intrusion, and inconclusive or absent vision
+  never vetoes (it fails toward alerting).
+- **Ever-vigilant by choice.** A new toggle — Intrusion → *"Stay silent when
+  JARVIS's own cameras clearly show no one"* (`intrusion_vision_veto`, default on)
+  — turned OFF restores alerting on any unanswered activity, for anyone who wants
+  maximum vigilance.
+
+The constant per-tick vision checks themselves are unchanged and intentional —
+JARVIS looking and quietly confirming "no one there" is the behaviour that makes
+the veto trustworthy.
+
 ## [9.34.0] — Authority coverage for the autonomous path; honest matrix for the sub-agents
 
 The kernel-coverage matrix gets its three remaining "legacy" rows straightened

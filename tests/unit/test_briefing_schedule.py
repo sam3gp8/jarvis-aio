@@ -44,7 +44,10 @@ def test_hazards_included_in_briefing_content():
 
 
 def test_briefing_keys_are_writable():
-    block = WS.split("PANEL_WRITABLE_KEYS", 1)[1][:9000]
+    # Bound the search to the PANEL_WRITABLE_KEYS set literal itself (up to its
+    # closing brace), not a fixed byte window — otherwise adding an unrelated key
+    # could push a later key past the window and fail this spuriously.
+    block = WS.split("PANEL_WRITABLE_KEYS", 1)[1].split("\n}", 1)[0]
     for k in ("briefing_morning_enabled", "briefing_evening_enabled",
               "briefing_morning_time", "briefing_evening_time",
               "briefing_require_home", "briefing_include_hazards"):
