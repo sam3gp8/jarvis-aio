@@ -56,11 +56,12 @@ def test_control_device_authority_and_verify_declared(kc):
     assert set(rows["homer"].values()) == {"none"}
 
 
-def test_goals_plan_shadow_and_event_parity(kc):
-    # goals onto the spine #1: the goal→Plan is credited at shadow (F1/F2) and the
-    # goal.transition events are parity.
+def test_goals_plan_parity_and_event_parity(kc):
+    # goals onto the spine: the goal→Plan is now CONSULTED against the goal store
+    # each engagement (parity, _plan_parity), and the goal.transition events are
+    # parity.
     rows = kc.scan()
-    assert rows["goals"]["plan"] == "shadow"
+    assert rows["goals"]["plan"] == "parity"
     assert rows["goals"]["event"] == "parity"
     # proactive (9.34.0) is now the real discretionary-autonomous device path and
     # routes through the universal actuation seam, so plan is full and event parity.
@@ -87,8 +88,8 @@ def test_proactive_points_at_cognitive_core_and_is_wired(kc):
     # reads the target back and records the canonical outcome.
     assert rows["proactive"]["verify"] == "full"
     assert rows["proactive"]["outcome"] == "full"
-    # world_model stays a conservative gap: no pre-action WorldModel snapshot.
-    assert rows["proactive"]["world_model"] == "none"
+    # Pre-action WorldModel context snapshot (9.37.0), same read as control_device.
+    assert rows["proactive"]["world_model"] == "parity"
     # situation is the only N/A for this imperative path.
     assert kc._is_na("proactive", "situation")
 

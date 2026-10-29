@@ -44,14 +44,14 @@ grid) are kept underneath for continuity.
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
-| `goals` | ◑ | · | – | · | ◐ | · | · |
-| `proactive` | ◑ | · | – | ◑ | ● | ● | ● |
+| `goals` | ◑ | · | – | · | ◑ | · | · |
+| `proactive` | ◑ | ◑ | – | ◑ | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 50.7%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 53.5%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 29.8% weighted / 29.0% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 31.0% weighted / 30.6% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -237,14 +237,19 @@ one release at a time.
   skipped.
 - **`goals`** — an *orchestration* path: when a goal comes due it runs the
   headless agent, whose tool-calls actuate through the already-wired paths. What
-  goals owns on the spine so far: its steps are expressed as a kernel `Plan` and
-  durably journaled (`_shadow_plan`, F1/F2, `plan` ◐ shadow — built and recorded
-  but never executed or consulted; the goal store stays authoritative), and each
-  engage/close publishes a canonical `goal.transition` `JarvisEvent`
-  (`publish_goal`, `event` ◑ parity — enters the stream + ledger, no consumer
-  reacts yet). `world_model`/`authority`/`verify`/`outcome` stay honest **gaps**
-  (`·`): goals doesn't read state or actuate directly (the agent does), so they
-  are not claimed here; `situation` is n/a (`–`).
+  goals owns on the spine so far: its steps are expressed as a kernel `Plan`,
+  durably journaled (`_shadow_plan`, F1/F2) and kept in step-by-step sync with
+  the goal store (H4a). **`plan` at parity** (◑): on every engagement that
+  durable Plan is now **consulted** against the authoritative goal store and
+  agreement is recorded (`_plan_parity`, log-only) — the plan enters the live
+  flow rather than sitting unread (shadow). Still log-only; the goal store stays
+  authoritative, and promoting the kernel Plan to authoritative is the separate,
+  owner-gated **H4b**. Each engage/close also publishes a canonical
+  `goal.transition` `JarvisEvent` (`publish_goal`, `event` ◑ parity — enters the
+  stream + ledger, no consumer reacts yet). `world_model`/`authority`/`verify`/
+  `outcome` stay honest **gaps** (`·`): goals doesn't read state or actuate
+  directly (the agent does), so they are not claimed here; `situation` is n/a
+  (`–`).
 - **`proactive`** (9.34.0) — JARVIS acting on a learned/trusted pattern *of its
   own accord*, the discretionary autonomous device path. This row now names the
   real path, `cognitive_core._execute_action_data` — **not** the
@@ -264,9 +269,11 @@ one release at a time.
   expected state") applied where it matters most: no human is watching an
   autonomous action, so an unlanded one must be *noticed*. A mismatch is recorded
   and surfaced, never silently re-fired (that would re-actuate the home off-loop
-  without re-checking the agency gates). `world_model` stays an honest **gap**
-  (`·`) — the path takes no pre-action WorldModel snapshot; `situation` is n/a
-  (`–`). The G1/G2 agency-budget + loop-detect **enforce** gates that decide
+  without re-checking the agency gates). **`world_model`** at **parity** (◑): a
+  pre-action context snapshot is read through the WorldModel facade
+  (`actuation.context`) and the actuation is area-tagged — the same read
+  `control_device`/`run_scene_or_script` do. `situation` is n/a (`–`). The G1/G2
+  agency-budget + loop-detect **enforce** gates that decide
   *whether* a proactive action runs are a separate rate/loop governor, not the
   authority permission engine measured here.
 - **`friday`** (9.34.0) — the FRIDAY background-automator sub-agent, the one

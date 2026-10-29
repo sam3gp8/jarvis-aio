@@ -273,18 +273,22 @@ _PATHS: dict[str, dict] = {
     },
     # goals is an orchestration path: when a goal comes due it runs the headless
     # agent, whose tool-calls actuate through the already-wired paths. What goals
-    # itself owns on the spine: the goal-as-Plan (F1/F2, shadow) and the lifecycle
+    # itself owns on the spine: the goal-as-Plan (F1/F2 + H4a) and the lifecycle
     # events it publishes. world_model/authority/verify/outcome stay honest gaps —
     # goals doesn't read state or actuate directly (the agent does), so they are
     # not yet claimed here.
     "goals": {
         "module": "goals.py",
         "contracts": {
-            # F1/F2: a goal's ordered steps are expressed as a kernel Plan and
-            # durably journaled (record_plan via _shadow_plan). Shadow — the Plan
-            # is built and recorded but never executed or consulted; the goal
-            # store stays authoritative (the enforce flip is the owner-gated H4b).
-            "plan": {"stage": "shadow", "evidence": "_shadow_plan"},
+            # A goal's ordered steps are expressed as a kernel Plan, durably
+            # journaled (F1/F2, _shadow_plan) and kept in step-by-step sync with
+            # the goal store (H4a). PARITY: on every engagement that durable Plan
+            # is CONSULTED against the authoritative goal store and agreement is
+            # recorded (`_plan_parity`, log-only) — the plan now enters the live
+            # flow rather than sitting unread. Still log-only; the goal store
+            # stays authoritative (promoting the kernel Plan to authoritative is
+            # the separate, owner-gated H4b).
+            "plan": {"stage": "parity", "evidence": "_plan_parity"},
             # Each goal engage/close publishes a canonical goal.transition
             # JarvisEvent on the bus (parity — enters the stream + ledger, no
             # consumer reacts yet), the same nervous-system wiring as situations.
@@ -310,13 +314,16 @@ _PATHS: dict[str, dict] = {
     # — VERIFIED when the world reached the expected state, MISMATCH when it did
     # not — the audit's point 18, applied to the path where it matters most (no
     # human is watching an autonomous action). An autonomous mismatch is recorded
-    # and surfaced, never silently re-fired. world_model stays an honest gap — the
-    # path takes no pre-action WorldModel snapshot. (The G1/G2 agency-budget and
-    # loop-detect ENFORCE gates that decide *whether* a proactive action runs are
-    # a separate rate/loop governor, not the authority engine measured here.)
+    # and surfaced, never silently re-fired. WorldModel at parity: a pre-action
+    # context snapshot is read through the facade (`actuation.context`) and the
+    # actuation is area-tagged, the same read control_device/run_scene do. (The
+    # G1/G2 agency-budget and loop-detect ENFORCE gates that decide *whether* a
+    # proactive action runs are a separate rate/loop governor, not the authority
+    # engine measured here.)
     "proactive": {
         "module": "cognitive_core.py",
         "contracts": {
+            "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "plan": {"stage": "full", "evidence": "execute_actuator"},
             "event": {"stage": "parity", "evidence": "execute_actuator"},
             "authority": {"stage": "parity", "evidence": "record_control_parity"},

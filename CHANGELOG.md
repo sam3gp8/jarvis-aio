@@ -1,3 +1,30 @@
+## [9.38.0] — Goals: the kernel plan now cross-checks the goal store (log-only)
+
+A goal is a plan pursued across time. JARVIS already expresses each goal as a
+durable kernel Plan and journals its step transitions; this starts **consulting**
+that Plan on every engagement and logging whether it agrees with the
+authoritative goal store — the parity rung that proves the durable plan faithfully
+tracks a goal before the kernel plan could ever drive goal execution itself (a
+separate, still-owner-gated decision).
+
+- **Strictly log-only.** Nothing reads the journal to drive goal state or
+  execution; the goal store stays the source of truth. A divergence is logged
+  (and tallied) for observability, nothing more. Behaviour is unchanged.
+- **Behavioural kernel coverage rises 52.1% → 53.5%** — the `goals` path's `plan`
+  cell moves from shadow (built, never consulted) to parity (consulted in the
+  live flow).
+
+## [9.37.0] — Autonomous actions read the world before acting
+
+A small completion of the autonomous path: before JARVIS acts of its own accord,
+it now reads the target's context through the same WorldModel facade
+`control_device` uses — the canonical context authority — and tags the actuation
+with its area, rather than acting blind on raw state. Behaviour is otherwise
+unchanged (the read is best-effort and the area simply enriches the actuation
+record). **Behavioural kernel coverage rises 50.7% → 52.1%** — the `proactive`
+path's `world_model` cell moves from a gap to parity, leaving that path wired on
+every applicable contract.
+
 ## [9.36.0] — JARVIS confirms its own autonomous actions landed
 
 When JARVIS acts on a learned pattern *of its own accord* — turning on a light
