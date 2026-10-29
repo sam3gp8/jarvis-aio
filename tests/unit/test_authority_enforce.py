@@ -51,12 +51,29 @@ def test_legacy_denied_stays_denied(ab, monkeypatch):
     assert ok is False
 
 
-def test_non_allowlisted_capability_is_pure_legacy(ab, monkeypatch):
-    # A capability outside the allowlist ignores the engine entirely, even if the
-    # engine would gate it.
+def test_general_enforce_gates_any_capability(ab, monkeypatch):
+    # G4b: general enforce is on by default, so a capability OUTSIDE the security
+    # allowlist is now gated too when the engine would hold it.
     monkeypatch.setattr(ab, "record_control_parity", lambda *a, **k: _fake("confirm"))
     ok, _d = ab.enforced_decision(FakeHass(), "light", "turn_on", legacy_ok=True)
+    assert ok is False
+
+
+def test_enforce_all_off_reverts_to_the_allowlist(ab, monkeypatch):
+    # AUTHORITY_ENFORCE_ALL=False is the first kill-switch: enforcement falls back
+    # to the bounded security allowlist (the pre-G4b behaviour).
+    monkeypatch.setattr(ab, "AUTHORITY_ENFORCE_ALL", False)
+    monkeypatch.setattr(ab, "record_control_parity", lambda *a, **k: _fake("confirm"))
+    # non-allowlisted → pure legacy (engine ignored)
+    ok, _d = ab.enforced_decision(FakeHass(), "light", "turn_on", legacy_ok=True)
     assert ok is True
+    # allowlisted → still gated
+    ok2, _d2 = ab.enforced_decision(FakeHass(), "lock", "unlock", legacy_ok=True)
+    assert ok2 is False
+
+
+def test_default_general_enforce_is_on(ab):
+    assert ab.AUTHORITY_ENFORCE_ALL is True
 
 
 def test_kill_switch_off_is_pure_legacy(ab, monkeypatch):

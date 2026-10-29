@@ -1,14 +1,14 @@
-"""Authority-breadth (9.34.0): the discretionary *autonomous* actuation path
-records the kernel authority engine's verdict (parity, log-only).
+"""Authority-breadth (G4b): the discretionary *autonomous* actuation path is
+ENFORCED by the kernel authority engine.
 
 `cognitive_core._execute_action_data` is JARVIS acting on a learned/trusted
 pattern of its own accord — the class of action whose authority most needs to be
-measured. It already routes each target through the universal actuation seam
-(so plan/event are wired); this adds the authority cell at parity: per target it
-records the engine verdict (`authority_bridge.record_control_parity`) against the
-path's proceed decision (the G1/G2 gates already let it through). Strictly
-log-only — it never gates the action, and a fault in it never disrupts the
-action.
+gated. It routes each target through the universal actuation seam (plan/event
+wired) and now, per target, gates on the engine verdict
+(`authority_bridge.enforced_decision`, which records parity too): a held verdict
+means JARVIS does NOT act of its own accord on that target (fails closed — there
+is no one to confirm an autonomous action), while an engine fault fails safe (the
+action still fires).
 """
 import logging
 
@@ -49,28 +49,42 @@ def _capture_parity(load, monkeypatch):
     return calls
 
 
-async def test_proactive_action_records_authority_parity(cog, load, monkeypatch):
+async def test_proactive_action_held_by_engine_is_skipped(cog, load, monkeypatch):
     # Namespaced entity id (`light.pa_*`): the loop detector keys on
     # domain.service:entities, and the module-level detector is shared across
     # the suite, so a test must not reuse another test's key (e.g. `light.lamp`)
     # or it inflates that key's thrash count across files.
-    calls = _capture_parity(load, monkeypatch)
+    calls = _capture_parity(load, monkeypatch)   # engine "confirm"
     hass = FakeHass()
     hass.states.set("light.pa_one", "off")
     ok = await cog._execute_action_data(
         hass, {"domain": "light", "service": "turn_on",
                "entity_ids": ["light.pa_one"]})
-    # Parity recorded for the right capability + target, tagged proactive.
+    # Enforced (and recorded) for the right capability + target, tagged proactive.
     assert len(calls) == 1
     assert calls[0]["domain"] == "light"
     assert calls[0]["service"] == "turn_on"
-    assert calls[0]["allowed"] is True
     assert calls[0]["scope"] == "light.pa_one"
     assert calls[0]["intent"] == "proactive"
-    # LOG-ONLY: the engine "would confirm", yet the action still ran and the
-    # service call fired — the parity record never gates.
+    # ENFORCED: the engine would confirm; there is no one to confirm an autonomous
+    # action, so it FAILS CLOSED — skipped, no service call, no success.
+    assert ok is False
+    assert hass.service_calls == []
+
+
+async def test_proactive_action_runs_when_engine_allows(cog, load, monkeypatch):
+    from types import SimpleNamespace
+    ab = load("authority_bridge")
+    monkeypatch.setattr(ab, "record_control_parity",
+                        lambda *a, **k: SimpleNamespace(decision="allow", reason="ok"))
+    hass = FakeHass()
+    hass.states.set("light.pa_allow", "off")
+    ok = await cog._execute_action_data(
+        hass, {"domain": "light", "service": "turn_on",
+               "entity_ids": ["light.pa_allow"]})
     assert ok is True
-    assert hass.service_calls == [("light", "turn_on", {"entity_id": "light.pa_one"})]
+    assert hass.service_calls == [
+        ("light", "turn_on", {"entity_id": "light.pa_allow"})]
 
 
 async def test_parity_recorded_once_per_target(cog, load, monkeypatch):

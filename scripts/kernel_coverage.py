@@ -90,8 +90,9 @@ _PATHS: dict[str, dict] = {
             # routed through the shared actuation envelope (B0). Parity, not full
             # — the post-action verify/read-back still reads raw HA state.
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
-            # H1: logs the Phase-4 engine decision vs the live confirm-gate.
-            "authority": {"stage": "parity", "evidence": "authority_bridge"},
+            # G4b: the Phase-4 engine's verdict ENFORCES the confirm-gate
+            # (max-restriction belt), generally, not just the security allowlist.
+            "authority": {"stage": "full", "evidence": "enforced_decision"},
             # v6.38 verify-after-act for deterministic targets.
             "verify": {"stage": "full", "evidence": "_verify_control"},
             # The verify step produces the canonical ActuatorOutcome (8.31.0) via
@@ -111,9 +112,10 @@ _PATHS: dict[str, dict] = {
         },
     },
     # Each executed target is routed through the actuation envelope (B3):
-    # WorldModel context + actuation event. Authority at parity (#4b): per target
-    # the kernel authority engine's verdict is recorded against the legacy skip
-    # decision (log-only, covering the skipped protected targets too).
+    # WorldModel context + actuation event. Authority FULL (G4b): per target the
+    # kernel authority engine's verdict GATES the actuation (enforced_decision,
+    # max-restriction) — a held target is skipped and reported like a protected
+    # one, fail-safe to the legacy skip decision on an engine fault.
     # Plan FULL: each target's execution runs *through* the kernel planner — the
     # universal seam (execute_actuator) drives every target as a one-step
     # aexecute_plan, the same mechanism control_device and proactive use, so the
@@ -125,7 +127,7 @@ _PATHS: dict[str, dict] = {
         "module": "agent.py",
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
-            "authority": {"stage": "parity", "evidence": "record_control_parity"},
+            "authority": {"stage": "full", "evidence": "enforced_decision"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
             "plan": {"stage": "full", "evidence": "execute_actuator"},
         },
@@ -141,17 +143,17 @@ _PATHS: dict[str, dict] = {
     # (aexecute_plan) and publishes an actuation event (B4). WorldModel at
     # parity: each step target's pre-action context is read through the facade
     # (actuation.context) and the actuation event is area-tagged, the same read
-    # control_device/bulk do, rather than acting on raw state alone. Authority at
-    # parity (#4b): each step runs through the confirm-gate + kernel authority
-    # engine (authority_bridge.enforced_decision) — the same max-restriction belt
-    # as control_device, log-only parity except where it tightens an allowlisted
-    # security capability. Full plan ownership of execution; steps are arbitrary
+    # control_device/bulk do, rather than acting on raw state alone. Authority
+    # FULL (G4b): each step runs through the confirm-gate + kernel authority engine
+    # (authority_bridge.enforced_decision) — the same max-restriction belt as
+    # control_device, now gating every capability (held steps fail closed,
+    # fail-safe to the legacy gate). Full plan ownership of execution; steps are arbitrary
     # services, so no single expected end-state (no verify/outcome cell).
     "execute_plan": {
         "module": "agent.py",
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
-            "authority": {"stage": "parity", "evidence": "enforced_decision"},
+            "authority": {"stage": "full", "evidence": "enforced_decision"},
             "plan": {"stage": "full", "evidence": "aexecute_plan"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
         },
@@ -165,11 +167,11 @@ _PATHS: dict[str, dict] = {
     },
     # Activates scenes/scripts/automations. Routed through the shared actuation
     # envelope (B1): WorldModel context, actuation event. No deterministic
-    # end-state, so no verify/outcome. Authority at parity (authority-breadth):
-    # the activation records the kernel authority engine's verdict
-    # (record_control_parity, log-only) against the path's no-gate allow — a
-    # scene/script can do anything a confirm-gate would guard, so its authority
-    # contract is measured, not blank. Log-only; never gates.
+    # end-state, so no verify/outcome. Authority FULL (G4b): the activation is
+    # GATED on the kernel authority engine's verdict (enforced_decision,
+    # max-restriction) — a scene/script can do anything a confirm-gate would
+    # guard, so it runs only if the engine returns ALLOW, fail-safe to the path's
+    # allow on an engine fault.
     # Plan FULL: the activation runs *through* the kernel planner — the universal
     # seam (execute_actuator) executes it as a one-step aexecute_plan whose
     # run_step performs the awaited service call, exactly as control_device does
@@ -178,7 +180,7 @@ _PATHS: dict[str, dict] = {
         "module": "agent.py",
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
-            "authority": {"stage": "parity", "evidence": "record_control_parity"},
+            "authority": {"stage": "full", "evidence": "enforced_decision"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
             "plan": {"stage": "full", "evidence": "execute_actuator"},
         },
@@ -195,15 +197,14 @@ _PATHS: dict[str, dict] = {
     # through the actuation envelope (B2): actuation event + shadow plan for the
     # mode change. No single-entity context (so no world_model) and no
     # deterministic end-state (so no verify/outcome); the target is the mode.
-    # Authority at parity (authority-breadth): the mode change now records the
-    # kernel authority engine's verdict (record_control_parity, log-only)
-    # against the path's no-gate allow — a mode change applies scenes that can
-    # be consequential, so its authority contract is measured, not blank.
-    # Log-only; never gates the directive.
+    # Authority FULL (G4b): the mode directive is GATED on the kernel authority
+    # engine's verdict (enforced_decision, max-restriction) BEFORE it is applied
+    # — a mode change applies scenes that can be consequential, so it proceeds
+    # only if the engine returns ALLOW, fail-safe to allow on an engine fault.
     "set_mode": {
         "module": "agent.py",
         "contracts": {
-            "authority": {"stage": "parity", "evidence": "record_control_parity"},
+            "authority": {"stage": "full", "evidence": "enforced_decision"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
             "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
         },
@@ -311,9 +312,11 @@ _PATHS: dict[str, dict] = {
     # device autonomy. It routes each target through the universal actuation
     # seam (`actuation.execute_actuator`): the kernel planner owns execution
     # (plan ●, via aexecute_plan inside the seam) and the canonical actuation
-    # JarvisEvent is published (event ◑). Authority at parity (log-only): the
-    # engine verdict is recorded (`record_control_parity`) against the path's
-    # proceed decision. Verify FULL + outcome FULL: for the deterministic
+    # JarvisEvent is published (event ◑). Authority FULL (G4b): each target is
+    # GATED on the engine's verdict (enforced_decision, max-restriction) — a held
+    # verdict means JARVIS does NOT act of its own accord on that target (fails
+    # closed, no autonomous security action gets through), fail-safe to the path's
+    # proceed decision on an engine fault. Verify FULL + outcome FULL: for the deterministic
     # services JARVIS actuates of its own accord (turn_on/off, lock/unlock,
     # open/close) a verify-after-act (`_proactive_verify_factory`) reads the
     # target back and records the canonical ActuatorOutcome (`actuation.outcome`)
@@ -332,7 +335,7 @@ _PATHS: dict[str, dict] = {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "plan": {"stage": "full", "evidence": "execute_actuator"},
             "event": {"stage": "parity", "evidence": "execute_actuator"},
-            "authority": {"stage": "parity", "evidence": "record_control_parity"},
+            "authority": {"stage": "full", "evidence": "enforced_decision"},
             "verify": {"stage": "full", "evidence": "_proactive_verify_factory"},
             "outcome": {"stage": "full", "evidence": "actuation.outcome"},
         },

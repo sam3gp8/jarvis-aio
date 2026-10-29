@@ -87,6 +87,16 @@ def save_parity(hass) -> bool:
 # AUTHORITY_ENFORCE to False to revert to pure parity (log-only) on the next load.
 AUTHORITY_ENFORCE = True
 
+# GENERAL ENFORCE (owner-approved, MCU Phase G4b): the kernel engine's verdict now
+# gates EVERY actuation, not just the bounded allowlist below. The max-restriction
+# belt still holds (the engine can only ADD a confirmation, never loosen the gate),
+# and default_policy returns ALLOW for safe + in-policy sensitive actions at the
+# default confidence, so ordinary actions are unaffected: only SECURITY-tier or
+# low-confidence sensitive capabilities are held. Reversible in two steps:
+# AUTHORITY_ENFORCE_ALL=False reverts to the bounded allowlist (previous
+# behaviour); AUTHORITY_ENFORCE=False reverts to pure parity. Both on next load.
+AUTHORITY_ENFORCE_ALL = True
+
 # Per-capability allowlist — enforcement applies ONLY to these, so the blast
 # radius is bounded. Seeded with exactly the security-relevant capabilities the
 # live policy.confirm_gate already protects (policy._CRITICAL/_HIGH/_MEDIUM), where
@@ -155,20 +165,25 @@ def enforced_decision(hass, domain: str, service: str, *, legacy_ok: bool,
     """MCU Phase G/G4 — authority ENFORCE with a max-restriction belt.
 
     Records the engine-vs-gate parity (as ``record_control_parity`` does) and,
-    when enforcement is on and ``domain.service`` is allowlisted, returns the
-    effective outcome: ``legacy_ok AND engine == ALLOW``. So the engine can only
-    *tighten* the gate (turn an allow into a held-for-confirmation), never loosen
-    it. Returns ``(effective_ok, decision)``.
+    when enforcement is on — generally (G4b), or for an allowlisted capability when
+    general enforce is off — returns the effective outcome: ``legacy_ok AND engine
+    == ALLOW``. So the engine can only *tighten* the gate (turn an allow into a
+    held-for-confirmation), never loosen it. Returns ``(effective_ok, decision)``.
 
     FAIL-SAFE: a kernel fault (decision is None) leaves ``legacy_ok`` unchanged —
-    an engine error can never block a legitimate action. KILL-SWITCH / allowlist:
-    outside enforcement the legacy outcome is returned verbatim (pure parity)."""
+    an engine error can never block a legitimate action. KILL-SWITCH: outside
+    enforcement the legacy outcome is returned verbatim (pure parity)."""
     decision = record_control_parity(
         hass, domain, service, allowed=legacy_ok, identity=identity,
         confidence=confidence, situation=situation, scope=scope, intent=intent,
         token=token, context=context)
     cap = f"{domain}.{service}"
-    if not AUTHORITY_ENFORCE or cap not in AUTHORITY_ENFORCE_CAPABILITIES:
+    # General enforce (G4b): every capability is enforced; with AUTHORITY_ENFORCE_ALL
+    # off, only the bounded allowlist is (the previous behaviour). Either way the
+    # max-restriction belt below only ever tightens the legacy gate.
+    enforce_this = AUTHORITY_ENFORCE and (
+        AUTHORITY_ENFORCE_ALL or cap in AUTHORITY_ENFORCE_CAPABILITIES)
+    if not enforce_this:
         return legacy_ok, decision
     if decision is None:
         return legacy_ok, decision          # fail-safe: never block on a fault
