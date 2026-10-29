@@ -1,3 +1,20 @@
+## [9.39.1] — Fix: importing a vacuum map from an official integration (#405)
+
+Importing a floor-plan background from an `image.*` map entity — e.g. the
+Roborock *official* integration's `image.cleaner_living_room_map_0` — failed with
+"✗ Import failed — couldn't read an image", even though the map rendered fine in
+the dashboard.
+
+The importer fetched the entity's image only through its `entity_picture` proxy
+URL, with an in-process fallback for `camera.*` entities but **none for
+`image.*`** — so when the proxy fetch didn't come through (a cached access-token
+that no longer matched, URL/base resolution), an `image.*` import had nothing to
+fall back to. It now reads the bytes through the domain's in-process helper
+(`image`/`camera` `async_get_image`) **first** — the canonical image straight
+from the entity, with no HTTP round-trip or proxy token — and only falls back to
+the `entity_picture` proxy. Vacuum maps from official integrations now import
+cleanly. Behaviour for entities that already worked is unchanged.
+
 ## [9.39.0] — Multi-step plans read the world before each step
 
 The same small completion the autonomous path got in 9.37.0, applied to

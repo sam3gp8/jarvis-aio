@@ -131,6 +131,12 @@ def _install_ha_stubs() -> None:
     comp_camera.async_get_image = _stub_get_image
     components.camera = comp_camera
 
+    # The image domain's in-process helper (image.* twin of camera's), used by
+    # floorplan_import's robust fetch path (#405).
+    comp_image = types.ModuleType("homeassistant.components.image")
+    comp_image.async_get_image = _stub_get_image
+    components.image = comp_image
+
     const = types.ModuleType("homeassistant.const")
     const.__getattr__ = lambda name: name  # any HA const → its own name
 
@@ -155,6 +161,7 @@ def _install_ha_stubs() -> None:
         "homeassistant.const": const,
         "homeassistant.components": components,
         "homeassistant.components.camera": comp_camera,
+        "homeassistant.components.image": comp_image,
     }.items():
         sys.modules[name] = mod
 
