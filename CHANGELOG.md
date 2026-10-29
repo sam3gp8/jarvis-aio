@@ -1,3 +1,18 @@
+## [9.39.0] — Multi-step plans read the world before each step
+
+The same small completion the autonomous path got in 9.37.0, applied to
+`execute_plan` — the tool that runs a multi-step plan. Before each step acts, it
+now reads that step's target context through the same WorldModel facade
+`control_device` and bulk control use — the canonical context authority — and
+tags the step's actuation event with its area, rather than acting on raw state
+alone. Behaviour is otherwise unchanged (the read is best-effort, never raises,
+and the area simply enriches the event; steps still run independently with
+continue-on-failure and per-step results). **Behavioural kernel coverage rises
+53.5% → 54.9%** — the `execute_plan` path's `world_model` cell moves from a gap to
+parity, leaving every planner-owned actuation path (`control_device`,
+`bulk_control`, `execute_plan`, `run_scene_or_script`, `proactive`) reading the
+world before it acts.
+
 ## [9.38.0] — Goals: the kernel plan now cross-checks the goal store (log-only)
 
 A goal is a plan pursued across time. JARVIS already expresses each goal as a

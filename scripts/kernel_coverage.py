@@ -138,15 +138,19 @@ _PATHS: dict[str, dict] = {
         },
     },
     # Each step's execution routes through the kernel planner
-    # (aexecute_plan) and publishes an actuation event (B4). Authority at parity
-    # (#4b): each step runs through the confirm-gate + kernel authority engine
-    # (authority_bridge.enforced_decision) — the same max-restriction belt as
-    # control_device, log-only parity except where it tightens an allowlisted
+    # (aexecute_plan) and publishes an actuation event (B4). WorldModel at
+    # parity: each step target's pre-action context is read through the facade
+    # (actuation.context) and the actuation event is area-tagged, the same read
+    # control_device/bulk do, rather than acting on raw state alone. Authority at
+    # parity (#4b): each step runs through the confirm-gate + kernel authority
+    # engine (authority_bridge.enforced_decision) — the same max-restriction belt
+    # as control_device, log-only parity except where it tightens an allowlisted
     # security capability. Full plan ownership of execution; steps are arbitrary
     # services, so no single expected end-state (no verify/outcome cell).
     "execute_plan": {
         "module": "agent.py",
         "contracts": {
+            "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "authority": {"stage": "parity", "evidence": "enforced_decision"},
             "plan": {"stage": "full", "evidence": "aexecute_plan"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
