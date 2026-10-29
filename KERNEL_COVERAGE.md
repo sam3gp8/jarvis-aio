@@ -45,13 +45,13 @@ grid) are kept underneath for continuity.
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
 | `goals` | ◑ | · | – | · | ◐ | · | · |
-| `proactive` | ◑ | · | – | ◑ | ● | ● | ● |
+| `proactive` | ◑ | ◑ | – | ◑ | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 50.7%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 52.1%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 29.8% weighted / 29.0% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 30.6% weighted / 29.8% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -264,9 +264,11 @@ one release at a time.
   expected state") applied where it matters most: no human is watching an
   autonomous action, so an unlanded one must be *noticed*. A mismatch is recorded
   and surfaced, never silently re-fired (that would re-actuate the home off-loop
-  without re-checking the agency gates). `world_model` stays an honest **gap**
-  (`·`) — the path takes no pre-action WorldModel snapshot; `situation` is n/a
-  (`–`). The G1/G2 agency-budget + loop-detect **enforce** gates that decide
+  without re-checking the agency gates). **`world_model`** at **parity** (◑): a
+  pre-action context snapshot is read through the WorldModel facade
+  (`actuation.context`) and the actuation is area-tagged — the same read
+  `control_device`/`run_scene_or_script` do. `situation` is n/a (`–`). The G1/G2
+  agency-budget + loop-detect **enforce** gates that decide
   *whether* a proactive action runs are a separate rate/loop governor, not the
   authority permission engine measured here.
 - **`friday`** (9.34.0) — the FRIDAY background-automator sub-agent, the one

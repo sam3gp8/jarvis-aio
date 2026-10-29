@@ -87,8 +87,8 @@ def test_proactive_points_at_cognitive_core_and_is_wired(kc):
     # reads the target back and records the canonical outcome.
     assert rows["proactive"]["verify"] == "full"
     assert rows["proactive"]["outcome"] == "full"
-    # world_model stays a conservative gap: no pre-action WorldModel snapshot.
-    assert rows["proactive"]["world_model"] == "none"
+    # Pre-action WorldModel context snapshot (9.37.0), same read as control_device.
+    assert rows["proactive"]["world_model"] == "parity"
     # situation is the only N/A for this imperative path.
     assert kc._is_na("proactive", "situation")
 

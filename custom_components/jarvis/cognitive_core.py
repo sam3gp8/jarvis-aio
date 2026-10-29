@@ -4621,6 +4621,11 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
         try:
             from . import actuation
             data = {"entity_id": eid, **extra}
+            # Pre-action context snapshot through the WorldModel facade — the
+            # canonical context authority — so the autonomous actuation is read,
+            # area-tagged and recorded the same way control_device / run_scene do
+            # (world_model parity), rather than acting blind on raw state.
+            _ctx = actuation.context(hass, eid)
             areq = actuation.request(capability, eid, params=data, action=service,
                                      expected=_expected)
             _verify = (_proactive_verify_factory(hass, eid, _expected, areq)
@@ -4628,7 +4633,7 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
             ok, _detail = await actuation.execute_actuator(
                 hass, capability=capability, entity_id=eid, domain=domain,
                 service=service, data=data, action=service, areq=areq,
-                verify=_verify, blocking=True)
+                area=(_ctx or {}).get("area"), verify=_verify, blocking=True)
             if ok:
                 successes += 1
         except Exception as exc:   # pragma: no cover - defensive
