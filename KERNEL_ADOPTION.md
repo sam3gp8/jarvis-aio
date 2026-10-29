@@ -65,7 +65,7 @@ beyond that bound may not, except by an explicit per-flip owner go/no-go.
 | Primitive | Stage | Live callers |
 | --- | --- | --- |
 | `actor` | ◐ shadow | `actuation`, `agent` |
-| `actuator` | ● enforce | `actuation`, `agent` |
+| `actuator` | ● enforce | `actuation`, `agent`, `cognitive_core` |
 | `agency` | ● enforce | `agent` |
 | `agency_state` | ◐ shadow | `continuity` |
 | `attention` | ◐ shadow | `output_gate` |

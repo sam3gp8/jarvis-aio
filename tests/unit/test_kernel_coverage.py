@@ -83,11 +83,12 @@ def test_proactive_points_at_cognitive_core_and_is_wired(kc):
     assert rows["proactive"]["plan"] == "full"
     assert rows["proactive"]["event"] == "parity"
     assert rows["proactive"]["authority"] == "parity"
-    # Conservative gaps: no pre-action WorldModel snapshot, no deterministic
-    # read-back (verify=None) so no outcome record.
+    # Verify-after-act for deterministic autonomous targets (9.36.0): the path
+    # reads the target back and records the canonical outcome.
+    assert rows["proactive"]["verify"] == "full"
+    assert rows["proactive"]["outcome"] == "full"
+    # world_model stays a conservative gap: no pre-action WorldModel snapshot.
     assert rows["proactive"]["world_model"] == "none"
-    assert rows["proactive"]["verify"] == "none"
-    assert rows["proactive"]["outcome"] == "none"
     # situation is the only N/A for this imperative path.
     assert kc._is_na("proactive", "situation")
 

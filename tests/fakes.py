@@ -145,6 +145,19 @@ class FakeHass:
             coro.close()
         self._tasks = []
 
+    def __del__(self):
+        # Safety net: close any coroutine spawned via create_task but never
+        # drained/closed, so a test that doesn't care about a scheduled
+        # side-effect (e.g. the proactive verify-after-act) never emits a
+        # "coroutine was never awaited" RuntimeWarning at GC. Only ever closes
+        # coroutines — no I/O, no state — and swallows everything (a __del__ must
+        # never raise).
+        try:
+            for coro in getattr(self, "_tasks", ()):
+                coro.close()
+        except Exception:
+            pass
+
 
 class FakeProvider:
     """The single network seam for reasoning_loop.decide().
