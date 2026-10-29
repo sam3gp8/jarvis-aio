@@ -36,6 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 # live actuation and is an owner-gated step, deliberately not taken.
 _loop_detector = None
 _agency_budget = None
+_stream_detector = None   # cross-path loop detector, fed by the event-bus reactor
 
 # ── agency budget ENFORCE (MCU Phase G/G1) ──────────────────────────────────────
 # First *decision* primitive promoted from shadow to enforce on the live home,
@@ -72,6 +73,19 @@ _autonomous_budget = None
 # loop. FAILS OPEN; one-line kill-switch LOOP_DETECT_ENFORCE reverts to shadow.
 LOOP_DETECT_ENFORCE = True
 _autonomous_loop = None
+
+# ── cross-path thrash reactor (MCU Phase H — the event bus as nervous system) ──
+# The per-path loop gate above (G2) only sees one path's own firings. The event
+# bus carries EVERY actuation (control.actuation) from every path, so a consumer
+# of that stream can catch an oscillation spread across paths — control_device
+# turns a light on, a scene turns it off, a proactive pattern turns it on … —
+# that no single path's inline gate can. This is the behaviour that makes the bus
+# a genuinely CONSUMED nervous system rather than a passive ledger: a subscriber
+# feeds a cross-path LoopDetector from the stream, and the discretionary
+# autonomous path consults it (stream_thrash_check) and backs off per target on
+# confirmed cross-path thrash. Bounded to the autonomous population (the safe
+# class, same as G1/G2), FAILS OPEN, reversible via STREAM_THRASH_ENFORCE.
+STREAM_THRASH_ENFORCE = True
 
 
 def loop_detect_check(key: str, *, enforce: Optional[bool] = None,
@@ -186,6 +200,61 @@ def _agency_shadow(capability: str, entity_id: str, *,
                 "enforced (shadow)", key)
     except Exception:   # pragma: no cover - defensive
         pass
+
+
+def _stream_react(event) -> None:
+    """Event-bus subscriber: feed the CROSS-PATH loop detector from one actuation
+    event. Keyed by ``capability:target`` exactly as the per-path G2 gate keys an
+    action, so a firing any path publishes populates the shared detector. SHADOW-
+    safe: only records; never raises into publish (the bus already guards us, but
+    belt-and-braces)."""
+    global _stream_detector
+    try:
+        if getattr(event, "type", None) != "control.actuation":
+            return
+        import time
+        from .kernel import loop_detect as _ld
+        if _stream_detector is None:
+            _stream_detector = _ld.LoopDetector()
+        data = getattr(event, "data", None) or {}
+        cap = data.get("capability") or ""
+        target = getattr(event, "subject", None) or data.get("target") or ""
+        if not cap or not target:
+            return
+        _stream_detector.record(f"{cap}:{target}", now=time.time(),
+                                cause=getattr(event, "correlation_id", None),
+                                event_id=getattr(event, "id", None))
+    except Exception:   # pragma: no cover - defensive, never break a publish
+        pass
+
+
+def register_stream_reactor(bus):
+    """Subscribe the cross-path thrash reactor to actuation events on ``bus``.
+    Called once at setup. Returns the unsubscribe handle, or None. Best-effort."""
+    try:
+        from .kernel.event import EVENT_ACTUATION
+        return bus.subscribe(EVENT_ACTUATION, _stream_react)
+    except Exception:   # pragma: no cover - defensive
+        return None
+
+
+def stream_thrash_check(key: str, *, enforce: Optional[bool] = None,
+                        now: Optional[float] = None) -> tuple:
+    """Does the cross-path event stream show ``key`` thrashing right now? Returns
+    ``(ok_to_proceed, reason)``. Peeks the bus-fed detector WITHOUT recording (the
+    reactor records from the stream). FAILS OPEN: no detector, flag off, or any
+    error → ``(True, None)``. Reversible via STREAM_THRASH_ENFORCE / ``enforce``."""
+    if enforce is None:
+        enforce = STREAM_THRASH_ENFORCE
+    try:
+        if not enforce or _stream_detector is None:
+            return True, None
+        import time
+        if _stream_detector.peek(key, now=(now if now is not None else time.time())):
+            return False, "cross-path thrash on the event stream"
+        return True, None
+    except Exception:   # pragma: no cover - defensive, fail open
+        return True, None
 
 
 def correlation_id() -> Optional[str]:

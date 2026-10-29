@@ -95,6 +95,14 @@ class LoopDetector:
             seen += 1
         return False
 
+    def peek(self, key: str, *, now: float) -> bool:
+        """True if ``key`` is currently flagged as thrashing (in loop cooldown),
+        WITHOUT recording a firing. For a cross-path consult that reads a detector
+        another caller (e.g. the event-bus reactor) has populated — so the reader
+        doesn't double-count the firing the bus already recorded."""
+        until = self._cooldown_until.get(key)
+        return until is not None and now < until
+
     def record(
         self,
         key: str,

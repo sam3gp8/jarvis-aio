@@ -239,6 +239,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     event_bus = JarvisEventBus()
     event_ledger = EventLedger(paths.config_path_str("jarvis", "events.db", hass=hass))
     event_bus.subscribe_all(event_ledger.record)
+    # MCU Phase H: the cross-path thrash reactor consumes the actuation stream so
+    # the bus genuinely drives behaviour (the autonomous path backs off on
+    # cross-path thrash), not just a passive ledger. Best-effort.
+    try:
+        from . import actuation
+        actuation.register_stream_reactor(event_bus)
+    except Exception:  # pragma: no cover - defensive, never block setup
+        pass
 
     async def _flush_event_ledger(now=None):
         await hass.async_add_executor_job(event_ledger.flush)

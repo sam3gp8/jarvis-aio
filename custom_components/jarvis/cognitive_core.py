@@ -4622,6 +4622,19 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
             _LOGGER.info("Proactive action held by the authority engine, "
                          "skipped: %s.%s on %s", domain, service, eid)
             continue
+        # MCU Phase H — cross-path thrash gate: the event-bus reactor has been
+        # fed this target's actuations from EVERY path (not just this one), so a
+        # system-wide oscillation the per-path G2 gate can't see shows up here.
+        # Back off this target on confirmed cross-path thrash. Fails open.
+        try:
+            from . import actuation
+            _stream_ok, _sreason = actuation.stream_thrash_check(f"{capability}:{eid}")
+        except Exception:   # pragma: no cover - fail open
+            _stream_ok = True
+        if not _stream_ok:
+            _LOGGER.warning("Proactive action suppressed by cross-path thrash "
+                            "(%s on %s) — %s", capability, eid, _sreason)
+            continue
         try:
             from . import actuation
             data = {"entity_id": eid, **extra}
