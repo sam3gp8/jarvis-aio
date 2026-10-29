@@ -37,9 +37,9 @@ grid) are kept underneath for continuity.
 | Path | event | world_model | situation | authority | plan | verify | outcome |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `control_device` | ◑ | ◑ | – | ◑ | ● | ● | ● |
-| `bulk_control` | ◑ | ◑ | – | ◑ | ◐ | – | – |
+| `bulk_control` | ◑ | ◑ | – | ◑ | ● | – | – |
 | `execute_plan` | ◑ | · | – | ◑ | ● | – | – |
-| `run_scene_or_script` | ◑ | ◑ | – | ◑ | ◐ | – | – |
+| `run_scene_or_script` | ◑ | ◑ | – | ◑ | ● | – | – |
 | `set_mode` | ◑ | – | – | ◑ | ◐ | – | – |
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
@@ -49,9 +49,9 @@ grid) are kept underneath for continuity.
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 42.4%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 46.5%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 25.8% weighted / 24.2% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 27.4% weighted / 26.6% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -194,17 +194,29 @@ one release at a time.
   and best-effort — it never affects the underlying intrusion/freeze/delivery
   handling. This is the step that lifts coverage back up (15.5% → 17.9%).
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
-  shared `actuation` envelope for its WorldModel context (`world_model` ◑),
-  actuation event (`event` ◑) and shadow plan (`plan` ◐). verify/outcome are
-  **n/a** (`–`, no deterministic end-state). **Authority** at **parity** (◑,
-  authority-breadth): activation now records the kernel authority engine's verdict
-  (`record_control_parity`, log-only) against the path's no-gate allow — a
-  scene/script can do anything a confirm-gate would guard, so its authority
-  contract is measured, not blank. Log-only; it never gates the activation.
+  shared `actuation` envelope for its WorldModel context (`world_model` ◑) and
+  actuation event (`event` ◑). verify/outcome are **n/a** (`–`, no deterministic
+  end-state). **Plan** at **full** (`●`): the activation runs *through* the kernel
+  planner — the universal seam (`execute_actuator`) executes it as a one-step
+  `aexecute_plan` whose run_step performs the awaited service call, exactly as
+  `control_device` does. B1/H3 replaced the old hand-logged shadow plan with this
+  seam execution, so the planner owns execution here; the cell was corrected from
+  `◐` to `●` to reflect the wiring already in place. **Authority** at
+  **parity** (◑, authority-breadth): activation records the kernel authority
+  engine's verdict (`record_control_parity`, log-only) against the path's no-gate
+  allow — a scene/script can do anything a confirm-gate would guard, so its
+  authority contract is measured, not blank. Log-only; it never gates the
+  activation.
 - **`set_mode`** (B2) — the mode directive records its change through the envelope
   (`event` ◑, `plan` ◐). `world_model` and verify/outcome are **n/a** (`–`): the
-  target is an abstract mode, not a single entity with pre/post state. **Authority**
-  at **parity** (◑, authority-breadth): the mode change now records the authority
+  target is an abstract mode, not a single entity with pre/post state. **Plan
+  stays `◐` shadow by design** — unlike `run_scene_or_script`/`bulk_control`, the
+  directive performs no *general* planner-owned home actuation: it changes the
+  mode variable, and only `movie` mode applies a home effect (dimming, which
+  *does* route through the planner, but in `mode_scene`). Promoting the cell to
+  `●` would over-credit every non-movie mode, so it is deliberately left shadow —
+  the conservative, honest call the matrix exists to protect. **Authority** at
+  **parity** (◑, authority-breadth): the mode change records the authority
   engine's verdict (`record_control_parity`, log-only) against the path's no-gate
   allow — a mode change applies scenes that can be consequential, so its authority
   contract is measured, not blank. Log-only; it never gates the directive.
@@ -213,10 +225,16 @@ one release at a time.
   run through the authority engine (`authority` ◑). Steps are arbitrary services,
   so verify/outcome are **n/a** (`–`). `world_model` is an un-wired **gap** (`·`).
   Behaviour preserved: continue-on-failure, per-step results.
-- **`bulk_control`** (B3) — recorded as one explicit N-step kernel `Plan` (shadow,
-  `plan` ◐) with each executed target routed through the envelope (`world_model`
-  ◑, `event` ◑, `authority` ◑). Fire-and-forget, so per-device verify/outcome are
-  **n/a** (`–`); protected devices are still skipped.
+- **`bulk_control`** (B3) — each executed target routed through the envelope
+  (`world_model` ◑, `event` ◑, `authority` ◑). **Plan** at **full** (`●`): every
+  target's execution runs *through* the kernel planner — the universal seam
+  (`execute_actuator`) drives each as a one-step `aexecute_plan`, the same
+  mechanism `control_device` and `proactive` use, so the planner owns execution
+  per target (an additional descriptive N-step `bulk_plan` is also recorded, but
+  it is incidental to the per-target planner execution the cell credits). The cell
+  was corrected from `◐` to `●` to reflect this. Fire-and-forget, so
+  per-device verify/outcome are **n/a** (`–`); protected devices are still
+  skipped.
 - **`goals`** — an *orchestration* path: when a goal comes due it runs the
   headless agent, whose tool-calls actuate through the already-wired paths. What
   goals owns on the spine so far: its steps are expressed as a kernel `Plan` and
