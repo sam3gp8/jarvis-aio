@@ -286,13 +286,15 @@ _PATHS: dict[str, dict] = {
         "contracts": {
             # A goal's ordered steps are expressed as a kernel Plan, durably
             # journaled (F1/F2, _shadow_plan) and kept in step-by-step sync with
-            # the goal store (H4a). PARITY: on every engagement that durable Plan
-            # is CONSULTED against the authoritative goal store and agreement is
-            # recorded (`_plan_parity`, log-only) — the plan now enters the live
-            # flow rather than sitting unread. Still log-only; the goal store
-            # stays authoritative (promoting the kernel Plan to authoritative is
-            # the separate, owner-gated H4b).
-            "plan": {"stage": "parity", "evidence": "_plan_parity"},
+            # the goal store (H4a). FULL (H4b): the kernel journal is now the
+            # AUTHORITATIVE source of a goal's step state — writes commit to it
+            # first (_journal_sync_steps) and reads overlay it onto the store
+            # (_apply_journal_authority); the goal store is kept as its current
+            # mirror and durable fallback. The kernel Plan drives the goal's
+            # operative state, not just shadows/consults it. Reversible via the
+            # goals_kernel_authoritative flag (falls back to store-authoritative
+            # parity). _plan_parity stays as the live agreement/invariant check.
+            "plan": {"stage": "full", "evidence": "_apply_journal_authority"},
             # Each goal engage/close publishes a canonical goal.transition
             # JarvisEvent on the bus (parity — enters the stream + ledger, no
             # consumer reacts yet), the same nervous-system wiring as situations.
