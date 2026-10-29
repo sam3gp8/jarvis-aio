@@ -110,19 +110,24 @@ _PATHS: dict[str, dict] = {
                          "situation lifecycle (no open/close state to model)",
         },
     },
-    # Recorded as one explicit N-step kernel Plan (shadow) and each executed
-    # target routed through the actuation envelope (B3): WorldModel context +
-    # actuation event. Authority at parity (#4b): per target the kernel authority
-    # engine's verdict is recorded against the legacy skip decision (log-only,
-    # covering the skipped protected targets too). Fire-and-forget, so no
-    # per-device verify/outcome by design.
+    # Each executed target is routed through the actuation envelope (B3):
+    # WorldModel context + actuation event. Authority at parity (#4b): per target
+    # the kernel authority engine's verdict is recorded against the legacy skip
+    # decision (log-only, covering the skipped protected targets too).
+    # Plan FULL: each target's execution runs *through* the kernel planner — the
+    # universal seam (execute_actuator) drives every target as a one-step
+    # aexecute_plan, the same mechanism control_device and proactive use, so the
+    # planner owns execution per target. (An additional descriptive N-step
+    # `bulk_plan` is also recorded for the whole op; it is incidental to the
+    # per-target planner execution the plan cell credits.) Fire-and-forget, so
+    # no per-device verify/outcome by design.
     "bulk_control": {
         "module": "agent.py",
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "authority": {"stage": "parity", "evidence": "record_control_parity"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
-            "plan": {"stage": "shadow", "evidence": "bulk_plan"},
+            "plan": {"stage": "full", "evidence": "execute_actuator"},
         },
         "na": {
             "situation": "imperative multi-device actuation, not a situation "
@@ -155,19 +160,23 @@ _PATHS: dict[str, dict] = {
         },
     },
     # Activates scenes/scripts/automations. Routed through the shared actuation
-    # envelope (B1): WorldModel context, actuation event, shadow plan. No
-    # deterministic end-state, so no verify/outcome. Authority at parity
-    # (authority-breadth): the activation now records the kernel authority
-    # engine's verdict (record_control_parity, log-only) against the path's
-    # no-gate allow — a scene/script can do anything a confirm-gate would guard,
-    # so its authority contract is measured, not blank. Log-only; never gates.
+    # envelope (B1): WorldModel context, actuation event. No deterministic
+    # end-state, so no verify/outcome. Authority at parity (authority-breadth):
+    # the activation records the kernel authority engine's verdict
+    # (record_control_parity, log-only) against the path's no-gate allow — a
+    # scene/script can do anything a confirm-gate would guard, so its authority
+    # contract is measured, not blank. Log-only; never gates.
+    # Plan FULL: the activation runs *through* the kernel planner — the universal
+    # seam (execute_actuator) executes it as a one-step aexecute_plan whose
+    # run_step performs the awaited service call, exactly as control_device does
+    # (B1/H3 replaced the old hand-logged shadow plan with this seam execution).
     "run_scene_or_script": {
         "module": "agent.py",
         "contracts": {
             "world_model": {"stage": "parity", "evidence": "actuation.context"},
             "authority": {"stage": "parity", "evidence": "record_control_parity"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
-            "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
+            "plan": {"stage": "full", "evidence": "execute_actuator"},
         },
         "na": {
             "situation": "scene/script activation is imperative, not a "
