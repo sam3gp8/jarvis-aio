@@ -4489,6 +4489,65 @@ async def _notify_all_devices(hass, config, message, action_type, snapshot_url=N
             _LOGGER.warning("JARVIS: intrusion notification failed to post: %s", exc)
 
 
+# ── Proactive verify-after-act (MCU Phase A, extended to the autonomous path) ──
+# When JARVIS acts of its OWN accord, it should confirm the world actually
+# reached the expected state and record the canonical ActuatorOutcome — the
+# audit's point 18 ("the service returned success" is not "the world reached the
+# expected state"), which matters *most* for actions no human asked for and is
+# watching. Expected end-states for the deterministic services the autonomous
+# path actuates; a service not listed is non-deterministic (no verify, same as
+# control_device). The read-back sleep is a module attr so tests can neutralize
+# it.
+_PROACTIVE_EXPECTED = {
+    "turn_on": ("on",), "turn_off": ("off",),
+    "lock": ("locked",), "unlock": ("unlocked",),
+    "open": ("open",), "close": ("closed",),
+    "open_cover": ("open",), "close_cover": ("closed",),
+}
+_PROACTIVE_TRANSITIONAL = ("opening", "closing", "locking", "unlocking")
+_PROACTIVE_VERIFY_DELAY = 2.0
+_PROACTIVE_VERIFY_SLEEP = asyncio.sleep
+try:
+    from .kernel.actuator import VERIFIED as _P_VERIFIED, MISMATCH as _P_MISMATCH
+except Exception:   # pragma: no cover - defensive, stdlib fallback
+    _P_VERIFIED, _P_MISMATCH = "verified", "mismatch"
+
+
+def _proactive_verify_factory(hass, entity_id: str, expected: tuple, areq):
+    """A 0-arg coroutine factory for ``execute_actuator``'s scheduled verify:
+    after a short delay, read the target back and record the canonical
+    ActuatorOutcome — VERIFIED when the world reached ``expected``, MISMATCH when
+    it did not. An autonomous action does NOT silently re-fire on a mismatch
+    (that would re-actuate the home off-loop without re-checking the agency
+    gates); the mismatch is recorded and surfaced instead. Best-effort; a verify
+    fault never raises into the actuation."""
+    async def _verify() -> None:
+        try:
+            from . import actuation
+            await _PROACTIVE_VERIFY_SLEEP(_PROACTIVE_VERIFY_DELAY)
+            st = hass.states.get(entity_id)
+            s = str(st.state).lower() if st is not None else None
+            if s in _PROACTIVE_TRANSITIONAL:          # still moving — one grace read
+                await _PROACTIVE_VERIFY_SLEEP(_PROACTIVE_VERIFY_DELAY)
+                st = hass.states.get(entity_id)
+                s = str(st.state).lower() if st is not None else None
+            if s is not None and s in expected:
+                actuation.outcome(areq, _P_VERIFIED, hass, entity_id,
+                                  "proactive action reached the expected state")
+            else:
+                actuation.outcome(
+                    areq, _P_MISMATCH, hass, entity_id,
+                    f"proactive action did not reach {'/'.join(expected)} "
+                    f"(state: {s or 'unknown'})")
+                _LOGGER.info(
+                    "proactive verify: %s did not reach %s (state: %s) — "
+                    "recorded a mismatch, not re-firing", entity_id,
+                    "/".join(expected), s or "unknown")
+        except Exception as exc:   # pragma: no cover - best-effort
+            _LOGGER.debug("proactive verify failed for %s: %s", entity_id, exc)
+    return _verify
+
+
 async def _execute_action_data(hass, action_data: dict) -> bool:
     """
     Execute a proactive action's service call.
@@ -4538,6 +4597,11 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
     # executed and recorded. Best-effort: returns True if at least one target
     # actuated (so a wholly-failed action makes no "I did it" claim).
     capability = f"{domain}.{service}"
+    # Verify-after-act for the deterministic services JARVIS actuates of its own
+    # accord (turn_on/off, lock/unlock, open/close): confirm the world reached
+    # the expected state and record the canonical outcome. Non-deterministic
+    # services get no verify (expected is None), exactly like control_device.
+    _expected = _PROACTIVE_EXPECTED.get(service)
     successes = 0
     for eid in entity_ids:
         # MCU authority-breadth (parity, log-only): record the kernel authority
@@ -4557,11 +4621,14 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
         try:
             from . import actuation
             data = {"entity_id": eid, **extra}
-            areq = actuation.request(capability, eid, params=data, action=service)
+            areq = actuation.request(capability, eid, params=data, action=service,
+                                     expected=_expected)
+            _verify = (_proactive_verify_factory(hass, eid, _expected, areq)
+                       if _expected else None)
             ok, _detail = await actuation.execute_actuator(
                 hass, capability=capability, entity_id=eid, domain=domain,
                 service=service, data=data, action=service, areq=areq,
-                verify=None, blocking=True)
+                verify=_verify, blocking=True)
             if ok:
                 successes += 1
         except Exception as exc:   # pragma: no cover - defensive

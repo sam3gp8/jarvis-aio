@@ -112,3 +112,91 @@ async def test_parity_recorded_before_the_gates_pass_only(cog, load, monkeypatch
     ok = await cog._execute_action_data(hass, {})          # no domain/service
     assert ok is False
     assert calls == []
+
+
+# ── verify-after-act on the autonomous path (9.36.0) ─────────────────────────
+# When JARVIS acts of its own accord on a deterministic target, it reads the
+# target back and records the canonical ActuatorOutcome: VERIFIED when the world
+# reached the expected state, MISMATCH when it did not — the audit's point 18,
+# where it matters most (no human is watching an autonomous action).
+
+async def _no_sleep(*_a, **_k):
+    return None
+
+
+def _capture_outcomes(load, monkeypatch):
+    seen = []
+    act = load("actuation")
+
+    def _rec(request, status, hass, entity_id, detail=""):
+        seen.append((entity_id, status))
+    monkeypatch.setattr(act, "outcome", _rec)
+    return seen
+
+
+async def test_verify_records_verified_when_state_reaches_expected(
+        cog, load, monkeypatch):
+    outcomes = _capture_outcomes(load, monkeypatch)
+    monkeypatch.setattr(cog, "_PROACTIVE_VERIFY_SLEEP", _no_sleep)
+    hass = FakeHass()
+    hass.states.set("light.pv_ok", "off")
+    ok = await cog._execute_action_data(
+        hass, {"domain": "light", "service": "turn_on",
+               "entity_ids": ["light.pv_ok"]})
+    assert ok is True
+    # Simulate HA applying the service (the fake service call doesn't), then run
+    # the scheduled verify.
+    hass.states.set("light.pv_ok", "on")
+    await hass.drain()
+    assert (outcomes[-1] if outcomes else None) == ("light.pv_ok", cog._P_VERIFIED)
+
+
+async def test_verify_records_mismatch_when_state_does_not_reach(
+        cog, load, monkeypatch):
+    outcomes = _capture_outcomes(load, monkeypatch)
+    monkeypatch.setattr(cog, "_PROACTIVE_VERIFY_SLEEP", _no_sleep)
+    hass = FakeHass()
+    hass.states.set("light.pv_miss", "off")                # stays off
+    await cog._execute_action_data(
+        hass, {"domain": "light", "service": "turn_on",
+               "entity_ids": ["light.pv_miss"]})
+    await hass.drain()                                     # run the scheduled verify
+    # The world never reached "on", so the outcome is a mismatch (recorded, not
+    # silently re-fired).
+    assert ("light.pv_miss", cog._P_MISMATCH) in outcomes
+
+
+async def test_nondeterministic_service_gets_no_verify(cog, load, monkeypatch):
+    # A service with no single expected end-state (e.g. set_temperature) schedules
+    # no verify and records no outcome — exactly like control_device.
+    outcomes = _capture_outcomes(load, monkeypatch)
+    monkeypatch.setattr(cog, "_PROACTIVE_VERIFY_SLEEP", _no_sleep)
+    hass = FakeHass()
+    hass.states.set("climate.den", "heat")
+    ok = await cog._execute_action_data(
+        hass, {"domain": "climate", "service": "set_temperature",
+               "entity_ids": ["climate.den"],
+               "service_data": {"temperature": 70}})
+    assert ok is True
+    await hass.drain()
+    assert outcomes == []
+
+
+async def test_verify_fault_never_disrupts_the_action(cog, load, monkeypatch):
+    # A fault inside the scheduled verify is swallowed — it runs after the action
+    # has already succeeded and must never surface.
+    act = load("actuation")
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("outcome backend down")
+    monkeypatch.setattr(act, "outcome", _boom)
+    monkeypatch.setattr(cog, "_PROACTIVE_VERIFY_SLEEP", _no_sleep)
+    hass = FakeHass()
+    hass.states.set("light.pv_boom", "off")
+    ok = await cog._execute_action_data(
+        hass, {"domain": "light", "service": "turn_on",
+               "entity_ids": ["light.pv_boom"]})
+    assert ok is True
+    await hass.drain()          # must not raise
+    assert hass.service_calls == [
+        ("light", "turn_on", {"entity_id": "light.pv_boom"})]

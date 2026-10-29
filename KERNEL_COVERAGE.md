@@ -45,13 +45,13 @@ grid) are kept underneath for continuity.
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
 | `goals` | ◑ | · | – | · | ◐ | · | · |
-| `proactive` | ◑ | · | – | ◑ | ● | · | · |
+| `proactive` | ◑ | · | – | ◑ | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 46.5%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 50.7%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 27.4% weighted / 26.6% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 29.8% weighted / 29.0% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -253,15 +253,22 @@ one release at a time.
   path routes each target through the universal actuation seam
   (`actuation.execute_actuator`), so the kernel planner owns execution (`plan` ●,
   via `aexecute_plan` inside the seam) and the canonical actuation `JarvisEvent`
-  is published (`event` ◑) — wiring that already existed but went uncredited
-  while the row was mis-pointed. **Authority** at **parity** (◑, log-only,
-  *new* this release): the engine verdict is recorded (`record_control_parity`)
-  against the path's proceed decision. `world_model`/`verify`/`outcome` stay
-  honest **gaps** (`·`): the path takes no pre-action WorldModel snapshot and
-  passes `verify=None` (no deterministic read-back, so no outcome record);
-  `situation` is n/a (`–`). The G1/G2 agency-budget + loop-detect **enforce**
-  gates that decide *whether* a proactive action runs are a separate rate/loop
-  governor, not the authority permission engine measured here.
+  is published (`event` ◑). **Authority** at **parity** (◑, log-only): the engine
+  verdict is recorded (`record_control_parity`) against the path's proceed
+  decision. **Verify** (`●`) + **outcome** (`●`): for the deterministic services
+  JARVIS actuates of its own accord (turn_on/off, lock/unlock, open/close) a
+  verify-after-act (`_proactive_verify_factory`) reads the target back and
+  records the canonical `ActuatorOutcome` (`actuation.outcome`) — VERIFIED when
+  the world reached the expected state, MISMATCH when it did not. This is the
+  audit's point 18 ("the service returned success" is not "the world reached the
+  expected state") applied where it matters most: no human is watching an
+  autonomous action, so an unlanded one must be *noticed*. A mismatch is recorded
+  and surfaced, never silently re-fired (that would re-actuate the home off-loop
+  without re-checking the agency gates). `world_model` stays an honest **gap**
+  (`·`) — the path takes no pre-action WorldModel snapshot; `situation` is n/a
+  (`–`). The G1/G2 agency-budget + loop-detect **enforce** gates that decide
+  *whether* a proactive action runs are a separate rate/loop governor, not the
+  authority permission engine measured here.
 - **`friday`** (9.34.0) — the FRIDAY background-automator sub-agent, the one
   profile that may actuate. It acts **only** through its grant set
   (`control_device` / `bulk_control` / `run_scene_or_script`), each of which

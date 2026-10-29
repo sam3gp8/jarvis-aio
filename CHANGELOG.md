@@ -1,3 +1,26 @@
+## [9.36.0] — JARVIS confirms its own autonomous actions landed
+
+When JARVIS acts on a learned pattern *of its own accord* — turning on a light
+because it got dark while you were in the room, turning off one left on in an
+empty room — nobody is watching to notice if the action didn't actually take.
+Until now it assumed the service call succeeding meant the world changed. It no
+longer assumes.
+
+- **Verify-after-act on the autonomous path.** After a discretionary autonomous
+  action on a deterministic target (turn on/off, lock/unlock, open/close), JARVIS
+  reads the target back and records the canonical outcome — **verified** when the
+  world reached the expected state, **mismatch** when it didn't (surfaced, so a
+  light that didn't respond or a lock that jammed is noticed rather than silently
+  assumed done). It never silently re-fires on a mismatch — re-actuating the home
+  off-loop would skip the agency gates — it records and surfaces it instead.
+- **Why it matters most here.** This is the same confirmation `control_device`
+  already does for actions *you* ask for, extended to the actions no human is
+  watching. Non-deterministic services (where there's no single expected state)
+  get no verify, exactly as before.
+- **Behavioural kernel coverage rises 46.5% → 50.7%** (applicable cells) — past
+  the halfway mark: the `proactive` path's `verify` and `outcome` cells move from
+  un-wired gaps to full. The matrix and its prose are regenerated together.
+
 ## [9.35.0] — Don't cry wolf: a vision veto on false intrusion alarms
 
 If JARVIS has its own eyes on the scene and sees no one, it should not raise an

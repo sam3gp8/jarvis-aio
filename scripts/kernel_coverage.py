@@ -303,18 +303,25 @@ _PATHS: dict[str, dict] = {
     # (plan ●, via aexecute_plan inside the seam) and the canonical actuation
     # JarvisEvent is published (event ◑). Authority at parity (log-only): the
     # engine verdict is recorded (`record_control_parity`) against the path's
-    # proceed decision. world_model/verify/outcome stay honest gaps — the path
-    # takes no pre-action WorldModel snapshot and passes verify=None (no
-    # read-back), so there is no outcome record either; conservative, counts
-    # against us. (The G1/G2 agency-budget and loop-detect ENFORCE gates that
-    # decide *whether* a proactive action runs are a separate rate/loop
-    # governor, not the authority permission engine measured here.)
+    # proceed decision. Verify FULL + outcome FULL: for the deterministic
+    # services JARVIS actuates of its own accord (turn_on/off, lock/unlock,
+    # open/close) a verify-after-act (`_proactive_verify_factory`) reads the
+    # target back and records the canonical ActuatorOutcome (`actuation.outcome`)
+    # — VERIFIED when the world reached the expected state, MISMATCH when it did
+    # not — the audit's point 18, applied to the path where it matters most (no
+    # human is watching an autonomous action). An autonomous mismatch is recorded
+    # and surfaced, never silently re-fired. world_model stays an honest gap — the
+    # path takes no pre-action WorldModel snapshot. (The G1/G2 agency-budget and
+    # loop-detect ENFORCE gates that decide *whether* a proactive action runs are
+    # a separate rate/loop governor, not the authority engine measured here.)
     "proactive": {
         "module": "cognitive_core.py",
         "contracts": {
             "plan": {"stage": "full", "evidence": "execute_actuator"},
             "event": {"stage": "parity", "evidence": "execute_actuator"},
             "authority": {"stage": "parity", "evidence": "record_control_parity"},
+            "verify": {"stage": "full", "evidence": "_proactive_verify_factory"},
+            "outcome": {"stage": "full", "evidence": "actuation.outcome"},
         },
         "na": {"situation": "discretionary autonomous actuation is imperative, "
                             "not a situation lifecycle"},
