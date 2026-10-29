@@ -60,3 +60,43 @@ async def test_set_mode_failure_publishes_nothing(agent, fake_hass, modes_wired,
     out = await agent._exec_set_mode(fake_hass, {"mode": "bogus"})
     assert '"ok": false' in out.lower()
     assert published == []
+
+
+async def test_set_mode_runs_through_the_kernel_planner(
+        agent, fake_hass, modes_wired, load, monkeypatch, published):
+    # Stage 2 (plan → full): the directive's application EXECUTES as a one-step
+    # kernel plan (aexecute_plan) — planner-owned and journaled, not a shadow.
+    monkeypatch.setattr(modes_wired, "set_mode", lambda m, r: {"ok": True, "mode": m})
+    kplan = load("kernel.plan")
+    seen = {}
+    real = kplan.aexecute_plan
+
+    async def _spy(plan, **kw):
+        seen["goal"] = plan.goal
+        seen["steps"] = [s.action for s in plan.steps]
+        return await real(plan, **kw)
+
+    monkeypatch.setattr(kplan, "aexecute_plan", _spy)
+    out = await agent._exec_set_mode(fake_hass, {"mode": "movie"})
+    res = json.loads(out)
+    assert res["ok"] is True and res["mode"] == "movie"
+    assert seen.get("steps") == ["jarvis.set_mode"]   # executed through the planner
+    assert "movie" in seen.get("goal", "")
+    assert len(published) == 1                          # the actuation event still fires
+
+
+async def test_set_mode_survives_a_planner_fault(
+        agent, fake_hass, modes_wired, load, monkeypatch):
+    # Fail-safe: a planner fault must never prevent the mode change.
+    applied = {}
+    monkeypatch.setattr(modes_wired, "set_mode",
+                        lambda m, r: applied.setdefault("m", m) and None or {"ok": True, "mode": m})
+    kplan = load("kernel.plan")
+
+    async def _boom(plan, **kw):
+        raise RuntimeError("planner down")
+    monkeypatch.setattr(kplan, "aexecute_plan", _boom)
+
+    out = await agent._exec_set_mode(fake_hass, {"mode": "away"})
+    res = json.loads(out)
+    assert res["ok"] is True and res["mode"] == "away"   # mode still set via fail-safe

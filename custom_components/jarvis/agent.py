@@ -2767,30 +2767,54 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
             return json.dumps({
                 "error": "mode change held for confirmation by the authority engine",
                 "mode": _mode_req, "needs_confirmation": True})
-        res = await hass.async_add_executor_job(
-            modes.set_mode, _mode_req, args.get("reason", ""))
-        if res.get("ok"):
+        # MCU Phase B2/H (set_mode real routing): run the mode directive's
+        # APPLICATION through the kernel planner as a one-step plan (precondition
+        # → act → record) — the same planner-owned execution control_device and
+        # run_scene_or_script use — so the directive is journaled and recoverable,
+        # not hand-logged as a shadow. The step both sets the mode (modes.set_mode)
+        # and applies its on-activation mood (mode_scene.apply_mode_entry, which
+        # itself routes each light through the seam); a mood-less mode is a no-op
+        # mood but STILL executes through the planner, so every set_mode — not just
+        # movie — is planner-owned. Fail-safe: a planner fault never prevents the
+        # mode change (the mode is the directive's whole point).
+        from . import actuation
+        from .kernel import plan as _kplan
+        _cap = "jarvis.set_mode"
+        _reason = args.get("reason", "")
+        _applied: dict = {}
+
+        async def _run(_s, _m=_mode_req, _r=_reason):
+            r = await hass.async_add_executor_job(modes.set_mode, _m, _r) or {}
+            _applied.update(r)
+            if not r.get("ok"):
+                return False                      # invalid mode → step fails
             try:
                 from . import mode_scene
-                await mode_scene.apply_mode_entry(hass, res["mode"])
-            except Exception:
+                await mode_scene.apply_mode_entry(hass, r["mode"])
+            except Exception:   # pragma: no cover - mood is best-effort
                 pass
-            # MCU Phase B (B2): record the mode change through the shared kernel
-            # actuation envelope — a canonical ActuatorRequest + one-step shadow
-            # Plan + an actuation JarvisEvent. set_mode is a directive, not a
-            # single-entity actuation (its home effect is the applied mode
-            # scene), so there is no WorldModel entity context and no
-            # verify/outcome; the target is the mode name. Best-effort.
-            from . import actuation
-            _cap = "jarvis.set_mode"
-            _mode = res["mode"]
-            _areq = actuation.request(_cap, _mode, params={"mode": _mode},
-                                      action="set_mode",
-                                      intent=f"set mode to {_mode}")
-            # Authority is ENFORCED up front (before the mode was applied), so
-            # there is nothing to record here — the engine already gated it (G4b).
-            actuation.plan_shadow(_cap, _mode, "set_mode", None)
-            actuation.emit_event(hass, _cap, _mode, action="set_mode",
+            return True
+
+        _areq = actuation.request(_cap, _mode_req, params={"mode": _mode_req},
+                                  action="set_mode",
+                                  intent=f"set mode to {_mode_req}")
+        _kplan_obj = _kplan.Plan(
+            goal=f"set mode to {_mode_req}",
+            steps=(_kplan.Step(action=_cap, params={"mode": _mode_req},
+                               idempotency_key=f"setmode:{_mode_req}"),),
+            correlation_id=actuation.correlation_id())
+        try:
+            await _kplan.aexecute_plan(_kplan_obj, run_step=_run)
+        except Exception:   # pragma: no cover - fail-safe: never block the mode change
+            if not _applied:
+                _applied.update(await hass.async_add_executor_job(
+                    modes.set_mode, _mode_req, _reason) or {})
+        res = _applied
+        if res.get("ok"):
+            # The canonical actuation JarvisEvent for the (planner-executed)
+            # directive. Authority was ENFORCED up front (G4b), before the mode
+            # was applied.
+            actuation.emit_event(hass, _cap, res["mode"], action="set_mode",
                                  request=_areq)
             info = modes.mode_info()
             try:
@@ -2805,7 +2829,7 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
                 "note": "safety (pipe-freeze, intrusion, lockdown) remains fully "
                         "active in every mode",
             })
-        return json.dumps(res)
+        return json.dumps(res or {"error": "set_mode failed"})
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 

@@ -193,20 +193,23 @@ _PATHS: dict[str, dict] = {
                        "record",
         },
     },
-    # Mode directive whose entry applies a mode scene (mode_scene). Routed
-    # through the actuation envelope (B2): actuation event + shadow plan for the
-    # mode change. No single-entity context (so no world_model) and no
-    # deterministic end-state (so no verify/outcome); the target is the mode.
-    # Authority FULL (G4b): the mode directive is GATED on the kernel authority
-    # engine's verdict (enforced_decision, max-restriction) BEFORE it is applied
-    # — a mode change applies scenes that can be consequential, so it proceeds
-    # only if the engine returns ALLOW, fail-safe to allow on an engine fault.
+    # Mode directive whose entry applies a mode scene (mode_scene). No
+    # single-entity context (so no world_model) and no deterministic end-state
+    # (so no verify/outcome); the target is the mode. Plan FULL: the directive's
+    # APPLICATION (set the mode + apply its mood) runs *through* the kernel
+    # planner as a one-step aexecute_plan, the same planner-owned execution
+    # control_device/run_scene use — so every set_mode, not just the mood-bearing
+    # movie mode, is planner-executed and journaled (this is what lifts the cell
+    # off the old descriptive shadow; a mood-less mode is still a planner-executed
+    # step). Authority FULL (G4b): the mode directive is GATED on the kernel
+    # authority engine's verdict (enforced_decision, max-restriction) BEFORE it is
+    # applied, fail-safe to allow on an engine fault.
     "set_mode": {
         "module": "agent.py",
         "contracts": {
             "authority": {"stage": "full", "evidence": "enforced_decision"},
             "event": {"stage": "parity", "evidence": "actuation.emit_event"},
-            "plan": {"stage": "shadow", "evidence": "actuation.plan_shadow"},
+            "plan": {"stage": "full", "evidence": "aexecute_plan"},
         },
         "na": {
             "world_model": "the target is an abstract mode, not a single entity "

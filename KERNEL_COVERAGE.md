@@ -41,7 +41,7 @@ grid) are kept underneath for continuity.
 | `bulk_control` | ◑ | ◑ | – | ● | ● | – | – |
 | `execute_plan` | ◑ | ◑ | – | ● | ● | – | – |
 | `run_scene_or_script` | ◑ | ◑ | – | ● | ● | – | – |
-| `set_mode` | ◑ | – | – | ● | ◐ | – | – |
+| `set_mode` | ◑ | – | – | ● | ● | – | – |
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
@@ -50,9 +50,9 @@ grid) are kept underneath for continuity.
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 59.7%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 61.8%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 34.5% weighted / 34.1% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 35.3% weighted / 35.3% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -210,15 +210,19 @@ one release at a time.
   (`enforced_decision`, max-restriction) — a scene/script can do anything a
   confirm-gate would guard, so it runs only if the engine returns ALLOW,
   fail-safe to the path's allow on an engine fault.
-- **`set_mode`** (B2) — the mode directive records its change through the envelope
-  (`event` ◑, `plan` ◐). `world_model` and verify/outcome are **n/a** (`–`): the
-  target is an abstract mode, not a single entity with pre/post state. **Plan
-  stays `◐` shadow by design** — unlike `run_scene_or_script`/`bulk_control`, the
-  directive performs no *general* planner-owned home actuation: it changes the
-  mode variable, and only `movie` mode applies a home effect (dimming, which
-  *does* route through the planner, but in `mode_scene`). Promoting the cell to
-  `●` would over-credit every non-movie mode, so it is deliberately left shadow —
-  the conservative, honest call the matrix exists to protect. **Authority** at
+- **`set_mode`** (B2) — the mode directive routes its change through the envelope
+  (`event` ◑, `plan` ●). `world_model` and verify/outcome are **n/a** (`–`): the
+  target is an abstract mode, not a single entity with pre/post state. **Plan at
+  full (`●`):** the directive's *application* — set the mode **and** apply its
+  on-activation mood (`mode_scene.apply_mode_entry`) — now runs **through the
+  kernel planner** as a one-step `aexecute_plan` (precondition → act → record),
+  the same planner-owned execution `control_device`/`run_scene_or_script` use.
+  This is the real change that lifts the cell off its old descriptive shadow: it
+  was shadow because the directive mostly flipped a variable and only `movie`
+  mode's dim routed through the planner (in `mode_scene`), so crediting `●` would
+  have over-credited every other mode — now *every* `set_mode`, mood-bearing or
+  not, is itself a planner-executed, journaled step, fail-safe so a planner fault
+  never blocks the mode change. **Authority** at
   **full** (●, G4b): the mode directive is gated on the kernel engine's verdict
   (`enforced_decision`, max-restriction) *before* it is applied — a mode change
   applies scenes that can be consequential, so it proceeds only if the engine

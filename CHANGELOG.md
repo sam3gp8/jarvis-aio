@@ -1,3 +1,22 @@
+## [9.42.0] — Mode changes run through the kernel planner
+
+Stage 2 of the enforce-flip track. Switching the operational mode (`set_mode`)
+now runs its **application through the kernel planner** as a one-step plan
+(precondition → act → record) — the same planner-owned, journaled execution that
+`control_device` and scene activation already use. The step both sets the mode
+and applies its on-activation mood (e.g. Movie mode dimming the room), so the
+mode change is now a recoverable, journaled kernel operation rather than a
+hand-logged descriptive record.
+
+- Behaviour is unchanged: the mode still switches and its mood still applies,
+  exactly as before. A planner fault can never prevent the mode change
+  (fail-safe), and authority is still enforced up front (9.41.0).
+- **Behavioural kernel coverage rises 59.7% → 61.8%** — the `set_mode` path's
+  `plan` cell moves from shadow to full. It had been held at shadow on purpose
+  (most modes just flip a variable; only Movie's dim routed through the planner,
+  so crediting full would have over-credited every other mode); routing the whole
+  directive through the planner is the real change that earns the full credit.
+
 ## [9.41.0] — The kernel authority engine now gates every action (G4b)
 
 JARVIS has long run every consequential action past a kernel **authority engine**
