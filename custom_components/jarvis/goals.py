@@ -227,6 +227,50 @@ def _journal_goal_progress(goal_id: int, steps: list,
         pass
 
 
+# MCU Phase F/H — plan PARITY (the owner-approved rung toward H4b). The goal's
+# kernel Plan is built + journaled (F1/F2) and kept in step-by-step sync with the
+# goal store (H4a). This consults that durable Plan on every engagement and logs
+# whether it AGREES with the authoritative goal store — moving the goal's plan
+# cell from shadow (built, never consulted) to parity (consulted in the live
+# flow, agreement recorded). Strictly log-only: nothing here reads the journal to
+# DRIVE goal state or execution; the goal store stays authoritative. Promoting
+# the kernel Plan to authoritative is the still-separate, owner-gated H4b.
+_PLAN_PARITY = {"agree": 0, "disagree": 0}
+
+
+def _plan_parity(goal: dict) -> Optional[bool]:
+    """Compare the kernel journal's view of a goal's steps against the live goal
+    store. Returns True (agree), False (diverged), or None (couldn't compare).
+    Log-only; keeps a running tally for observability. Never raises."""
+    try:
+        gid = int(goal.get("id"))
+        store_steps = goal.get("steps") or []
+        if not store_steps:
+            return None
+        journaled = {js.step_id: str(js.status).lower()
+                     for js in _get_journal().steps(_goal_plan_id(gid))}
+        if not journaled:
+            return None                      # nothing journaled yet to compare
+        diverged = []
+        for s in store_steps:
+            sid = _goal_step_id(gid, s.get("n"))
+            want = str(s.get("status", "pending")).lower()
+            if journaled.get(sid) != want:
+                diverged.append((sid, want, journaled.get(sid)))
+        if diverged:
+            _PLAN_PARITY["disagree"] += 1
+            _LOGGER.info("goal plan parity: #%s kernel Plan diverges from the "
+                         "goal store on %d step(s): %s", gid, len(diverged),
+                         diverged[:5])
+            return False
+        _PLAN_PARITY["agree"] += 1
+        _LOGGER.debug("goal plan parity: #%s kernel Plan agrees with the goal "
+                      "store (%d step(s))", gid, len(store_steps))
+        return True
+    except Exception:   # pragma: no cover - defensive, log-only
+        return None
+
+
 def get(goal_id: int, *, db_path: Optional[str] = None) -> Optional[dict]:
     db_path = db_path or DB_PATH
     try:
@@ -482,6 +526,13 @@ async def async_process_due(
         deadline_passed = bool(g.get("deadline_ts")) and \
             _iso(t) > str(g["deadline_ts"])
         _emit_goal_event(hass, "engaged", g, status="active")
+        # F/H plan parity (log-only): consult the durable kernel Plan against the
+        # authoritative goal store on this engagement and record agreement. Never
+        # affects the run; the goal store stays authoritative.
+        try:
+            await hass.async_add_executor_job(lambda gg=g: _plan_parity(gg))
+        except Exception:   # pragma: no cover - defensive, log-only
+            pass
         prompt = build_prompt(g, deadline_passed=deadline_passed)
         try:
             result = (await runner(prompt, "") or "").strip()
