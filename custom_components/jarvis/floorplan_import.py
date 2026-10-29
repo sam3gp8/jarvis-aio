@@ -74,14 +74,46 @@ def list_sources(hass) -> list[dict]:
 
 async def _fetch_image_bytes(hass, entity_id: str) -> tuple[bytes, str]:
     """Return ``(content, content_type)`` for an image/camera entity's current
-    frame. Tries the entity's ``entity_picture`` (works for both ``image`` and
-    ``camera`` via HA's proxy, token included), then falls back to the camera
-    helper. Raises ValueError with a readable message on failure."""
+    frame.
+
+    Prefers the domain's **in-process** helper (``image``/``camera``
+    ``async_get_image``) — the canonical bytes straight from the entity, with no
+    HTTP round-trip and no proxy access-token that can go stale. That is what
+    lets official integrations import cleanly: a Roborock ``image.*`` map renders
+    fine in the dashboard yet its cached ``entity_picture`` proxy fetch was
+    failing here (#405), because ``image.*`` had no in-process fallback — only
+    ``camera.*`` did. Falls back to fetching the entity's ``entity_picture`` proxy
+    URL (covers entities HA serves only that way). Raises ValueError with a
+    readable message on failure."""
     state = hass.states.get(entity_id)
     if state is None:
         raise ValueError(f"{entity_id} is not available")
+    domain = entity_id.split(".", 1)[0].lower()
 
-    # 1. entity_picture proxy URL — universal for image.* and camera.*.
+    # 1. In-process domain helper — no HTTP, no proxy token. image.* was the gap
+    #    that made official vacuum-map imports (#405) fail; camera.* keeps the
+    #    same canonical read it always had.
+    _dom_get = None
+    default_ctype = "image/png"
+    try:
+        if domain == "image":
+            from homeassistant.components.image import async_get_image as _dom_get
+        elif domain == "camera":
+            from homeassistant.components.camera import async_get_image as _dom_get
+            default_ctype = "image/jpeg"
+    except Exception as exc:  # noqa: BLE001 - helper not importable; use the proxy
+        _LOGGER.debug("floorplan helper import failed for %s: %s", entity_id, exc)
+        _dom_get = None
+    if _dom_get is not None:
+        try:
+            img = await _dom_get(hass, entity_id, timeout=15)
+            content = getattr(img, "content", None)
+            if content:
+                return content, (getattr(img, "content_type", None) or default_ctype)
+        except Exception as exc:  # noqa: BLE001 - fall through to the proxy URL
+            _LOGGER.debug("floorplan in-process fetch failed for %s: %s", entity_id, exc)
+
+    # 2. entity_picture proxy URL fallback — universal for image.* and camera.*.
     pic = state.attributes.get("entity_picture")
     if pic:
         try:
@@ -104,18 +136,8 @@ async def _fetch_image_bytes(hass, entity_id: str) -> tuple[bytes, str]:
                         return data, ctype
                 _LOGGER.debug("floorplan fetch %s via picture: HTTP %s / %s bytes",
                               entity_id, resp.status, len(data) if 'data' in dir() else 0)
-        except Exception as exc:  # noqa: BLE001 - fall through to the camera helper
+        except Exception as exc:  # noqa: BLE001 - fall through to the error below
             _LOGGER.debug("floorplan picture fetch failed for %s: %s", entity_id, exc)
-
-    # 2. camera helper fallback.
-    if entity_id.split(".", 1)[0].lower() == "camera":
-        try:
-            from homeassistant.components.camera import async_get_image
-            img = await async_get_image(hass, entity_id, timeout=15)
-            if getattr(img, "content", None):
-                return img.content, getattr(img, "content_type", "image/jpeg")
-        except Exception as exc:  # noqa: BLE001
-            _LOGGER.debug("floorplan camera fetch failed for %s: %s", entity_id, exc)
 
     raise ValueError(f"couldn't read an image from {entity_id}")
 

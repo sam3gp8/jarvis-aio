@@ -5,6 +5,7 @@ enumeration, and the floor_plan_bg merge. The actual image fetch needs a live HA
 image/camera entity, so it's exercised only for its defensive shape.
 """
 import json
+import sys
 
 import pytest
 
@@ -81,3 +82,76 @@ def test_merge_accepts_dict_and_overwrites_floor(fp):
 def test_merge_tolerates_garbage_prior(fp):
     out = fp._merge_background("not json", "1f", "data:image/png;base64,X")
     assert json.loads(out) == {"1f": "data:image/png;base64,X"}
+
+
+# ── image fetch: in-process domain helper preferred (#405) ────────────────────
+
+class _FakeImg:
+    def __init__(self, content, content_type="image/png"):
+        self.content = content
+        self.content_type = content_type
+
+
+async def test_fetch_uses_in_process_image_helper(fp, monkeypatch):
+    # #405 regression: a Roborock-style image.* entity imports via the in-process
+    # image helper, independent of the entity_picture proxy (whose stale token was
+    # the failure). The proxy is NOT consulted when the helper succeeds.
+    h = FakeHass()
+    h.states.set(
+        "image.cleaner_living_room_map_0", "2026-01-01T00:00:00+00:00",
+        friendly_name="Cleaner Map",
+        entity_picture="/api/image_proxy/image.cleaner_living_room_map_0?token=stale")
+    seen = {}
+
+    async def _fake(hass, entity_id, timeout=10):
+        seen["entity_id"] = entity_id
+        return _FakeImg(b"\x89PNG\r\n" + b"map-bytes" * 300, "image/png")
+
+    monkeypatch.setattr(sys.modules["homeassistant.components.image"], "async_get_image", _fake)
+    content, ctype = await fp._fetch_image_bytes(h, "image.cleaner_living_room_map_0")
+    assert seen["entity_id"] == "image.cleaner_living_room_map_0"
+    assert content.startswith(b"\x89PNG") and ctype == "image/png"
+
+
+async def test_fetch_uses_in_process_camera_helper(fp, monkeypatch):
+    h = FakeHass()
+    h.states.set("camera.robot_map", "idle", friendly_name="Robot Map")
+
+    async def _fake(hass, entity_id, timeout=10):
+        return _FakeImg(b"\xff\xd8" + b"jpeg-map" * 200, "image/jpeg")
+
+    monkeypatch.setattr(sys.modules["homeassistant.components.camera"], "async_get_image", _fake)
+    content, ctype = await fp._fetch_image_bytes(h, "camera.robot_map")
+    assert content.startswith(b"\xff\xd8") and ctype == "image/jpeg"
+
+
+async def test_fetch_defaults_content_type_when_helper_omits_it(fp, monkeypatch):
+    h = FakeHass()
+    h.states.set("image.cleaner_map", "2026-01-01", friendly_name="Cleaner Map")
+
+    async def _fake(hass, entity_id, timeout=10):
+        return _FakeImg(b"\x89PNG" + b"x" * 2000, content_type=None)
+
+    monkeypatch.setattr(sys.modules["homeassistant.components.image"], "async_get_image", _fake)
+    _content, ctype = await fp._fetch_image_bytes(h, "image.cleaner_map")
+    assert ctype == "image/png"   # image domain default when entity gives none
+
+
+async def test_fetch_falls_through_to_clear_error_when_empty(fp, monkeypatch):
+    # Helper returns nothing and there's no entity_picture → the panel-facing
+    # ValueError, not a traceback.
+    h = FakeHass()
+    h.states.set("image.cleaner_map", "unknown", friendly_name="Cleaner Map")
+
+    async def _empty(hass, entity_id, timeout=10):
+        return _FakeImg(None)
+
+    monkeypatch.setattr(sys.modules["homeassistant.components.image"], "async_get_image", _empty)
+    with pytest.raises(ValueError, match="couldn't read an image"):
+        await fp._fetch_image_bytes(h, "image.cleaner_map")
+
+
+async def test_fetch_missing_entity_raises_available(fp):
+    h = FakeHass()
+    with pytest.raises(ValueError, match="not available"):
+        await fp._fetch_image_bytes(h, "image.nope")
