@@ -487,3 +487,95 @@ async def test_learned_damping_silences_initial_ping(safety, fake_hass, clock, m
         "damped pattern should not fire the initial ping"
     assert safety._investigation is not None, \
         "the investigation must still run underneath the damping"
+
+
+# ── vision veto: don't cry wolf when JARVIS's own eyes see no one (9.35.0) ────
+# The owner's rule: "if JARVIS has eyes on the situation and there isn't a
+# problem it shouldn't say that there is." A clear visual negative on the
+# covering camera vetoes the LOW-CONFIDENCE alerts (the initial ping and the
+# no-response soft check-in) — it never vetoes a CONFIRMED intrusion, and never
+# vetoes when vision is inconclusive/absent (fail toward safety). Vigilance is
+# untouched: the investigation keeps running and a real person still escalates.
+# Ever-vigilant by choice: intrusion_vision_veto (default on) off restores alerts.
+
+async def test_initial_ping_vetoed_when_vision_sees_no_one(safety, fake_hass, clock, monkeypatch):
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    monkeypatch.setattr(safety, "_breach_camera", lambda area: "camera.kitchen")
+    _vision_says(safety, monkeypatch, False)           # JARVIS's eyes: no person
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    out = await _intr(safety, fake_hass)
+    # No user-facing initial ping — vision plainly showed no one…
+    assert [a for a in out if a.get("type") == "intrusion_investigating"] == [], \
+        "vision saw no one — the initial low-confidence ping must not fire"
+    # …but JARVIS keeps watching silently (ever-vigilant).
+    assert safety._investigation is not None
+
+
+async def test_no_response_timeout_vetoed_when_vision_sees_no_one(
+        safety, fake_hass, clock, cc, monkeypatch):
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    monkeypatch.setattr(safety, "_breach_camera", lambda area: "camera.kitchen")
+    _vision_says(safety, monkeypatch, False)
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    await _intr(safety, fake_hass)                      # (initial ping vetoed)
+    clock["now"] += cc.INTRUSION_RESPONSE_TIMEOUT_SECS + 5
+    _motion(fake_hass, "binary_sensor.kitchen_motion")  # still "active"
+    out = await _intr(safety, fake_hass)
+    assert [a for a in out if a.get("type") == "intrusion_unresolved"] == [], \
+        "vision saw no one — the no-response timeout must not cry wolf"
+    assert safety._investigation is not None            # still watching
+
+
+async def test_ever_vigilant_still_alerts_when_veto_off(
+        safety, fake_hass, clock, cc, monkeypatch):
+    # intrusion_vision_veto=False → maximum vigilance: an unanswered active
+    # breach still sends the soft check-in even though vision saw no one.
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    safety.config["intrusion_vision_veto"] = False
+    monkeypatch.setattr(safety, "_breach_camera", lambda area: "camera.kitchen")
+    _vision_says(safety, monkeypatch, False)
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    await _intr(safety, fake_hass)
+    clock["now"] += cc.INTRUSION_RESPONSE_TIMEOUT_SECS + 5
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    out = await _intr(safety, fake_hass)
+    assert [a for a in out if a.get("type") == "intrusion_unresolved"], \
+        "with the veto off, ever-vigilant mode still alerts on unanswered activity"
+
+
+async def test_inconclusive_vision_does_not_veto_initial_ping(
+        safety, fake_hass, clock, monkeypatch):
+    # Inconclusive vision (None) must never veto — JARVIS can't see clearly, so
+    # it stays vigilant and still raises the initial ping (fail toward safety).
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    monkeypatch.setattr(safety, "_breach_camera", lambda area: "camera.kitchen")
+    _vision_says(safety, monkeypatch, None)            # inconclusive
+    _away(fake_hass)
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    out = await _intr(safety, fake_hass)
+    assert [a for a in out if a.get("type") == "intrusion_investigating"], \
+        "inconclusive vision must not veto the initial alert"
+
+
+async def test_vision_veto_never_blocks_a_confirmed_intrusion(
+        safety, fake_hass, clock, monkeypatch, cc):
+    # SAFETY: the veto only silences low-confidence alerts. The instant vision
+    # confirms a real person, the full confirmed alarm fires regardless.
+    import sys
+    sys.modules.pop("jc.intrusion", None)
+    await _in_investigation(safety, fake_hass, clock)
+    _person_cam(safety, monkeypatch)
+    _vision_says(safety, monkeypatch, True)            # a real person appears
+    clock["now"] += 20
+    _motion(fake_hass, "binary_sensor.kitchen_motion")
+    out = await _intr(safety, fake_hass)
+    assert any(a.get("type") == "intrusion_confirmed" for a in out) \
+        or safety._investigation is None, \
+        "a vision-confirmed person must still fire the full alarm"
