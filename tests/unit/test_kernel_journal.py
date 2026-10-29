@@ -44,6 +44,30 @@ def test_record_plan_is_idempotent(jmod, tmp_path):
     assert j.steps("plan_1")[0].status == jmod.RUNNING
 
 
+def test_forget_plan_clears_rows_so_a_reseed_starts_fresh(jmod, tmp_path):
+    # record_plan is INSERT-OR-IGNORE, so a reused deterministic plan_id would
+    # otherwise inherit prior statuses. forget_plan clears them first.
+    j = _journal(jmod, tmp_path)
+    p = _plan(steps=[_step("s1"), _step("s2")])
+    j.record_plan(p)
+    j.finish_step("plan_1", "s1", jmod.DONE, "ok")
+    assert j.steps("plan_1")[0].status == jmod.DONE
+    # Without forgetting, a re-record keeps the DONE (idempotent-ignore).
+    removed = j.forget_plan("plan_1")
+    assert removed == 2
+    assert j.steps("plan_1") == []
+    # A fresh record now seeds clean PENDING rows, not the stale DONE.
+    j.record_plan(p)
+    rows = j.steps("plan_1")
+    assert [r.step_id for r in rows] == ["s1", "s2"]
+    assert all(r.status == jmod.PENDING for r in rows)
+
+
+def test_forget_plan_absent_is_zero(jmod, tmp_path):
+    j = _journal(jmod, tmp_path)
+    assert j.forget_plan("nope") == 0
+
+
 def test_lifecycle_start_then_finish(jmod, tmp_path):
     j = _journal(jmod, tmp_path)
     j.record_plan(_plan(steps=[_step("s1")]))

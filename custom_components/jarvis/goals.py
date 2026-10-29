@@ -169,12 +169,11 @@ def _shadow_plan(goal_id: int, title: str, outcome: str, norm_steps: list) -> No
     derived from the goal id so the whole goal lifecycle lands on the same rows.
 
     F1 builds the Plan alongside the goal (a goal is a plan pursued across time).
-    F2 records that Plan into the kernel execution journal (``record_plan``, which
-    is idempotent per (plan_id, step_id)) so the goal → plan → step chain is
-    durably reconstructable — the foundation for agency recovery after a restart.
-    Still SHADOW / log-only: the Plan is never executed or consulted and the
-    journal is never replayed in the live flow; the goal store stays authoritative
-    (promoting the kernel Plan to authoritative is the separate, owner-gated H4b).
+    F2 records that Plan into the kernel execution journal (``record_plan``) so
+    the goal → plan → step chain is durably reconstructable — the foundation for
+    agency recovery after a restart. Under H4b this recorded Plan is the
+    AUTHORITATIVE seed for the goal's step state (see ``_apply_journal_authority``);
+    the row is cleared first (``forget_plan``) so a reused goal id starts clean.
     Best-effort — never affects goal creation."""
     try:
         from .kernel import plan as P
@@ -190,10 +189,26 @@ def _shadow_plan(goal_id: int, title: str, outcome: str, norm_steps: list) -> No
         _LOGGER.debug("goal shadow plan: %s with %d step(s) [%s]",
                       plan.goal, len(plan.steps), plan.id)
         if plan.steps:
+            jr = None
             try:
-                _get_journal().record_plan(plan)   # F2: durable goal→plan→step record
+                jr = _get_journal()
             except Exception:   # pragma: no cover - defensive
-                pass
+                jr = None
+            if jr is not None:
+                # H4b: a goal id can be reused after the goal store is reset, and
+                # record_plan is INSERT-OR-IGNORE — so clear any prior rows for
+                # this deterministic plan_id first. The journal is now
+                # authoritative for goal step state; a (re)seeded goal must start
+                # from its own clean plan, never inherit a stale run's statuses.
+                # Isolated so a journal without forget_plan still records.
+                try:
+                    jr.forget_plan(plan.id)
+                except Exception:   # pragma: no cover - defensive
+                    pass
+                try:
+                    jr.record_plan(plan)   # F2: durable authoritative seed
+                except Exception:   # pragma: no cover - defensive
+                    pass
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -227,14 +242,12 @@ def _journal_goal_progress(goal_id: int, steps: list,
         pass
 
 
-# MCU Phase F/H — plan PARITY (the owner-approved rung toward H4b). The goal's
-# kernel Plan is built + journaled (F1/F2) and kept in step-by-step sync with the
-# goal store (H4a). This consults that durable Plan on every engagement and logs
-# whether it AGREES with the authoritative goal store — moving the goal's plan
-# cell from shadow (built, never consulted) to parity (consulted in the live
-# flow, agreement recorded). Strictly log-only: nothing here reads the journal to
-# DRIVE goal state or execution; the goal store stays authoritative. Promoting
-# the kernel Plan to authoritative is the still-separate, owner-gated H4b.
+# MCU Phase F/H — plan PARITY. The goal's kernel Plan is built + journaled
+# (F1/F2) and kept in step-by-step sync with the goal store (H4a). This consults
+# that durable Plan on every engagement and logs whether it AGREES with the goal
+# store. Under H4b (below) the journal is authoritative and the store is its
+# mirror, so this now reads as a continuous invariant check — they should always
+# agree; a logged divergence means a write landed in one store but not the other.
 _PLAN_PARITY = {"agree": 0, "disagree": 0}
 
 
@@ -271,13 +284,87 @@ def _plan_parity(goal: dict) -> Optional[bool]:
         return None
 
 
+# ── MCU Phase H (H4b): the kernel Plan is AUTHORITATIVE over goal step state ──
+# Parity (above) proved the durable kernel Plan faithfully tracks a goal. H4b
+# promotes it: the kernel journal is now the SOURCE OF TRUTH for a goal's
+# per-step status, and the goal store is kept as its current MIRROR.
+#   * create → the journal plan is (re)seeded cleanly (forget + record).
+#   * update → the step state is committed to the JOURNAL first (authoritative),
+#     then projected into the store.
+#   * read   → the journal's statuses overlay the store's when the journal has
+#     the goal's rows; when it doesn't (a pre-H4b goal, or journal.db lost/reset)
+#     the store stands as the fallback, so goal state is NEVER lost.
+# In the normal flow store and journal are written together and agree, so the
+# overlay is a no-op; it only bites when the two genuinely diverge, and then the
+# journal — the authority — wins. Reversible: `goals_kernel_authoritative`
+# (config, default on) falls the whole path back to store-authoritative parity.
+
+
+def _kernel_authoritative() -> bool:
+    """Whether the kernel journal is authoritative for goal step state (H4b).
+    Default on; set ``goals_kernel_authoritative=false`` to revert to the
+    store-authoritative parity behaviour. Cheap (in-memory config); never raises."""
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("goals_kernel_authoritative", True))
+    except Exception:   # pragma: no cover - config unavailable → keep default on
+        return True
+
+
+def _journal_sync_steps(goal_id: int, steps: list) -> None:
+    """H4b authoritative write: mirror each step's status into the journal
+    verbatim, so an authoritative read agrees with what the store is about to be
+    set to. Committed BEFORE the store write (the journal is the authority).
+    Best-effort; never raises."""
+    try:
+        jr = _get_journal()
+        pid = _goal_plan_id(goal_id)
+        for s in (steps or []):
+            jr.finish_step(pid, _goal_step_id(goal_id, s.get("n")),
+                           str(s.get("status", "pending")),
+                           str(s.get("note", ""))[:300])
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _apply_journal_authority(goal: Optional[dict]) -> Optional[dict]:
+    """H4b read: overlay the journal's authoritative per-step status onto a
+    goal's store steps (in place) when the kernel is authoritative AND the
+    journal holds this goal's rows. When the journal has no rows for the goal
+    (pre-H4b, or journal.db lost/reset) the store steps are left untouched — the
+    mirror is the fallback, so goal state is never lost. Returns ``goal``.
+    Never raises."""
+    try:
+        if goal is None or not _kernel_authoritative():
+            return goal
+        gid = int(goal.get("id"))
+        steps = goal.get("steps") or []
+        if not steps:
+            return goal
+        journaled = {js.step_id: str(js.status).lower()
+                     for js in _get_journal().steps(_goal_plan_id(gid))}
+        if not journaled:
+            return goal                      # journal absent → store authoritative
+        for s in steps:
+            jst = journaled.get(_goal_step_id(gid, s.get("n")))
+            # Only the goal's own step vocabulary; the journal's internal
+            # lifecycle states (running/needs_replay/…) never overwrite a step.
+            if jst in ("pending", "done", "failed", "skipped"):
+                s["status"] = jst
+    except Exception:   # pragma: no cover - defensive, best-effort
+        pass
+    return goal
+
+
 def get(goal_id: int, *, db_path: Optional[str] = None) -> Optional[dict]:
     db_path = db_path or DB_PATH
     try:
         with _connect(db_path) as conn:
             r = conn.execute("SELECT * FROM goals WHERE id=?",
                              (int(goal_id),)).fetchone()
-            return _row_to_goal(r) if r else None
+            g = _row_to_goal(r) if r else None
+        # H4b: the kernel journal is authoritative for step state when present.
+        return _apply_journal_authority(g)
     except Exception:
         return None
 
@@ -349,6 +436,17 @@ def update(goal_id: int, *, step_updates: Optional[list] = None,
                     s["status"] = u["status"]
                 if u.get("note"):
                     s["note"] = str(u["note"])[:300]
+        # H4b: on close, abandoned (still-pending) steps become skipped — the
+        # goal's terminal state — written to BOTH the authoritative journal and
+        # its store mirror (below) so they agree and the plan reads as complete.
+        # Parity (flag off) leaves the store steps as-is and marks skips in the
+        # journal only, via _journal_goal_progress (the pre-H4b behaviour).
+        if _kernel_authoritative() and status in ("done", "failed", "cancelled"):
+            for s in steps:
+                if str(s.get("status", "pending")) == "pending":
+                    s["status"] = "skipped"
+                    if not s.get("note"):
+                        s["note"] = "goal closed before step completed"
         progress = g["progress"]
         if progress_note:
             progress.append({"t": _iso(t), "note": str(progress_note)[:500]})
@@ -369,12 +467,24 @@ def update(goal_id: int, *, step_updates: Optional[list] = None,
             sets.append("last_result=?")
             params.append(str(result)[:1000])
         params.append(int(goal_id))
-        with _connect(db_path) as conn:
-            conn.execute(f"UPDATE goals SET {', '.join(sets)} WHERE id=?", params)
-        # H4a: journal the goal's step transitions (and closure) into the kernel
-        # execution journal — shadow/best-effort, after the authoritative commit.
-        _journal_goal_progress(int(goal_id), steps,
-                               status if status in STATUSES else None)
+        _st = status if status in STATUSES else None
+
+        def _commit_store():
+            with _connect(db_path) as conn:
+                conn.execute(f"UPDATE goals SET {', '.join(sets)} WHERE id=?",
+                             params)
+
+        if _kernel_authoritative():
+            # H4b: the kernel journal is the authority — commit the step state to
+            # it FIRST, then mirror the goal store. If journal.db were lost the
+            # store write still lands (the mirror is the durable fallback).
+            _journal_sync_steps(int(goal_id), steps)
+            _commit_store()
+        else:
+            # Parity (flag off): the store is authoritative; the journal mirrors
+            # the transitions afterward (H4a behaviour).
+            _commit_store()
+            _journal_goal_progress(int(goal_id), steps, _st)
         return {"ok": True, "id": int(goal_id)}
     except Exception as exc:
         _LOGGER.warning("goals.update failed: %s", exc)
@@ -384,18 +494,38 @@ def update(goal_id: int, *, step_updates: Optional[list] = None,
 def cancel(goal_id: int, *, db_path: Optional[str] = None) -> bool:
     db_path = db_path or DB_PATH
     try:
+        g = get(goal_id, db_path=db_path)
+        if g is None or g.get("status") != "active":
+            return False
+        steps = g.get("steps") or []
+        authoritative = _kernel_authoritative()
+        if authoritative:
+            # H4b: abandoned steps become skipped in BOTH the store mirror and
+            # the authoritative journal, so a cancelled goal reads as complete.
+            for s in steps:
+                if str(s.get("status", "pending")) == "pending":
+                    s["status"] = "skipped"
+                    if not s.get("note"):
+                        s["note"] = "goal cancelled before step completed"
+            sql = ("UPDATE goals SET status='cancelled', updated_ts=?, steps=? "
+                   "WHERE id=? AND status='active'")
+            sql_params = (_iso(datetime.now()), json.dumps(steps), int(goal_id))
+        else:
+            # Parity (flag off): store keeps the steps as-is (pre-H4b behaviour).
+            sql = ("UPDATE goals SET status='cancelled', updated_ts=? "
+                   "WHERE id=? AND status='active'")
+            sql_params = (_iso(datetime.now()), int(goal_id))
         with _connect(db_path) as conn:
-            cur = conn.execute(
-                "UPDATE goals SET status='cancelled', updated_ts=? "
-                "WHERE id=? AND status='active'",
-                (_iso(datetime.now()), int(goal_id)))
+            cur = conn.execute(sql, sql_params)
             cancelled = cur.rowcount > 0
         if cancelled:
-            # H4a: record the cancellation in the kernel journal (open steps →
-            # skipped), so the goal's terminal state is reconstructable.
-            g = get(goal_id, db_path=db_path)
-            _journal_goal_progress(int(goal_id),
-                                   (g or {}).get("steps") or [], "cancelled")
+            # Record the cancellation in the kernel journal so the goal's
+            # terminal state is reconstructable (H4b mirrors the skipped steps;
+            # parity marks open steps skipped in the journal only, via H4a).
+            if authoritative:
+                _journal_sync_steps(int(goal_id), steps)
+            else:
+                _journal_goal_progress(int(goal_id), steps, "cancelled")
         return cancelled
     except Exception:
         return False
@@ -526,9 +656,17 @@ async def async_process_due(
         deadline_passed = bool(g.get("deadline_ts")) and \
             _iso(t) > str(g["deadline_ts"])
         _emit_goal_event(hass, "engaged", g, status="active")
-        # F/H plan parity (log-only): consult the durable kernel Plan against the
-        # authoritative goal store on this engagement and record agreement. Never
-        # affects the run; the goal store stays authoritative.
+        # H4b: the kernel journal is authoritative for step state — overlay it
+        # onto this goal before the agent (and parity) see it, so the prompt
+        # reflects the source of truth. Best-effort; a no-op when store and
+        # journal already agree (the normal case) or the flag is off.
+        try:
+            await hass.async_add_executor_job(
+                lambda gg=g: _apply_journal_authority(gg))
+        except Exception:   # pragma: no cover - defensive
+            pass
+        # F/H plan parity (log-only): confirm the durable kernel Plan and the
+        # goal-store mirror agree on this engagement.
         try:
             await hass.async_add_executor_job(lambda gg=g: _plan_parity(gg))
         except Exception:   # pragma: no cover - defensive, log-only

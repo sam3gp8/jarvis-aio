@@ -1,3 +1,27 @@
+## [9.40.0] — Goals: the kernel plan is now authoritative (H4b)
+
+The goal planner completes its arc. A goal has long been expressed as a durable
+kernel **Plan** in the execution journal (built at creation, kept in step-by-step
+sync, then *consulted* each engagement — shadow → parity). This promotes that
+Plan to the **source of truth** for a goal's per-step state, with the goal store
+kept as its current mirror.
+
+- **Journal-authoritative, store-mirrored.** A goal's step transitions now commit
+  to the kernel journal *first*, then project into the goal store; reads overlay
+  the journal's statuses onto the store. The kernel Plan drives the goal's
+  operative state rather than only shadowing it.
+- **No path to losing goal state.** The store is kept as a complete, current
+  mirror, so if the journal has no rows for a goal — a goal created before this
+  release, or a lost/reset `journal.db` — the store stands as the fallback.
+  Creating (or recreating) a goal clears any stale journal rows for its id first,
+  so a reused id can never inherit a prior goal's statuses.
+- **Reversible.** A new `goals_kernel_authoritative` flag (default **on**) falls
+  the whole path back to the previous store-authoritative behaviour without a
+  code change.
+- **Behavioural kernel coverage rises 54.9% → 55.6%** — the `goals` path's `plan`
+  cell moves from parity to full. A closed or cancelled goal's unfinished steps
+  now read as *skipped* (their true terminal state) rather than frozen as pending.
+
 ## [9.39.1] — Fix: importing a vacuum map from an official integration (#405)
 
 Importing a floor-plan background from an `image.*` map entity — e.g. the

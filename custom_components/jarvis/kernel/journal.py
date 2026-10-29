@@ -188,6 +188,19 @@ class ExecutionJournal:
         rows = self.steps(plan_id)
         return bool(rows) and all(r.status in _TERMINAL for r in rows)
 
+    def forget_plan(self, plan_id: str) -> int:
+        """Delete every recorded step of ``plan_id``. Returns rows removed.
+
+        For a DETERMINISTIC plan_id that is (re)seeded — e.g. a goal id reused
+        after its store was reset — this clears any prior run's rows first, so
+        ``record_plan`` cannot leave a fresh plan inheriting stale step statuses
+        (``record_plan`` is INSERT-OR-IGNORE and would otherwise keep them). A
+        genuinely append-only caller never calls this."""
+        with persistence.transaction(self._db_path) as conn:
+            cur = conn.execute(
+                f"DELETE FROM {_TABLE} WHERE plan_id = ?", (plan_id,))
+            return cur.rowcount if cur.rowcount is not None else 0
+
 
 # Injected callables for recovery:
 #   verify(step) -> bool   "has this step's effect actually taken hold?"

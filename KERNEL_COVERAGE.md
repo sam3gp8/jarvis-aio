@@ -45,14 +45,14 @@ grid) are kept underneath for continuity.
 | `intrusion` | ◑ | · | ◑ | – | – | – | – |
 | `hazard` | ◑ | · | ◑ | – | – | – | – |
 | `delivery` | ◑ | · | ◑ | – | – | – | – |
-| `goals` | ◑ | · | – | · | ◑ | · | · |
+| `goals` | ◑ | · | – | · | ● | · | · |
 | `proactive` | ◑ | ◑ | – | ◑ | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 54.9%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 55.6%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 31.7% weighted / 31.3% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 32.1% weighted / 31.7% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -244,12 +244,16 @@ one release at a time.
   headless agent, whose tool-calls actuate through the already-wired paths. What
   goals owns on the spine so far: its steps are expressed as a kernel `Plan`,
   durably journaled (`_shadow_plan`, F1/F2) and kept in step-by-step sync with
-  the goal store (H4a). **`plan` at parity** (◑): on every engagement that
-  durable Plan is now **consulted** against the authoritative goal store and
-  agreement is recorded (`_plan_parity`, log-only) — the plan enters the live
-  flow rather than sitting unread (shadow). Still log-only; the goal store stays
-  authoritative, and promoting the kernel Plan to authoritative is the separate,
-  owner-gated **H4b**. Each engage/close also publishes a canonical
+  the goal store (H4a). **`plan` at full (H4b)** (●): the kernel journal is now
+  the **authoritative** source of a goal's step state — writes commit to it
+  first (`_journal_sync_steps`) and reads overlay it onto the store
+  (`_apply_journal_authority`), with the goal store kept as its current mirror
+  and durable fallback (when the journal has no rows for a goal — pre-H4b, or
+  `journal.db` lost — the store stands, so goal state is never lost). The kernel
+  Plan now *drives* the goal's operative step state, not just shadows or consults
+  it; `_plan_parity` remains as the live agreement/invariant check. Reversible
+  via the `goals_kernel_authoritative` flag (default on), which falls the path
+  back to store-authoritative parity. Each engage/close also publishes a canonical
   `goal.transition` `JarvisEvent` (`publish_goal`, `event` ◑ parity — enters the
   stream + ledger, no consumer reacts yet). `world_model`/`authority`/`verify`/
   `outcome` stay honest **gaps** (`·`): goals doesn't read state or actuate
