@@ -1,3 +1,49 @@
+## [9.45.0] — Pause autonomy during a safety situation: the situation stream becomes consumed (coverage 67.4% → 68.8%)
+
+A genuine, value-driven piece (not a coverage-chase): a bus **situation reactor**
+so JARVIS stops its routine, self-directed automations while it is handling a
+security or safety event. A thoughtful butler doesn't run the learned "dim the
+lights at dusk" pattern in the middle of investigating a possible intruder.
+
+- **New consumer of the situation event stream.** `actuation._situation_react`
+  subscribes to the kernel `situation.transition` stream (registered at setup via
+  `register_situation_reactor`, reconciled from the durable store at boot) and
+  tracks which **safety-critical** situations (intrusion / hazard) are currently
+  *elevated* (`possible`/`investigating`/`confirmed`/`response` — **not** a benign
+  false-alarm or a resolved episode). Keyed by `situation_id`, so overlapping
+  episodes don't clear each other.
+- **Discretionary autonomy pauses while one is active.** The discretionary-
+  autonomous path (`cognitive_core._execute_action_data`) now consults
+  `actuation.safety_situation_active()` alongside the existing G1/G2/G4b gates and
+  backs off *en masse* while an intrusion or hazard is being handled. **Bounded,
+  additive, fail-open:** it only ever suppresses *discretionary* autonomy — never
+  a user request or a safety response (those don't reach this path) — and any
+  reactor fault leaves autonomy running. Reversible via
+  `SITUATION_AUTONOMY_SUPPRESS_ENFORCE`.
+
+This makes the **situation stream a consumed nervous system**, the same way Stage
+3a made the actuation stream one: `intrusion` and `hazard` reach `event` **● full**
+(their transitions now *drive* the autonomy back-off). **`delivery` stays `◑`
+parity — deliberately and honestly:** the reactor receives delivery transitions
+but never acts on them (a package is not a safety situation), so it is not
+credited. Applicable kernel coverage **67.4% → 68.8%**.
+
+On the rest of the way to 80%: the other candidate flips (routing the actuation
+*verify* read-back through the WorldModel facade; crediting the set_mode / goal
+event streams; friday authority; the goals world_model/authority cells) were
+investigated and **declined as build-for-the-metric** — the verify facade read is
+cosmetic (its `state` is identical to raw), those event streams have no genuine
+consumer, friday is already authority-enforced via its grant-set handlers, and
+goals doesn't actuate directly. The matrix stays honest rather than inflated.
+
+Tests: the reactor tracks an elevated intrusion/hazard and clears on
+resolve/benign; ignores delivery and non-situation events; overlapping episodes
+are independent; `register_situation_reactor` subscribes to the stream;
+`safety_situation_active` honours the kill-switch and fails open; the autonomous
+path pauses when a safety situation is active and proceeds when not. All 7 kernel
+gates + audit clean; adoption census updated (`actuation` now adopts `situation`).
+Ships as **9.44.0 → 9.45.0**.
+
 ## [9.44.0] — Situation-lifecycle enforce: consumers act on the kernel Situation (coverage 65.3% → 67.4%)
 
 Stage 3b (Piece B) of the enforce-flip track. The three detection paths —

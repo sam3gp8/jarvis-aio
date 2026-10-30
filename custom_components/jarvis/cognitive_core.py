@@ -4622,6 +4622,19 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
                 "Proactive action suppressed by agency budget (%s.%s on %s) — "
                 "autonomous-action ceiling reached", domain, service, entity_ids)
             return False
+        # MCU Phase H — safety-situation suppression: while an intrusion or hazard
+        # situation is actively being handled (tracked off the situation event
+        # stream by the bus reactor), pause this discretionary autonomy so routine
+        # learned automations don't fire into or interfere with the security /
+        # safety response. Fails open; reversible via
+        # SITUATION_AUTONOMY_SUPPRESS_ENFORCE. Never affects user requests or
+        # safety responses — those do not reach this path.
+        _safety_active, _skinds = actuation.safety_situation_active()
+        if _safety_active:
+            _LOGGER.info(
+                "Proactive action suppressed — a safety situation is active "
+                "(%s): %s.%s on %s", "/".join(_skinds), domain, service, entity_ids)
+            return False
     except Exception:   # pragma: no cover - defensive, fail open
         pass
     # MCU Phase H (H5): route the proactive actuation through the UNIVERSAL

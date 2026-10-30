@@ -242,10 +242,14 @@ _PATHS: dict[str, dict] = {
         "module": "intrusion.py",
         "contracts": {
             "situation": {"stage": "full", "evidence": "kernel_calloff_active_sync"},
-            # D4: each lifecycle transition publishes a canonical situation
-            # JarvisEvent on the bus (parity — enters the stream + ledger; the
-            # thrash reactor consumes control.actuation, not situation.transition).
-            "event": {"stage": "parity", "evidence": "publish_situation"},
+            # FULL (H): each lifecycle transition publishes a canonical situation
+            # JarvisEvent, and the bus SITUATION reactor now CONSUMES that stream —
+            # it tracks elevated intrusion episodes (actuation._situation_react /
+            # register_situation_reactor) so the discretionary-autonomous path
+            # pauses routine autonomy while an intrusion is being handled
+            # (safety_situation_active). The situation stream is a consumed nervous
+            # system, not just a ledgered record.
+            "event": {"stage": "full", "evidence": "publish_situation"},
         },
         "na": {
             "authority": "detection path — it observes and raises a situation, "
@@ -270,7 +274,11 @@ _PATHS: dict[str, dict] = {
         "module": "hazard_situation.py",
         "contracts": {
             "situation": {"stage": "full", "evidence": "kernel_freeze_active_sync"},
-            "event": {"stage": "parity", "evidence": "publish_situation"},
+            # FULL (H): the bus SITUATION reactor consumes the freeze transition
+            # stream too — an elevated hazard episode pauses discretionary autonomy
+            # (actuation._situation_react / safety_situation_active), the same
+            # consumed-nervous-system wiring as the intrusion event cell.
+            "event": {"stage": "full", "evidence": "publish_situation"},
         },
         "na": {
             "authority": "detection path — observes a hazard, does not actuate",
@@ -294,6 +302,10 @@ _PATHS: dict[str, dict] = {
         "module": "delivery_situation.py",
         "contracts": {
             "situation": {"stage": "full", "evidence": "kernel_package_present_sync"},
+            # event stays PARITY (honest): the bus situation reactor receives
+            # delivery transitions but does NOT act on them — a package is not a
+            # safety situation, so it never pauses autonomy. Published + ledgered,
+            # not consumed. Not credited as full.
             "event": {"stage": "parity", "evidence": "publish_situation"},
         },
         "na": {

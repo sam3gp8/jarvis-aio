@@ -37,6 +37,17 @@ _LOGGER = logging.getLogger(__name__)
 _loop_detector = None
 _agency_budget = None
 _stream_detector = None   # cross-path loop detector, fed by the event-bus reactor
+# Situation-event reactor state (MCU Phase H — the situation stream as a consumed
+# nervous system). ``situation_id -> kind`` for each safety-critical situation
+# (intrusion / hazard) currently in an ELEVATED lifecycle state. Fed by
+# ``_situation_react`` off the bus, reconciled from the store at setup; consulted
+# by the discretionary-autonomous path to pause routine autonomy while JARVIS is
+# handling a security / safety event.
+_active_safety_situations: dict = {}
+# Which situation families are safety-critical enough to pause discretionary
+# autonomy for. A delivery is not — the reactor records its transitions but never
+# gates autonomy on them (so delivery's event cell stays honest at parity).
+_SAFETY_SITUATION_KINDS = frozenset({"intrusion", "hazard"})
 
 # ── agency budget ENFORCE (MCU Phase G/G1) ──────────────────────────────────────
 # First *decision* primitive promoted from shadow to enforce on the live home,
@@ -86,6 +97,15 @@ _autonomous_loop = None
 # confirmed cross-path thrash. Bounded to the autonomous population (the safe
 # class, same as G1/G2), FAILS OPEN, reversible via STREAM_THRASH_ENFORCE.
 STREAM_THRASH_ENFORCE = True
+
+# MCU Phase H — pause discretionary autonomy while a safety-critical situation is
+# active. When True (default), the discretionary-autonomous path backs off en
+# masse if an intrusion or hazard situation is being handled, so routine learned
+# automations don't fire into (or interfere with) a security / safety response.
+# ADDITIVE and fail-OPEN: it only ever SUPPRESSES discretionary autonomy, never a
+# user request or a safety response (those don't reach that path), and any reactor
+# error leaves autonomy running. Flip to False to revert to no suppression.
+SITUATION_AUTONOMY_SUPPRESS_ENFORCE = True
 
 
 def loop_detect_check(key: str, *, enforce: Optional[bool] = None,
@@ -255,6 +275,88 @@ def stream_thrash_check(key: str, *, enforce: Optional[bool] = None,
         return True, None
     except Exception:   # pragma: no cover - defensive, fail open
         return True, None
+
+
+# ── situation-event reactor: pause autonomy during a safety situation ────────────
+# A second consumer of the kernel event bus (after the cross-path thrash reactor):
+# it watches the SITUATION transition stream and tracks which safety-critical
+# situations (intrusion / hazard) are currently ELEVATED, so the discretionary-
+# autonomous path can pause routine autonomy while one is being handled. This is
+# what makes the situation stream a *consumed* nervous system (its event cell
+# earns enforce), and it is genuinely useful on its own: a butler stops the
+# routine fussing when there's a security or safety concern.
+
+# Elevated lifecycle states for a safety situation (BENIGN/RESOLVED/NORMAL are NOT
+# elevated — a benign/false-alarm or closed episode does not pause autonomy).
+_ELEVATED_SITUATION_STATES = frozenset({"possible", "investigating", "confirmed",
+                                        "response"})
+
+
+def _situation_react(event) -> None:
+    """Event-bus subscriber: track elevated safety situations from the situation
+    transition stream. Keyed by ``situation_id`` so overlapping episodes don't
+    clear each other. Best-effort: only updates in-memory state, never raises into
+    a publish."""
+    try:
+        if getattr(event, "type", None) != "situation.transition":
+            return
+        data = getattr(event, "data", None) or {}
+        kind = data.get("kind")
+        if kind not in _SAFETY_SITUATION_KINDS:
+            return                       # e.g. delivery — recorded nowhere, inert
+        sid = data.get("situation_id") or getattr(event, "subject", None) or kind
+        state = str(data.get("state") or "").lower()
+        if state in _ELEVATED_SITUATION_STATES:
+            _active_safety_situations[sid] = kind
+        else:                            # benign / resolved / normal → stand down
+            _active_safety_situations.pop(sid, None)
+    except Exception:   # pragma: no cover - defensive, never break a publish
+        pass
+
+
+def _reconcile_safety_situations(hass) -> None:
+    """Seed the elevated-situation set from the durable store at setup, so a
+    restart mid-incident doesn't start with autonomy un-paused until the next
+    transition. Best-effort — a read failure leaves the set empty (fail-open)."""
+    try:
+        from .kernel import SituationManager
+        from .paths import config_path_str
+        mgr = SituationManager(config_path_str("jarvis", "situations.db", hass=hass))
+        for kind in _SAFETY_SITUATION_KINDS:
+            for sit in mgr.open_situations(kind):
+                if str(getattr(sit, "state", "")).lower() in _ELEVATED_SITUATION_STATES:
+                    _active_safety_situations[getattr(sit, "id", None) or kind] = kind
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def register_situation_reactor(bus, hass=None):
+    """Subscribe the safety-situation reactor to situation events on ``bus`` and
+    (when ``hass`` is given) reconcile the elevated set from the store. Called once
+    at setup. Returns the unsubscribe handle, or None. Best-effort."""
+    try:
+        if hass is not None:
+            _reconcile_safety_situations(hass)
+        from .kernel.event import EVENT_SITUATION
+        return bus.subscribe(EVENT_SITUATION, _situation_react)
+    except Exception:   # pragma: no cover - defensive
+        return None
+
+
+def safety_situation_active(*, enforce: Optional[bool] = None) -> tuple:
+    """Is a safety-critical situation (intrusion / hazard) being handled right now?
+    Returns ``(active, kinds)`` — ``kinds`` a sorted tuple of the active families.
+    FAILS OPEN: flag off or any error → ``(False, ())`` (autonomy is NOT paused),
+    so a reactor fault never blocks JARVIS. Reversible via
+    SITUATION_AUTONOMY_SUPPRESS_ENFORCE / ``enforce``."""
+    if enforce is None:
+        enforce = SITUATION_AUTONOMY_SUPPRESS_ENFORCE
+    try:
+        if not enforce or not _active_safety_situations:
+            return False, ()
+        return True, tuple(sorted(set(_active_safety_situations.values())))
+    except Exception:   # pragma: no cover - defensive, fail open
+        return False, ()
 
 
 def correlation_id() -> Optional[str]:

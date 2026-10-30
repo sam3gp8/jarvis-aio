@@ -245,6 +245,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         from . import actuation
         actuation.register_stream_reactor(event_bus)
+        # MCU Phase H: a second bus consumer — the safety-situation reactor tracks
+        # elevated intrusion/hazard situations off the transition stream (reconciled
+        # from the store at boot) so discretionary autonomy pauses while JARVIS is
+        # handling a security / safety event.
+        actuation.register_situation_reactor(event_bus, hass)
     except Exception:  # pragma: no cover - defensive, never block setup
         pass
 
