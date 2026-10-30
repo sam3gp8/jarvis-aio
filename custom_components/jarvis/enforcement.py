@@ -153,8 +153,9 @@ _REGISTRY: List[Switch] = [
         name="Freeze-hazard verdict",
         explanation=(
             "Let the kernel own the freeze-hazard verdict (it fails TOWARD "
-            "alerting). ON (default) is the safe state; OFF reverts to the legacy "
-            "pure path."),
+            "alerting) and remember an open freeze across a reload so a duplicate "
+            "WARNING isn't re-announced after a restart. ON (default) is the safe "
+            "state; OFF reverts to the legacy pure path."),
     ),
     Switch(
         key="intrusion_gate", module="cognitive_core",
@@ -164,6 +165,19 @@ _REGISTRY: List[Switch] = [
         explanation=(
             "Let the kernel own the intrusion verdict used to arm/alert. ON "
             "(default) is the safe state; OFF reverts to the legacy path."),
+    ),
+    Switch(
+        key="intrusion_situation", module="cognitive_core",
+        attr="INTRUSION_SITUATION_ENFORCE", default=True,
+        category=CATEGORY_SAFETY, phase="R3c",
+        name="Intrusion false-alarm memory",
+        explanation=(
+            "Honour a user 'false alarm' dismissal across a reload: the kernel "
+            "situation store remembers a recently-dismissed intrusion so JARVIS "
+            "does not immediately re-alarm on the same benign motion after a "
+            "restart. ON (default) is the safe state and reduces false alarms — it "
+            "only ADDS suppression (never misses a real intrusion) and fails safe. "
+            "OFF reverts to the in-memory-only call-off window."),
     ),
     Switch(
         key="delivery_situation", module="package_monitor",

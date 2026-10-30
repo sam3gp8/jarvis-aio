@@ -1,3 +1,61 @@
+## [9.44.0] — Situation-lifecycle enforce: consumers act on the kernel Situation (coverage 65.3% → 67.4%)
+
+Stage 3b (Piece B) of the enforce-flip track. The three detection paths —
+`intrusion`, `hazard`/freeze and `delivery` — have long **mirrored** their
+lifecycle into a durable kernel `Situation`, but for two of them nothing *read it
+back*: the situation was a recorder, not a driver (so `situation` sat at parity).
+This makes a live consumer **act on** the kernel Situation lifecycle for all
+three, so the durable store genuinely drives behaviour — and corrects one cell the
+metric reform had under-credited.
+
+- **`delivery` situation `◑` parity → `●` full — corrected under-count.** The
+  kernel store has been *authoritative* for the per-camera package-present verdict
+  since **R1b (8.61.0)**: `package_monitor._evaluate_locked` keys the
+  delivered/removed transition off the open-episode view
+  (`delivery_situation.kernel_package_present_sync` → `open_situations("delivery")`),
+  not the in-memory `_STATE` flag (this fixed the #404 restart bug and is
+  drift-guarded by `test_delivery_enforce`). The 9.10.0 metric reform carried over
+  the old D3 "log-only mirror" description and left the cell at parity; the matrix
+  now reflects the live enforce. No code change to the delivery path.
+- **`hazard`/freeze situation `◑` → `●` (R2c) — durable WARNING de-dup.**
+  `cognitive_core._check_freeze` now reads the open freeze episode
+  (`hazard_situation.kernel_freeze_active_sync`) and, when a freeze was already
+  announced before a restart (the in-memory `_freeze_warned` is lost), suppresses a
+  duplicate **WARNING**. `CRITICAL` is **never** suppressed (it fails *toward*
+  alerting); a `None`/error read lets the warning fire. Reversible via the existing
+  `HAZARD_SITUATION_ENFORCE` (which also owns the fail-toward-alerting freeze
+  verdict, R2b).
+- **`intrusion` situation `◑` → `●` (R3c) — durable false-alarm memory.** A user
+  "false alarm" dismissal already drives the episode to `BENIGN`;
+  `cognitive_core._check_intrusion` now reads that lifecycle state back
+  (`intrusion.kernel_calloff_active_sync`) so the call-off is honoured **across a
+  reload** that lost the in-memory window — JARVIS no longer immediately re-alarms
+  on the same benign motion after a restart. **Additive and fail-safe:** a
+  `None`/error read suppresses nothing, so it only reduces false alarms and can
+  never miss a real intrusion. New kill-switch `INTRUSION_SITUATION_ENFORCE`
+  (registered in the governance registry), distinct from the entry-gate
+  `INTRUSION_GATE_ENFORCE` (R3b).
+- **New kernel seam:** `SituationManager.recent(kind, since_ts=…)` returns
+  situations updated since a cutoff *including just-resolved ones* (unlike
+  `open_situations`), so the intrusion consumer can see a dismissal that
+  transitions `BENIGN → RESOLVED` within one call.
+
+**Honesty.** `event` stays `◑` parity on all three — the situation transitions are
+published to the bus but the thrash reactor consumes `control.actuation`, not
+`situation.transition`, so no consumer reacts to those events yet; not inflated.
+The hazard lifecycle de-dup is a deliberately *marginal* win (it only avoids a
+duplicate warning after a mid-episode restart) — built as a genuine consumer, not
+an observational flip, and flagged as such. Matrix/figures/prose regenerated
+together; `KERNEL_ADOPTION.md` situation note updated (R1b/R2c/R3c taken).
+
+Tests: `SituationManager.recent` includes a just-resolved episode; the intrusion
+durable call-off reports active within the window and clears after it, and
+fails safe to `None` on an unreadable store; the hazard durable read reports an
+open freeze and clears on resolve; `_check_freeze` suppresses a duplicate warning
+under an open episode but never a critical; `_check_intrusion` honours a durable
+call-off and the kill-switch reverts it. All 7 kernel gates + audit clean; full
+suite green. Ships as **9.43.0 → 9.44.0**.
+
 ## [9.43.0] — The event bus becomes a nervous system (cross-path thrash reactor)
 
 Stage 3a of the enforce-flip track. JARVIS has long published every actuation as

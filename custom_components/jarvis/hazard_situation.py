@@ -73,6 +73,32 @@ def _get_manager(hass):
     return _mgr
 
 
+# ── Durable freeze de-duplication (MCU Phase R, R2c — situation enforce) ─────────
+# The in-memory ``_freeze_warned`` / ``_last_freeze_alert`` guards are lost on a
+# reload / restart, so a freeze that was already announced before the restart
+# could re-fire its WARNING. The durable fix: the warning/critical lifecycle is
+# already an open kernel ``hazard`` episode (opened by ``mirror_freeze_sync`` and
+# resolved on ``cleared``); this reads that lifecycle state back so the consumer
+# (``cognitive_core._check_freeze``, behind ``HAZARD_SITUATION_ENFORCE``) can
+# suppress a *duplicate* warning across the reload. A genuine consumer of the
+# situation lifecycle — this is what earns the ``situation`` cell its enforce.
+# CRITICAL is never suppressed by this (it fails toward alerting); the read is
+# fail-safe (a ``None`` / error leaves the warning free to fire).
+def kernel_freeze_active_sync(hass):
+    """Durable view: is there an OPEN (non-terminal) freeze ``hazard`` episode in
+    the kernel situation store? ``True`` / ``False``, or ``None`` when the store
+    can't be read (the caller falls back to the in-memory guards, never
+    over-suppresses). SYNC — SQLite read, run via the executor."""
+    try:
+        mgr = _get_manager(hass)
+        for sit in mgr.open_situations("hazard"):
+            if sit.subject == "freeze":
+                return True
+        return False
+    except Exception:   # pragma: no cover - defensive, fall back to in-memory
+        return None
+
+
 def _record_parity(mgr, action: str, episode_id: Optional[str]) -> None:
     """Compare the kernel situation's resulting state against the freeze verdict
     and record/log agreement. Log-only: never affects freeze handling."""

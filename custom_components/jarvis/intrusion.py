@@ -162,6 +162,49 @@ def _get_situation_manager(hass):
     return _situation_mgr
 
 
+# ── Durable false-alarm suppression (MCU Phase R, R3c — situation enforce) ───────
+# The in-memory call-off window (``_called_off_until``) is lost on a reload /
+# restart, so a user who just said "false alarm" could be re-alarmed on the same
+# benign motion the moment JARVIS reloads. The durable fix: a dismissal already
+# drives the kernel situation to BENIGN (the ``dismissed`` branch of
+# ``_mirror_situation_sync``); this reads that lifecycle state back so the
+# suppression survives the reload. A genuine *consumer* of the situation
+# lifecycle, not just the mirror — this is what earns the ``situation`` cell its
+# enforce. The consumer (``cognitive_core._check_intrusion``, behind
+# ``INTRUSION_SITUATION_ENFORCE``) is ADDITIVE and fail-safe: a ``None`` / error
+# read suppresses nothing, so it can only reduce false alarms, never miss a real
+# intrusion.
+def kernel_calloff_active_sync(hass, now: Optional[float] = None):
+    """Durable view of the false-alarm call-off: did an intrusion episode reach
+    BENIGN (a user false-alarm dismissal) within the call-off cooldown?
+
+    Reads the kernel situation store (via :meth:`SituationManager.recent`, which
+    includes the just-resolved episode) so a dismissal survives a reload. Returns
+    ``True`` / ``False``, or ``None`` when the store can't be read — the caller
+    treats ``None`` as "no durable opinion" and falls back to the in-memory
+    window, never as a reason to over-suppress. SYNC — SQLite read, run via the
+    executor."""
+    try:
+        from .kernel import situation as S
+        mgr = _get_situation_manager(hass)
+        t = time.time() if now is None else float(now)
+        cutoff = t - _CALLOFF_COOLDOWN
+        for sit in mgr.recent("intrusion", since_ts=cutoff):
+            for step in sit.history:
+                # BENIGN is only ever reached via the ``dismissed`` branch, so a
+                # recent BENIGN step IS a recent user false-alarm call-off.
+                if step.get("to") == S.BENIGN:
+                    try:
+                        step_ts = float(step.get("ts") or 0.0)
+                    except (TypeError, ValueError):
+                        continue
+                    if (t - step_ts) < _CALLOFF_COOLDOWN:
+                        return True
+        return False
+    except Exception:   # pragma: no cover - defensive, fall back to in-memory
+        return None
+
+
 def _mirror_situation_sync(hass, action: str, *, reason: str = "",
                            breach_area: Optional[str] = None,
                            camera: Optional[str] = None) -> None:
