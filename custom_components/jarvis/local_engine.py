@@ -188,16 +188,22 @@ _BULK_PATTERNS = [
 
 # ── Contextual queries ──────────────────────────────────────────────────────
 
+# These are scanned BEFORE the command patterns (see try_local), so a query
+# pattern that can match a bare command word would hijack the command — e.g.
+# `open` in "open the garage door" matching a `what_open` query. The
+# interrogative prefix on the vulnerable patterns is therefore REQUIRED (not
+# optional): a real question like "what's open" still matches, but a command that
+# merely *contains* the word (open / home / weather / outside) no longer does.
 _QUERY_PATTERNS = [
-    (r"(?:who(?:'s| is)\s+)?home\b",                     "who_home"),
+    (r"(?:who(?:'s| is)\s+)home\b",                     "who_home"),
     (r"(?:is\s+)?(?:anyone|anybody)\s+home",              "who_home"),
-    (r"(?:what(?:'s| is)\s+)?(?:open|unlocked)",          "what_open"),
+    (r"(?:what(?:'s| is)\s+)(?:open|unlocked)",          "what_open"),
     (r"(?:are\s+)?(?:any|which)\s+(?:doors?|windows?)\s+open", "what_open"),
     (r"(?:are\s+)?(?:any|which)\s+(?:lights?)\s+on",     "lights_on"),
     (r"(?:how\s+many)\s+lights?\s+(?:are\s+)?on",        "lights_on"),
     (r"(?:what(?:'s| is)\s+(?:the\s+)?)?(?:energy|power)\s+(?:usage|consumption)", "energy"),
-    (r"(?:what(?:'s| is)\s+(?:the\s+)?)?weather",        "weather"),
-    (r"(?:what(?:'s| is)\s+(?:it\s+)?)?(?:like\s+)?outside", "weather"),
+    (r"(?:what(?:'s| is)\s+(?:the\s+)?)weather",        "weather"),
+    (r"(?:what(?:'s| is)\s+(?:it\s+)?)(?:like\s+)?outside", "weather"),
     (r"(?:how\s+(?:warm|cold|hot))\s+is\s+it",           "weather"),
     (r"(?:what\s+)?(?:devices?|entities?)\s+(?:are\s+)?(?:in|at)\s+(?:the\s+)?(.+)", "area_devices"),
 ]
@@ -622,7 +628,7 @@ async def _execute_action(hass, action, entity_id, args):
                                        blocking=True, action=action)
         elif action in ("set_temp", "set_temp_named"):
             temp = args.get("temperature")
-            if temp:
+            if temp is not None:   # a 0° setpoint is valid — don't drop it on falsy 0
                 return await _seam_execute(
                     hass, "climate", "set_temperature",
                     {"entity_id": entity_id, "temperature": float(temp)},
