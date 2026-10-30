@@ -1,3 +1,41 @@
+## [9.46.0] — Graduated autonomy, earned per capability (Phase N enforce — the held rung, owner-gated)
+
+The kernel plan held one Phase N rung for the owner: *replace the blanket
+auto-actions flag with the EARNED per-capability level.* This ships it — a real
+MCU-butler behaviour, not a coverage move (it touches no coverage-matrix cell; the
+`autonomy` primitive was already enforce via the security ceiling). JARVIS now
+**earns** the right to act on a convenience pattern, rather than acting on the
+one-size-fits-all mode flag.
+
+- **A capability must earn ACT before it auto-acts.** When the new, opt-in
+  `autonomy_earned_enforce` switch is on, a granted proactive pattern whose
+  non-safety capability has not yet reached the top autonomy rung (`ACT`) on its
+  **verified** track record falls back to **asking** instead of acting silently.
+  The earned level is read from the *same* rolling verified-outcome window as the
+  Phase N shadow/parity emit (`actuation.capability_earned_grant` →
+  `kernel.autonomy.grant`), so the enforce consumer and the parity signal share one
+  source of truth. This is exactly the divergence the Phase N parity emit measured
+  (earned level vs. blanket flag), now resolved.
+- **Its own switch, independent of the security-ceiling `autonomy_enforce`.** A
+  household that already opted into the security ceiling sees **no behaviour
+  change**; earned graduation is a separate, deliberate opt-in. Default OFF is
+  behaviour-preserving (the would-be decision is shadow-logged regardless).
+- **Safe by construction.** Downward-only — it can only ever *withhold*
+  auto-action, never grant it. SAFE capabilities stay pinned at `ACT` (reads always
+  act); SECURITY is already withheld by the ceiling above; so this bites only
+  SENSITIVE actuation (lights / climate) that has not proven itself. Fail-safe: an
+  underivable capability or any fault acts as today. Recovery is automatic — the
+  outcome window is bounded, so a capability climbs to `ACT` as the loop sees clean
+  verified outcomes and demotes if its record lapses.
+- **Governance preserved:** the gate runs *before* the Phase AC context cap and the
+  Phase M→N trust damper, and safety events never route through `is_autonomous` at
+  all — so earned autonomy can never override authority or a safety concern. Kill:
+  `AUTONOMY_EARNED_ENFORCE` / the `autonomy_earned_enforce` config key.
+
+**PAUSE for owner before enabling:** like every autonomy enforce step, the switch
+ships **OFF** and is the owner's to flip — it changes what JARVIS does without
+asking. No coverage-matrix cell moves; this is behaviour depth, not a metric.
+
 ## [9.45.0] — Pause autonomy during a safety situation: the situation stream becomes consumed (coverage 67.4% → 68.8%)
 
 A genuine, value-driven piece (not a coverage-chase): a bus **situation reactor**
