@@ -143,42 +143,41 @@ def test_freeze_active_none_on_unreadable_store(hz, monkeypatch):
 
 
 # ── SafetyManager._check_freeze: durable WARNING de-dup, CRITICAL never ───────────
+# These exercise the WIRING — given the durable situation read's verdict, does
+# _check_freeze/_check_intrusion act on it? The read's OWN correctness (against a
+# real store) is covered by the seam tests above. We make the verdict
+# deterministic by patching the kernel SituationManager query AT THE CLASS LEVEL
+# (jc.kernel.situation.SituationManager). That is immune to the harness quirks the
+# on-disk store is subject to across the full suite — module re-imports (which
+# replace a freshly-imported jc.<module> and discard a module-level monkeypatch)
+# and a `config_dir()` another test redirected via set_config_dir_from_hass — and
+# it does no SQLite I/O, so no db path has to line up.
 
-def _fresh_store(load, hass):
-    """Delete the EXACT config-path situations.db the production code will use
-    (resolved the same way, via `config_path_str` with this hass), so the store is
-    provably empty at the start of an integration test — independent of the
-    autouse wipe, which keys off a path that another test can redirect in a larger
-    suite. The situation managers are rebuilt lazily (autouse resets them to
-    None), so the next write creates a fresh db at this path."""
-    import os
-    paths = load("paths")
-    db = paths.config_path_str("jarvis", "situations.db", hass=hass)
-    os.makedirs(os.path.dirname(db), exist_ok=True)
-    for suffix in ("", "-wal", "-shm", "-journal"):
-        try:
-            os.remove(db + suffix)
-        except OSError:
-            pass
+
+def _patch_open_hazard(load, monkeypatch, *, present):
+    """Make SituationManager.open_situations report an open freeze episode (or
+    none), so kernel_freeze_active_sync's verdict is deterministic."""
+    S = load("kernel.situation")
+    sit = S.Situation(kind="hazard", subject="freeze", state=S.INVESTIGATING)
+    monkeypatch.setattr(S.SituationManager, "open_situations",
+                        lambda self, kind=None: [sit] if present else [])
 
 
 @pytest.fixture
 def freeze_safety(cognitive_core, fake_hass, load):
-    """A SafetyManager whose freeze episodes live in the real config-path situation
-    store, cleared to empty at setup. Both the mirror write and _check_freeze's
-    lazy `from . import hazard_situation` read resolve to the same db FILE, so the
-    test is robust to the module being re-imported mid-call."""
-    _fresh_store(load, fake_hass)
-    hazard = load("hazard_situation")
     safety = cognitive_core.SafetyManager(fake_hass, {"honorific": "sir"})
-    return cognitive_core, safety, fake_hass, hazard
+    # The 1-hour freeze cooldown is orthogonal to the de-dup under test; pin
+    # _last_freeze_alert far in the past so it never gates, regardless of the
+    # (possibly frozen by a leaked fixture) test clock.
+    safety._last_freeze_alert = -1.0e9
+    return cognitive_core, safety, fake_hass, load
 
 
-async def test_warning_suppressed_when_freeze_episode_already_open(freeze_safety):
-    cc, safety, hass, hazard = freeze_safety
+async def test_warning_suppressed_when_freeze_episode_already_open(freeze_safety, monkeypatch):
+    cc, safety, hass, load = freeze_safety
     # A freeze episode is already open (announced before a restart; _freeze_warned
     # was lost). The durable read adopts "already warned" → no duplicate WARNING.
-    hazard.mirror_freeze_sync(hass, "warning", "34F")
+    _patch_open_hazard(load, monkeypatch, present=True)
     hass.states.set("weather.home", "cloudy", temperature=30)   # legacy=warning
     assert safety._freeze_warned is False
     action = await safety._check_freeze()
@@ -186,17 +185,18 @@ async def test_warning_suppressed_when_freeze_episode_already_open(freeze_safety
     assert safety._freeze_warned is True  # adopted from the durable episode
 
 
-async def test_critical_never_suppressed_even_with_open_episode(freeze_safety):
-    cc, safety, hass, hazard = freeze_safety
-    hazard.mirror_freeze_sync(hass, "critical", "15F")   # open episode present
+async def test_critical_never_suppressed_even_with_open_episode(freeze_safety, monkeypatch):
+    cc, safety, hass, load = freeze_safety
+    _patch_open_hazard(load, monkeypatch, present=True)   # open episode present
     hass.states.set("weather.home", "snowy", temperature=15)  # legacy=critical
     action = await safety._check_freeze()
     # CRITICAL fails toward alerting — the durable de-dup only touches WARNING.
     assert action is not None and action["type"] == "freeze_critical"
 
 
-async def test_warning_fires_when_no_open_episode(freeze_safety):
-    cc, safety, hass, hazard = freeze_safety
+async def test_warning_fires_when_no_open_episode(freeze_safety, monkeypatch):
+    cc, safety, hass, load = freeze_safety
+    _patch_open_hazard(load, monkeypatch, present=False)  # no open freeze episode
     hass.states.set("weather.home", "cloudy", temperature=30)
     action = await safety._check_freeze()
     assert action is not None and action["type"] == "freeze_warning"
@@ -204,13 +204,24 @@ async def test_warning_fires_when_no_open_episode(freeze_safety):
 
 # ── SafetyManager._check_intrusion: durable call-off ─────────────────────────────
 
+def _patch_recent_benign(load, monkeypatch, *, present):
+    """Make SituationManager.recent report a recent BENIGN (user false-alarm)
+    intrusion episode (or none), so kernel_calloff_active_sync's verdict is
+    deterministic."""
+    import time as _t
+    S = load("kernel.situation")
+    benign = S.Situation(
+        kind="intrusion", state=S.RESOLVED,
+        history=({"from": S.INVESTIGATING, "to": S.BENIGN, "ts": _t.time(),
+                  "reason": "false alarm"},))
+    monkeypatch.setattr(S.SituationManager, "recent",
+                        lambda self, kind=None, *, since_ts=0.0: [benign] if present else [])
+
+
 @pytest.fixture
 def intr_safety(cognitive_core, fake_hass, load, monkeypatch):
     """A SafetyManager wired to the away + corroborated-entry scenario that WOULD
-    open an investigation. Like freeze_safety, the intrusion episodes live in the
-    real config-path store (cleared to empty at setup), so the write (_dismiss) and
-    the read (_check_intrusion's lazy import) meet on the same db file."""
-    _fresh_store(load, fake_hass)
+    open an investigation."""
     intrusion = load("intrusion")
     safety = cognitive_core.SafetyManager(
         fake_hass, {"honorific": "sir", "intrusion_require_corroboration": True})
@@ -223,30 +234,33 @@ def intr_safety(cognitive_core, fake_hass, load, monkeypatch):
     monkeypatch.setattr(safety, "_open_entry", lambda: "binary_sensor.kitchen_window")
     safety._last_intrusion_alert = 0.0
     safety._investigation = None
-    return cognitive_core, safety, fake_hass, intrusion
+    # Clear any in-memory call-off window a prior test's dismiss leaked, so the
+    # DURABLE read (not is_called_off) is what these tests exercise.
+    monkeypatch.setattr(intrusion, "_called_off_until", 0.0)
+    monkeypatch.setattr(intrusion, "_acknowledged_ts", 0.0)
+    return cognitive_core, safety, fake_hass, load
 
 
-async def test_intrusion_suppressed_by_durable_calloff(intr_safety):
-    cc, safety, hass, intrusion = intr_safety
-    _dismiss(intrusion, hass)                      # a recent BENIGN episode
-    assert intrusion.is_called_off() is False      # the in-memory window is NOT what suppresses
+async def test_intrusion_suppressed_by_durable_calloff(intr_safety, monkeypatch):
+    cc, safety, hass, load = intr_safety
+    _patch_recent_benign(load, monkeypatch, present=True)   # a recent BENIGN episode
     action = await safety._check_intrusion(anyone_home=False, sleeping=False)
     assert action is None                          # durable call-off suppressed it
     assert safety._investigation is None
 
 
-async def test_intrusion_opens_without_durable_calloff(intr_safety):
-    cc, safety, hass, intrusion = intr_safety
-    # No prior dismissal → nothing durable to honour → the investigation opens.
+async def test_intrusion_opens_without_durable_calloff(intr_safety, monkeypatch):
+    cc, safety, hass, load = intr_safety
+    _patch_recent_benign(load, monkeypatch, present=False)  # nothing durable to honour
     action = await safety._check_intrusion(anyone_home=False, sleeping=False)
     assert action is not None
     assert safety._investigation is not None
 
 
 async def test_intrusion_kill_switch_off_ignores_durable_calloff(intr_safety, monkeypatch):
-    cc, safety, hass, intrusion = intr_safety
+    cc, safety, hass, load = intr_safety
     monkeypatch.setattr(cc, "INTRUSION_SITUATION_ENFORCE", False)
-    _dismiss(intrusion, hass)                      # a recent BENIGN episode exists
+    _patch_recent_benign(load, monkeypatch, present=True)   # a recent BENIGN episode exists
     action = await safety._check_intrusion(anyone_home=False, sleeping=False)
     # Kill-switch off → the durable call-off is not consulted → it opens.
     assert action is not None
