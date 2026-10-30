@@ -1,3 +1,33 @@
+## [9.48.0] — The last two AE scenario classes gain honest observers (MCU certification 8/10 → 10/10 observable)
+
+Closes audit finding **B1**: the two scenario classes that could not certify —
+`conflicting_priorities` and `cognitive_error` — now have honest live observers
+rooted in real lifecycle events, so the Phase AE MCU-certification suite can reach
+`is_certified` instead of being capped at 8/10 observable. The certification
+honesty gate (`kernel_certification_check.py`), which *enforces* that no class is
+falsely wired, now lists all ten as observed and an empty open-work list.
+
+- **`conflicting_priorities`** (convenience vs. safety): observed where
+  `cognitive_core._execute_action_data` withholds a discretionary (convenience)
+  action because an active intrusion/hazard situation outranks it on the priority
+  ladder — a closed loop (situation elevated → ladder → convenience suppressed),
+  reconstructable from the situation stream.
+- **`cognitive_error`** (bad belief → observation → correction): observed where
+  `intrusion._mirror_situation_sync` corrects a live intrusion belief
+  (possible / investigating / confirmed) to **BENIGN** on a false-alarm dismissal —
+  a closed loop reconstructable from the situation ledger. (`intrusion` joins the
+  `certification` primitive's owners in the adoption census, regenerated.)
+- **Honest by construction.** Both emits are **observe-only** — they change
+  neither the suppression decision nor the situation transition. They mark
+  `closed_loop=True` only at the point the loop has actually completed, and the
+  certification ledger is sticky-best (a class that has *ever* closed stays closed
+  for the window), so the suite asks "has this class been demonstrated to close at
+  least once," never faked. No coverage-matrix cell moves.
+
+Also records, in `docs/AUDIT_2026-10.md`, a **resolution log** noting B1 and the
+§6 test-isolation finding (the unit suite reading the host's live `/config`) are
+both now resolved — without rewriting the dated snapshot.
+
 ## [9.47.0] — Identity gates on the epistemic band (Epistemic-Fabric Uncertainty enforce, owner-gated)
 
 Advances the kernel `uncertainty` primitive **parity → enforce** (#237): identity

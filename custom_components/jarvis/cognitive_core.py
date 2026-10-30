@@ -4717,6 +4717,21 @@ async def _execute_action_data(hass, action_data: dict) -> bool:
             _LOGGER.info(
                 "Proactive action suppressed — a safety situation is active "
                 "(%s): %s.%s on %s", "/".join(_skinds), domain, service, entity_ids)
+            # Phase AE (conflicting_priorities — convenience vs. safety): a
+            # discretionary (convenience/household-tier) action was about to run,
+            # but an active safety situation outranks it on the priority ladder, so
+            # it is withheld. That IS the convenience-vs-safety scenario resolving
+            # in safety's favour — a closed loop (situation elevated → priority
+            # ladder → convenience suppressed), reconstructable from the situation
+            # stream. Observe-only; never affects the suppression decision.
+            try:
+                from .kernel import certification as CERT
+                certification_observe(
+                    CERT.CONFLICTING_PRIORITIES, closed_loop=True,
+                    note=f"convenience withheld; safety situation active "
+                         f"({'/'.join(_skinds) or 'safety'})")
+            except Exception:  # pragma: no cover - defensive, observe-only
+                pass
             return False
     except Exception:   # pragma: no cover - defensive, fail open
         pass

@@ -1,11 +1,12 @@
 """Phase AE enforce — the certification gate forbids a silent un-wiring.
 
 scripts/kernel_certification_check.py is the CI teeth of Phase AE: it fails the
-build if any of the eight observable scenario classes loses its live observer, if
-the dashboard accessor disappears, or if either of the two deliberately
-unobservable classes gets falsely wired. These tests run the gate against the real
-tree (it must pass) and confirm it actually catches a removed observer and a faked
-closure.
+build if any observable scenario class loses its live observer, if the dashboard
+accessor disappears, or if a class listed as unobservable gets falsely wired. All
+ten classes are now observed (the unobservable list is empty), so the honesty
+mechanism is exercised by marking a genuinely-wired class unobservable and
+confirming the gate flags it. These tests run the gate against the real tree (it
+must pass) and confirm it catches a removed observer and a faked closure.
 """
 import importlib.util
 import pathlib
@@ -49,18 +50,13 @@ def test_gate_catches_a_removed_observer(monkeypatch):
 
 
 def test_gate_catches_a_faked_closure(monkeypatch):
-    # If an owner module faked an observation for an unobservable class, the
-    # honesty invariant must fail — a hollow closure cannot be slipped in.
+    # The honesty invariant: a class listed as unobservable must NOT be wired.
+    # Every class is now observed, so _UNOBSERVED is empty — prove the mechanism
+    # still fires by marking a genuinely-wired class (conflicting_priorities, live
+    # in cognitive_core.py) as unobservable. The gate must then flag it as falsely
+    # wired, so a hollow closure can never be slipped past the honesty check.
     gate = _load_gate()
-    real = pathlib.Path.read_text
-
-    def _fake_read(self, *a, **k):
-        txt = real(self, *a, **k)
-        if self.name == "cognitive_core.py":
-            txt = txt + "\n# certification_observe(CERT.CONFLICTING_PRIORITIES)\n"
-        return txt
-
-    monkeypatch.setattr(pathlib.Path, "read_text", _fake_read)
+    monkeypatch.setattr(gate, "_UNOBSERVED", ("CONFLICTING_PRIORITIES",))
     assert gate.main(["--check"]) == 1
 
 
