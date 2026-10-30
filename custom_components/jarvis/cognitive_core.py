@@ -2416,6 +2416,67 @@ def _trust_damp_decision(pattern_key: str) -> tuple[bool, str]:
                   f"floor={AUTONOMY_TRUST_FLOOR:.2f} → {'DAMP' if damp else 'ok'}")
 
 
+# Phase N enforce — EARNED graduation: the "replace the blanket flag with the
+# earned level" rung the kernel plan held for the owner. Atop the security ceiling
+# (above), a granted convenience pattern whose non-safety capability has NOT yet
+# EARNED the top autonomy rung (ACT) from its verified track record falls back to
+# asking — trust is earned per capability, not granted blanket by the mode flag.
+# The earned level comes from the SAME rolling outcome window as the Phase N
+# shadow/parity emit (actuation.capability_earned_grant → kernel.autonomy.grant).
+# Downward-only and safe-directional: it can only ever WITHHOLD auto-action, never
+# grant it. SAFE capabilities stay pinned at ACT (reads always act) and SECURITY is
+# already withheld by the ceiling above — so this bites SENSITIVE actuation that
+# has not proven itself. It is its OWN switch, independent of the security-ceiling
+# `autonomy_enforce`, so enabling it never changes what an already-opted-in
+# household's existing gate does. Owner-gated, DEFAULT-OFF (behaviour-preserving;
+# shadow-logs the would-be decision regardless), kill-switched, and fail-safe (no
+# derivable capability / any fault → act as today). Recovery is automatic: the
+# outcome window is bounded, so a capability climbs to ACT as the loop sees enough
+# clean verified outcomes, and demotes if its record lapses.
+AUTONOMY_EARNED_ENFORCE = False
+
+
+def _autonomy_earned_enforce_on() -> bool:
+    """True when the household has opted into earned-level graduated autonomy
+    (`AUTONOMY_EARNED_ENFORCE` or the `autonomy_earned_enforce` config key). Never
+    raises."""
+    if AUTONOMY_EARNED_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("autonomy_earned_enforce", False))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _earned_autonomy_decision(pattern_key: str) -> tuple[bool, str]:
+    """Return ``(should_withhold, reason)`` for the earned-graduation gate. A
+    granted pattern whose capability is non-safety and has NOT earned ACT (its
+    verified record is thin or mediocre) is withheld — it asks instead. ``reason``
+    is '' when the pattern has no derivable capability (nothing to judge). Pure
+    read of the capability's earned grant; never raises; does not consult the
+    enforce flag (the caller gates on it), so the would-be decision can be
+    shadow-logged regardless of whether the flip is on."""
+    cap = _PATTERN_CAPABILITY.get(str(pattern_key or "").split(":")[0])
+    if not cap:
+        return (False, "")
+    try:
+        from . import actuation
+        g = actuation.capability_earned_grant(cap)
+    except Exception:  # pragma: no cover - defensive
+        return (False, "")
+    if g is None:
+        return (False, "")
+    if getattr(g, "pinned", False):
+        # SAFE (may_act True) always acts; SECURITY (may_act False) is already
+        # withheld by the ceiling gate. Pinned classes do not graduate.
+        return (False, f"capability={cap} risk={g.risk} pinned at {g.level}")
+    withhold = not g.may_act
+    return (withhold, f"capability={cap} risk={g.risk} level={g.level} "
+                      f"(n={g.samples}, rate={g.success_rate:.2f}) → "
+                      f"{'ASK (not yet earned ACT)' if withhold else 'act'}")
+
+
 def _guests_present(hass) -> bool:
     """True when a recently-recognised face is a NON-resident — a named visitor,
     or a name the roster does not know as a resident — i.e. a guest is in the
@@ -2586,6 +2647,12 @@ class AutonomyManager:
         granted pattern whose capability is SECURITY-class never auto-acts — the
         kernel autonomy ladder's hard ceiling — and always falls back to asking.
 
+        Phase N enforce (opt-in): atop the security ceiling, when earned-level
+        graduated autonomy is enabled (`autonomy_earned_enforce`), a granted
+        pattern whose non-safety capability has not yet EARNED the top rung (ACT)
+        from its verified track record falls back to asking — trust is earned per
+        capability, not blanket. Independent of the security-ceiling switch.
+
         Phase AC enforce (opt-in): atop the N ceiling, a restrictive ``context``
         (``kernel.autonomy.AutonomyContext`` — e.g. a guest in the home) tightens
         an otherwise-autonomous convenience action to ask-first. Downward-only: it
@@ -2602,6 +2669,22 @@ class AutonomyManager:
             pass
         if _graduated_autonomy_enforce_on() and _pattern_is_security(pattern_key):
             return False
+        # Phase N enforce (opt-in) — EARNED graduation atop the security ceiling: a
+        # non-safety capability auto-acts only once its verified record has earned
+        # ACT; until then JARVIS asks. Its own switch; shadow-logs the would-be
+        # decision regardless. Downward-only, runs before the AC/trust gates, and
+        # fail-safe (any fault → act as today).
+        try:
+            withhold, reason = _earned_autonomy_decision(pattern_key)
+            if reason:
+                _LOGGER.debug("autonomy(earned-shadow): %s pattern=%s",
+                              reason, pattern_key)
+            if withhold and _autonomy_earned_enforce_on():
+                _LOGGER.info("autonomy(earned): withholding auto-action — %s "
+                             "pattern=%s", reason, pattern_key)
+                return False
+        except Exception:  # pragma: no cover - defensive, never block on the gate
+            pass
         if context is not None and _contextual_autonomy_enforce_on():
             try:
                 from .kernel import autonomy as _auto

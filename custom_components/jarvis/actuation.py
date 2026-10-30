@@ -673,6 +673,33 @@ def capability_reliability(capability_class: str) -> tuple[float, int]:
         return (_CAP_TRUST_PRIOR, 0)
 
 
+def capability_earned_grant(capability_class: str):
+    """The kernel autonomy grant a capability CLASS has EARNED from the recent
+    verified-outcome window — built the same way the Phase N shadow/parity emit
+    builds it (``kernel.outcome.summarize`` over the rolling window →
+    ``kernel.autonomy.grant``), so the enforce consumer and the parity signal read
+    one source of truth.
+
+    Returns a ``kernel.autonomy.AutonomyGrant`` whose ``level`` / ``may_act`` say
+    whether this capability has earned the top autonomy rung (ACT), or ``None``
+    when the class is empty or on any error (caller fail-safe = act as today). A
+    class with no verified record yields its risk-class floor (SENSITIVE →
+    SUGGEST, ``may_act`` False): autonomy is EARNED, so an unproven capability has
+    not earned it. Pure read; never raises.
+    """
+    cls = str(capability_class or "").strip()
+    if not cls:
+        return None
+    try:
+        from .kernel import autonomy, outcome as _koutcome
+        cap_outcomes = [o for o in _recent_outcomes
+                        if _in_capability_class(getattr(o, "capability", "") or "", cls)]
+        stats = _koutcome.summarize(cap_outcomes)
+        return autonomy.grant(cls, stats)
+    except Exception:   # pragma: no cover - defensive
+        return None
+
+
 def _learn_store_load(hass) -> None:
     global _LEARN_STORE_LOADED, _LEARN_STORE_PATH
     if _LEARN_STORE_LOADED:
@@ -777,11 +804,13 @@ def _emit_autonomy_shadow(oc) -> None:
 # single blanket incumbent it refines — the active mode's auto-actions flag
 # (``modes.mode_allows_auto_actions``, "whether autonomy graduations may
 # auto-execute"). A divergence flags a capability whose per-capability earned
-# trust disagrees with the one-size-fits-all flag — exactly the resolution the
-# owner-gated GRADUATED_AUTONOMY_ENFORCE rung buys by replacing the flag with the
-# earned level. Per-proactive-pattern trust stays with cognitive_core's
-# AutonomyManager; this axis is the blanket flag only. Observe-only; nothing
-# consumes it. Set AUTONOMY_PARITY = False to silence it.
+# trust disagrees with the one-size-fits-all flag — exactly the divergence the
+# owner-gated earned-graduation rung now resolves: with `autonomy_earned_enforce`
+# on, cognitive_core._earned_autonomy_decision (reading capability_earned_grant
+# below) withholds auto-action from a non-safety capability whose earned level has
+# not reached ACT, in place of trusting the blanket flag. Per-proactive-pattern
+# trust stays with cognitive_core's AutonomyManager; this axis is the blanket flag
+# only. Observe-only; nothing consumes it. Set AUTONOMY_PARITY = False to silence it.
 AUTONOMY_PARITY = True
 
 

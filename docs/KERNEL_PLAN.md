@@ -709,8 +709,14 @@ class), SECURITY pinned at confirm; `actuation` emits
 `autonomy(shadow)`/`autonomy(parity)` per verified outcome, parity comparing
 the earned auto-execute verdict against the blanket `modes.mode_allows_auto_actions`
 flag it refines). Per-proactive-pattern trust stays with `cognitive_core`'s
-`AutonomyManager`. Enforce (replace the blanket flag with the earned level)
-owner-gated (held).
+`AutonomyManager`. Enforce ships in two owner-gated rungs, both **default OFF**:
+the **security ceiling** (`autonomy_enforce` — a SECURITY-class pattern never
+auto-acts) and, from 9.46.0, the **earned-level graduation**
+(`autonomy_earned_enforce` — a non-safety convenience capability auto-acts only
+once its verified record has earned `ACT`, else it asks; downward-only, fail-safe,
+reading `actuation.capability_earned_grant`). The earned rung is the "replace the
+blanket flag with the earned level" step the plan held: its path is shipped and
+tested, OFF until the owner flips it, so today's behaviour is unchanged.
 
 **Phase O — Agency Orchestration (merged O + AB).** *(Audit: O and AB are both
 agency coordination with no architectural reason to be separate — merged into one
