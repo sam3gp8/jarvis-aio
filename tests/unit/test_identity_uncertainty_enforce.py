@@ -51,13 +51,15 @@ def _face(state, camera, name, confidence, age_seconds=0):
 
 # ── the switch ────────────────────────────────────────────────────────────────
 
-def test_enforce_off_by_default(identity):
-    assert identity._uncertainty_enforce_on() is False
-
-
-def test_enforce_on_via_config(identity, cfg):
-    cfg["uncertainty_enforce"] = True
+def test_enforce_on_by_default(identity):
+    # Owner-promoted to default-ON (9.50.0): the safe direction for a
+    # security-adjacent gate is to ask when unsure.
     assert identity._uncertainty_enforce_on() is True
+
+
+def test_kill_switch_via_config(identity, cfg):
+    cfg["uncertainty_enforce"] = False          # explicit opt-out
+    assert identity._uncertainty_enforce_on() is False
 
 
 # ── the band threshold this gate depends on ──────────────────────────────────
@@ -71,17 +73,28 @@ def test_actionable_band_threshold(load):
 
 # ── the live resolve() path ───────────────────────────────────────────────────
 
-def test_default_off_believed_read_is_known(identity, cfg, sigs, fake_hass):
-    # A face at 0.65 → resolved confidence 0.52: ≥ min_confidence (known) but below
-    # the actionable band. With the flip OFF, behaviour is unchanged.
+def test_believed_read_downgraded_by_default(identity, cfg, sigs, fake_hass):
+    # A face at 0.65 → resolved confidence 0.52: ≥ min_confidence (legacy "known")
+    # but below the actionable band. With the gate ON by default, it is treated as
+    # not-yet-identified and the read falls toward more confirmation.
     _face(sigs, "camera.kitchen", "Sam", confidence=0.65)
     ident = identity.resolve(fake_hass)
-    assert ident.person == "Sam" and ident.known
+    assert ident.person == "unknown"
+    assert ident.method == "band_not_actionable"
     assert round(ident.confidence, 3) == 0.52
 
 
+def test_kill_switch_restores_legacy_known(identity, cfg, sigs, fake_hass):
+    # With the kill-switch off, the same believed read is "known" again (legacy
+    # min-confidence behaviour) — the owner can always opt out.
+    cfg["uncertainty_enforce"] = False
+    _face(sigs, "camera.kitchen", "Sam", confidence=0.65)   # → 0.52
+    ident = identity.resolve(fake_hass)
+    assert ident.person == "Sam" and ident.known
+
+
 def test_enforce_downgrades_below_actionable_band(identity, cfg, sigs, fake_hass):
-    cfg["uncertainty_enforce"] = True
+    cfg["uncertainty_enforce"] = True                        # explicit on (= default)
     _face(sigs, "camera.kitchen", "Sam", confidence=0.65)   # → 0.52, guessed band
     ident = identity.resolve(fake_hass)
     assert ident.person == "unknown"

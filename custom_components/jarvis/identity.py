@@ -65,28 +65,34 @@ IDENTITY_FABRIC_SHADOW = True
 # resolve() returns the same Identification either way.
 UNCERTAINTY_SHADOW = True
 
-# ENFORCE (#237, Epistemic Fabric — Uncertainty): the owner-gated rung the parity
-# above measured. When on, resolve() gates a confident identity on the epistemic
-# BAND, not merely the legacy min-confidence threshold: a verdict in the
-# [identity_min_confidence, actionable) region — one legacy calls "known" but the
-# fabric still calls a GUESS — is treated as NOT identified, so the read falls
-# toward MORE confirmation. Downward-only and safety-forward (it only ever
-# WITHHOLDS an identification, never widens one); its own kill-switch, independent
-# of the identity-fabric (presence≠identity) gate; fail-safe = the legacy decision
-# on any fault. DEFAULT OFF — PAUSE for owner before enabling: it gates who JARVIS
-# treats as identified.
-UNCERTAINTY_ENFORCE = False
+# ENFORCE (#237, Epistemic Fabric — Uncertainty): resolve() gates a confident
+# identity on the epistemic BAND, not merely the legacy min-confidence threshold:
+# a verdict in the [identity_min_confidence, actionable) region — one legacy calls
+# "known" but the fabric still calls a GUESS — is treated as NOT identified, so the
+# read falls toward MORE confirmation. Downward-only and safety-forward (it only
+# ever WITHHOLDS an identification, never widens one); its own kill-switch,
+# independent of the identity-fabric (presence≠identity) gate; fail-safe = the
+# legacy decision on any fault. DEFAULT ON (owner-promoted, 9.50.0) because the
+# safe direction for a security-adjacent gate is to ask when unsure — but fully
+# kill-switchable: set `uncertainty_enforce: false` (or `UNCERTAINTY_ENFORCE` off)
+# to revert to the legacy min-confidence decision. A sole-occupant read is exactly
+# at the actionable band, so it is never gated; only genuinely ambiguous
+# multi-signal reads in the narrow [0.45, 0.60) region ask for more confirmation.
+UNCERTAINTY_ENFORCE = True
 
 
 def _uncertainty_enforce_on() -> bool:
-    """True when the household has opted into epistemic-band identity gating
-    (`UNCERTAINTY_ENFORCE` or the `uncertainty_enforce` config key). Never raises."""
-    if UNCERTAINTY_ENFORCE:
-        return True
-    try:
-        return bool(_cfg("uncertainty_enforce", False))
-    except Exception:  # pragma: no cover - defensive
+    """True when epistemic-band identity gating is active. DEFAULT ON, kill-switched
+    by the module flag (`UNCERTAINTY_ENFORCE`) or the `uncertainty_enforce` config
+    key set to False. Never raises."""
+    if not UNCERTAINTY_ENFORCE:
         return False
+    try:
+        if _cfg("uncertainty_enforce", True) is False:
+            return False
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return True
 
 # How long a resolved identity assertion stays fresh (seconds) — matches the
 # face-recency window so a stale recognition expires rather than lingering.

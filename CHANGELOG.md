@@ -1,3 +1,27 @@
+## [9.50.0] — Epistemic-band identity gating promoted to default-ON (kill-switchable)
+
+Owner decision: the `uncertainty_enforce` gate (9.47.0) — identity resolution
+falling toward more confirmation when a verdict is only *believed*, not
+*actionable* — now ships **ON by default** instead of opt-in. The safe direction
+for a security-adjacent gate is to ask when unsure, so this is the better default;
+it remains fully reversible.
+
+- **Default flipped, still kill-switchable.** `identity.UNCERTAINTY_ENFORCE`
+  defaults `True`; `_uncertainty_enforce_on()` is restructured to the
+  default-ON-kill-switch pattern (mirrors `learning_enforce`): set
+  `uncertainty_enforce: false` in config (or the module flag off) to revert to the
+  legacy min-confidence decision. More capability never means less governance —
+  the owner can always opt out.
+- **Narrow, safe-directional effect.** Only verdicts in the `[min_confidence
+  (0.45), actionable (0.60))` band are affected (treated as not-yet-identified). A
+  sole-occupant presence read resolves to exactly 0.60 — at the actionable band —
+  so it is **never** gated; only genuinely ambiguous multi-signal reads ask for
+  more confirmation. Downward-only (it only ever withholds an identification),
+  fail-safe to the legacy verdict on any error.
+- No new behaviour paths, no coverage-matrix change — only the shipped default of
+  an existing, tested gate. Tests updated (on-by-default; kill-switch restores
+  legacy "known"); `KERNEL_PLAN` updated.
+
 ## [9.49.0] — Model router: local-first routing advances shadow → parity (reflex-speed precursor)
 
 The reflex-speed lever is running JARVIS on a local model instead of round-tripping
