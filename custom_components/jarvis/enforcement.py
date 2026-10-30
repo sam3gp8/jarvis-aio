@@ -147,6 +147,19 @@ _REGISTRY: List[Switch] = [
             "state; OFF bypasses the seam for those actuators."),
     ),
     Switch(
+        key="situation_autonomy_suppress", module="actuation",
+        attr="SITUATION_AUTONOMY_SUPPRESS_ENFORCE", default=True,
+        category=CATEGORY_SAFETY, phase="H",
+        name="Pause autonomy during a safety situation",
+        explanation=(
+            "While a security or safety situation (intrusion / hazard) is being "
+            "handled, pause JARVIS's routine self-directed automations so they "
+            "don't fire into or interfere with the response. ON (default) is the "
+            "safe state; it only ever suppresses discretionary autonomy (never a "
+            "user request or a safety response) and fails open. OFF lets routine "
+            "autonomy run during an active incident."),
+    ),
+    Switch(
         key="hazard_situation", module="cognitive_core",
         attr="HAZARD_SITUATION_ENFORCE", default=True,
         category=CATEGORY_SAFETY, phase="R2",

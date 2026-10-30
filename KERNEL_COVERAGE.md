@@ -42,17 +42,17 @@ grid) are kept underneath for continuity.
 | `execute_plan` | ● | ◑ | – | ● | ● | – | – |
 | `run_scene_or_script` | ● | ◑ | – | ● | ● | – | – |
 | `set_mode` | ◑ | – | – | ● | ● | – | – |
-| `intrusion` | ◑ | · | ● | – | – | – | – |
-| `hazard` | ◑ | · | ● | – | – | – | – |
+| `intrusion` | ● | · | ● | – | – | – | – |
+| `hazard` | ● | · | ● | – | – | – | – |
 | `delivery` | ◑ | · | ● | – | – | – | – |
 | `goals` | ◑ | · | – | · | ● | · | · |
 | `proactive` | ● | ◑ | – | ● | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 67.4%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 68.8%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 38.5% weighted / 38.5% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 39.3% weighted / 39.3% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -199,13 +199,21 @@ one release at a time.
   live enforce — the 9.10.0 metric reform carried over the D3 "log-only mirror"
   description. Mail arrival is a one-shot with no pickup tracking, so there is no
   sustained episode to mirror and none is invented.
-- **Situation events (D4)** — `intrusion`, `hazard` and `delivery` each now
+- **Situation events (D4 → H)** — `intrusion`, `hazard` and `delivery` each
   **publish** a canonical `situation.transition` `JarvisEvent`
   (`events.publish_situation` → `kernel.from_situation`) on every lifecycle
-  change, so their `event` cell is `◑` parity: the event enters the bus stream and
-  the ledger records it, but **no consumer reacts yet**. Publishing is additive
-  and best-effort — it never affects the underlying intrusion/freeze/delivery
-  handling. This is the step that lifts coverage back up (15.5% → 17.9%).
+  change. A **bus reactor now consumes that stream** (`actuation._situation_react`
+  / `register_situation_reactor`): it tracks which safety-critical situations
+  (intrusion / hazard) are *elevated*, and the discretionary-autonomous path
+  pauses routine autonomy while one is being handled (`safety_situation_active` →
+  `cognitive_core._execute_action_data`). So `intrusion` and `hazard` reach
+  `event` **● full** — the situation stream is a *consumed* nervous system, like
+  the actuation stream (Stage 3a). **`delivery` stays `◑` parity (honest):** the
+  reactor receives its transitions but never acts on them — a package is not a
+  safety situation, so it never pauses autonomy. Reversible via
+  `SITUATION_AUTONOMY_SUPPRESS_ENFORCE`; fail-open (a reactor fault never blocks
+  autonomy) and it only ever suppresses *discretionary* autonomy, never a user
+  request or a safety response.
 - **`run_scene_or_script`** — the first Phase B adoption (B1): routed through the
   shared `actuation` envelope for its WorldModel context (`world_model` ◑) and
   actuation event (`event` ●, consumed by the thrash reactor). verify/outcome are **n/a** (`–`, no deterministic
