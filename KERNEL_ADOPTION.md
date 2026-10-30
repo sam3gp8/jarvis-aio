@@ -107,7 +107,7 @@ SafetyManager, own a safety verdict stays behind its own per-flip go/no-go.
 | `privacy` | · pure | — *(staged ahead)* |
 | `provenance` | ◐ shadow | `continuity`, `knowledge`, `presence`, `recognition` |
 | `resilience` | ◐ shadow | `connectivity` |
-| `router` | ◐ shadow | `reasoning_loop` |
+| `router` | ◑ parity | `reasoning_loop` |
 | `self_model` | ● enforce | `agent` |
 | `situation` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `delivery_situation`, `events`, `hazard_situation`, `intrusion` |
 | `social` | · pure | — *(staged ahead)* |

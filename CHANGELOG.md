@@ -1,3 +1,29 @@
+## [9.49.0] — Model router: local-first routing advances shadow → parity (reflex-speed precursor)
+
+The reflex-speed lever is running JARVIS on a local model instead of round-tripping
+to the cloud — **already supported** today via the first-class `ollama` provider
+(configure it + a base URL in Settings). This release advances the *kernel* side
+one honest rung: `kernel/router.py` (the pure local-first latency router) moves
+**shadow → parity** in `reasoning_loop`.
+
+- **Parity emit.** `reasoning_loop._router_shadow` already computed the kernel
+  local-first route alongside the live breaker decision (cloud when online, the
+  local Mind when the breaker is open) and logged per-pass divergence. It now also
+  folds each pass into a bounded rolling window and logs the running **agreement
+  rate** (`router(parity): n=… agree=… rate=…`) every 20 passes — the quantified
+  "the kernel route reproduces the incumbent on real traffic" bar the owner-gated
+  enforce rung needs before the kernel route (which can prefer a local tier for
+  latency) becomes authoritative.
+- **Observe-only.** The breaker stays authoritative; the emit drives nothing and
+  never affects reasoning. Kill-switch `ROUTER_PARITY` / the `router_parity` config
+  key (default on, like the other parity emits). `router` moves ◐ shadow → ◑ parity
+  in `KERNEL_ADOPTION.md` + the Constitution ledger (regenerated).
+
+Honest scope: this is the precursor rung, not the reflex win itself. The actual
+"route latency-sensitive calls to the local model" step is the **owner-gated
+enforce** — a real provider-selection change (privacy / quality / latency
+trade-offs) that this parity exists to de-risk. No coverage-matrix cell moves.
+
 ## [9.48.0] — The last two AE scenario classes gain honest observers (MCU certification 8/10 → 10/10 observable)
 
 Closes audit finding **B1**: the two scenario classes that could not certify —

@@ -25,11 +25,35 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import deque
 from typing import Optional
 
 from .directive_helper import build_system_prompt
 
 _LOGGER = logging.getLogger(__name__)
+
+# Phase 6 (router) PARITY — over a rolling window, how often the kernel
+# local-first route AGREES with the live breaker decision (cloud when online,
+# local when the breaker is open). Observe-only: it quantifies that the kernel
+# router reproduces the incumbent on real reasoning traffic — the bar the
+# owner-gated enforce rung needs before the kernel route can become authoritative.
+# Kill-switch ROUTER_PARITY / the `router_parity` config key.
+ROUTER_PARITY = True
+_ROUTER_PARITY_WINDOW: deque = deque(maxlen=200)   # recent agree/disagree booleans
+_ROUTER_PARITY_SEEN = 0                              # cumulative, for the log cadence
+_ROUTER_PARITY_EVERY = 20                            # log the running rate every N passes
+
+
+def _router_parity_enabled() -> bool:
+    """True when the router parity emit is active (module flag or the
+    `router_parity` config key). Observe-only; never raises."""
+    if not ROUTER_PARITY:
+        return False
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("router_parity", True))
+    except Exception:  # pragma: no cover - defensive
+        return True
 
 
 def _router_shadow(online: bool) -> None:
@@ -55,6 +79,19 @@ def _router_shadow(online: bool) -> None:
         if picked != chosen:
             _LOGGER.debug("router shadow divergence: kernel=%s (%s) vs live=%s",
                           picked, res.reason, chosen)
+        # PARITY: fold this pass into the rolling agreement window and log the
+        # running rate every N passes — the quantified bar for enforce. Observe-only.
+        if _router_parity_enabled():
+            global _ROUTER_PARITY_SEEN
+            _ROUTER_PARITY_SEEN += 1
+            _ROUTER_PARITY_WINDOW.append(picked == chosen)
+            if _ROUTER_PARITY_SEEN % _ROUTER_PARITY_EVERY == 0:
+                n = len(_ROUTER_PARITY_WINDOW)
+                agree = sum(1 for a in _ROUTER_PARITY_WINDOW if a)
+                _LOGGER.debug(
+                    "router(parity): n=%d agree=%d rate=%.3f "
+                    "(kernel local-first vs live breaker)",
+                    n, agree, (agree / n) if n else 0.0)
     except Exception:  # pragma: no cover - defensive
         pass
 

@@ -545,9 +545,14 @@ _DECLARED: dict[str, dict] = {
     # unpopulated set. Ladder: pure → shadow → parity → enforce.
     "working_memory": {"stage": "enforce", "owners": ["cognitive_core", "output_gate"]},
     # router: reasoning_loop computes the kernel local-first provider route
-    # alongside its live cloud/local-Mind breaker decision and logs divergence
-    # (E3) — shadow.
-    "router":       {"stage": "shadow",  "owners": ["reasoning_loop"]},
+    # alongside its live cloud/local-Mind breaker decision. SHADOW logged each
+    # pass's divergence (E3). PARITY (reflex-speed precursor): over a rolling
+    # window it now logs how often the kernel route AGREES with the live breaker
+    # decision (ROUTER_PARITY / `router_parity`) — the quantified bar the
+    # owner-gated enforce rung needs before the kernel route (which can prefer a
+    # local tier for latency) becomes authoritative. Observe-only, drives nothing;
+    # the breaker stays authoritative. Ladder: pure → shadow → parity → enforce.
+    "router":       {"stage": "parity",  "owners": ["reasoning_loop"]},
     # causal: causal learning + prediction (roadmap Phase L). ΔP contingency
     # hypotheses (cause → effect) with a prediction surface — predict(context) /
     # explain(effect). SHADOW (Phase L): pattern_analyzer.analyze() folds the
