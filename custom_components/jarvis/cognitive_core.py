@@ -80,6 +80,16 @@ HAZARD_SITUATION_ENFORCE = True
 # load. The gate fails safe to the legacy decision on any kernel fault.
 INTRUSION_GATE_ENFORCE = True
 
+# MCU Phase R (R3c) — intrusion SITUATION-lifecycle ENFORCE kill-switch. When True
+# (default), a user "false alarm" call-off is honoured DURABLY across a reload:
+# the dismissal drives the kernel situation to BENIGN, and _check_intrusion reads
+# that lifecycle state back (intrusion.kernel_calloff_active_sync) so JARVIS does
+# not immediately re-alarm on the same benign motion after a restart that lost the
+# in-memory call-off window. ADDITIVE and fail-safe: a None/error read suppresses
+# nothing, so it only reduces false alarms and can never miss a real intrusion.
+# Flip to False to revert to the in-memory-only call-off window.
+INTRUSION_SITUATION_ENFORCE = True
+
 # Away false-alarm fix (8.69.0) — harden intrusion CONFIRMATION under a degraded
 # hold. When the home is "away" only because a lockdown is being HELD through an
 # unreadable alarm panel (a Cove/Alula cloud drop), a resident is very likely
@@ -466,6 +476,22 @@ class SafetyManager:
         except Exception:   # pragma: no cover - defensive
             pass
 
+        # R2c — durable WARNING de-dup. The in-memory _freeze_warned is lost on a
+        # reload, so a freeze already announced before a restart could re-warn.
+        # When the kernel situation store still holds an open freeze episode, adopt
+        # "already warned" so the duplicate warning is suppressed. CRITICAL is
+        # never suppressed below (it fails toward alerting); fail-safe — a
+        # None/error read leaves _freeze_warned as-is, so a warning still fires.
+        if (HAZARD_SITUATION_ENFORCE and verdict == "warning"
+                and not self._freeze_warned):
+            try:
+                from . import hazard_situation
+                if await self.hass.async_add_executor_job(
+                        hazard_situation.kernel_freeze_active_sync, self.hass):
+                    self._freeze_warned = True
+            except Exception:   # pragma: no cover - defensive, fail toward alert
+                pass
+
         if verdict == "critical":
             self._last_freeze_alert = now
             await self._mirror_freeze_hazard("critical", reading)
@@ -818,6 +844,15 @@ class SafetyManager:
             from . import intrusion as _intr
             if _intr.is_called_off():
                 return None
+            # R3c — durable call-off: the in-memory window above is lost on a
+            # reload, so also honour a recent false-alarm dismissal recorded in the
+            # kernel situation store (a BENIGN intrusion episode). Additive and
+            # fail-safe: a None/error read suppresses nothing (never over-suppresses
+            # a real intrusion); kill-switch INTRUSION_SITUATION_ENFORCE.
+            if INTRUSION_SITUATION_ENFORCE:
+                if await self.hass.async_add_executor_job(
+                        _intr.kernel_calloff_active_sync, self.hass, now):
+                    return None
         except Exception:
             pass
 

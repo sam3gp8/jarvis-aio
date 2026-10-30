@@ -306,6 +306,24 @@ class SituationManager:
         sql += " ORDER BY updated_ts DESC"
         return self._query(sql, tuple(params))
 
+    def recent(self, kind: Optional[str] = None, *,
+               since_ts: float = 0.0) -> List[Situation]:
+        """Situations updated at/after ``since_ts``, newest first, incl. terminal
+        ones — unlike :meth:`open_situations`, which returns only active episodes.
+
+        A consumer that must see a *just-resolved* episode (e.g. a false-alarm
+        dismissal, where the episode transitions BENIGN → RESOLVED within the same
+        call) needs this: ``open_situations`` would already have dropped it. The
+        ``history`` the rows carry lets the caller inspect which transition
+        happened and when."""
+        sql = "SELECT * FROM situations WHERE updated_ts >= ?"
+        params: list = [float(since_ts)]
+        if kind is not None:
+            sql += " AND kind = ?"
+            params.append(kind)
+        sql += " ORDER BY updated_ts DESC"
+        return self._query(sql, tuple(params))
+
     # ── persistence ────────────────────────────────────────────────────────────
     def _upsert(self, sit: Situation) -> None:
         self._ensure_schema()

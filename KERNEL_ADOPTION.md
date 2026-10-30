@@ -54,9 +54,12 @@ security-sensitive or low-confidence actions — the safe direction. The exact
 boundary — which paths enforce it — is in the per-primitive **`authority`** note
 below, and the allowlist is drift-guarded by `test_authority_enforce.py`.
 
-The remaining flips are still un-taken: the `hazard`/`delivery` situations (G3)
-and the **`intrusion`** situation (G5) — these stay behind an explicit per-flip
-owner go/no-go. In short: a read facade may reach enforce on its own; a
+The situation flips have since been **taken**, each behind an explicit per-flip
+owner go/no-go and a reversible kill-switch: `delivery` (R1b), `hazard`/freeze
+(R2b verdict + R2c durable warning de-dup) and `intrusion` (R3b entry-gate + R3c
+durable false-alarm memory) — the per-primitive **`situation`** note below has
+the exact consumer for each. In short: a read facade may reach enforce on its
+own; a
 *non-safety, self-imposed* decision primitive may reach it with owner approval
 and a kill-switch; a safety/authority decision may reach it only in an
 owner-approved, kill-switched, **fail-safe-bounded** form (which the authority
@@ -179,11 +182,12 @@ SafetyManager, own a safety verdict stays behind its own per-flip go/no-go.
   actuation paths (`control_device` and the bulk/plan step gate). Safety-critical
   autonomous responses (lockdown, intrusion securing) call `hass.services`
   directly and never route through the gate, so they are unaffected.
-- **situation** is at parity through `intrusion`, `hazard_situation` and
-  `delivery_situation` (D1–D3): each mirrors a live lifecycle (intrusion verdict,
-  freeze warning→critical→cleared, package delivered→removed) into a kernel
-  `Situation` and logs agreement. A G-phase review established *why* it cannot
-  simply be "flipped" to enforce: the situation store is a **recorder** of a
+- **situation** is at **enforce** through `delivery_situation`, `hazard_situation`
+  and `intrusion`: each mirrors a live lifecycle (package delivered→removed, freeze
+  warning→critical→cleared, intrusion verdict) into a kernel `Situation`, and a
+  live consumer now **acts on** that lifecycle (the flips below). A G-phase review
+  first established *why* it could not simply be "flipped": the situation store is
+  a **recorder** of a
   verdict computed in a live module (a temperature threshold, a vision state
   machine, the SafetyManager intrusion score), not an independent decider — so
   making it "authoritative" would be either circular/hollow or, for the safety
@@ -199,34 +203,38 @@ SafetyManager, own a safety verdict stays behind its own per-flip go/no-go.
   `delivery` episode) instead of its in-memory `_STATE` flag, with a kill-switch
   (`package_monitor.DELIVERY_SITUATION_ENFORCE`) and a fail-safe fallback to the
   legacy flag on any store-read error. This meets the matrix's enforce bar
-  (authoritative on ≥1 live path, exactly as `world_model`'s enforce does) **but
-  `hazard` (freeze) and `intrusion` remain parity MIRRORS** — their verdicts are
-  still computed in the live modules and only recorded into the situation store.
-  Freeze (R2) and intrusion (R3) are their own flips, in that order: the freeze
-  flip will fail *toward* alerting, and the intrusion re-architecture is
-  safety-critical and behind an explicit owner go/no-go. So "situation = enforce"
-  here means "delivery presence is kernel-owned", not "every situation is".
+  (authoritative on ≥1 live path, exactly as `world_model`'s enforce does) and
+  fixed the #404 restart bug (in-memory state lost across a reload → deliveries
+  never re-announced); it is drift-guarded by `test_delivery_enforce`.
   **R2a (8.62.0)** was the freeze step (a) (decision-parity); **R2b (8.63.0)** is
-  the flip: `cognitive_core._check_freeze` now acts on the kernel
-  `freeze_verdict`, so freeze is a *second* authoritative situation caller. Because
-  it is a safety alert, the flip uses a **max-severity rule** — it acts on the
-  more severe of (kernel, legacy inline threshold), falls back to legacy on any
-  kernel error, and has a kill-switch (`HAZARD_SITUATION_ENFORCE`) — so a freeze
-  alert is **never suppressed** on kernel error or uncertainty (fail *toward*
-  alerting). **Intrusion** is the last caller still driven by the legacy path.
-  **R3a (8.64.0)** is its decision-parity step: `kernel.situation.intrusion_gate`
-  computes the false-alarm-critical *entry gate* (away + qualifying motion +
-  corroboration). **R3b (8.68.0)** makes that gate **authoritative** in
-  `SafetyManager._check_intrusion`, and — unlike the behaviour-preserving flips —
-  makes it *stricter* than the legacy precondition to fix a real-world false-alarm
-  class: it adds a **residents-tracked-home veto** (an awake, positively
-  tracked-home resident never opens an investigation, so a resident on camera at
-  home under a degraded confinement hold — e.g. a lockdown held open because the
-  alarm panel is `unavailable` — is no longer investigated as an intruder; at
-  night the veto lifts). The flip **fails safe to the legacy decision** on any
-  kernel fault and has a one-line kill-switch (`INTRUSION_GATE_ENFORCE`). Only the
-  entry gate is kernel-owned; the stateful investigation/escalation and the
-  vision-confirm step remain legacy.
+  the verdict flip: `cognitive_core._check_freeze` now acts on the kernel
+  `freeze_verdict`. Because it is a safety alert, the flip uses a **max-severity
+  rule** — it acts on the more severe of (kernel, legacy inline threshold), falls
+  back to legacy on any kernel error, and has a kill-switch
+  (`HAZARD_SITUATION_ENFORCE`) — so a freeze alert is **never suppressed** on
+  kernel error or uncertainty (fail *toward* alerting). **R2c** adds the
+  situation-*lifecycle* consumer: `_check_freeze` reads the open freeze episode
+  (`hazard_situation.kernel_freeze_active_sync`) and suppresses a duplicate
+  **WARNING** across a reload (the in-memory `_freeze_warned` is lost on restart);
+  `CRITICAL` is never suppressed, and a `None`/error read lets the warning fire.
+  **R3a (8.64.0)** is intrusion's decision-parity step:
+  `kernel.situation.intrusion_gate` computes the false-alarm-critical *entry gate*
+  (away + qualifying motion + corroboration). **R3b (8.68.0)** makes that gate
+  **authoritative** in `SafetyManager._check_intrusion`, and — unlike the
+  behaviour-preserving flips — makes it *stricter* than the legacy precondition to
+  fix a real-world false-alarm class: it adds a **residents-tracked-home veto** (an
+  awake, positively tracked-home resident never opens an investigation, so a
+  resident on camera at home under a degraded confinement hold — e.g. a lockdown
+  held open because the alarm panel is `unavailable` — is no longer investigated as
+  an intruder; at night the veto lifts). The flip **fails safe to the legacy
+  decision** on any kernel fault and has a one-line kill-switch
+  (`INTRUSION_GATE_ENFORCE`). **R3c** adds the situation-*lifecycle* consumer: a
+  user "false alarm" dismissal drives the episode to `BENIGN`, and
+  `_check_intrusion` reads that back (`intrusion.kernel_calloff_active_sync`) to
+  honour the call-off **across a reload** that lost the in-memory window — additive
+  and fail-safe (a `None`/error read suppresses nothing, never missing a real
+  intrusion), reversible via `INTRUSION_SITUATION_ENFORCE`. The stateful
+  investigation/escalation and the vision-confirm step remain legacy.
 - **priority** (emergency hierarchy) and **causal** (causal inference) remain
   **pure**: no live path consults them yet, and wiring one without a genuine
   consumer would be a hollow adoption — left honest at pure until a real caller

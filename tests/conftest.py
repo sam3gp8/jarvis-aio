@@ -275,6 +275,64 @@ def _close_sqlite_connections():
     gc.collect()
 
 
+@pytest.fixture(autouse=True)
+def _reset_situation_store():
+    """Give each test a clean kernel situation store.
+
+    ``SituationManager`` instances are built lazily and cached on module globals
+    (``hazard_situation._mgr`` / ``delivery_situation._mgr`` /
+    ``intrusion._situation_mgr``) that persist for the whole session, and they all
+    point at the single shared ``JARVIS_CONFIG_DIR`` ``situations.db``. Without
+    this, one test's episodes leak into another's durable *reads* — e.g. the
+    freeze/intrusion situation-enforce consumers (R2c/R3c) that now read the store
+    back would see a prior test's open episode. Reset the cached managers + their
+    episode-id caches and remove the shared db file, before and after each test."""
+    def _reset():
+        for modname, attrs in (
+            ("hazard_situation", {"_mgr": None, "_freeze_situation_id": None}),
+            ("delivery_situation", {"_mgr": None, "_delivery_situation_ids": {}}),
+            ("intrusion", {"_situation_mgr": None, "_situation_id": None}),
+        ):
+            mod = sys.modules.get(f"jc.{modname}")
+            if mod is None:
+                continue
+            for attr, val in attrs.items():
+                try:
+                    setattr(mod, attr, {} if isinstance(val, dict) else None)
+                except Exception:
+                    pass
+        cfg = os.environ.get("JARVIS_CONFIG_DIR", "")
+        if cfg:
+            try:
+                for p in pathlib.Path(cfg).rglob("situations.db*"):
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
+                # Ensure the situations.db parent dir exists: persistence.connect
+                # does a bare sqlite3.connect() which fails if the dir is missing,
+                # and a situation write is best-effort (swallowed), so a missing
+                # dir would silently drop the episode a durable-read test relies on.
+                (pathlib.Path(cfg) / "jarvis").mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+        # Repair a bare `jc.kernel` stub. `_load("kernel.situation")` registers the
+        # intermediate `jc.kernel` as a bare package (just __path__, no
+        # __init__.py), so a later production `from .kernel import SituationManager`
+        # (in the situation consumers' _get_manager) would ImportError and the
+        # best-effort write would be swallowed. Populate the export to mirror the
+        # real package — only when the stub is present and missing it.
+        kpkg = sys.modules.get("jc.kernel")
+        if kpkg is not None and not hasattr(kpkg, "SituationManager"):
+            try:
+                kpkg.SituationManager = _load("kernel.situation").SituationManager
+            except Exception:
+                pass
+    _reset()
+    yield
+    _reset()
+
+
 @pytest.fixture
 def load():
     """Return the component-module loader (call as load('cognitive_core'))."""

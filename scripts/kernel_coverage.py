@@ -227,19 +227,24 @@ _PATHS: dict[str, dict] = {
                        "record",
         },
     },
-    # Intrusion mirrors its lifecycle into the kernel Situation state machine AND
-    # (D1) verifies the mirrored state agrees with the legacy verdict, log-only —
-    # genuine parity, not a blind shadow copy. Evidence is the parity check.
-    # A detection path: it observes and raises a situation; it does not itself
-    # actuate the home (responses flow through control_device etc.), so
-    # authority/plan/verify/outcome are N/A for this path.
+    # Intrusion mirrors its lifecycle into the kernel Situation state machine, and
+    # a consumer now ACTS on that lifecycle (R3c): a user "false alarm" dismissal
+    # drives the episode to BENIGN, and cognitive_core._check_intrusion reads that
+    # state back (intrusion.kernel_calloff_active_sync) to suppress a re-alarm on
+    # the same benign motion even across a reload that lost the in-memory call-off
+    # window — a durable false-alarm memory. FULL: the kernel situation drives the
+    # live suppression, not just records it (additive + fail-safe — a None/error
+    # read suppresses nothing, never missing a real intrusion; reversible via
+    # INTRUSION_SITUATION_ENFORCE). A detection path: it observes and raises a
+    # situation; it does not itself actuate the home (responses flow through
+    # control_device etc.), so authority/plan/verify/outcome are N/A.
     "intrusion": {
         "module": "intrusion.py",
         "contracts": {
-            "situation": {"stage": "parity", "evidence": "_record_parity"},
+            "situation": {"stage": "full", "evidence": "kernel_calloff_active_sync"},
             # D4: each lifecycle transition publishes a canonical situation
-            # JarvisEvent on the bus (parity — enters the stream + ledger, no
-            # consumer reacts yet).
+            # JarvisEvent on the bus (parity — enters the stream + ledger; the
+            # thrash reactor consumes control.actuation, not situation.transition).
             "event": {"stage": "parity", "evidence": "publish_situation"},
         },
         "na": {
@@ -253,12 +258,18 @@ _PATHS: dict[str, dict] = {
     },
     # The in-home freeze hazard lifecycle (SafetyManager._check_freeze:
     # warning → critical → cleared) is mirrored into a kernel Situation
-    # (kind="hazard") and its agreement verified (D2), log-only parity. A
-    # detection path, same N/A shape as intrusion.
+    # (kind="hazard"), and a consumer now ACTS on that lifecycle (R2c):
+    # _check_freeze reads the open-episode view (kernel_freeze_active_sync) and,
+    # when a freeze was already announced before a restart (the in-memory
+    # _freeze_warned is lost), suppresses a duplicate WARNING. FULL: the kernel
+    # situation drives the live de-dup, not just records it. CRITICAL is never
+    # suppressed (it fails toward alerting); fail-safe (None/error → the warning
+    # still fires); reversible via HAZARD_SITUATION_ENFORCE. A detection path,
+    # same N/A shape as intrusion.
     "hazard": {
         "module": "hazard_situation.py",
         "contracts": {
-            "situation": {"stage": "parity", "evidence": "_record_parity"},
+            "situation": {"stage": "full", "evidence": "kernel_freeze_active_sync"},
             "event": {"stage": "parity", "evidence": "publish_situation"},
         },
         "na": {
@@ -269,12 +280,20 @@ _PATHS: dict[str, dict] = {
         },
     },
     # The per-camera package delivery lifecycle (package_monitor: delivered →
-    # removed) is mirrored into a kernel Situation (kind="delivery") and its
-    # agreement verified (D3), log-only parity. A detection path, same N/A shape.
+    # removed) is mirrored into a kernel Situation (kind="delivery"), and the
+    # kernel store is AUTHORITATIVE for the per-camera package-present verdict
+    # (R1b): package_monitor._evaluate_locked keys the delivered/removed
+    # transition off the open-episode view (kernel_package_present_sync →
+    # open_situations("delivery")), not the in-memory _STATE flag — a genuine
+    # consumer acting on the Situation lifecycle (proven by test_delivery_enforce,
+    # fail-safe to legacy on a None/error read, reversible via
+    # DELIVERY_SITUATION_ENFORCE). FULL: the earlier parity cell under-credited a
+    # live enforce (the 9.10.0 reform carried over the D3 "log-only" description).
+    # A detection path, same N/A shape.
     "delivery": {
         "module": "delivery_situation.py",
         "contracts": {
-            "situation": {"stage": "parity", "evidence": "_record_parity"},
+            "situation": {"stage": "full", "evidence": "kernel_package_present_sync"},
             "event": {"stage": "parity", "evidence": "publish_situation"},
         },
         "na": {

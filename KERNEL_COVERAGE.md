@@ -42,17 +42,17 @@ grid) are kept underneath for continuity.
 | `execute_plan` | ● | ◑ | – | ● | ● | – | – |
 | `run_scene_or_script` | ● | ◑ | – | ● | ● | – | – |
 | `set_mode` | ◑ | – | – | ● | ● | – | – |
-| `intrusion` | ◑ | · | ◑ | – | – | – | – |
-| `hazard` | ◑ | · | ◑ | – | – | – | – |
-| `delivery` | ◑ | · | ◑ | – | – | – | – |
+| `intrusion` | ◑ | · | ● | – | – | – | – |
+| `hazard` | ◑ | · | ● | – | – | – | – |
+| `delivery` | ◑ | · | ● | – | – | – | – |
 | `goals` | ◑ | · | – | · | ● | · | · |
 | `proactive` | ● | ◑ | – | ● | ● | ● | ● |
 | `friday` | · | · | – | ◑ | · | · | · |
 | `homer` | – | – | – | – | – | – | – |
 
-**Kernel coverage (applicable): 65.3%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
+**Kernel coverage (applicable): 67.4%** — honest credit (observe-only shadow earns 0; only parity + full count) over the 48 cells that can actually be wired. The 36 N/A-by-design cells (`–`, listed below) are excluded, not scored as gaps. **This is the number to move.**
 
-Across all 84 cells (N/A counted as un-wired): 37.3% weighted / 37.3% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
+Across all 84 cells (N/A counted as un-wired): 38.5% weighted / 38.5% honest. Legend: `·` none  `◐` shadow  `◑` parity  `●` full  `–` n/a.
 
 **N/A-by-design cells** — excluded from the applicable denominator because the contract is structurally meaningless for the path. Every exclusion is listed with its reason so a real gap can't hide here:
 
@@ -161,35 +161,44 @@ one release at a time.
   excluded; the `authority` enforce flip is complete — log-only → scoped
   allowlist (G4) → general (G4b) — so the engine now gates every capability.
 - **`intrusion`** — mirrors its lifecycle into the kernel **Situation** state
-  machine at parity, and (D1) **verifies** the mirrored state agrees with the
-  legacy intrusion verdict after every episode event (`_record_parity`,
-  log-only, WARNING on divergence) — genuine parity, not a blind shadow copy.
-  Still owner-gated and non-authoritative: the legacy SafetyManager path owns
-  the intrusion decision; flipping the situation to authoritative is a separate
-  owner-approved step, deliberately not taken. Its presence *context* (the away/home/armed signals that
-  decide whether motion is a possible intruder) reads through the `WorldModel`
-  facade as of C2 (8.44.0), behaviour-identical with a fail-safe raw-sweep
-  fallback — but that read lives in `cognitive_core.py` (`SafetyManager` /
-  `LockdownManager`), credited on the already-parity `cognitive_core`
-  `world_model` adoption, not as a new cell on this spine path (whose module,
-  `intrusion.py`, does no presence reads).
-- **`hazard`** (D2) — the in-home **freeze** hazard lifecycle
+  machine and now **acts on it** (R3c): a user "false alarm" dismissal drives the
+  episode to `BENIGN`, and `cognitive_core._check_intrusion` reads that lifecycle
+  state back (`intrusion.kernel_calloff_active_sync`) to suppress a re-alarm on
+  the same benign motion **even across a reload** that lost the in-memory call-off
+  window — a durable false-alarm memory, so `situation` is **`●` full** (the
+  kernel situation *drives* the live suppression, not just records it). ADDITIVE
+  and fail-safe: a `None`/error read suppresses nothing, so it can only reduce
+  false alarms, never miss a real intrusion; reversible via
+  `INTRUSION_SITUATION_ENFORCE`. The pure entry-gate verdict (open an
+  investigation at all) is separately kernel-owned (R3b, `intrusion_gate`,
+  `INTRUSION_GATE_ENFORCE`). Its presence *context* (the away/home/armed signals)
+  reads through the `WorldModel` facade (C2, 8.44.0), credited on the
+  `cognitive_core` `world_model` adoption, not as a new cell here.
+- **`hazard`** (R2c) — the in-home **freeze** hazard lifecycle
   (`SafetyManager._check_freeze`: warning → critical → cleared) is mirrored into a
-  kernel Situation (`kind="hazard"`) and its agreement verified
-  (`hazard_situation._record_parity`), log-only parity. Adding this path honestly
-  surfaces hazards as a tracked behaviour path — only the `situation` cell is
-  wired, so the overall number *dips* slightly (that is the point: the matrix
-  counts the un-wired cells too). Smoke / CO / water-leak are not detected by
-  JARVIS today, so there is nothing to mirror for them and no detection is
-  invented. The freeze alerts themselves are unchanged — the mirror is additive,
-  off-loop and best-effort.
-- **`delivery`** (D3) — the per-camera package delivery lifecycle
+  kernel Situation (`kind="hazard"`) and now **drives** a de-dup: `_check_freeze`
+  reads the open-episode view (`hazard_situation.kernel_freeze_active_sync`) and,
+  when a freeze was already announced before a restart (the in-memory
+  `_freeze_warned` is lost), suppresses a duplicate **WARNING** — so `situation`
+  is **`●` full**. `CRITICAL` is **never** suppressed (it fails toward alerting);
+  fail-safe (a `None`/error read lets the warning fire); reversible via
+  `HAZARD_SITUATION_ENFORCE` (which also owns the fail-toward-alerting freeze
+  verdict, R2b). Smoke / CO / water-leak are not detected by JARVIS today, so
+  there is nothing to mirror for them and no detection is invented.
+- **`delivery`** (R1b) — the per-camera package delivery lifecycle
   (`package_monitor`: delivered → removed) is mirrored into a kernel Situation
-  (`kind="delivery"`, one open episode per camera) and its agreement verified
-  (`delivery_situation._record_parity`), log-only parity. Mail arrival is a
-  one-shot with no pickup tracking, so there is no sustained episode to mirror
-  and none is invented. The delivery announcements and per-camera state machine
-  are unchanged — the mirror is additive, off-loop and best-effort.
+  (`kind="delivery"`, one open episode per camera), and the kernel store is
+  **authoritative** for the per-camera "package present" verdict:
+  `package_monitor._evaluate_locked` keys the delivered/removed transition off the
+  open-episode view (`delivery_situation.kernel_package_present_sync` →
+  `open_situations("delivery")`), **not** the in-memory `_STATE` flag — so
+  `situation` is **`●` full** (proven by `test_delivery_enforce`; this also fixed
+  the #404 restart bug where in-memory state was lost and deliveries were never
+  re-announced). Fail-safe to the legacy flag on a `None`/error read, reversible
+  via `DELIVERY_SITUATION_ENFORCE`. The earlier parity cell under-credited this
+  live enforce — the 9.10.0 metric reform carried over the D3 "log-only mirror"
+  description. Mail arrival is a one-shot with no pickup tracking, so there is no
+  sustained episode to mirror and none is invented.
 - **Situation events (D4)** — `intrusion`, `hazard` and `delivery` each now
   **publish** a canonical `situation.transition` `JarvisEvent`
   (`events.publish_situation` → `kernel.from_situation`) on every lifecycle
