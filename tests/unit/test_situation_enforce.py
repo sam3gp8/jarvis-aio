@@ -144,12 +144,31 @@ def test_freeze_active_none_on_unreadable_store(hz, monkeypatch):
 
 # ── SafetyManager._check_freeze: durable WARNING de-dup, CRITICAL never ───────────
 
+def _fresh_store(load, hass):
+    """Delete the EXACT config-path situations.db the production code will use
+    (resolved the same way, via `config_path_str` with this hass), so the store is
+    provably empty at the start of an integration test — independent of the
+    autouse wipe, which keys off a path that another test can redirect in a larger
+    suite. The situation managers are rebuilt lazily (autouse resets them to
+    None), so the next write creates a fresh db at this path."""
+    import os
+    paths = load("paths")
+    db = paths.config_path_str("jarvis", "situations.db", hass=hass)
+    os.makedirs(os.path.dirname(db), exist_ok=True)
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        try:
+            os.remove(db + suffix)
+        except OSError:
+            pass
+
+
 @pytest.fixture
 def freeze_safety(cognitive_core, fake_hass, load):
-    """A SafetyManager whose freeze episodes live in the real (per-test isolated)
-    config-path situation store. Both the mirror write and _check_freeze's lazy
-    `from . import hazard_situation` read resolve to the same db FILE, so the test
-    is robust to the module being re-imported mid-call."""
+    """A SafetyManager whose freeze episodes live in the real config-path situation
+    store, cleared to empty at setup. Both the mirror write and _check_freeze's
+    lazy `from . import hazard_situation` read resolve to the same db FILE, so the
+    test is robust to the module being re-imported mid-call."""
+    _fresh_store(load, fake_hass)
     hazard = load("hazard_situation")
     safety = cognitive_core.SafetyManager(fake_hass, {"honorific": "sir"})
     return cognitive_core, safety, fake_hass, hazard
@@ -189,8 +208,9 @@ async def test_warning_fires_when_no_open_episode(freeze_safety):
 def intr_safety(cognitive_core, fake_hass, load, monkeypatch):
     """A SafetyManager wired to the away + corroborated-entry scenario that WOULD
     open an investigation. Like freeze_safety, the intrusion episodes live in the
-    real per-test-isolated config-path store, so the write (_dismiss) and the read
-    (_check_intrusion's lazy import) meet on the same db file."""
+    real config-path store (cleared to empty at setup), so the write (_dismiss) and
+    the read (_check_intrusion's lazy import) meet on the same db file."""
+    _fresh_store(load, fake_hass)
     intrusion = load("intrusion")
     safety = cognitive_core.SafetyManager(
         fake_hass, {"honorific": "sir", "intrusion_require_corroboration": True})
