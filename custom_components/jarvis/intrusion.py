@@ -253,7 +253,22 @@ def _mirror_situation_sync(hass, action: str, *, reason: str = "",
             if cur is not None and not cur.terminal:
                 episode_id = cur.id
                 if cur.state in (S.POSSIBLE, S.INVESTIGATING, S.CONFIRMED):
+                    _prior = cur.state
                     cur = mgr.transition(cur.id, S.BENIGN, reason=reason or "false alarm")
+                    # Phase AE (cognitive_error — bad belief → observation →
+                    # correction): a live intrusion belief (possible / investigating
+                    # / confirmed) is corrected by an observation (a false-alarm
+                    # dismissal) to BENIGN. That is the cognitive-error scenario,
+                    # closed loop and reconstructable from the situation ledger.
+                    # Observe-only; never affects the transition.
+                    try:
+                        from . import cognitive_core
+                        from .kernel import certification as CERT
+                        cognitive_core.certification_observe(
+                            CERT.COGNITIVE_ERROR, closed_loop=True,
+                            note=f"intrusion belief {_prior}->benign (false alarm)")
+                    except Exception:  # pragma: no cover - defensive, observe-only
+                        pass
                 if not cur.terminal:
                     mgr.transition(cur.id, S.RESOLVED, reason="false alarm")
             _situation_id = None

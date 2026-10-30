@@ -3,18 +3,20 @@
 
 Phase AE (MCU Certification) is the systems-certification bar: *"does the complete
 JARVIS behave as one?"*, expressed as a suite of **scenario classes** each meant to
-run closed-loop and journal-reconstructable. Eight of the ten classes are observed
-from their own live surfaces and fold into one shared ledger; two
-(``conflicting_priorities``, ``cognitive_error``) are deliberately NOT observed yet,
-because no honest live surface exists.
+run closed-loop and journal-reconstructable. All ten classes are now observed from
+their own live surfaces and fold into one shared ledger — the last two,
+``conflicting_priorities`` (a convenience action withheld while a safety situation
+outranks it) and ``cognitive_error`` (an intrusion belief corrected to BENIGN by a
+false-alarm dismissal), gained honest live surfaces rooted in real lifecycle
+events.
 
 This gate is the *enforce* rung's teeth — a CI check that forbids a silent
 **un-wiring** of the certification suite. It fails the build if the certification
-primitive is removed, if any of the eight observable classes loses its live
-observer, or if the dashboard accessor disappears — so the "behaves as one"
-evidence can never quietly rot while the rest of CI stays green. It also keeps the
-suite HONEST: it asserts the two unobservable classes are NOT falsely wired, so a
-hollow observation cannot be slipped in to fake certification.
+primitive is removed, if any observable class loses its live observer, or if the
+dashboard accessor disappears — so the "behaves as one" evidence can never quietly
+rot while the rest of CI stays green. It also keeps the suite HONEST: any class
+listed as unobservable must stay unwired, so a hollow observation cannot be
+slipped in to fake certification.
 
 Invariants (all must hold):
   1. ``kernel/certification.py`` defines the record + tally: the ten ``CLASSES``,
@@ -25,9 +27,10 @@ Invariants (all must hold):
   3. ``cognitive_core`` owns the shared seam: ``certification_observe`` +
      ``certification_report`` defined, and ``status()`` surfaces the dashboard.
   4. ``kernel_adoption`` declares ``certification`` at stage ``enforce``.
-  5. HONESTY: the two not-yet-observable classes (``conflicting_priorities``,
-     ``cognitive_error``) have NO emit call in any owner module — they are tracked
-     as open work, never faked.
+  5. HONESTY: any class still listed as not-yet-observable has NO emit call in any
+     owner module — tracked as open work, never faked. (All ten now have an honest
+     live observer, so the list is empty; the invariant stands for any future class
+     whose surface is retired.)
 
 Pure stdlib; no Home Assistant import. Run ``--check`` in CI; a bare run prints
 each invariant's status.
@@ -54,12 +57,22 @@ _OBSERVED = {
     "RESTART": "continuity.py",
     "LONG_HORIZON": "continuity.py",
     "SECURITY": "identity.py",
+    # conflicting_priorities (convenience vs. safety): cognitive_core's
+    # discretionary-autonomy path withholds a convenience action while a safety
+    # situation outranks it on the priority ladder.
+    "CONFLICTING_PRIORITIES": "cognitive_core.py",
+    # cognitive_error (bad belief → observation → correction): a live intrusion
+    # belief is corrected to BENIGN by a false-alarm dismissal.
+    "COGNITIVE_ERROR": "intrusion.py",
 }
-# Deliberately NOT observed yet (no honest live surface): must stay unwired.
-_UNOBSERVED = ("CONFLICTING_PRIORITIES", "COGNITIVE_ERROR")
+# Every scenario class now has an honest live observer. Kept as an (empty) tuple
+# so the honesty invariant below still runs: any class listed here must stay
+# unwired — a class is added here only when its live surface is retired.
+_UNOBSERVED: tuple[str, ...] = ()
 
 _OWNER_FILES = (
-    "cognitive_core.py", "agent.py", "actuation.py", "continuity.py", "identity.py",
+    "cognitive_core.py", "agent.py", "actuation.py", "continuity.py",
+    "identity.py", "intrusion.py",
 )
 
 

@@ -289,7 +289,10 @@ def test_continuity_long_horizon_open_when_not_resumed(cc, continuity):
 
 def test_eight_observable_classes_share_one_ledger(
         cc, agent, actuation, continuity, identity):
-    # every honestly-observable class folds into ONE system-wide dashboard (8/10)
+    # eight of the ten observers fold into ONE system-wide dashboard; the other
+    # two (conflicting_priorities, cognitive_error) observe from their own live
+    # surfaces — exercised in test_certification_ae_classes — so this partial
+    # ledger is correctly not-yet-certified.
     cc._emit_certification_shadow(perceived=True, predicted=True, decided=True,
                                   acted=True, learned=True)        # proactive
     agent._emit_conversational_shadow(acted=True, answered=True)   # conversational
@@ -305,6 +308,7 @@ def test_eight_observable_classes_share_one_ledger(
         "proactive", "conversational", "delegation", "provider_failure",
         "failure", "restart", "long_horizon", "security"}
     assert len(rep.closed_classes) == 8
-    # the two not-yet-observable classes remain missing
+    # the two classes observed from other live surfaces are simply absent from
+    # THIS partial ledger (not observed here), so it is not yet certified
     assert set(rep.missing_classes) == {"conflicting_priorities", "cognitive_error"}
     assert rep.is_certified is False

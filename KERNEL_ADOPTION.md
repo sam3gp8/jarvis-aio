@@ -81,7 +81,7 @@ SafetyManager, own a safety verdict stays behind its own per-flip go/no-go.
 | `beliefs` | ◐ shadow | `agent` |
 | `budget` | ● enforce | `actuation` |
 | `causal` | ● enforce | `pattern_analyzer` |
-| `certification` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `identity` |
+| `certification` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `identity`, `intrusion` |
 | `conflict` | ◑ parity | `presence` |
 | `coordination` | · pure | — *(staged ahead)* |
 | `correlation` | ◐ shadow | `actuation`, `cognitive_core`, `decision_record`, `observer`, `proactive_audio` |
