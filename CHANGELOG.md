@@ -1,3 +1,39 @@
+## [9.51.0] — Fix: local fast-path query patterns hijacked actuation commands
+
+A grounded bug-audit of the local command path (`local_engine.try_local`, which
+the kernel-focused 2026-10 audit left out of scope) found a class of real,
+user-facing correctness bugs: because contextual **query** patterns are scanned
+*before* command patterns with unanchored `re.search`, and their interrogative
+prefix was *optional*, a bare command word matched a query and the command was
+lost.
+
+- **"open the garage door" (and any `open …` / blinds / window / gate) answered
+  "Everything is closed and secured" instead of opening** — the word `open`
+  matched the `what_open` query. **Fixed.**
+- **"turn on the home theater …" returned the who's-home answer** (`home` matched
+  `who_home`); **"turn on the outside lights" returned the weather report**
+  (`outside`/`weather` matched). **Fixed.**
+- Root-cause fix: the interrogative prefix on the four vulnerable query patterns
+  (`who_home`, `what_open`, two `weather`) is now **required**, so a genuine
+  question ("what's open", "who's home", "what's the weather") still matches but a
+  command that merely contains the word no longer does. No reordering, no new
+  code path — just correctly anchored patterns.
+- **Also:** a 0° setpoint was silently dropped in `_execute_action` (`if temp:`
+  is falsy for `0`); now guarded with `is not None`, so "set the bedroom
+  temperature to 0" actuates.
+
+New hermetic tests (`test_local_engine_query_hijack.py`) pin both directions:
+commands route to the command path, genuine queries still answer, and the 0°
+setpoint actuates. Existing fast-path/confirmation-gate tests unchanged.
+
+**Also found and verified, reported for follow-up (not in this PR):** media
+commands with no area are silently skipped (`"pause the music"`); generic
+`set_temp` and all `volume_set` use the numeric capture group as the entity name
+so they never resolve locally; `_load_learned_aliases` re-reads disk on every
+utterance (hot-path I/O); and `_service_for` duplicates `_execute_action`'s
+service map (consistent today, but fragile). Each needs a default-entity resolver
+or a small refactor and will land separately.
+
 ## [9.50.0] — Epistemic-band identity gating promoted to default-ON (kill-switchable)
 
 Owner decision: the `uncertainty_enforce` gate (9.47.0) — identity resolution
