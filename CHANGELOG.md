@@ -1,3 +1,36 @@
+## [9.47.0] — Identity gates on the epistemic band (Epistemic-Fabric Uncertainty enforce, owner-gated)
+
+Advances the kernel `uncertainty` primitive **parity → enforce** (#237): identity
+resolution now *gates on the epistemic band*, not merely a confidence threshold.
+A verdict JARVIS is only confident *enough to guess* about is treated as not-yet-
+known — the "identity ≠ certainty" discipline, and a direct prerequisite for the
+identity-before-autonomy ordering in the roadmap.
+
+- **The gate.** `identity.resolve()` already packaged its fused verdict as a
+  `kernel.uncertainty.Uncertain` with an epistemic band (known ≥ 0.95 / believed ≥
+  0.60 / guessed ≥ 0.30 / unknown) and logged, at parity, whether gating on the
+  band (`is_actionable`, ≥ the believed threshold) agreed with the legacy
+  min-confidence decision. They diverge in the `[identity_min_confidence (0.45),
+  actionable (0.60))` region. With the new `uncertainty_enforce` switch on, a
+  verdict in that region — one legacy calls "known" but the fabric still calls a
+  **guess** — is returned as `UNKNOWN` (`method="band_not_actionable"`), so an
+  uncertain identity read falls toward **more** confirmation.
+- **Safety-forward and contained.** Downward-only: it can only ever *withhold* an
+  identification, never widen one. Its own kill-switch, **independent** of the
+  identity-fabric (presence ≠ identity) gate — the two tighten identity on
+  different axes (method vs. confidence band) and compose. Fail-safe: any fault in
+  the band computation falls through to the legacy verdict. A low-confidence read
+  below `min_confidence` still returns early as before — the band gate only ever
+  governs the believed-but-not-actionable middle.
+- **Honest accounting.** `uncertainty` moves ◑ parity → ● enforce in
+  `KERNEL_ADOPTION.md` and the Constitution ledger (regenerated) — the
+  authoritative live path the parity emit pointed at. No coverage-matrix cell
+  moves (uncertainty is an Epistemic-Fabric primitive, not a coverage path).
+
+**PAUSE for owner before enabling:** the switch ships **OFF** and is the owner's
+to flip — it gates who JARVIS treats as identified. Kill:
+`identity.UNCERTAINTY_ENFORCE` / the `uncertainty_enforce` config key.
+
 ## [9.46.0] — Graduated autonomy, earned per capability (Phase N enforce — the held rung, owner-gated)
 
 The kernel plan held one Phase N rung for the owner: *replace the blanket

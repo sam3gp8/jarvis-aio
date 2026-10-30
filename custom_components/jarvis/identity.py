@@ -65,6 +65,29 @@ IDENTITY_FABRIC_SHADOW = True
 # resolve() returns the same Identification either way.
 UNCERTAINTY_SHADOW = True
 
+# ENFORCE (#237, Epistemic Fabric — Uncertainty): the owner-gated rung the parity
+# above measured. When on, resolve() gates a confident identity on the epistemic
+# BAND, not merely the legacy min-confidence threshold: a verdict in the
+# [identity_min_confidence, actionable) region — one legacy calls "known" but the
+# fabric still calls a GUESS — is treated as NOT identified, so the read falls
+# toward MORE confirmation. Downward-only and safety-forward (it only ever
+# WITHHOLDS an identification, never widens one); its own kill-switch, independent
+# of the identity-fabric (presence≠identity) gate; fail-safe = the legacy decision
+# on any fault. DEFAULT OFF — PAUSE for owner before enabling: it gates who JARVIS
+# treats as identified.
+UNCERTAINTY_ENFORCE = False
+
+
+def _uncertainty_enforce_on() -> bool:
+    """True when the household has opted into epistemic-band identity gating
+    (`UNCERTAINTY_ENFORCE` or the `uncertainty_enforce` config key). Never raises."""
+    if UNCERTAINTY_ENFORCE:
+        return True
+    try:
+        return bool(_cfg("uncertainty_enforce", False))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
 # How long a resolved identity assertion stays fresh (seconds) — matches the
 # face-recency window so a stale recognition expires rather than lingering.
 _IDENTITY_TTL_SECS = 300.0
@@ -467,6 +490,25 @@ def resolve(hass: HomeAssistant, *, device_id: Optional[str] = None,
         # Weak, inconclusive read — exercised but not a clean decision, so open.
         _emit_security_shadow(closed=False, note="low-confidence read (inconclusive)")
         return Identification(UNKNOWN, round(confidence, 3), "low_confidence", candidates)
+
+    # Epistemic-band enforce (owner-gated, default OFF): a verdict that clears
+    # min_confidence but whose confidence is below the actionable (BELIEVED) band —
+    # the [min_confidence, actionable) region the uncertainty parity emit measures —
+    # is only a GUESS, so it is treated as not-yet-identified and the read falls
+    # toward MORE confirmation, never less. Downward-only and safety-forward (it
+    # only withholds an identification, never widens one); fail-safe = the legacy
+    # decision; its own kill-switch, independent of the identity-fabric gate below.
+    if _uncertainty_enforce_on():
+        try:
+            from .kernel import uncertainty as U
+            if not U.assess(person, confidence).is_actionable():
+                _emit_security_shadow(
+                    closed=False,
+                    note="identity band below actionable (guessed) — not identified")
+                return Identification(UNKNOWN, round(confidence, 3),
+                                      "band_not_actionable", candidates)
+        except Exception:  # pragma: no cover - defensive
+            pass
 
     # Phase I½ enforce (default OFF): presence locates a body but does not
     # establish WHO — only face / voiceprint do. When the flip is on, a confident

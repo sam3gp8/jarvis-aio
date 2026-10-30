@@ -521,7 +521,13 @@ in beliefs); this tier makes them canonical and first-class.
   `world_model.uncertainties()` exposes the curated facts as `Uncertain` values
   (facade), and `knowledge.all_facts()` logs the epistemic-band distribution of
   those facts (`UNCERTAINTY_SHADOW`, observe-only) — "the world-model wraps outputs
-  too." Next: prediction wraps its outputs → enforce (a decision gates on the band).
+  too." **Enforce ✅ (9.47.0, owner-gated, default OFF):** `identity.resolve` now
+  *gates on the band* — with `uncertainty_enforce` on, a verdict in the
+  `[min_confidence, actionable)` region (legacy "known", band still a *guess*) is
+  returned as `UNKNOWN`, so an uncertain identity read falls toward more
+  confirmation. Downward-only, fail-safe to the legacy verdict, independent of the
+  identity-fabric gate; `UNCERTAINTY_ENFORCE` / `uncertainty_enforce`. Next:
+  prediction wraps its outputs (a second enforce consumer).
 - **Conflict Resolution** (`kernel/conflict.py`) — ✅ **pure shipped
   (8.101.0)**. A formal rule for contradictions between sources (camera says
   empty, phone says present, motion fires): `resolve` consumes `Provenance`
