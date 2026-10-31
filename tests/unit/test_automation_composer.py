@@ -7,6 +7,7 @@ against the live home. Install is a separate, explicit step.
 """
 from __future__ import annotations
 
+import json
 import sys
 import types
 
@@ -200,6 +201,117 @@ async def test_draft_surfaces_invalid_names(creator, tmp_path):
     assert res["ok"] is False
     assert "light.ghost" in (res.get("invalid_entities") or {})
     assert res["draft"]["args"]["action"]  # the attempted draft is still returned
+
+
+@pytest.mark.asyncio
+async def test_draft_json_fallback_for_non_tool_models(creator, tmp_path):
+    """A provider without function-calling (no tool_calls ever — e.g. local Gemma
+    via Ollama) still drafts, via the tools-free JSON-output fallback."""
+    states = [_State("light.chaise_lamp", "Chaise Lamp"),
+              _State("binary_sensor.living_room_presence", "Living Room Presence")]
+    services = {"light": {"turn_on": None, "turn_off": None}}
+    hass = _Hass(states, services, tmp_path / "automations.yaml")
+    jdoc = json.dumps({
+        "alias": "Chaise lamp on presence",
+        "trigger": [{"trigger": "state", "entity_id": "binary_sensor.living_room_presence", "to": "on"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}],
+    })
+    client = _ScriptClient([
+        {"text": "", "tool_calls": []},     # tools call → model can't do function-calling
+        {"text": jdoc, "tool_calls": []},   # JSON fallback → the draft
+    ])
+    res = await creator.draft_automation(
+        hass, "turn on the chaise lamp when the living room presence sensor detects someone",
+        client=client)
+    assert res["ok"] is True
+    assert "light.chaise_lamp" in res["draft"]["yaml"]
+    assert client.calls == 2
+    assert "tools" in client.seen[0]          # first round offered tools
+    assert "tools" not in client.seen[1]      # fallback round did NOT
+    # the fallback prompt was seeded with the request's relevant entities
+    assert "binary_sensor.living_room_presence" in client.seen[1]["messages"][0]["content"]
+    assert hass.services.calls == []          # drafting never installs
+
+
+@pytest.mark.asyncio
+async def test_draft_json_fallback_handles_code_fences(creator, tmp_path):
+    states = [_State("light.chaise_lamp", "Chaise Lamp")]
+    services = {"light": {"turn_on": None}}
+    hass = _Hass(states, services, tmp_path / "automations.yaml")
+    fenced = "Sure, here it is:\n```json\n" + json.dumps({
+        "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}],
+    }) + "\n```"
+    client = _ScriptClient([{"text": "", "tool_calls": []},
+                            {"text": fenced, "tool_calls": []}])
+    res = await creator.draft_automation(hass, "chaise lamp at sunset", client=client)
+    assert res["ok"] is True
+    assert "light.chaise_lamp" in res["draft"]["yaml"]
+
+
+@pytest.mark.asyncio
+async def test_json_fallback_searches_then_creates(creator, tmp_path):
+    """A non-tool model drives the search → create JSON-action loop: it searches
+    for the device, gets real ids fed back, then composes — the same capability as
+    the native tool loop, over a plain-JSON protocol."""
+    states = [_State("light.chaise_lamp", "Chaise Lamp"),
+              _State("binary_sensor.living_room_presence", "Living Room Presence")]
+    services = {"light": {"turn_on": None}}
+    hass = _Hass(states, services, tmp_path / "automations.yaml")
+    client = _ScriptClient([
+        {"text": "", "tool_calls": []},                                       # no function-calling
+        {"text": json.dumps({"tool": "search", "query": "chaise lamp"}), "tool_calls": []},
+        {"text": json.dumps({"tool": "create", "automation": {
+            "alias": "Chaise on presence",
+            "trigger": [{"trigger": "state", "entity_id": "binary_sensor.living_room_presence", "to": "on"}],
+            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]}}),
+         "tool_calls": []},
+    ])
+    res = await creator.draft_automation(
+        hass, "chaise lamp on when the living room presence sensor trips", client=client)
+    assert res["ok"] is True
+    assert "light.chaise_lamp" in res["draft"]["yaml"]
+    assert client.calls == 3
+    # the search ran and its results were threaded back before the create round
+    create_round = client.seen[2]["messages"]
+    assert any(m.get("role") == "user" and "search results" in (m.get("content") or "")
+               and "light.chaise_lamp" in (m.get("content") or "") for m in create_round)
+    assert hass.services.calls == []
+
+
+@pytest.mark.asyncio
+async def test_json_fallback_retries_search_after_bad_name(creator, tmp_path):
+    """On an invalid name the loop feeds the failure back and the model searches +
+    re-composes with the real id."""
+    states = [_State("light.chaise_lamp", "Chaise Lamp")]
+    services = {"light": {"turn_on": None}}
+    hass = _Hass(states, services, tmp_path / "automations.yaml")
+    bad = {"tool": "create", "automation": {
+        "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}]}}
+    good = {"tool": "create", "automation": {
+        "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]}}
+    client = _ScriptClient([
+        {"text": "", "tool_calls": []},
+        {"text": json.dumps(bad), "tool_calls": []},
+        {"text": json.dumps(good), "tool_calls": []},
+    ])
+    res = await creator.draft_automation(hass, "chaise lamp at sunset", client=client)
+    assert res["ok"] is True
+    assert "light.chaise_lamp" in res["draft"]["yaml"]
+    # the bad name was fed back before the corrected round
+    corrected_round = client.seen[2]["messages"]
+    assert any(m.get("role") == "user" and "light.ghost" in (m.get("content") or "")
+               for m in corrected_round)
+
+
+def test_extract_json_handles_prose_and_fences(creator):
+    assert creator._extract_json('{"a": 1}') == {"a": 1}
+    assert creator._extract_json('Here: {"a": {"b": 2}} done')["a"]["b"] == 2
+    assert creator._extract_json("```json\n{\"a\": 1}\n```") == {"a": 1}
+    assert creator._extract_json("no json here") is None
+    assert creator._extract_json("") is None
 
 
 @pytest.mark.asyncio
