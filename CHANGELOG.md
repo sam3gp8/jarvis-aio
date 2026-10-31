@@ -1,3 +1,36 @@
+## [9.56.0] — Suggestions cross-referenced against your existing automations
+
+JARVIS learns patterns and proposes automations, but it only ever de-duplicated
+against **its own** prior suggestions — never against the automations you've
+**already installed**. So it could (and did) suggest something you had already
+automated "in one form or another".
+
+The suggestion pipeline now cross-references each pending suggestion against the
+household's existing automations (read from `automations.yaml`) and **retires**
+any whose intent is already covered, so the Suggestions tab stops proposing what
+you've already set up.
+
+The match is on **outcome / intent**, not literal YAML: each automation is
+reduced to its *triggering situation* (e.g. `device_tracker.pixel_9_pro → home`)
+and its *resulting outcome* (each action's service mapped to the end-state it
+produces — `open_cover`/`set_cover_position:100` → **open**, `lock.lock` →
+**locked**, `turn_on` → **on**, …). A suggestion is considered already covered
+only when an existing automation shares **both** the trigger situation **and**
+the outcome — so "the same thing done a different way" is caught, while a merely
+shared trigger or a merely shared outcome (a genuinely different automation) is
+never falsely suppressed.
+
+Retirement is **reversible and auditable**: a covered suggestion is moved out of
+`pending` to a new `superseded` status (never deleted). The check is
+kill-switchable via `suggestion_cross_reference` (default on); automations
+defined only in `configuration.yaml` or packages are out of scope for now.
+
+New tests (`test_suggestion_cross_reference.py`): the outcome/intent matcher
+(service→end-state, both-must-overlap, position==open), `automations.yaml`
+parsing (old- and new-style keys), end-to-end retirement of only the covered
+suggestion, and the kill switch. Full `tests/` green; all 8 kernel gates + audit
+green.
+
 ## [9.55.0] — Bug-audit: agent.py (online LLM agent tool handlers)
 
 A correctness audit of `agent.py` — the online LLM-agent path (`run_agent` + the
