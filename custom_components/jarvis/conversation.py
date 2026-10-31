@@ -187,10 +187,20 @@ def _is_addressed_to_jarvis(text: str, strict: bool = False) -> bool:
     if len(words) <= 3 and all(w.strip(".,!?'") in _FILLER for w in words):
         return False
     # Rambling narrative with no command structure (TV dialogue tends to span
-    # multiple clauses). Only applies when NO positive signal was found above.
-    sentence_breaks = t.count(".") + t.count("?") + t.count("!")
-    if sentence_breaks >= 2 and len(words) >= 8:
-        return False
+    # multiple clauses). This is a TV/movie filter, so it only fires in STRICT
+    # mode (media actually playing nearby). In a quiet room a multi-sentence
+    # utterance with no command word is far more likely to be a genuine
+    # conversational instruction or correction — e.g. "that wasn't a question.
+    # it was a correction. please look again" — than ambient noise, so it is
+    # NOT dropped: that matches this gate's stated bias (better to occasionally
+    # answer ambient speech than to drop a real request), with wake-word gating
+    # and multi-wake dedup as the primary defenses. (In strict mode the trailing
+    # ``return not strict`` already drops everything that reaches it, so this
+    # only ever changed the quiet-room outcome anyway.)
+    if strict:
+        sentence_breaks = t.count(".") + t.count("?") + t.count("!")
+        if sentence_breaks >= 2 and len(words) >= 8:
+            return False
 
     # Default: PASS in a quiet room (better to occasionally answer ambient
     # speech than to drop a real request). But when media is playing nearby

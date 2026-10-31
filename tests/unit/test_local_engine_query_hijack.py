@@ -53,6 +53,31 @@ async def test_turn_on_outside_lights_not_hijacked_by_weather(le):
     assert any(c[:2] == ("light", "turn_on") for c in h.service_calls)
 
 
+# ── real-world regression: a long automation description is not a who_home ───
+
+async def test_long_automation_message_not_hijacked_by_who_home(le):
+    """A reported production case (v9.49.0): a long multi-line message pasted
+    into the panel chat — describing an automation that fires "when Pixel 9 Pro
+    arrives home" — was answered "No one appears to be home at the moment, sir."
+    The bare word `home` matched the then-optional-prefix who_home query. With
+    the required interrogative prefix, "arrives home" no longer matches, so the
+    message is NOT handled locally and correctly falls through to the LLM.
+    """
+    h = FakeHass()
+    h.states.set("person.sam", "not_home", friendly_name="Sam")
+    msg = (
+        "A confirmed sequence (safety-sensitive). "
+        "When Pixel 9 Pro arrives home, open Bay 2, then close it once Bay 2 "
+        "car occupancy confirms. Observed 7 times in 30 days. "
+        "device_tracker.pixel_9_pro cover.bay_2 binary_sensor.bay_2_car_occupancy "
+        "as an automation. Does it already exist in one form or another?"
+    )
+    result = await le.try_local(h, msg, "sir")
+    # Not a local query — escalates to the LLM rather than answering who_home.
+    assert result is None or "appears to be home" not in (result.text or "").lower()
+    assert h.service_calls == []
+
+
 # ── genuine queries still answer ─────────────────────────────────────────────
 
 async def test_what_is_open_still_answers(le):
