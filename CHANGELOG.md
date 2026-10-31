@@ -1,3 +1,26 @@
+## [9.58.0] — Composer v2: agentic drafting (search + retry)
+
+The Suggestions-tab automation composer (9.57.0) drafted in a single LLM pass
+over a capped entity list, so a complex request against a large home could need
+a rephrase. `draft_automation` now runs a **bounded agentic loop** instead:
+
+- the model **searches the live home** (`search_entities`) to resolve the real
+  entity_ids it needs before composing — no more guessing from a truncated list;
+- when `create_automation` reports an **unknown name**, that validation failure
+  is **fed back** and the model searches again and retries, up to a small step
+  cap;
+- it still **never installs** — the loop produces a validated draft for review,
+  and the separate explicit Install step writes it.
+
+The search is a self-contained name match over the live states (no dependency on
+the chat agent). Everything else — the websocket command, the Suggestions-tab UI,
+review-before-install — is unchanged, so this is a drop-in robustness upgrade.
+
+New tests (`test_automation_composer.py`): the model searches then composes with
+the resolved id (search result threaded back), and recovers from a bad entity
+name by retrying after the fed-back validation error. Full `tests/` green; all 8
+kernel gates + audit green.
+
 ## [9.57.0] — Natural-language automation composer in the Suggestions tab
 
 You could already author automations in plain language from **chat** (the agent's

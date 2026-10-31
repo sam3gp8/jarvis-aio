@@ -13,6 +13,7 @@ registers it with HA.
 from __future__ import annotations
 
 import difflib
+import json
 import logging
 import re
 import yaml
@@ -309,61 +310,145 @@ def _entity_hint(hass: HomeAssistant, limit: int = 160) -> str:
     return "\n".join(lines[:limit * 2])
 
 
+_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_entities",
+        "description": ("Find the real entity_ids this automation needs, by name "
+                        "and (optionally) domain. Call this FIRST to resolve devices "
+                        "before composing, and again to correct an unknown name."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "A name or keyword, e.g. 'porch'."},
+                "domain": {"type": "string", "description": "Optional HA domain, e.g. 'light'."},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+# How many compose/search rounds the drafter gets before giving up.
+_DRAFT_MAX_STEPS = 5
+
+
+def _search_entities_for_draft(hass: HomeAssistant, query: str,
+                               domain: str | None = None, limit: int = 12) -> list[dict]:
+    """Lightweight name search over the live home for the composer's agentic loop
+    — enough to resolve real entity_ids without importing the agent. Best-effort."""
+    q = (query or "").lower().strip()
+    qwords = [w for w in q.split() if w]
+    domains = [domain] if domain else list(_ACTUATABLE + _TRIGGERABLE)
+    out: list[dict] = []
+    seen: set = set()
+    for dom in domains:
+        try:
+            for st in hass.states.async_all(dom):
+                if st.entity_id in seen:
+                    continue
+                fn = str(st.attributes.get("friendly_name") or "").lower()
+                hay = fn + " " + st.entity_id.lower().replace(".", " ").replace("_", " ")
+                if q and (q in fn or q in st.entity_id.lower()
+                          or (qwords and any(w in hay for w in qwords))):
+                    seen.add(st.entity_id)
+                    out.append({"entity_id": st.entity_id,
+                                "friendly_name": st.attributes.get("friendly_name", "")})
+                    if len(out) >= limit:
+                        return out
+        except Exception:
+            continue
+    return out
+
+
 async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[str, Any]:
     """Turn a plain-language request into a reviewed automation draft WITHOUT
-    installing it. The model emits a structured trigger/action referencing real
-    entities; every name is validated against the live home, and the draft + its
-    YAML (plus any bad names) are handed back for review. Never raises."""
+    installing it, via a bounded AGENTIC loop: the model searches the live home for
+    the real entity_ids it needs, composes, and — when validation flags an unknown
+    name — searches again and retries, all before anything is written. Returns the
+    draft + its YAML for review (install is a separate, explicit step), or the last
+    validation failure with the closest real names. Never raises."""
     text = (text or "").strip()
     if not text:
         return {"ok": False, "error": "Describe the automation you'd like."}
     if client is None:
         return {"ok": False, "error": ("No reasoning provider is configured, so I "
                 "can't draft automations from the panel yet.")}
-    system = ("You convert ONE natural-language request into a single Home "
-              "Assistant automation by calling create_automation. Use ONLY real "
-              "entity_ids and services from this home — never invent names — and "
-              "prefer the modern keys ('trigger', 'action'). Home entities:\n"
-              + _entity_hint(hass))
-    messages = [{"role": "system", "content": system},
-                {"role": "user", "content": text}]
+    system = ("You compose ONE Home Assistant automation from the user's request. "
+              "FIRST call search_entities to resolve the real entity_ids you need — "
+              "never invent names — THEN call create_automation with those ids and "
+              "the modern keys ('trigger', 'action'). If create_automation reports an "
+              "unknown name, search for the correct one and try again. Some of the "
+              "home's entities:\n" + _entity_hint(hass))
+    working: list[dict] = [{"role": "system", "content": system},
+                           {"role": "user", "content": text}]
+    tools = [_SEARCH_TOOL, _COMPOSER_TOOL]
+    last_error: dict | None = None
+    last_args: dict | None = None
 
-    def _call():
-        return client.chat(messages=messages, tools=[_COMPOSER_TOOL],
-                           max_tokens=1024, temperature=0.2)
+    def _ok(preview, args):
+        return {"ok": True, "draft": {"alias": preview.get("alias"),
+                                      "yaml": preview.get("yaml"), "args": args}}
 
-    try:
-        result = await hass.async_add_executor_job(_call)
-    except Exception as exc:
-        return {"ok": False, "error": f"Drafting failed: {exc}"}
-
-    calls = (result or {}).get("tool_calls") or []
-    if not calls:
+    def _fail():
         return {"ok": False,
-                "error": ((result or {}).get("text") or "").strip()
-                or "I couldn't turn that into an automation — name the trigger "
-                   "and what should happen."}
-    args = calls[0].get("args") or {}
-    preview = await create_automation(
-        hass, alias=(args.get("alias") or "Automation"),
-        description=args.get("description", ""),
-        trigger=args.get("trigger"), condition=args.get("condition"),
-        action=args.get("action"), mode=args.get("mode", "single"),
-        validate=True, install=False)
-    norm_args = {
-        "alias": args.get("alias") or "Automation",
-        "description": args.get("description", ""),
-        "trigger": args.get("trigger"), "condition": args.get("condition"),
-        "action": args.get("action"), "mode": args.get("mode", "single"),
-    }
-    if not preview.get("success"):
-        # drafted, but references a name the home doesn't have — show why.
-        return {"ok": False, "error": preview.get("error"),
-                "invalid_entities": preview.get("invalid_entities"),
-                "invalid_services": preview.get("invalid_services"),
-                "draft": {"args": norm_args}}
-    return {"ok": True, "draft": {
-        "alias": preview.get("alias"),
-        "yaml": preview.get("yaml"),
-        "args": norm_args,
-    }}
+                "error": (last_error or {}).get("error")
+                or "I couldn't compose that automation — try describing it more specifically.",
+                "invalid_entities": (last_error or {}).get("invalid_entities"),
+                "invalid_services": (last_error or {}).get("invalid_services"),
+                "draft": ({"args": last_args} if last_args else None)}
+
+    for _ in range(_DRAFT_MAX_STEPS):
+        def _call():
+            return client.chat(messages=working, tools=tools,
+                               max_tokens=1024, temperature=0.2)
+        try:
+            result = await hass.async_add_executor_job(_call)
+        except Exception as exc:
+            return {"ok": False, "error": f"Drafting failed: {exc}"}
+
+        calls = (result or {}).get("tool_calls") or []
+        if not calls:
+            if last_error:
+                return _fail()
+            prose = ((result or {}).get("text") or "").strip()
+            return {"ok": False, "error": prose or "I couldn't turn that into an "
+                    "automation — name the trigger and what should happen."}
+
+        working.append({
+            "role": "assistant",
+            "content": result.get("text") or "",
+            "tool_calls": [{"id": c.get("id") or f"call_{i}", "type": "function",
+                            "function": {"name": c.get("name"),
+                                         "arguments": json.dumps(c.get("args") or {})}}
+                           for i, c in enumerate(calls)],
+        })
+        for i, call in enumerate(calls):
+            cid = call.get("id") or f"call_{i}"
+            name = call.get("name")
+            args = call.get("args") or {}
+            if name == "search_entities":
+                hits = _search_entities_for_draft(hass, args.get("query", ""),
+                                                  args.get("domain"))
+                working.append({"role": "tool", "tool_call_id": cid,
+                                "content": json.dumps(hits)})
+            elif name == "create_automation":
+                last_args = {
+                    "alias": args.get("alias") or "Automation",
+                    "description": args.get("description", ""),
+                    "trigger": args.get("trigger"), "condition": args.get("condition"),
+                    "action": args.get("action"), "mode": args.get("mode", "single"),
+                }
+                preview = await create_automation(
+                    hass, validate=True, install=False, **last_args)
+                if preview.get("success"):
+                    return _ok(preview, last_args)
+                last_error = preview
+                working.append({"role": "tool", "tool_call_id": cid, "content": json.dumps({
+                    "error": preview.get("error"),
+                    "invalid_entities": preview.get("invalid_entities"),
+                    "invalid_services": preview.get("invalid_services")})})
+            else:
+                working.append({"role": "tool", "tool_call_id": cid,
+                                "content": json.dumps({"error": f"unknown tool {name}"})})
+
+    return _fail()
