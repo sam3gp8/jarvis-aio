@@ -1,34 +1,33 @@
-# JARVIS traction report — 2026-10-30
+# JARVIS traction report — 2026-10-31
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-29 vs the 7 before
+## 7 days to 2026-10-30 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 533 | 287 | +86% |
-| Unique visitors (sum of daily) | 209 | 138 | +51% |
-| Clones | 845 | 584 | +45% |
-| Unique cloners (sum of daily) | 233 | 212 | +10% |
+| Views | 650 | 217 | +200% |
+| Unique visitors (sum of daily) | 239 | 114 | +110% |
+| Clones | 1120 | 501 | +124% |
+| Unique cloners (sum of daily) | 287 | 191 | +50% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
 | Stars | 33 | +3 | +13 |
-| Forks | 7 | +1 | +4 |
+| Forks | 8 | +2 | +5 |
 | Watchers | 1 | +0 | -1 |
-| HA analytics installs | 123 | +18 | — |
+| HA analytics installs | 127 | +19 | — |
 | Release asset downloads | 0 | +0 | +0 |
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1368** views, **12** replies.
+[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1449** views (+532 this week), **12** replies (+8 this week).
 
 New posts in the last 7 days:
-- #4 @williammorran (2026-10-23): I cant get Jarvis to read my email, ive set up the app password put it in my secrets.yaml file and everytime I try to access it Jarvis says its not in the secrets.yaml file yet it clearly is. any ide…
 - #5 @sam3gp8 (2026-10-24): @williammorran thanks for reporting this. It turned up a real bug. JARVIS was reading secrets.yaml more strictly than Home Assistant does. If the file had a Home Assistant-only tag anywhere in it, li…
 - #6 @williammorran (2026-10-24): Thanks ill take a look when they restore internet to the area, cloud routers suck so I cant even access my internal network as the cloud based settings control even dhcp. But thanks for the change il…
 - #7 @biancapascal (2026-10-26): I installed Yarvis, also i have credits on openrouter.ai but for some reasons he dos’nt speak. in settalite speakers i also have no speaker what i try Can anybody help me please?
@@ -43,9 +42,9 @@ New posts in the last 7 days:
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 82 | 50 |
-| Google | 34 | 22 |
-| github.com | 27 | 18 |
+| community.home-assistant.io | 80 | 50 |
+| Google | 37 | 22 |
+| github.com | 30 | 20 |
 | aocr.org | 9 | 9 |
 | Bing | 2 | 2 |
 | DuckDuckGo | 1 | 1 |
@@ -54,21 +53,22 @@ New posts in the last 7 days:
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 392 | 225 |
-| `/sam3gp8/jarvis-aio/issues` | 101 | 40 |
-| `/sam3gp8/jarvis-aio/pulls` | 32 | 10 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 20 | 18 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 16 | 12 |
-| `/sam3gp8/jarvis-aio/issues/334` | 9 | 8 |
-| `/sam3gp8/jarvis-aio/discussions` | 9 | 7 |
+| `/sam3gp8/jarvis-aio` | 426 | 232 |
+| `/sam3gp8/jarvis-aio/issues` | 97 | 38 |
+| `/sam3gp8/jarvis-aio/pulls` | 39 | 8 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 19 | 17 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 18 | 14 |
+| `/sam3gp8/jarvis-aio/issues/334` | 8 | 8 |
 | `/sam3gp8/jarvis-aio/releases` | 7 | 7 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/activity-feed.png` | 7 | 6 |
+| `/sam3gp8/jarvis-aio/discussions` | 7 | 5 |
 | `/sam3gp8/jarvis-aio/issues/413` | 7 | 4 |
-| `/sam3gp8/jarvis-aio/issues/400` | 7 | 3 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-30 | 138 | 44 | 346 | 87 |
 | 2026-10-29 | 206 | 63 | 249 | 46 |
 | 2026-10-28 | 68 | 30 | 101 | 29 |
 | 2026-10-27 | 49 | 27 | 37 | 24 |
@@ -97,4 +97,3 @@ New posts in the last 7 days:
 | 2026-10-04 | 77 | 28 | 1258 | 270 |
 | 2026-10-03 | 92 | 20 | 384 | 125 |
 | 2026-10-02 | 128 | 37 | 1077 | 233 |
-| 2026-10-01 | 47 | 22 | 195 | 56 |
