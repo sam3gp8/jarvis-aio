@@ -258,6 +258,61 @@ async def test_execution_failure_returns_error(agent, fake_hass, no_sleep):
     assert '"error"' in out and "Failed" in out
 
 
+# ── numeric value args honor an explicit 0 (volume / brightness / temperature) ─
+
+async def test_volume_set_zero_is_mute_not_default(agent, fake_hass):
+    """'set volume to 0' must mute (0.0), not silently fall back to 50%.
+
+    `(value or 50)/100` treated 0 as unset, so a mute command set 0.5 instead.
+    """
+    fake_hass.states.set("media_player.den", "playing")
+    await agent._exec_control_device(
+        fake_hass,
+        {"entity_id": "media_player.den", "action": "volume_set", "value": 0})
+    await fake_hass.drain()
+    calls = [c for c in fake_hass.service_calls if c[1] == "volume_set"]
+    assert calls and calls[0][2].get("volume_level") == 0.0
+
+
+async def test_set_brightness_zero_is_zero_not_default(agent, fake_hass):
+    fake_hass.states.set("light.den", "on")
+    await agent._exec_control_device(
+        fake_hass,
+        {"entity_id": "light.den", "action": "set_brightness", "value": 0})
+    await fake_hass.drain()
+    calls = [c for c in fake_hass.service_calls if c[1] == "turn_on"]
+    assert calls and calls[-1][2].get("brightness_pct") == 0
+
+
+async def test_set_temperature_zero_is_zero_not_default(agent, fake_hass):
+    fake_hass.states.set("climate.main", "heat")
+    await agent._exec_control_device(
+        fake_hass,
+        {"entity_id": "climate.main", "action": "set_temperature", "value": 0})
+    await fake_hass.drain()
+    calls = [c for c in fake_hass.service_calls if c[1] == "set_temperature"]
+    assert calls and calls[0][2].get("temperature") == 0.0
+
+
+async def test_omitted_value_still_uses_default(agent, fake_hass):
+    """A genuinely absent value still falls back to the default (50% volume)."""
+    fake_hass.states.set("media_player.den", "playing")
+    await agent._exec_control_device(
+        fake_hass, {"entity_id": "media_player.den", "action": "volume_set"})
+    await fake_hass.drain()
+    calls = [c for c in fake_hass.service_calls if c[1] == "volume_set"]
+    assert calls and calls[0][2].get("volume_level") == 0.5
+
+
+def test_num_arg_honors_zero_and_falls_back_cleanly(agent):
+    assert agent._num_arg(0, 50) == 0.0          # explicit zero preserved
+    assert agent._num_arg("0", 50) == 0.0         # numeric string zero
+    assert agent._num_arg(None, 50) == 50.0       # absent → default
+    assert agent._num_arg("", 50) == 50.0         # blank → default
+    assert agent._num_arg("garbage", 50) == 50.0  # malformed → default (no raise)
+    assert agent._num_arg(72.5, 50) == 72.5
+
+
 def test_record_outcome_builds_actuator_outcome(fake_hass, load, caplog):
     """The envelope logs a real kernel ActuatorOutcome with observed state."""
     actuation = load("actuation")

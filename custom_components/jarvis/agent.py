@@ -1241,6 +1241,23 @@ JARVIS_TOOLS = [
 
 # ── Tool execution ──────────────────────────────────────────────────────────
 
+def _num_arg(value, default: float) -> float:
+    """Parse a numeric tool argument, honoring an explicit 0.
+
+    ``value or default`` wrongly treats 0 as "unset", so "set volume to 0"
+    (mute), "set brightness to 0" and "set temperature to 0" silently became the
+    default (50 / 50 / 72). Only a genuinely absent (None) or blank value falls
+    back to the default; a malformed value also falls back rather than raising
+    (the caller's broad except would otherwise turn it into an opaque error).
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
     """Execute a device control action."""
     entity_id = args.get("entity_id", "")
@@ -1285,13 +1302,13 @@ async def _exec_control_device(hass: HomeAssistant, args: dict) -> str:
 
         # 1) Resolve the HA service + enforce authority (action_map actions only).
         if action == "set_brightness":
-            svc_data["brightness_pct"] = int(value or 50)
+            svc_data["brightness_pct"] = int(_num_arg(value, 50))
             svc_domain, svc_name, capability = "light", "turn_on", "light.turn_on"
         elif action == "set_temperature":
-            svc_data["temperature"] = float(value or 72)
+            svc_data["temperature"] = _num_arg(value, 72)
             svc_domain, svc_name, capability = "climate", "set_temperature", "climate.set_temperature"
         elif action == "volume_set":
-            svc_data["volume_level"] = (value or 50) / 100.0
+            svc_data["volume_level"] = _num_arg(value, 50) / 100.0
             svc_domain, svc_name, capability = "media_player", "volume_set", "media_player.volume_set"
         elif action in action_map:
             svc_domain, svc_name = action_map[action]
@@ -2752,6 +2769,14 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
     try:
         from . import modes
         _mode_req = args.get("mode", "")
+        # Canonical mode key. modes.set_mode normalizes with .strip().lower() and
+        # returns that as res["mode"]; mirror it here so the recorded
+        # ActuatorRequest and the plan step's idempotency key key off the SAME
+        # value the emitted event uses. Building the request from the raw arg let
+        # "Movie" / " party " diverge from the canonical event target, breaking
+        # request↔event correlation and idempotent dedup for any non-canonical
+        # casing the model emits.
+        _mode_key = str(_mode_req or "").strip().lower()
         # Authority ENFORCE (MCU Phase G4b): gate the mode directive on the kernel
         # engine's verdict BEFORE it is applied, max-restriction — a mode change
         # applies scenes that can be consequential, so it proceeds only if the
@@ -2795,13 +2820,13 @@ async def _exec_set_mode(hass: HomeAssistant, args: dict) -> str:
                 pass
             return True
 
-        _areq = actuation.request(_cap, _mode_req, params={"mode": _mode_req},
+        _areq = actuation.request(_cap, _mode_key, params={"mode": _mode_key},
                                   action="set_mode",
-                                  intent=f"set mode to {_mode_req}")
+                                  intent=f"set mode to {_mode_key}")
         _kplan_obj = _kplan.Plan(
-            goal=f"set mode to {_mode_req}",
-            steps=(_kplan.Step(action=_cap, params={"mode": _mode_req},
-                               idempotency_key=f"setmode:{_mode_req}"),),
+            goal=f"set mode to {_mode_key}",
+            steps=(_kplan.Step(action=_cap, params={"mode": _mode_key},
+                               idempotency_key=f"setmode:{_mode_key}"),),
             correlation_id=actuation.correlation_id())
         try:
             await _kplan.aexecute_plan(_kplan_obj, run_step=_run)
