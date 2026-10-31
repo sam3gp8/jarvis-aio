@@ -4051,6 +4051,74 @@ def _no_action_note(served_by: str, n_tools: int) -> str:
             f"{n_tools} tool(s) available")
 
 
+async def _run_agent_json(
+    hass: HomeAssistant,
+    *,
+    client,
+    working: list[dict],
+    allowed_tools: Optional[set],
+    hass_api: Optional[Any],
+    user_input: Optional[Any],
+    config: Optional[dict],
+    max_iterations: Optional[int],
+) -> str:
+    """Agentic loop for a model WITHOUT function-calling (e.g. Gemma via Ollama).
+
+    The native tool loop needs the provider to emit tool_calls; a non-tool model
+    never does, so it would narrate an action but call nothing (issue #413) — it
+    could answer but never actually ACT. This routes it through the shared
+    tool_driver's JSON-action protocol so a local model drives JARVIS's tools the
+    same way, over plain JSON it can follow.
+
+    It exposes the curated essential tool set (the same one the 413 slim retry
+    uses), not the full ~40-tool surface: that neither fits a small local model's
+    context nor is followed reliably over a JSON protocol, and the model reaches
+    everything else through search_entities + control_device. A scoped sub-agent
+    keeps its own narrow set. HA per-entity tools are dropped. Never raises into
+    the caller — the driver records a provider error on its result and this
+    returns a graceful line."""
+    from . import tool_driver
+
+    json_tools = _scoped_tool_list(
+        allowed_tools if allowed_tools is not None else _SLIM_TOOLS)
+    names = {t["function"]["name"] for t in json_tools
+             if t.get("function", {}).get("name")}
+
+    acted = {"v": False}
+
+    def _make_handler(tool_name: str):
+        async def _handler(args: dict) -> str:
+            acted["v"] = True
+            return await _execute_tool(hass, tool_name, args, hass_api, user_input)
+        return _handler
+
+    handlers = {name: _make_handler(name) for name in names}
+    json_hint = (
+        "Call ONE tool per reply to control or query the home — use "
+        "search_entities when unsure of an entity_id, never guess. When you have "
+        'the answer and need no more tools, reply with {"tool":"final","text":'
+        '"<your reply to the user>"}.')
+
+    cap = (MAX_TOOL_ITERATIONS if max_iterations is None
+           else max(1, min(int(max_iterations), MAX_TOOL_ITERATIONS)))
+
+    res = await tool_driver.run_tool_loop(
+        hass, client, messages=working, tools=json_tools, handlers=handlers,
+        json_hint=json_hint, max_steps=cap, temperature=0.3, native=False)
+
+    text = (res.get("text") or "").strip()
+    _emit_conversational_shadow(acted=acted["v"], answered=bool(text))
+    if not text:
+        try:
+            from .websocket import jarvis_log
+            jarvis_log("AGENT", _no_action_note(
+                f"{getattr(client, 'name', '?')}/{getattr(client, 'model', '?')} "
+                f"(json-action)", len(json_tools)))
+        except Exception:
+            pass
+    return text if text else _empty_reply_fallback(config)
+
+
 async def run_agent(
     hass: HomeAssistant,
     *,
@@ -4282,6 +4350,27 @@ async def run_agent(
         return f"I'm having trouble connecting to my reasoning systems, sir. {exc}"
 
     working = list(full_messages)
+
+    # Local-capability parity: a model that can't do function-calling (e.g. Gemma
+    # via Ollama) would run the native loop below, emit no tool call, and narrate
+    # without ever acting (issue #413). Route it through the shared JSON-action
+    # driver instead so it drives JARVIS's tools over plain JSON. supports_tools
+    # returns True for every cloud provider (no probe, straight to native), None
+    # for a client with no capability signal (ad-hoc test fakes → native, with the
+    # loop's own graceful no-tool handling), and — for Ollama — a cached one-time
+    # probe verdict. Only an explicit False diverts here; the native path is
+    # untouched for everyone else.
+    from . import tool_driver as _tool_driver
+    try:
+        _tools_ok = await _tool_driver.supports_tools(hass, client)
+    except Exception:
+        _tools_ok = None
+    if _tools_ok is False:
+        return await _run_agent_json(
+            hass, client=client, working=working, allowed_tools=allowed_tools,
+            hass_api=hass_api, user_input=user_input, config=config,
+            max_iterations=max_iterations)
+
     llm_run_state: dict[str, Any] = {}
     slim_retried = False   # one-shot 413 recovery (drop HA tools + home-state)
     _acted = False         # Phase AE shadow: did this turn execute a tool action?
