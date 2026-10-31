@@ -1,3 +1,27 @@
+## [9.53.0] — Fix: typed panel chat dropped as "ambient" → "(JARVIS returned no text.)"
+
+A typed message in the panel's **TALK TO JARVIS** chat (and the HA text-Assist
+box) could come back as **"(JARVIS returned no text.)"** — the frontend's
+placeholder for an empty reply. Root cause: the **relevance gate** — a backstop
+that silences ambient TV/background speech a voice satellite transcribes — ran
+on **typed** input too. Typed input has no satellite and no ambient noise, but a
+multi-sentence message (e.g. a correction: *"that wasn't a question. it was a
+correction. Please view previous again closely"*) tripped the gate's "rambling
+dialogue" heuristic (≥2 sentence breaks, ≥8 words, no command/question/device
+word), so the turn was silently dropped and the reply was empty.
+
+The relevance gate now applies to **voice turns only** (`device_id` present) —
+the same voice-only guard the presence gate already uses. Typed panel /
+text-Assist input is always processed. Voice ambient-noise filtering is
+unchanged. Confirmed against the user's diagnostic log (the dropped turn logged
+`device=None` immediately followed by `GATE: ignored ambient input`).
+
+Tests: a new regression (`test_typed_panel_input_is_never_relevance_gated`)
+asserts a typed multi-sentence message the raw heuristic would reject still
+reaches the engine and returns non-empty speech; the ambient-silencing test now
+models ambient **voice** (device_id present), which is the only path that can
+carry transcribed TV noise. Full `tests/` green; all 8 kernel gates + audit green.
+
 ## [9.52.0] — Fix: local media / volume / temperature commands with no named device
 
 Follow-up to the 9.51.0 bug-audit of the local command path. Three commands
