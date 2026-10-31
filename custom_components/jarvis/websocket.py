@@ -70,6 +70,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get_calibration)
         websocket_api.async_register_command(hass, ws_list_models)
         websocket_api.async_register_command(hass, ws_suggestion_action)
+        websocket_api.async_register_command(hass, ws_compose_automation)
         websocket_api.async_register_command(hass, ws_goal_action)
         websocket_api.async_register_command(hass, ws_get_person_routines)
         websocket_api.async_register_command(hass, ws_get_area_sparklines)
@@ -2852,6 +2853,62 @@ async def ws_suggestion_action(
     except Exception as exc:
         _LOGGER.exception("ws_suggestion_action failed: %s", exc)
         connection.send_error(msg["id"], "suggestion_action_failed", str(exc))
+
+
+def _resolve_llm_client(hass: HomeAssistant):
+    """The shared LLM provider the conversation entity created (hass.data), or
+    None when no provider is configured. Used by the Suggestions-tab composer."""
+    try:
+        for v in (hass.data.get(DOMAIN, {}) or {}).values():
+            if isinstance(v, dict) and v.get("client") is not None:
+                return v["client"]
+    except Exception:
+        pass
+    return None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/compose_automation",
+    vol.Required("action"): vol.In(["draft", "install"]),
+    vol.Optional("text"): str,
+    vol.Optional("draft"): dict,
+})
+@websocket_api.async_response
+async def ws_compose_automation(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Natural-language automation composer for the Suggestions tab. 'draft' turns
+    a plain-language description into a validated, NOT-yet-installed automation for
+    review; 'install' writes a reviewed draft. Both validate every name against the
+    live home before anything is written."""
+    try:
+        from .automation_creator import draft_automation, create_automation
+        if msg["action"] == "draft":
+            client = _resolve_llm_client(hass)
+            res = await draft_automation(hass, msg.get("text", ""), client=client)
+            connection.send_result(msg["id"], res)
+            return
+        # install a reviewed draft
+        args = (msg.get("draft") or {}).get("args") or {}
+        res = await create_automation(
+            hass, alias=(args.get("alias") or "Automation"),
+            description=args.get("description", ""),
+            trigger=args.get("trigger"), condition=args.get("condition"),
+            action=args.get("action"), mode=args.get("mode", "single"),
+            validate=True, install=True)
+        if res.get("success"):
+            jarvis_log("LEARN", f"Composed automation installed: {res.get('alias')}")
+        connection.send_result(msg["id"], {
+            "ok": bool(res.get("success")),
+            "alias": res.get("alias"),
+            "error": res.get("error"),
+        })
+    except Exception as exc:
+        _LOGGER.exception("ws_compose_automation failed: %s", exc)
+        connection.send_error(msg["id"], "compose_automation_failed", str(exc))
 
 
 _SNAP_LOG_TS: dict[str, float] = {}
