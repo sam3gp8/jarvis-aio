@@ -167,6 +167,34 @@ async def test_non_tool_model_empty_reply_is_graceful(agent, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_scoped_non_tool_subagent_acts_over_json(agent, monkeypatch):
+    """A scoped sub-agent (allowed_tools set — the path _run_delegated uses) on a
+    non-tool model drives only its scoped tools over JSON. This is how delegation
+    inherits local parity: _run_delegated calls run_agent with allowed_tools, and
+    run_agent routes a non-tool model through the JSON driver with that set."""
+    _no_verify_sleep(agent, monkeypatch)
+    h = FakeHass()
+    h.states.set("light.den", "off", friendly_name="Den light")
+    _device_responds(h)
+    model = _JsonModel([
+        json.dumps({"tool": "control_device",
+                    "args": {"action": "turn_on", "entity_id": "light.den"}}),
+        json.dumps({"tool": "final", "text": "Done, sir."}),
+    ])
+    _patch_provider(agent, monkeypatch, model)
+
+    reply = await agent.run_agent(
+        h, messages=[{"role": "user", "content": "turn on the den light"}],
+        persona="", provider_name="ollama", api_key="", model="gemma4:26b",
+        hass_api=None, config={},
+        allowed_tools={"control_device", "get_entity_state"}, max_iterations=4)
+    await h.drain()
+
+    assert ("light", "turn_on") in [(d, s) for d, s, _ in h.service_calls]
+    assert "done" in reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_tool_capable_model_stays_on_native(agent, monkeypatch):
     """A provider that reports function-calling support is NOT diverted — the
     native loop runs and offers real tools."""
