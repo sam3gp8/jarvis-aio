@@ -1,3 +1,47 @@
+## [9.60.0] — Shared agentic tool-driver + provider capability probe (local-parity foundation)
+
+The composer's native-or-JSON drafting loop (9.58–9.59) proved the pattern that
+makes a **local model without function-calling a first-class agent**: drive the
+same tools over a plain-JSON protocol when the model can't call functions. This
+release lifts that loop out of the composer into a **reusable module**,
+`tool_driver.py`, so every agentic feature can reach non-function-calling models
+the same way. This is step 2 of the local-capability-parity roadmap —
+*if the configured model lacks a capability a feature needs, JARVIS provides it.*
+
+`tool_driver.run_tool_loop(...)` drives one agentic loop in either mode behind a
+single interface:
+
+- **native** — the provider's function-calling: the model emits tool_calls,
+  JARVIS runs them via the handlers and feeds results back as `tool` messages;
+- **json** — a tools-free protocol any instruction-following model can satisfy:
+  the model emits ONE JSON action per turn, `{"tool":<name>,"args":{…}}`, run via
+  the SAME handlers and fed back as a user message.
+
+A handler returns `Done(value)` to finish the loop or a value to feed back and
+continue. The mode is chosen by **`supports_tools()`**: every cloud provider
+reports `True`; a local backend (Ollama) reports `None`, which the driver turns
+into a **one-time capability probe cached per model** — so Gemma goes straight to
+the JSON loop instead of wasting a native round every time, and a tool-capable
+local model (llama3.1/qwen3) uses native. A client that exposes no signal runs
+native with a JSON fallback on no tool call (the composer's prior behavior).
+
+- `llm_provider.py`: `supports_tools()` now returns `True`/`False`/`None`;
+  `OllamaProvider` returns `None` (probe) since capability depends on the pulled
+  model. Cloud providers are unchanged.
+- `automation_creator.draft_automation` is **refactored onto the driver** — same
+  behavior (search → compose → validate → retry bad names, never installs), now
+  via shared handlers; `_extract_json` is re-exported from the driver.
+
+No behavior change for users; this is the shared foundation that the online LLM
+agent (`run_agent`) and delegation/web-research will route through next, so local
+models get full agentic capability everywhere, not just in the composer.
+
+Tests (`test_tool_driver.py`, 16): native Done/threading/prose-final/handler-error/
+exhaustion; JSON mode/final-answer/search-then-finish/default-tool/garbage-nudge;
+capability probe + caching + probe-failure; native→JSON fallback; forced-native.
+All composer tests still green through the refactor. Full `tests/` green; all 8
+kernel gates + audit green.
+
 ## [9.59.0] — Fix: the automation composer now works with local models (Ollama/Gemma)
 
 The Suggestions-tab composer (9.57–9.58) drafted by having the model call a
