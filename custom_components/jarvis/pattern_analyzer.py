@@ -597,6 +597,154 @@ def _action_verb(entity_id: str, state: str) -> str:
     return f"turn {s}"
 
 
+# ── Outcome / intent cross-reference against existing automations ─────────────
+# A learned suggestion is worth surfacing only if the household does not ALREADY
+# automate the same thing. We compare on INTENT — the triggering *situation* and
+# the resulting *outcome* (each action's service mapped to the end-state it
+# produces) — not on literal YAML, so "the same outcome reached a different way"
+# (another service, extra actions, different structure or params) still counts as
+# already covered. BOTH the trigger situation and the outcome must overlap, so a
+# merely-shared trigger or a merely-shared outcome (a genuinely different
+# automation) is never falsely suppressed.
+
+# A service's resulting end-state, so automations that reach the same outcome via
+# different services compare equal.
+_SERVICE_OUTCOME = {
+    "turn_on": "on", "turn_off": "off", "toggle": "toggle",
+    "lock": "locked", "unlock": "unlocked",
+    "open_cover": "open", "close_cover": "closed",
+}
+
+
+def _first_entity(value):
+    """First entity id from an entity_id field that may be a str or a list."""
+    if isinstance(value, (list, tuple)):
+        return str(value[0]) if value else None
+    return str(value) if value else None
+
+
+def _outcome_of_action(act: dict) -> Optional[tuple]:
+    """The (entity_id, end_state) an action produces, or None for a non-actuating
+    or unresolvable action. Abstracts the service to its RESULT so two automations
+    that achieve the same end-state compare equal regardless of service name."""
+    if not isinstance(act, dict):
+        return None
+    svc = str(act.get("action") or act.get("service") or "")
+    ent = _first_entity(act.get("entity_id") or (act.get("target") or {}).get("entity_id"))
+    if not svc or not ent:
+        return None
+    # scene / script: the activation itself is the outcome (its own entity)
+    if svc == "scene.turn_on" or svc.startswith("script."):
+        return (ent, "activate")
+    # a cover driven to a position is the same OUTCOME as open/close — the point
+    # of outcome matching: "fully open" via set_cover_position:100 == open_cover.
+    if svc == "cover.set_cover_position":
+        pos = act.get("position")
+        if pos is None:
+            pos = (act.get("data") or {}).get("position")
+        if isinstance(pos, (int, float)):
+            return (ent, "open" if pos >= 50 else "closed")
+    end = _SERVICE_OUTCOME.get(svc.split(".")[-1])
+    if end is not None:
+        return (ent, end)
+    # climate setpoint, media, etc. — no clean end-state from the bare service, so
+    # key on the service family: "set temperature on X" still matches another.
+    return (ent, svc.split(".")[-1])
+
+
+def _trigger_situation(trg: dict) -> Optional[tuple]:
+    """The (subject, condition) SITUATION a trigger describes, normalized so
+    equivalent triggers compare equal. None for an unresolvable trigger."""
+    if not isinstance(trg, dict):
+        return None
+    platform = str(trg.get("trigger") or trg.get("platform") or "")
+    ent = _first_entity(trg.get("entity_id"))
+    if platform == "state" and ent:
+        to = trg.get("to")
+        return (ent, f"to:{to}" if to is not None else "state")
+    if platform == "numeric_state" and ent:
+        if trg.get("above") is not None:
+            return (ent, f"above:{trg.get('above')}")
+        if trg.get("below") is not None:
+            return (ent, f"below:{trg.get('below')}")
+        return (ent, "numeric")
+    if platform == "zone" and ent:
+        return (ent, f"zone:{trg.get('zone')}:{trg.get('event')}")
+    if platform == "time":
+        return ("time", f"at:{trg.get('at')}")
+    if ent:
+        return (ent, platform or "trigger")
+    return None
+
+
+def _as_block_list(value) -> list:
+    """Normalize a trigger/action field (dict, list, or None) to a list."""
+    if value is None:
+        return []
+    return [value] if isinstance(value, dict) else list(value)
+
+
+def automation_intent(triggers, actions) -> tuple:
+    """(frozenset of trigger situations, frozenset of action outcomes) — the
+    intent of an automation, for outcome-level cross-referencing. Pure."""
+    trg = frozenset(
+        s for s in (_trigger_situation(t) for t in _as_block_list(triggers)) if s)
+    out = frozenset(
+        o for o in (_outcome_of_action(a) for a in _as_block_list(actions)) if o)
+    return (trg, out)
+
+
+def intent_is_covered(sug_intent: tuple, existing_intents) -> bool:
+    """True if some existing automation shares BOTH a triggering situation AND a
+    resulting outcome with the suggestion — i.e. the household already automates
+    this if-this-then-that. Pure."""
+    s_trg, s_out = sug_intent
+    if not s_trg or not s_out:
+        return False
+    for e_trg, e_out in existing_intents or ():
+        if (s_trg & e_trg) and (s_out & e_out):
+            return True
+    return False
+
+
+def _read_existing_automation_intents(automations_path: str) -> list:
+    """Parse automations.yaml into intent signatures for the installed automations.
+    Executor-only (file I/O). Reads the file HA stores UI/JARVIS-authored
+    automations in; automations defined only in configuration.yaml or packages are
+    out of scope (documented). Never raises."""
+    try:
+        import yaml
+        with open(automations_path) as f:
+            data = yaml.safe_load(f) or []
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out = []
+    for auto in data:
+        if not isinstance(auto, dict):
+            continue
+        trigs = auto.get("triggers")
+        if trigs is None:
+            trigs = auto.get("trigger")
+        acts = auto.get("actions")
+        if acts is None:
+            acts = auto.get("action")
+        intent = automation_intent(trigs, acts)
+        if intent[0] and intent[1]:
+            out.append(intent)
+    return out
+
+
+def _cross_reference_enabled() -> bool:
+    """Kill-switch for the existing-automation cross-reference. Default ON."""
+    try:
+        from . import jarvis_config
+        return jarvis_config.get("suggestion_cross_reference", True) is not False
+    except Exception:
+        return True
+
+
 def explain_suggestion(pattern_type: str, details: dict, count: int) -> dict:
     """Turn a suggestion's evidence into a human 'why' for the review UI
     (v6.80.0). Returns {headline, evidence:[...]} — the observations that led to
@@ -1334,6 +1482,26 @@ class PatternAnalyzer:
         promoted = await hass.async_add_executor_job(
             self._promote_to_knowledge, patterns)
 
+        # Cross-reference pending suggestions against the household's EXISTING
+        # automations and retire any whose outcome/intent is already automated, so
+        # JARVIS never nags you to automate something you have already set up.
+        # Reversible — a covered suggestion is moved out of 'pending' (status
+        # 'superseded'), never deleted. Kill-switchable, default on.
+        superseded = 0
+        if _cross_reference_enabled():
+            try:
+                _auto_path = hass.config.path("automations.yaml")
+                _existing = await hass.async_add_executor_job(
+                    _read_existing_automation_intents, _auto_path)
+                superseded = await hass.async_add_executor_job(
+                    self._suppress_superseded_suggestions, _existing)
+                if superseded:
+                    _LOGGER.info(
+                        "Suggestion cross-reference: retired %d suggestion(s) "
+                        "already covered by an existing automation", superseded)
+            except Exception as exc:
+                _LOGGER.debug("Suggestion cross-reference skipped: %s", exc)
+
         # Record the outcome of this pass so the panel can show "last analysis:
         # ran at T, N found, M stored" — the difference between "never ran" and
         # "ran, found nothing worth surfacing".
@@ -1344,6 +1512,7 @@ class PatternAnalyzer:
             "person_routines": new_person_patterns,
             "facts": promoted,
             "near_misses": near_misses,
+            "superseded": superseded,
         }
 
         if patterns:
@@ -2269,6 +2438,40 @@ class PatternAnalyzer:
         finally:
             conn.close()
         return removed
+
+    def _suppress_superseded_suggestions(self, existing_intents) -> int:
+        """Retire pending suggestions whose outcome/intent is already covered by an
+        installed automation — move them to status 'superseded' so they stop
+        surfacing for review. Reversible (never deleted) and auditable. Executor-
+        only (DB). Never raises."""
+        if not existing_intents:
+            return 0
+        try:
+            conn = sqlite3.connect(self._db, factory=ClosingConnection)
+        except Exception:
+            return 0
+        moved = 0
+        try:
+            rows = conn.execute(
+                "SELECT id, automation_yaml FROM suggestions WHERE status = 'pending'"
+            ).fetchall()
+            for rid, yml in rows:
+                norm = normalize_suggestion_automation(yml or "")
+                if not norm.get("installable"):
+                    continue
+                intent = automation_intent(norm.get("trigger"), norm.get("action"))
+                if intent_is_covered(intent, existing_intents):
+                    conn.execute(
+                        "UPDATE suggestions SET status = 'superseded' WHERE id = ?",
+                        (rid,))
+                    moved += 1
+            if moved:
+                conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+        return moved
 
     def _store_suggestion(self, pattern: DetectedPattern) -> bool:
         """Store a pattern as a suggestion in the DB. Returns True if new.
