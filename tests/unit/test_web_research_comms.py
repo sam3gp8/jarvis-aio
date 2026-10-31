@@ -202,6 +202,48 @@ async def test_grounded_fallback_uses_reasoning_gemini(wr, monkeypatch, fake_has
     assert out["backend"] == "gemini_grounding" and out["answer"] == "grounded answer"
 
 
+async def test_grounded_fallback_uses_vision_gemini_on_local_llm(wr, monkeypatch, fake_hass):
+    # Local-parity case: the Main Agent and reasoning tier are a local model
+    # (Ollama), and Gemini is configured only for VISION — but the user still has
+    # a Gemini key, so the grounded web fallback must use it.
+    import importlib
+    config = importlib.import_module("jc.jarvis_config")
+    secrets = importlib.import_module("jc.ha_secrets")
+    values = {"web_research_llm_fallback": True,
+              "llm_provider": "ollama", "model": "gemma4:26b",
+              "reasoning_provider": "ollama", "reasoning_model": "gemma4:26b",
+              "vision_provider": "gemini", "vision_model": "gemini-2.5-flash"}
+    monkeypatch.setattr(config, "get", lambda key, default=None: values.get(key, default))
+    monkeypatch.setattr(secrets, "async_get_provider_key",
+                        lambda hass, provider: _async_value("key"))
+    seen = {}
+
+    def _grounded(hass, api_key, model, query):
+        seen["model"] = model
+        return _async_value("grounded answer")
+
+    monkeypatch.setattr(wr, "_gemini_grounded_search", _grounded)
+    out = await wr._llm_grounded_fallback(fake_hass, "q")
+    assert out["backend"] == "gemini_grounding" and out["answer"] == "grounded answer"
+    # it used the Gemini VISION model, since that's the only Gemini slot set
+    assert seen["model"] == "gemini-2.5-flash"
+
+
+async def test_grounded_fallback_skips_when_no_gemini_slot(wr, monkeypatch, fake_hass):
+    # An all-local install with NO Gemini anywhere leaves the original error in
+    # place (the fallback can't run without a Gemini grounding path).
+    import importlib
+    config = importlib.import_module("jc.jarvis_config")
+    values = {"web_research_llm_fallback": True,
+              "llm_provider": "ollama", "reasoning_provider": "ollama",
+              "vision_provider": "groq"}
+    monkeypatch.setattr(config, "get", lambda key, default=None: values.get(key, default))
+    monkeypatch.setattr(wr, "_gemini_grounded_search",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("must not run without a Gemini slot")))
+    assert await wr._llm_grounded_fallback(fake_hass, "q") is None
+
+
 async def test_grounded_fallback_skips_without_key(wr, monkeypatch, fake_hass):
     import importlib
     config = importlib.import_module("jc.jarvis_config")

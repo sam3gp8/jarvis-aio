@@ -143,6 +143,12 @@ Each of these already has kernel substrate at pure/shadow/parity in
   frontier is reflex speed, not intelligence." `cognition.py` and `local_mind.py`
   are explicitly built to swap a local GPU/Ollama model behind `decide()` with no
   pipeline change. This is the clearest "same JARVIS, feels faster" win.
+  Local models are treated as **first-class**, not a degraded fallback: when a
+  local model lacks a capability a feature needs — chiefly function/tool calling,
+  which Gemma and many others don't have — JARVIS provides it over a tools-free
+  JSON-action protocol through the shared `tool_driver`, so a Gemma user gets the
+  same agentic composer, device control, and delegation a cloud user does. The
+  policy and its current coverage are documented in `LOCAL_PARITY.md`.
 
 ### Bucket C — Genuinely out of reach inside Home Assistant (and why)
 

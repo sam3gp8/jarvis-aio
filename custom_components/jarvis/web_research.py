@@ -77,35 +77,63 @@ async def research(hass, query: str) -> dict:
     return result
 
 
-async def _llm_grounded_fallback(hass, q: str) -> Optional[dict]:
-    """Fall back to the configured LLM's own live web-grounding when the
-    primary backend (DDG/SearXNG) comes back empty — common for fast-moving
-    or very recent facts DDG's Instant Answer API was never built to answer.
-    Opt-in (config: web_research_llm_fallback, off by default) — it's an
-    extra LLM call the user hasn't explicitly asked for. Only Gemini has a
-    grounding path today; any other provider (or a missing key) simply
-    leaves the original error in place. Never raises."""
+# Every provider slot that can be set to Gemini, newest-first by how directly it
+# bears on a research turn, with its model key. A LOCAL-LLM install commonly runs
+# Gemini for just one job — vision is the usual one — so the grounded web fallback
+# must find a Gemini credential there too, not only when Gemini is the Main or
+# reasoning agent. This is the local-capability-parity principle: an Ollama user
+# who has a Gemini key (e.g. for vision) gets the same grounded web answer a
+# Gemini user does, from the key they already configured.
+_GEMINI_PROVIDER_SLOTS = (
+    ("llm_provider", "model"),
+    ("reasoning_provider", "reasoning_model"),
+    ("vision_provider", "vision_model"),
+    ("review_provider", "review_model"),
+    ("classifier_provider", "classifier_model"),
+)
+
+
+def _configured_gemini_model() -> Optional[str]:
+    """The Gemini model id from whichever provider slot is set to 'gemini', so a
+    local-LLM install running Gemini only for (say) vision still has a model for
+    the grounded web fallback. Returns None when NO slot uses Gemini — then the
+    fallback stays off, exactly as before. Never raises."""
     try:
-        from . import jarvis_config, ha_secrets
+        from . import jarvis_config
+    except Exception:
+        return None
+    for prov_key, model_key in _GEMINI_PROVIDER_SLOTS:
+        if str(jarvis_config.get(prov_key, "") or "").lower() == "gemini":
+            return str(jarvis_config.get(model_key, "") or "") or "gemini-2.5-flash"
+    return None
+
+
+async def _llm_grounded_fallback(hass, q: str) -> Optional[dict]:
+    """Fall back to Gemini's own live web-grounding when the primary backend
+    (DDG/SearXNG) comes back empty — common for fast-moving or very recent facts
+    DDG's Instant Answer API was never built to answer. Opt-in (config:
+    web_research_llm_fallback, off by default) — it's an extra LLM call the user
+    hasn't explicitly asked for. Gemini is the only provider with a grounding
+    path today; it is used whenever Gemini is configured in ANY provider slot
+    (Main, reasoning, vision, review, classifier) and a key is present, so a
+    local-LLM install with a Gemini key gets grounded web answers too. No Gemini
+    anywhere (or a missing key) simply leaves the original error in place. Never
+    raises."""
+    try:
+        from . import ha_secrets
 
         if not _cfg("web_research_llm_fallback", False):
             return None
 
-        provider = str(jarvis_config.get("llm_provider", "groq") or "").lower()
-        model = str(jarvis_config.get("model", "") or "")
-        if provider != "gemini":
-            # The Main Agent may run a cheaper provider while the reasoning
-            # tier (often used alongside web_research) runs Gemini — try that.
-            provider = str(jarvis_config.get("reasoning_provider", "") or "").lower()
-            model = str(jarvis_config.get("reasoning_model", "") or "")
-        if provider != "gemini":
+        model = _configured_gemini_model()
+        if not model:
             return None
 
         api_key = await ha_secrets.async_get_provider_key(hass, "gemini")
         if not api_key:
             return None
 
-        text = await _gemini_grounded_search(hass, api_key, model or "gemini-2.5-flash", q)
+        text = await _gemini_grounded_search(hass, api_key, model, q)
         if not text:
             return None
         return {
