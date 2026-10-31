@@ -1,3 +1,32 @@
+## [9.52.0] — Fix: local media / volume / temperature commands with no named device
+
+Follow-up to the 9.51.0 bug-audit of the local command path. Three commands
+captured a **value and/or an area — never a device name** — yet the handler
+treated the capture as an entity name, so they failed locally:
+
+- **"pause the music" (and resume / next / volume up-down / mute)** with no area
+  hit `if not name_frag: continue` and resolved no player at all.
+- **"set volume to 50"** searched for a device literally named *50*.
+- **generic "set the temperature to 72"** searched for a device named *72*.
+
+All three now resolve the target from the captured area (if any) or a **sole /
+active default** via a new conservative `_default_target(hass, domain)` helper: a
+single currently-active media player wins, else the sole non-satellite player;
+for climate, the sole thermostat. When the target is **ambiguous** (none, or
+several with no single active one) it falls through to the LLM rather than
+guessing the wrong device — the number is then correctly applied as the volume
+level / setpoint, not as a name. The named path ("set the *bedroom* temperature
+to 70") is untouched and still resolves by name.
+
+New hermetic tests (`test_local_engine_default_target.py`): active/sole
+resolution, ambiguity fall-through, number-as-value, and a regression guard on
+the named set-temp path. Full `tests/` green; all 8 kernel gates + audit green.
+
+Remaining audit item, honestly down-ranked (not fixed): `_load_learned_aliases`
+re-reads `.jarvis_learned.json` per command — but it already runs on the executor,
+so it is redundant worker I/O, not event-loop blocking; a one-off micro-cache,
+not a correctness or latency bug.
+
 ## [9.51.0] — Fix: local fast-path query patterns hijacked actuation commands
 
 A grounded bug-audit of the local command path (`local_engine.try_local`, which
