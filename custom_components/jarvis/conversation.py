@@ -969,8 +969,17 @@ class JarvisAgent(conversation.ConversationEntity):
         # to JARVIS (filler, fragments, rambling dialogue) BEFORE it reaches the
         # local engine or the agent — staying silent rather than acting on, or
         # chattering back at, ambient noise. Toggle off via `relevance_gate`.
+        #
+        # VOICE TURNS ONLY (device_id present). Typed panel / text-Assist input
+        # has no satellite, so it carries no ambient noise and is, by definition,
+        # deliberately addressed to JARVIS. Gating it dropped legitimate typed
+        # messages — a multi-sentence correction tripped the "rambling dialogue"
+        # heuristic — and surfaced in the chat panel as the empty-speech error
+        # "(JARVIS returned no text.)". The presence gate above is voice-only
+        # (``if device_id``) for the same reason.
         _media_near = self._media_playing_near(device_id)
-        if self._opt("relevance_gate", True) and not _is_addressed_to_jarvis(user_input.text, strict=_media_near):
+        if (device_id and self._opt("relevance_gate", True)
+                and not _is_addressed_to_jarvis(user_input.text, strict=_media_near)):
             jarvis_log("GATE", f"ignored ambient input{' (media playing)' if _media_near else ''}: '{user_input.text.strip()[:60]}'")
             _LOGGER.info("JARVIS relevance gate: ignored '%s' (media_near=%s)", user_input.text.strip()[:80], _media_near)
             ir = intent.IntentResponse(language=user_input.language)

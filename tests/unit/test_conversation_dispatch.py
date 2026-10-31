@@ -760,12 +760,42 @@ def test_handle_message_silences_duplicate_and_ambient_turns(monkeypatch):
     assert duplicate_result.response.speech == ""
     assert duplicate_result.conversation_id == "dup"
 
+    # Ambient filler is silenced ONLY on a voice turn (device_id present) — that
+    # is the only path a satellite can transcribe TV/background speech onto.
     ambient = types.SimpleNamespace(
-        text="um so", device_id=None,
+        text="um so", device_id="sat-voice",
         conversation_id="ambient", language="en", context={})
     ambient_result = asyncio.run(agent._handle_message_impl(ambient))
     assert ambient_result.response.speech == ""
     assert ambient_result.conversation_id == "ambient"
+
+
+def test_typed_panel_input_is_never_relevance_gated(monkeypatch):
+    """A typed panel / text-Assist message (no device_id) must never be dropped
+    by the relevance gate. The gate is an ambient-voice backstop; typed input
+    carries no ambient noise and is always addressed to JARVIS. Regression for
+    the reported "(JARVIS returned no text.)" bug: a multi-sentence typed
+    correction tripped the gate's "rambling dialogue" heuristic (>=2 sentence
+    breaks, >=8 words, no command/question/device word) and returned empty
+    speech. It must now reach the engine and get a real reply.
+    """
+    import asyncio
+
+    mod = _load_conversation_module(monkeypatch)
+    agent = _make_dispatch_agent(mod)
+    correction = ("that wasn't a question. it was a correction. "
+                  "Please view previous again closely")
+    # Sanity: the raw gate heuristic WOULD reject this as ambient.
+    assert mod._is_addressed_to_jarvis(correction) is False
+    typed = types.SimpleNamespace(
+        text=correction, device_id=None, conversation_id="typed",
+        language="en", context={})
+    result = asyncio.run(agent._handle_message_impl(typed))
+    # Not gated → local engine handled it → non-empty reply (not the empty
+    # speech the frontend renders as "(JARVIS returned no text.)").
+    assert result.response.speech == f"Handled: {correction}"
+    assert result.response.speech != ""
+    assert result.conversation_id == "typed"
 
 
 def test_public_handler_converts_unexpected_exception_to_spoken_error(monkeypatch):
