@@ -2850,15 +2850,43 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       </div>`;
   }
 
+  _renderComposer() {
+    // Natural-language automation composer: describe → draft (validated, not
+    // installed) → review → install. Reuses the same validation the chat
+    // create_automation path uses; nothing is written until you click Install.
+    return `
+      <div class="meta sug-wrap sug-composer">
+        <div class="sug-header">
+          <span class="sug-header-title">CREATE AN AUTOMATION</span>
+        </div>
+        <div class="composer-sub">Describe it in plain English — JARVIS drafts it
+          against your real devices for you to review before anything is installed.</div>
+        <textarea id="composer-input" class="composer-input" rows="2"
+          placeholder="e.g. turn on the porch light at sunset and off at 11pm"></textarea>
+        <div class="composer-actions">
+          <button id="composer-draft" class="sug-btn composer-draft">✎ Draft automation</button>
+        </div>
+        <div id="composer-result" class="composer-result" hidden>
+          <div id="composer-msg" class="composer-msg"></div>
+          <pre id="composer-yaml" class="sug-yaml" hidden></pre>
+          <div class="composer-actions">
+            <button id="composer-install" class="sug-btn sug-approve" hidden>✓ Install</button>
+            <button id="composer-discard" class="sug-btn sug-dismiss">✕ Discard</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
   _renderSuggestions(d) {
     const sugs = d.suggestions || [];
+    const composer = this._renderComposer();
     const TYPE_LABEL = {
       time_routine: 'DAILY ROUTINE', sequence: 'ACTION SEQUENCE',
       repeated_command: 'REPEATED COMMAND', temp_pref: 'TEMPERATURE',
       presence: 'PRESENCE', numeric_trigger: 'SENSOR THRESHOLD',
     };
     if (!sugs.length) {
-      return `
+      return composer + `
         <div class="meta sug-wrap sug-empty">
           <div class="sug-header">
             <span class="sug-header-title">WHAT JARVIS HAS LEARNED</span>
@@ -2906,7 +2934,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         <pre class="sug-yaml" hidden>${this._esc(s.yaml || '')}</pre>
       </div>`;
     }).join('');
-    return `
+    return composer + `
       <div class="meta sug-wrap" style="margin-top:8px;border-top:1px solid var(--line);padding-top:10px;">
         <div class="sug-header">
           <span class="sug-header-title">WHAT JARVIS HAS LEARNED</span>
@@ -6418,6 +6446,77 @@ ${this._renderExcludedEntities(d)}
         if (pre) pre.hidden = !pre.hidden;
       });
     });
+
+    // NL automation composer: describe → draft (validated, not installed) →
+    // review → install. Nothing is written until Install is clicked.
+    const cInput = this.shadowRoot.getElementById("composer-input");
+    const cDraftBtn = this.shadowRoot.getElementById("composer-draft");
+    const cResult = this.shadowRoot.getElementById("composer-result");
+    const cMsg = this.shadowRoot.getElementById("composer-msg");
+    const cYaml = this.shadowRoot.getElementById("composer-yaml");
+    const cInstall = this.shadowRoot.getElementById("composer-install");
+    const cDiscard = this.shadowRoot.getElementById("composer-discard");
+    if (cDraftBtn) {
+      cDraftBtn.addEventListener("click", async () => {
+        const text = (cInput?.value || "").trim();
+        if (!text) { this._toast("Describe the automation first", "err"); return; }
+        if (!this._hass) return;
+        cDraftBtn.disabled = true; cDraftBtn.textContent = "… drafting";
+        try {
+          const res = await this._hass.callWS({
+            type: "jarvis/compose_automation", action: "draft", text });
+          if (res?.ok) {
+            this._composerDraft = res.draft;
+            if (cMsg) cMsg.textContent =
+              `Review "${res.draft?.alias || 'automation'}" before installing:`;
+            if (cYaml) { cYaml.textContent = res.draft?.yaml || ""; cYaml.hidden = false; }
+            if (cInstall) cInstall.hidden = false;
+            if (cResult) cResult.hidden = false;
+          } else {
+            this._composerDraft = null;
+            if (cMsg) cMsg.textContent = res?.error || "Couldn't draft that.";
+            const attempted = res?.draft?.args
+              ? JSON.stringify(res.draft.args, null, 2) : "";
+            if (cYaml) { cYaml.textContent = attempted; cYaml.hidden = !attempted; }
+            if (cInstall) cInstall.hidden = true;   // never offer install on an invalid draft
+            if (cResult) cResult.hidden = false;
+          }
+        } catch (err) {
+          this._toast(`✗ draft — ${err?.message || err}`, "err");
+        } finally {
+          cDraftBtn.disabled = false; cDraftBtn.textContent = "✎ Draft automation";
+        }
+      });
+    }
+    if (cInstall) {
+      cInstall.addEventListener("click", async () => {
+        if (!this._hass || !this._composerDraft) return;
+        cInstall.disabled = true;
+        try {
+          const res = await this._hass.callWS({
+            type: "jarvis/compose_automation", action: "install",
+            draft: this._composerDraft });
+          if (res?.ok) {
+            this._toast(`✓ installed — "${res.alias || 'automation'}" is now live`, "ok");
+            this._composerDraft = null;
+            if (cResult) cResult.hidden = true;
+            if (cInput) cInput.value = "";
+          } else {
+            this._toast(`✗ ${res?.error || 'install failed'}`, "err");
+          }
+        } catch (err) {
+          this._toast(`✗ install — ${err?.message || err}`, "err");
+        } finally {
+          cInstall.disabled = false;
+        }
+      });
+    }
+    if (cDiscard) {
+      cDiscard.addEventListener("click", () => {
+        this._composerDraft = null;
+        if (cResult) cResult.hidden = true;
+      });
+    }
 
     // Goals: cancel an active goal
     this.shadowRoot.querySelectorAll(".goal-cancel").forEach(btn => {
@@ -11632,6 +11731,20 @@ ${this._renderExcludedEntities(d)}
     background: transparent; border: 1px solid var(--line); color: var(--text-dim);
   }
   .sug-btn:hover { border-color: var(--line-hot); color: var(--text); }
+  .sug-composer { margin-top: 8px; }
+  .composer-sub { font-size: 11px; opacity: 0.65; margin: 2px 0 6px; line-height: 1.4; }
+  .composer-input {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    background: rgba(4, 8, 14, 0.7); border: 1px solid var(--line);
+    color: var(--text, #e2e8f0); border-radius: 6px; padding: 8px;
+    font: inherit; font-size: 12px;
+  }
+  .composer-input:focus { outline: none; border-color: var(--green); }
+  .composer-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  .composer-result { margin-top: 8px; }
+  .composer-msg { font-size: 12px; margin-bottom: 6px; }
+  .composer-draft { border-color: rgba(0,245,160,0.35); color: var(--green); }
+  .composer-draft:hover { border-color: var(--green); background: rgba(0,245,160,0.08); }
   .sug-approve { border-color: rgba(0,245,160,0.35); color: var(--green); }
   .sug-approve:hover { border-color: var(--green); background: rgba(0,245,160,0.08); }
   .sug-dismiss { border-color: rgba(255,77,109,0.3); color: #ff8a9d; }

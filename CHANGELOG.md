@@ -1,3 +1,36 @@
+## [9.57.0] — Natural-language automation composer in the Suggestions tab
+
+You could already author automations in plain language from **chat** (the agent's
+`create_automation` tool). The **Suggestions tab** had no equivalent — only a
+review list of machine-learned patterns. Now it has a composer: **describe an
+automation in plain English → JARVIS drafts it → you review → install.**
+
+- **Describe:** a text box at the top of the Suggestions tab ("turn on the porch
+  light at sunset and off at 11pm").
+- **Draft:** JARVIS turns it into a real HA automation, referencing your actual
+  entities, and **validates every entity_id and service against the live home**.
+  Nothing is written yet — the drafted YAML is shown for review. If a name is
+  wrong, it says so (with the closest real match) instead of installing a
+  silently-broken automation.
+- **Install:** one click writes and reloads it. **Review before install** — a
+  draft is never installed on its own.
+
+Under the hood: `create_automation` gains an `install=False` dry-run (validate +
+return the built config/YAML without writing); `draft_automation` does a single
+LLM tool-call constrained to the home's real entities, then that dry-run; a new
+admin-only `jarvis/compose_automation` websocket command drives draft/install.
+The chat path is unchanged and still works.
+
+Scope (v1, honest): drafting is a single pass (not the agent's multi-step
+search-and-retry), so a complex request against a large home may need a rephrase;
+the validation + closest-name feedback makes that visible rather than silent.
+
+Tests (`test_automation_composer.py`): the dry-run preview (writes nothing),
+drafting builds a validated preview without installing, invalid names are
+surfaced, a prose (non-tool) reply is handled, empty text / no provider are
+handled, and a reviewed draft installs. Backend `tests/` green; panel `node
+--check` + jsdom smoke clean; all 8 kernel gates + audit green.
+
 ## [9.56.0] — Suggestions cross-referenced against your existing automations
 
 JARVIS learns patterns and proposes automations, but it only ever de-duplicated

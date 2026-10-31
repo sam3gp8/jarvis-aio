@@ -112,6 +112,7 @@ async def create_automation(
     action: list[dict] | dict = None,
     mode: str = "single",
     validate: bool = False,
+    install: bool = True,
 ) -> dict[str, Any]:
     """
     Create and register a new HA automation programmatically.
@@ -183,6 +184,20 @@ async def create_automation(
     except Exception as exc:
         return {"success": False, "error": f"YAML generation failed: {exc}"}
 
+    # Dry-run (review before install): validation has already run above, so hand
+    # back the built config + its YAML for the caller to show the user, WITHOUT
+    # writing anything. Used by the Suggestions-tab composer so a drafted
+    # automation is reviewed and only installed on an explicit second step.
+    if not install:
+        return {
+            "success": True,
+            "preview": True,
+            "automation_id": automation_id,
+            "alias": f"JARVIS · {alias}",
+            "config": auto_config,
+            "yaml": yaml_str,
+        }
+
     # Write to automations.yaml
     try:
         automations_path = hass.config.path("automations.yaml")
@@ -225,3 +240,130 @@ async def create_automation(
     except Exception as exc:
         _LOGGER.error("JARVIS automation creation failed: %s", exc)
         return {"success": False, "error": str(exc)}
+
+
+# ── Natural-language composer (Suggestions tab) ──────────────────────────────
+# The chat agent already authors automations from plain language via its
+# create_automation tool. The Suggestions tab had no equivalent — only a review
+# list of machine-learned patterns. draft_automation gives the panel a one-shot
+# "describe it → review it → install it" path that reuses the SAME validation,
+# so a drafted automation is checked against the real home before it is written,
+# and only installed on an explicit second step (review before install).
+
+_COMPOSER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "create_automation",
+        "description": ("Define the single automation the user described, using "
+                        "ONLY real entity_ids and services from the home."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "alias": {"type": "string", "description": "Short human name."},
+                "description": {"type": "string"},
+                "trigger": {"type": "array", "items": {"type": "object"},
+                            "description": ("HA trigger(s), e.g. "
+                                            "[{\"trigger\":\"sun\",\"event\":\"sunset\"}] "
+                                            "or [{\"trigger\":\"state\",\"entity_id\":"
+                                            "\"binary_sensor.front_door\",\"to\":\"on\"}].")},
+                "condition": {"type": "array", "items": {"type": "object"}},
+                "action": {"type": "array", "items": {"type": "object"},
+                           "description": ("HA action(s), e.g. "
+                                           "[{\"action\":\"light.turn_on\",\"target\":"
+                                           "{\"entity_id\":\"light.porch\"}}].")},
+                "mode": {"type": "string"},
+            },
+            "required": ["alias", "trigger", "action"],
+        },
+    },
+}
+
+# Domains worth offering the drafting model as references.
+_ACTUATABLE = ("light", "switch", "fan", "lock", "cover", "climate", "media_player",
+               "input_boolean", "scene", "script", "humidifier", "vacuum", "siren")
+_TRIGGERABLE = ("binary_sensor", "device_tracker", "person", "sensor", "input_boolean")
+
+
+def _entity_hint(hass: HomeAssistant, limit: int = 160) -> str:
+    """A compact 'entity_id — friendly name' list so the drafting model references
+    real ids instead of inventing them. Capped; best-effort; never raises."""
+    lines: list[str] = []
+    seen: set = set()
+
+    def _add(domains, cap):
+        for dom in domains:
+            try:
+                for st in hass.states.async_all(dom):
+                    if st.entity_id in seen:
+                        continue
+                    seen.add(st.entity_id)
+                    fn = st.attributes.get("friendly_name") or st.entity_id
+                    lines.append(f"{st.entity_id} — {fn}")
+                    if len(lines) >= cap:
+                        return
+            except Exception:
+                return
+
+    _add(_ACTUATABLE, limit)
+    _add(_TRIGGERABLE, limit * 2)
+    return "\n".join(lines[:limit * 2])
+
+
+async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[str, Any]:
+    """Turn a plain-language request into a reviewed automation draft WITHOUT
+    installing it. The model emits a structured trigger/action referencing real
+    entities; every name is validated against the live home, and the draft + its
+    YAML (plus any bad names) are handed back for review. Never raises."""
+    text = (text or "").strip()
+    if not text:
+        return {"ok": False, "error": "Describe the automation you'd like."}
+    if client is None:
+        return {"ok": False, "error": ("No reasoning provider is configured, so I "
+                "can't draft automations from the panel yet.")}
+    system = ("You convert ONE natural-language request into a single Home "
+              "Assistant automation by calling create_automation. Use ONLY real "
+              "entity_ids and services from this home — never invent names — and "
+              "prefer the modern keys ('trigger', 'action'). Home entities:\n"
+              + _entity_hint(hass))
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": text}]
+
+    def _call():
+        return client.chat(messages=messages, tools=[_COMPOSER_TOOL],
+                           max_tokens=1024, temperature=0.2)
+
+    try:
+        result = await hass.async_add_executor_job(_call)
+    except Exception as exc:
+        return {"ok": False, "error": f"Drafting failed: {exc}"}
+
+    calls = (result or {}).get("tool_calls") or []
+    if not calls:
+        return {"ok": False,
+                "error": ((result or {}).get("text") or "").strip()
+                or "I couldn't turn that into an automation — name the trigger "
+                   "and what should happen."}
+    args = calls[0].get("args") or {}
+    preview = await create_automation(
+        hass, alias=(args.get("alias") or "Automation"),
+        description=args.get("description", ""),
+        trigger=args.get("trigger"), condition=args.get("condition"),
+        action=args.get("action"), mode=args.get("mode", "single"),
+        validate=True, install=False)
+    norm_args = {
+        "alias": args.get("alias") or "Automation",
+        "description": args.get("description", ""),
+        "trigger": args.get("trigger"), "condition": args.get("condition"),
+        "action": args.get("action"), "mode": args.get("mode", "single"),
+    }
+    if not preview.get("success"):
+        # drafted, but references a name the home doesn't have — show why.
+        return {"ok": False, "error": preview.get("error"),
+                "invalid_entities": preview.get("invalid_entities"),
+                "invalid_services": preview.get("invalid_services"),
+                "draft": {"args": norm_args}}
+    return {"ok": True, "draft": {
+        "alias": preview.get("alias"),
+        "yaml": preview.get("yaml"),
+        "args": norm_args,
+    }}
