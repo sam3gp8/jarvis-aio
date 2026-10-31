@@ -510,6 +510,38 @@ def _find_entities_in_area(hass, area_name, domain):
     return results
 
 
+# Actions whose captured group is a VALUE (a number) and/or an optional AREA,
+# never a device name — so the target entity is resolved from the area (if one
+# was captured) or a sole/active default, not by searching for the number/None.
+_MEDIA_ACTIONS = frozenset({"media_pause", "media_play", "media_next",
+                            "volume_up", "volume_down", "mute", "unmute", "volume_set"})
+
+
+def _default_target(hass, domain):
+    """The unambiguous default entity for a domain when a command named none.
+
+    For media_player: a single currently-active player (playing / paused /
+    buffering) wins; otherwise the sole non-satellite media_player. For any other
+    domain: the sole entity. Returns None when it is ambiguous (zero, or several
+    with no single active one) so the caller falls through rather than guessing
+    the wrong device. Never raises.
+    """
+    try:
+        ents = [s.entity_id for s in hass.states.async_all(domain)
+                if not s.entity_id.startswith("assist_satellite.")]
+        if domain == "media_player":
+            active = [e for e in ents
+                      if (hass.states.get(e) and
+                          hass.states.get(e).state in ("playing", "paused", "buffering"))]
+            if len(active) == 1:
+                return active[0]
+        if len(ents) == 1:
+            return ents[0]
+    except Exception:   # pragma: no cover - defensive
+        pass
+    return None
+
+
 def _find_scene_or_script(hass, name_fragment):
     fragment = name_fragment.lower().strip()
     for suffix in ("scene", "script", "routine", "mode"):
@@ -957,6 +989,45 @@ async def try_local(hass, text, honorific="sir", force=False):
         if action in ("query_time", "query_date", "greeting", "thanks", "status"):
             return LocalResult(text=_query_resp(hass, action, "", "", honorific), success=True)
         groups = match.groups()
+        # Value/area actions: the capture is a number and/or an optional area, not
+        # an entity name. Resolve the target from the captured area (if any) or a
+        # sole/active default, so "pause the music", "set volume to 50" and "set
+        # the temperature to 72" work without a named device instead of searching
+        # for the literal number / skipping on a null name.
+        if action in _MEDIA_ACTIONS or action == "set_temp":
+            if action == "set_temp":
+                num, area = (groups[0] if groups else None), None
+            elif action == "volume_set":
+                num = groups[0] if groups else None
+                area = groups[1] if len(groups) > 1 else None
+            else:   # media_pause/play/next, volume_up/down, mute/unmute — area only
+                num, area = None, (groups[0] if groups else None)
+            tgt_domain = "climate" if action == "set_temp" else "media_player"
+            target = None
+            if area:
+                found = _find_entities_in_area(hass, area, tgt_domain)
+                target = found[0][0] if found else None
+            if not target:
+                target = _default_target(hass, tgt_domain)
+            if not target:
+                # ambiguous (no area match, no sole/active default) → fall through
+                # to the LLM online; honest failure named below in offline mode.
+                _last_failed_name = area or f"a {tgt_domain.replace('_', ' ')}"
+                continue
+            vargs = {}
+            if num is not None:
+                try:
+                    vargs["temperature" if action == "set_temp" else "volume_level"] = int(num)
+                except (ValueError, TypeError):
+                    continue
+            if _needs_confirmation(hass, action, target):
+                return None
+            success = await _execute_action(hass, action, target, vargs)
+            st = hass.states.get(target)
+            fname = st.attributes.get("friendly_name", target) if st else target
+            _update_ctx(entity=target, domain=target.split(".")[0], action=action)
+            return LocalResult(text=_resp(action, fname, success, vargs, honorific),
+                               success=success)
         name_frag = groups[0] if groups else ""
         extra_arg = groups[1] if len(groups) > 1 else None
         if not name_frag:
