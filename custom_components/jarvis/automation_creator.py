@@ -21,6 +21,11 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from .tool_driver import Done, run_tool_loop
+# Re-exported: the composer's JSON parsing lives in the shared driver now, but
+# tests and any caller still reach it here.
+from .tool_driver import _extract_json  # noqa: F401
+
 _LOGGER = logging.getLogger(__name__)
 
 # A HA entity_id / dotted service reference: domain.object_id, all lowercase.
@@ -382,101 +387,83 @@ def _draft_fail(last_error: dict | None, last_args: dict | None,
 
 async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[str, Any]:
     """Turn a plain-language request into a reviewed automation draft WITHOUT
-    installing it. Tries a bounded agentic tool-calling loop first (search → compose
-    → validate, retrying bad names); if the provider never emits a tool call — e.g.
-    a local model without function-calling, like Gemma via Ollama — it falls back to
-    a tools-free JSON-output draft that any instruction-following model can satisfy.
-    Returns the draft + its YAML for review (install is a separate step), or the
-    last validation failure with the closest real names. Never raises."""
+    installing it.
+
+    Runs the shared agentic tool-driver: search → compose → validate, retrying a
+    bad name. The driver picks native function-calling or a tools-free JSON-action
+    protocol by the model's capability (probed and cached), so a local model that
+    can't call functions — like Gemma via Ollama — drafts with the SAME search +
+    retry capability over plain JSON. Returns the draft + its YAML for review
+    (install is a separate step), or the last validation failure with the closest
+    real names. Never raises."""
     text = (text or "").strip()
     if not text:
         return {"ok": False, "error": "Describe the automation you'd like."}
     if client is None:
         return {"ok": False, "error": ("No reasoning provider is configured, so I "
                 "can't draft automations from the panel yet.")}
-    res = await _draft_with_tools(hass, text, client)
-    if res.get("ok") or res.get("saw_tool_call"):
-        res.pop("saw_tool_call", None)
-        res.pop("prose", None)
-        return res
-    # The provider produced no tool call (no function-calling support). Fall back
-    # to a JSON-output draft, preserving any prose the model did return.
-    return await _draft_with_json(hass, text, client, prior_prose=res.get("prose"))
 
+    # The handlers are shared by both driver modes; state captures the last
+    # validation failure so a give-up surfaces the composer's precise feedback
+    # (closest real names), not a generic message.
+    state: dict[str, Any] = {"last_error": None, "last_args": None}
 
-async def _draft_with_tools(hass: HomeAssistant, text: str, client) -> dict:
-    """Agentic tool-calling draft: search → compose → validate, retrying on a bad
-    name. Sets ``saw_tool_call=False`` when the provider never emitted a tool call,
-    so the caller can fall back to the tools-free path."""
-    system = ("You compose ONE Home Assistant automation from the user's request. "
-              "FIRST call search_entities to resolve the real entity_ids you need — "
-              "never invent names — THEN call create_automation with those ids and "
-              "the modern keys ('trigger', 'action'). If create_automation reports an "
-              "unknown name, search for the correct one and try again. Some of the "
-              "home's entities:\n" + _entity_hint(hass))
-    working: list[dict] = [{"role": "system", "content": system},
-                           {"role": "user", "content": text}]
-    tools = [_SEARCH_TOOL, _COMPOSER_TOOL]
-    last_error: dict | None = None
-    last_args: dict | None = None
-    saw_tool_call = False
+    def _do_search(args: dict):
+        hits = _search_entities_for_draft(hass, args.get("query", ""), args.get("domain"))
+        return "search results: " + json.dumps(hits)
 
-    for _ in range(_DRAFT_MAX_STEPS):
-        def _call():
-            return client.chat(messages=working, tools=tools,
-                               max_tokens=1024, temperature=0.2)
-        try:
-            result = await hass.async_add_executor_job(_call)
-        except Exception as exc:
-            return {"ok": False, "error": f"Drafting failed: {exc}",
-                    "saw_tool_call": saw_tool_call}
+    async def _do_create(args: dict):
+        auto = _coerce_automation(args) or (args if isinstance(args, dict) else {})
+        last_args = {
+            "alias": auto.get("alias") or "Automation",
+            "description": auto.get("description", ""),
+            "trigger": auto.get("trigger"), "condition": auto.get("condition"),
+            "action": auto.get("action"), "mode": auto.get("mode", "single"),
+        }
+        state["last_args"] = last_args
+        preview = await create_automation(hass, validate=True, install=False, **last_args)
+        if preview.get("success"):
+            return Done(_draft_ok(preview, last_args))
+        state["last_error"] = preview
+        return (f"Those names are not in the home: {_bad_names(preview) or preview.get('error')}. "
+                "Use search_entities to find the correct ids, then try again.")
 
-        calls = (result or {}).get("tool_calls") or []
-        if not calls:
-            if saw_tool_call:
-                return {**_draft_fail(last_error, last_args), "saw_tool_call": True}
-            return {"ok": False, "saw_tool_call": False,
-                    "prose": ((result or {}).get("text") or "").strip()}
+    handlers = {
+        "search": _do_search, "search_entities": _do_search,
+        "create": _do_create, "create_automation": _do_create,
+    }
+    system_native = (
+        "You compose ONE Home Assistant automation from the user's request. "
+        "FIRST call search_entities to resolve the real entity_ids you need — "
+        "never invent names — THEN call create_automation with those ids and the "
+        "modern keys ('trigger', 'action'). If create_automation reports an unknown "
+        "name, search for the correct one and try again. Some of the home's "
+        "entities:\n" + _entity_hint(hass))
+    system_json = (
+        "You create ONE Home Assistant automation for the user's request. Search for "
+        "each device the request names before building, and use ONLY entity_ids that "
+        "search returned — never invent them. Entities to start from:\n"
+        + _relevant_entity_hint(hass, text))
+    json_hint = (
+        "Each trigger/action item uses Home Assistant's modern keys "
+        "'trigger'/'action', e.g. "
+        '{"trigger":"state","entity_id":"binary_sensor.x","to":"on"} and '
+        '{"action":"light.turn_on","target":{"entity_id":"light.y"}}. '
+        "Find device ids with "
+        '{"tool":"search_entities","args":{"query":"..."}}, then build it with '
+        '{"tool":"create_automation","args":{"alias":"...","trigger":[...],'
+        '"condition":[...],"action":[...]}}.')
 
-        saw_tool_call = True
-        working.append({
-            "role": "assistant",
-            "content": result.get("text") or "",
-            "tool_calls": [{"id": c.get("id") or f"call_{i}", "type": "function",
-                            "function": {"name": c.get("name"),
-                                         "arguments": json.dumps(c.get("args") or {})}}
-                           for i, c in enumerate(calls)],
-        })
-        for i, call in enumerate(calls):
-            cid = call.get("id") or f"call_{i}"
-            name = call.get("name")
-            args = call.get("args") or {}
-            if name == "search_entities":
-                hits = _search_entities_for_draft(hass, args.get("query", ""),
-                                                  args.get("domain"))
-                working.append({"role": "tool", "tool_call_id": cid,
-                                "content": json.dumps(hits)})
-            elif name == "create_automation":
-                last_args = {
-                    "alias": args.get("alias") or "Automation",
-                    "description": args.get("description", ""),
-                    "trigger": args.get("trigger"), "condition": args.get("condition"),
-                    "action": args.get("action"), "mode": args.get("mode", "single"),
-                }
-                preview = await create_automation(
-                    hass, validate=True, install=False, **last_args)
-                if preview.get("success"):
-                    return {**_draft_ok(preview, last_args), "saw_tool_call": True}
-                last_error = preview
-                working.append({"role": "tool", "tool_call_id": cid, "content": json.dumps({
-                    "error": preview.get("error"),
-                    "invalid_entities": preview.get("invalid_entities"),
-                    "invalid_services": preview.get("invalid_services")})})
-            else:
-                working.append({"role": "tool", "tool_call_id": cid,
-                                "content": json.dumps({"error": f"unknown tool {name}"})})
+    res = await run_tool_loop(
+        hass, client,
+        system=system_native, json_system=system_json, user=text,
+        tools=[_SEARCH_TOOL, _COMPOSER_TOOL], handlers=handlers,
+        json_hint=json_hint, default_tool="create",
+        max_steps=_DRAFT_MAX_STEPS, temperature=0.2)
 
-    return {**_draft_fail(last_error, last_args), "saw_tool_call": True}
+    if isinstance(res.get("done"), dict):
+        return res["done"]
+    return _draft_fail(state["last_error"], state["last_args"], prose=res.get("text"))
 
 
 _DRAFT_STOP = {
@@ -485,32 +472,6 @@ _DRAFT_STOP = {
     "it", "they", "them", "up", "down", "turn", "set", "for", "if", "then", "my",
     "you", "your", "space", "please", "detected", "leave", "person", "people",
 }
-
-
-def _extract_json(text: str):
-    """Best-effort: pull the first JSON object out of a model reply — handles
-    ```json fences and surrounding prose. Returns a dict/list, or None."""
-    if not text:
-        return None
-    t = text.strip()
-    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", t, re.S)
-    if m:
-        t = m.group(1)
-    start = t.find("{")
-    if start < 0:
-        return None
-    depth = 0
-    for i in range(start, len(t)):
-        if t[i] == "{":
-            depth += 1
-        elif t[i] == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(t[start:i + 1])
-                except Exception:
-                    return None
-    return None
 
 
 def _relevant_entity_hint(hass: HomeAssistant, text: str, limit: int = 160) -> str:
@@ -538,8 +499,9 @@ def _bad_names(preview: dict) -> str:
 
 
 def _coerce_automation(data: dict) -> dict | None:
-    """Pull an automation object out of a model's JSON action — either the wrapped
-    ``{"tool":"create","automation":{...}}`` or a bare ``{alias,trigger,action}``."""
+    """Pull an automation object out of a model's JSON action — either a wrapped
+    ``{"automation":{...}}`` or a bare ``{alias,trigger,action}``. Returns None
+    when it carries no usable trigger+action."""
     if not isinstance(data, dict):
         return None
     if isinstance(data.get("automation"), dict):
@@ -547,76 +509,3 @@ def _coerce_automation(data: dict) -> dict | None:
     if data.get("trigger") and data.get("action"):
         return data
     return None
-
-
-async def _draft_with_json(hass: HomeAssistant, text: str, client,
-                           prior_prose: str | None = None) -> dict:
-    """Tools-free AGENTIC draft for models without function-calling (e.g. local
-    Gemma via Ollama). The model drives a search → compose → validate loop by
-    emitting ONE JSON *action* per turn — a ``search`` to resolve device ids, or a
-    ``create`` with the automation — which JARVIS executes and feeds back. This
-    gives a non-tool model the SAME capability as the native tool loop, over a
-    plain-JSON protocol it can follow. Still never installs: the result is a
-    validated draft for review."""
-    system = (
-        "You create ONE Home Assistant automation, step by step. Reply with EXACTLY "
-        "ONE JSON object per message and NOTHING else. Two actions:\n"
-        '  • find device ids:  {"tool": "search", "query": "chaise lamp"}\n'
-        '  • build it:          {"tool": "create", "automation": {"alias": "...", '
-        '"trigger": [ ... ], "condition": [ ... ], "action": [ ... ]}}\n'
-        "Rules: use ONLY entity_ids that search returned — never invent them. Each "
-        "trigger/action item uses Home Assistant's modern keys 'trigger'/'action', "
-        'e.g. {"trigger":"state","entity_id":"binary_sensor.x","to":"on"} and '
-        '{"action":"light.turn_on","target":{"entity_id":"light.y"}}. '
-        "Search for each device the request names before building. Entities to start from:\n"
-        + _relevant_entity_hint(hass, text))
-    messages = [{"role": "system", "content": system},
-                {"role": "user", "content": text}]
-    last_error: dict | None = None
-    last_args: dict | None = None
-
-    for _ in range(_DRAFT_MAX_STEPS):
-        def _call():
-            return client.chat(messages=messages, max_tokens=1024, temperature=0.1)
-        try:
-            result = await hass.async_add_executor_job(_call)
-        except Exception as exc:
-            return {"ok": False, "error": f"Drafting failed: {exc}"}
-        raw = (result or {}).get("text") or ""
-        messages.append({"role": "assistant", "content": raw[:1200]})
-        data = _extract_json(raw)
-        tool = data.get("tool") if isinstance(data, dict) else None
-
-        if tool == "search":
-            hits = _search_entities_for_draft(hass, (data.get("query") or ""))
-            messages.append({"role": "user", "content":
-                             "search results: " + json.dumps(hits)
-                             + "\nReply with your next JSON action."})
-            continue
-
-        auto = _coerce_automation(data) if (tool in (None, "create")) else None
-        if auto:
-            last_args = {
-                "alias": auto.get("alias") or "Automation",
-                "description": auto.get("description", ""),
-                "trigger": auto.get("trigger"), "condition": auto.get("condition"),
-                "action": auto.get("action"), "mode": auto.get("mode", "single"),
-            }
-            preview = await create_automation(hass, validate=True, install=False, **last_args)
-            if preview.get("success"):
-                return _draft_ok(preview, last_args)
-            last_error = preview
-            messages.append({"role": "user", "content":
-                             f"Those names are not in the home: {_bad_names(preview) or preview.get('error')}. "
-                             'Use {"tool":"search",...} to find the correct ids, then try again.'})
-            continue
-
-        # Unparseable / unknown — nudge back to the protocol (don't clobber a real error).
-        if last_error is None:
-            last_error = {"error": "I couldn't turn that into an automation — name the "
-                          "trigger (what starts it) and the action (what should happen)."}
-        messages.append({"role": "user", "content":
-                         'Reply with ONE JSON action only: {"tool":"search","query":"..."} '
-                         'or {"tool":"create","automation":{...}}.'})
-
-    return _draft_fail(last_error, last_args, prose=prior_prose)

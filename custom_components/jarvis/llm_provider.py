@@ -260,8 +260,15 @@ class LLMProvider(ABC):
         """Whether this backend's `thinking` chat() kwarg has any effect."""
         return False
 
-    def supports_tools(self) -> bool:
-        """Whether this backend supports function/tool calling."""
+    def supports_tools(self) -> Optional[bool]:
+        """Whether this backend supports function/tool calling.
+
+        True  — the backend always supports it (every cloud provider).
+        False — it never does.
+        None  — unknown, decide by probing at runtime (local backends, where it
+                depends on the pulled model). The shared tool_driver.supports_tools
+                turns a None into a cached one-time probe.
+        """
         return True
 
 
@@ -486,6 +493,13 @@ class OllamaProvider(OpenAIProvider):
 
     def supports_thinking(self) -> bool:
         return True
+
+    def supports_tools(self) -> Optional[bool]:
+        # Local models vary: llama3.1/qwen3/mistral do function-calling, gemma
+        # and many others don't. We can't tell from the model name reliably, so
+        # return None — the tool_driver probes once and caches the verdict, and
+        # a model that can't call tools transparently gets the JSON-action loop.
+        return None
 
 
 # ─── Gemini (Google GenAI Interactions API) ──────────────────────────────────
