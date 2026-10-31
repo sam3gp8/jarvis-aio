@@ -1,3 +1,47 @@
+## [9.62.0] — Local-parity: finish the sweep + document the principle
+
+Steps 4 and 5 (the last) of the local-capability-parity roadmap. Auditing the
+remaining tool-dependent paths was as much about what *didn't* need the driver as
+what did — reported honestly rather than forced:
+
+- **Delegation already has parity, transitively.** `_run_delegated` runs its
+  sub-agents through `run_agent(allowed_tools=…)`, and `run_agent` (9.61) already
+  routes a non-function-calling model through the JSON-action driver — so a
+  delegated sub-agent (FRIDAY/HOMER, or a capability group) on a local model
+  drives its scoped tools over JSON with no new wiring. Locked in with a
+  regression test rather than re-plumbed.
+- **The conversation front door** (`_agentic_loop`) is legacy; the live path is
+  `run_agent`, so it already inherits the above. No change.
+- **Web research is not a tool-calling loop** — it's model-independent retrieval
+  (DuckDuckGo / SearXNG) plus an opt-in LLM-grounded fallback. It needed no
+  driver, but it *did* have a real local-parity gap, now fixed:
+
+  **Web research grounded fallback now works for local-LLM installs with a Gemini
+  key.** The opt-in `web_research_llm_fallback` (Gemini's live web grounding, used
+  when DDG/SearXNG come back empty) previously fired *only* when Gemini was the
+  Main or reasoning provider. An Ollama install that runs Gemini just for
+  **vision** — a very common setup — has a Gemini key but got no grounded
+  fallback. It now fires whenever Gemini is configured in **any** provider slot
+  (Main, reasoning, vision, review, classifier) and a key is present, using that
+  slot's Gemini model. An all-local install with no Gemini anywhere is unchanged
+  (the fallback stays off — a local model can't search the live web, and JARVIS
+  won't pretend otherwise). Still opt-in, still off by default.
+
+- **The principle is now documented.** `docs/LOCAL_PARITY.md` states the policy —
+  *local models are first-class; if the configured model lacks a capability a
+  feature needs, JARVIS provides it* — names the modules that back it (the shared
+  `tool_driver`, the cached capability probe), tabulates current coverage, and is
+  honest about the one deliberate trade (the main agent's JSON path exposes the
+  curated essential tool set, not all ~40 tools) and what is genuinely out of
+  reach (a local model can't itself browse the live web). `docs/MCU_FIDELITY.md`
+  points to it, and a contributor note says to route tool-using features through
+  the driver rather than calling `chat(tools=…)` directly.
+
+Tests: a non-tool scoped sub-agent acts over JSON (delegation parity); the web
+research fallback uses a Gemini **vision** slot on an Ollama install, and stays
+off when no Gemini slot exists. Full `tests/` green; all 8 kernel gates + audit
+green.
+
 ## [9.61.0] — Local models can now ACT through the main agent, not just narrate
 
 Step 3 of the local-capability-parity roadmap, and the biggest win for local
