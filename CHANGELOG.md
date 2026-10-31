@@ -1,3 +1,38 @@
+## [9.59.0] — Fix: the automation composer now works with local models (Ollama/Gemma)
+
+The Suggestions-tab composer (9.57–9.58) drafted by having the model call a
+`create_automation` tool. **Local models without function-calling — e.g. Gemma
+via Ollama — never emit a tool call**, so every request came back "I couldn't
+turn that into an automation", even for a perfectly clear one. Reported from a
+real install running `ollama` / `gemma4:26b`.
+
+`draft_automation` now falls back to a **tools-free JSON-action loop** whenever
+the provider produces no tool call — giving a non-tool model the *same* agentic
+capability (search + compose + retry) as the native tool loop, over a plain-JSON
+protocol any instruction-following model can follow:
+
+- the model drives a loop by emitting ONE JSON **action** per turn —
+  `{"tool":"search","query":"chaise lamp"}` to resolve real device ids, or
+  `{"tool":"create","automation":{…}}` to build it — which JARVIS executes and
+  feeds back (search results, or a validation failure to correct);
+- a **keyword pre-search** seeds the first prompt with the home's *relevant* real
+  entity_ids, so it starts from correct ids;
+- replies are parsed robustly (handles ```json fences, surrounding prose, and a
+  bare `{alias,trigger,action}` without the wrapper), validated against the live
+  home, and **retried** with bad names fed back, up to the same step cap;
+- it still **never installs** — the result is a validated draft for review.
+
+Tool-capable providers (Groq / OpenAI / Gemini / Anthropic) are unchanged — they
+still use the native tool loop; the JSON-action path only engages when no tool
+call is produced. A capable model's clarifying question ("which light?") is still
+surfaced. No UI change.
+
+Tests (`test_automation_composer.py`): a no-tool-call provider drafts via the
+JSON fallback; it **searches then creates** (results threaded back) and
+**recovers from a bad name** by searching and re-composing; code-fenced and bare
+JSON are both parsed; `_extract_json` handles prose/fences. Full `tests/` green;
+all 8 kernel gates + audit green.
+
 ## [9.58.0] — Composer v2: agentic drafting (search + retry)
 
 The Suggestions-tab automation composer (9.57.0) drafted in a single LLM pass
