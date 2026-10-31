@@ -85,6 +85,34 @@ async def test_set_mode_runs_through_the_kernel_planner(
     assert len(published) == 1                          # the actuation event still fires
 
 
+async def test_set_mode_request_target_is_normalized(
+        agent, fake_hass, modes_wired, load, monkeypatch, published):
+    """The recorded ActuatorRequest must key off the CANONICAL (normalized) mode,
+    matching the emitted event's target. A non-canonical name ("  Movie  ")
+    previously built the request + idempotency key from the raw arg while the
+    event used the normalized "movie", breaking request↔event correlation and
+    idempotent dedup."""
+    # set_mode normalizes exactly like the real one (.strip().lower()).
+    monkeypatch.setattr(modes_wired, "set_mode",
+                        lambda m, r: {"ok": True, "mode": str(m).strip().lower()})
+    actuation = load("actuation")
+    req_targets = []
+    real_request = actuation.request
+
+    def _spy_request(capability, entity_id, **kw):
+        req_targets.append(entity_id)
+        return real_request(capability, entity_id, **kw)
+
+    monkeypatch.setattr(actuation, "request", _spy_request)
+
+    out = await agent._exec_set_mode(fake_hass, {"mode": "  Movie  "})
+    res = json.loads(out)
+    assert res["ok"] is True and res["mode"] == "movie"
+    # request target == canonical mode == event subject (no raw/normalized split)
+    assert req_targets == ["movie"]
+    assert len(published) == 1 and published[0].subject == "movie"
+
+
 async def test_set_mode_survives_a_planner_fault(
         agent, fake_hass, modes_wired, load, monkeypatch):
     # Fail-safe: a planner fault must never prevent the mode change.

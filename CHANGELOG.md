@@ -1,3 +1,37 @@
+## [9.55.0] — Bug-audit: agent.py (online LLM agent tool handlers)
+
+A correctness audit of `agent.py` — the online LLM-agent path (`run_agent` + the
+tool handlers) that the earlier audits left out of scope — found two real issues.
+
+**`control_device` numeric values silently dropped an explicit 0.** `set_brightness`,
+`set_temperature` and `volume_set` resolved their value with `value or <default>`,
+which treats **0 as unset**:
+
+- **"set volume to 0" / "mute" set 50%** instead of muting (`(value or 50)/100`).
+- "set brightness to 0" set 50%; "set temperature to 0" set 72°.
+
+A new `_num_arg(value, default)` helper honors an explicit 0 and only falls back
+on a genuinely absent (`None`/blank) or malformed value. (Same bug class fixed on
+the local path in 9.51.0, now closed on the LLM-agent path too.)
+
+**`set_mode` recorded a non-canonical actuation request.** The `ActuatorRequest`
+and the kernel plan step's idempotency key were built from the **raw** mode arg
+while the emitted event used the normalized `res["mode"]`, so a model-emitted
+"Movie" / " party " made the recorded request/key diverge from the event's
+target — breaking request↔event correlation and idempotent dedup. Both now key
+off the canonical `.strip().lower()` mode. (Internal ledger consistency; the mode
+itself always applied correctly.)
+
+Honestly out of scope / not changed: three adjacent `set_mode` observations
+(success read from the side-channel dict rather than the discarded `PlanReport`;
+the fail-safe `except` being effectively unreachable; a dead `or`-fallback) are
+**latent** — correct with today's single-step, postcondition-free plan — so they
+were reported, not "fixed", to avoid churn on code that works.
+
+Tests: `test_control_device_kernel.py` gains explicit-zero + default-fallback +
+`_num_arg` cases; `test_set_mode_kernel.py` gains a request-target normalization
+regression. Full `tests/` green; all 8 kernel gates + audit green.
+
 ## [9.54.0] — Follow-ups to 9.53.0: voice relevance heuristic + who_home regression lock
 
 Two follow-ups to the panel-chat "(JARVIS returned no text.)" fix, from the
