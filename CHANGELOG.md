@@ -1,3 +1,34 @@
+## [9.54.0] — Follow-ups to 9.53.0: voice relevance heuristic + who_home regression lock
+
+Two follow-ups to the panel-chat "(JARVIS returned no text.)" fix, from the
+same user report.
+
+**Voice path — multi-sentence corrections no longer dropped in a quiet room.**
+The relevance gate's "rambling dialogue" heuristic (≥2 sentence breaks, ≥8
+words, no command/question/device word) was meant to filter TV/movie dialogue,
+but it also silenced a genuine spoken correction like *"that wasn't a question.
+it was a correction. please look again."* In a quiet room, a multi-sentence
+utterance with no command word is far more likely to be a real instruction than
+ambient noise, so the heuristic now fires **only in strict mode** (media
+actually playing nearby) — matching this gate's stated bias to answer rather
+than drop, with wake-word gating and multi-wake dedup as the primary defenses.
+(In strict mode the trailing early-return already dropped such input, so this
+only changed the quiet-room outcome.) The typed path remains fully exempt
+(9.53.0).
+
+**No code change needed for the mis-routed first message — already fixed in
+9.51.0, now locked by a test.** In the same report, a long pasted automation
+description ("…when Pixel 9 Pro arrives **home**…") had been answered "No one
+appears to be home" on v9.49.0 — the bare word `home` matched the
+then-optional-prefix `who_home` query. The 9.51.0 fix (required interrogative
+prefix) already resolved it; verified against current code (`score_complexity`
+15, `try_local` returns `None` → escalates to the LLM). A regression test now
+pins that the long-automation shape is never mis-dispatched to `who_home`.
+
+Tests: `test_multi_sentence_correction_passes_in_quiet_room_but_not_during_media`
+and `test_long_automation_message_not_hijacked_by_who_home`. Full `tests/` green;
+all 8 kernel gates + audit green.
+
 ## [9.53.0] — Fix: typed panel chat dropped as "ambient" → "(JARVIS returned no text.)"
 
 A typed message in the panel's **TALK TO JARVIS** chat (and the HA text-Assist

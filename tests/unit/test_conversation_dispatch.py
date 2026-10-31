@@ -111,6 +111,23 @@ def test_relevance_gate_strict_drops_ambient_during_media():
         assert g(frag, strict=True) is False, frag        # media playing → dropped
 
 
+def test_multi_sentence_correction_passes_in_quiet_room_but_not_during_media():
+    """A multi-sentence spoken correction with no command/question/device word
+    (>=2 sentence breaks, >=8 words) is a genuine instruction, not ambient TV
+    noise, in a QUIET room — the gate must pass it. The "rambling dialogue"
+    drop is a TV/movie filter and only applies in strict mode (media playing).
+    Regression for a correction being silently swallowed on the voice path.
+    """
+    g = _load_gate_fn()
+    corrections = [
+        "that wasn't a question. it was a correction. please look again closely",
+        "no the other one. i meant the upstairs one. redo it properly for me",
+    ]
+    for c in corrections:
+        assert g(c, strict=False) is True, c      # quiet room → heard
+        assert g(c, strict=True) is False, c      # media playing → TV filter drops it
+
+
 def test_gate_and_followups_are_media_aware():
     src = SRC.read_text()
     assert "_media_playing_near(device_id)" in src, "gate must check media state"
@@ -785,8 +802,9 @@ def test_typed_panel_input_is_never_relevance_gated(monkeypatch):
     agent = _make_dispatch_agent(mod)
     correction = ("that wasn't a question. it was a correction. "
                   "Please view previous again closely")
-    # Sanity: the raw gate heuristic WOULD reject this as ambient.
-    assert mod._is_addressed_to_jarvis(correction) is False
+    # Sanity: the raw gate heuristic WOULD reject this as ambient on a voice
+    # turn with media playing (strict). Typed input must bypass the gate anyway.
+    assert mod._is_addressed_to_jarvis(correction, strict=True) is False
     typed = types.SimpleNamespace(
         text=correction, device_id=None, conversation_id="typed",
         language="en", context={})
