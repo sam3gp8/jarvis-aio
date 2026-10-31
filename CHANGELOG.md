@@ -1,3 +1,52 @@
+## [9.61.0] — Local models can now ACT through the main agent, not just narrate
+
+Step 3 of the local-capability-parity roadmap, and the biggest win for local
+setups: the online agent (`run_agent`) now drives JARVIS's tools for a model
+**without function-calling** — e.g. Gemma via Ollama.
+
+Before this, such a model ran the native tool loop, emitted no tool call, and
+**narrated an action without ever performing it** (the "replied with no tool
+call" signature, issue #413) — it could answer a question but could not actually
+control the home. Now `run_agent` checks the model's capability
+(`tool_driver.supports_tools`, the cached probe from 9.60) and, when the model
+can't call functions, routes the turn through the **shared JSON-action driver**:
+the model emits one JSON action per turn (`{"tool":<name>,"args":{…}}`), JARVIS
+runs it through the *same* tool handlers the native loop uses, and feeds the
+result back — until the model replies `{"tool":"final","text":"…"}`. So a local
+model now genuinely acts: turn devices on/off, query state, search entities, run
+scenes, check the calendar/weather, do web research.
+
+- The JSON path exposes the **curated essential tool set** (the same set the 413
+  slim-retry uses: control_device, get_entity_state, search_entities,
+  run_scene_or_script, get_area_devices, bulk_control, get_home_summary,
+  web_research, calendar_agenda, weather_forecast), not the full ~40-tool
+  surface — that neither fits a small local model's context window nor is
+  followed reliably over a JSON protocol, and the model reaches the rest via
+  search_entities + control_device. A scoped sub-agent keeps its own narrow set.
+  HA per-entity tools are dropped.
+- **The native loop is completely untouched.** Only a model that explicitly
+  reports no function-calling (`supports_tools()` → False) is diverted; every
+  cloud provider reports True and goes straight to native (no probe), and a
+  client with no capability signal (ad-hoc fakes) also stays native with the
+  loop's existing graceful no-tool handling. All the native path's recovery
+  machinery — 413 slim-retry, malformed-tool-call retry, reasoning-tier fallback,
+  Gemini run-state continuation — is intact.
+- The driver gained a `messages=` entry point so an agent with conversation
+  history (not just a single system+user request) can run through it; in JSON
+  mode the protocol is appended to the existing system turn.
+
+Honest scope: this is real parity for the **common** agentic cases, not the full
+40-tool surface — a deliberate trade for reliability on small local models, noted
+here so the matrix isn't overstated. Empty/failed turns still return the graceful
+fallback line, never a blank reply.
+
+Tests (`test_agent_json_mode.py`): a non-tool model drives a real `control_device`
+through the seam over JSON (the home actually changes); a pure-Q&A turn finals
+immediately with no service call; an unusable model returns the graceful
+fallback; a tool-capable model stays on the native loop with real tools offered.
+Driver tests gain the `messages=` history form (native + JSON). Full `tests/`
+green; all 8 kernel gates + audit green.
+
 ## [9.60.0] — Shared agentic tool-driver + provider capability probe (local-parity foundation)
 
 The composer's native-or-JSON drafting loop (9.58–9.59) proved the pattern that

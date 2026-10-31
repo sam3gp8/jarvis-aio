@@ -335,6 +335,44 @@ async def test_fallback_native_to_json_when_unknown(td):
 
 
 @pytest.mark.asyncio
+async def test_messages_history_native(td):
+    # A pre-built history is used verbatim as the loop's starting messages.
+    history = [{"role": "system", "content": "SYS"},
+               {"role": "user", "content": "u1"},
+               {"role": "assistant", "content": "a1"},
+               {"role": "user", "content": "u2"}]
+    client = _Client([{"text": "final answer", "tool_calls": []}], supports=True)
+    res = await td.run_tool_loop(
+        _Hass(), client, messages=history, tools=[_tool("x")], handlers={})
+    assert res["text"] == "final answer"
+    sent = client.seen[0]["messages"]
+    assert [m["role"] for m in sent] == ["system", "user", "assistant", "user"]
+    assert sent[0]["content"] == "SYS"
+
+
+@pytest.mark.asyncio
+async def test_messages_history_json_appends_protocol(td):
+    history = [{"role": "system", "content": "SYS"},
+               {"role": "user", "content": "do it"}]
+    client = _Client([
+        {"text": json.dumps({"tool": "finish", "args": {}}), "tool_calls": []},
+    ], supports=False)
+
+    async def _finish(args):
+        return td.Done("ok")
+
+    res = await td.run_tool_loop(
+        _Hass(), client, messages=history, tools=[_tool("finish", "end")],
+        handlers={"finish": _finish})
+    assert res["done"] == "ok"
+    # the protocol was appended to the EXISTING system turn, not a new one
+    sys_turn = client.seen[0]["messages"][0]
+    assert sys_turn["role"] == "system"
+    assert sys_turn["content"].startswith("SYS")
+    assert "JSON" in sys_turn["content"] and "finish" in sys_turn["content"]
+
+
+@pytest.mark.asyncio
 async def test_native_forced_skips_probe(td):
     # native=True forces the native path even for a no-signal client, and prose
     # is the final answer (no fallback).

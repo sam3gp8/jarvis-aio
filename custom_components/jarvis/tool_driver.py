@@ -221,13 +221,18 @@ async def _dispatch(handlers: dict, name: str, args: dict):
     return out
 
 
-async def _run_native(hass, client, *, system, user, tools, handlers,
-                      max_steps, temperature, allow_fallback) -> dict:
+async def _run_native(hass, client, *, tools, handlers, max_steps, temperature,
+                      allow_fallback, system=None, user=None, messages=None) -> dict:
     """Native function-calling loop. Returns the standard result dict, or — when
     ``allow_fallback`` and the model never emits a tool call — a marker dict
-    ``{"_fallback": True, "prose": …}`` so the caller can retry in JSON mode."""
-    working: list[dict] = [{"role": "system", "content": system},
-                           {"role": "user", "content": user}]
+    ``{"_fallback": True, "prose": …}`` so the caller can retry in JSON mode.
+
+    Starts from a pre-built ``messages`` history when given (the system turn plus
+    conversation), otherwise from ``system`` + ``user``."""
+    working: list[dict] = (
+        [dict(m) for m in messages] if messages is not None
+        else [{"role": "system", "content": system or ""},
+              {"role": "user", "content": user or ""}])
     saw_call = False
     for step in range(max_steps):
         def _call():
@@ -270,14 +275,27 @@ async def _run_native(hass, client, *, system, user, tools, handlers,
 _FINAL_TOOLS = ("final", "answer", "done")
 
 
-async def _run_json(hass, client, *, system, user, tools, handlers,
-                    max_steps, temperature, default_tool=None, json_hint="",
-                    prior_prose=None) -> dict:
+async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
+                    default_tool=None, json_hint="", prior_prose=None,
+                    system=None, user=None, messages=None) -> dict:
     """Tools-free JSON-action loop for a model without function-calling. The
-    model drives the SAME handlers by emitting one JSON action per turn."""
-    sys_prompt = system + "\n\n" + _json_protocol_prompt(tools, json_hint)
-    messages: list[dict] = [{"role": "system", "content": sys_prompt},
-                            {"role": "user", "content": user}]
+    model drives the SAME handlers by emitting one JSON action per turn.
+
+    Starts from a pre-built ``messages`` history when given — the JSON protocol is
+    appended to its system turn (or a system turn is prepended) — otherwise from
+    ``system`` + ``user`` with the protocol appended to the system prompt."""
+    proto = _json_protocol_prompt(tools, json_hint)
+    if messages is not None:
+        base = [dict(m) for m in messages]
+        if base and base[0].get("role") == "system":
+            base[0]["content"] = (base[0].get("content") or "") + "\n\n" + proto
+        else:
+            base = [{"role": "system", "content": proto}] + base
+        working: list[dict] = base
+    else:
+        working = [{"role": "system", "content": (system or "") + "\n\n" + proto},
+                   {"role": "user", "content": user or ""}]
+    messages = working
     # JSON following is most reliable at a low temperature regardless of the
     # caller's native setting.
     temp = min(temperature, 0.3)
@@ -331,15 +349,18 @@ async def _run_json(hass, client, *, system, user, tools, handlers,
             "used": "json", "steps": max_steps, "exhausted": True}
 
 
-async def run_tool_loop(hass, client, *, system, user, tools, handlers,
-                        json_system=None, json_hint="", default_tool=None,
-                        max_steps=MAX_DRIVER_STEPS, temperature=0.4,
-                        native=None) -> dict:
+async def run_tool_loop(hass, client, *, system=None, user=None, messages=None,
+                        tools, handlers, json_system=None, json_hint="",
+                        default_tool=None, max_steps=MAX_DRIVER_STEPS,
+                        temperature=0.4, native=None) -> dict:
     """Drive an agentic tool loop, native or JSON, picking the mode by capability.
 
     Args:
       system:       system prompt for native mode (task + any context).
       user:         the user request.
+      messages:     a pre-built message history ([system, …conversation]) to use
+                    INSTEAD of ``system``+``user`` — for an agent with prior turns.
+                    In JSON mode the protocol is appended to its system turn.
       tools:        OpenAI-style function tool schemas — used directly in native
                     mode and to generate the JSON protocol description.
       handlers:     ``{name: handler}``; a handler takes an args dict and returns
@@ -348,7 +369,7 @@ async def run_tool_loop(hass, client, *, system, user, tools, handlers,
                     JSON verbs) in this map.
       json_system:  system prompt for JSON mode, if it should differ from
                     ``system`` (e.g. a request-biased entity hint). Defaults to
-                    ``system``.
+                    ``system``. Ignored when ``messages`` is given.
       json_hint:    extra protocol guidance appended to the JSON system prompt
                     (concrete examples for the task).
       default_tool: the handler an unlabelled JSON object is routed to, for a
@@ -363,17 +384,20 @@ async def run_tool_loop(hass, client, *, system, user, tools, handlers,
     # cap: True → native only · False → JSON only · None → native w/ JSON fallback.
     if cap is False:
         return await _run_json(
-            hass, client, system=(json_system or system), user=user, tools=tools,
-            handlers=handlers, max_steps=max_steps, temperature=temperature,
+            hass, client, system=(json_system or system), user=user,
+            messages=messages, tools=tools, handlers=handlers,
+            max_steps=max_steps, temperature=temperature,
             default_tool=default_tool, json_hint=json_hint)
 
     res = await _run_native(
-        hass, client, system=system, user=user, tools=tools, handlers=handlers,
-        max_steps=max_steps, temperature=temperature, allow_fallback=(cap is None))
+        hass, client, system=system, user=user, messages=messages, tools=tools,
+        handlers=handlers, max_steps=max_steps, temperature=temperature,
+        allow_fallback=(cap is None))
     if res.get("_fallback"):
         return await _run_json(
-            hass, client, system=(json_system or system), user=user, tools=tools,
-            handlers=handlers, max_steps=max_steps, temperature=temperature,
+            hass, client, system=(json_system or system), user=user,
+            messages=messages, tools=tools, handlers=handlers,
+            max_steps=max_steps, temperature=temperature,
             default_tool=default_tool, json_hint=json_hint,
             prior_prose=res.get("prose"))
     return res
