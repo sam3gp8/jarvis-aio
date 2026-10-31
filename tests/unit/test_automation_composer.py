@@ -70,6 +70,20 @@ class _Client:
         return self._result
 
 
+class _ScriptClient:
+    """LLMProvider stand-in that returns a scripted sequence of chat results,
+    recording the messages it was called with each round (for agentic tests)."""
+    def __init__(self, results):
+        self._results = list(results)
+        self.calls = 0
+        self.seen = []
+
+    def chat(self, **kw):
+        self.calls += 1
+        self.seen.append(kw)
+        return self._results.pop(0) if self._results else {"text": "done", "tool_calls": []}
+
+
 def _home(tmp_path):
     states = [_State("light.porch", "Porch Light"),
               _State("binary_sensor.front_door", "Front Door"),
@@ -132,9 +146,53 @@ async def test_draft_builds_validated_preview_without_installing(creator, tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_draft_searches_then_composes(creator, tmp_path):
+    """Agentic path: the model resolves the device via search_entities, then
+    composes with the real id — and the search result is threaded back to it."""
+    hass = _home(tmp_path)
+    client = _ScriptClient([
+        {"text": "", "tool_calls": [{"id": "s1", "name": "search_entities",
+                                     "args": {"query": "porch", "domain": "light"}}]},
+        {"text": "", "tool_calls": [{"id": "c1", "name": "create_automation", "args": {
+            "alias": "Porch at dusk",
+            "trigger": [{"trigger": "sun", "event": "sunset"}],
+            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}]},
+    ])
+    res = await creator.draft_automation(hass, "porch light at sunset", client=client)
+    assert res["ok"] is True
+    assert "light.porch" in res["draft"]["yaml"]
+    assert client.calls == 2
+    second_round = client.seen[1]["messages"]
+    assert any(m.get("role") == "tool" and "light.porch" in (m.get("content") or "")
+               for m in second_round)
+    assert hass.services.calls == []        # drafting never installs
+
+
+@pytest.mark.asyncio
+async def test_draft_retries_after_a_bad_name(creator, tmp_path):
+    """Agentic retry: a first compose with an unknown entity fails validation; the
+    failure is fed back and the model corrects it on the next round."""
+    hass = _home(tmp_path)
+    client = _ScriptClient([
+        {"tool_calls": [{"id": "c1", "name": "create_automation", "args": {
+            "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}]}}]},
+        {"tool_calls": [{"id": "c2", "name": "create_automation", "args": {
+            "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}]},
+    ])
+    res = await creator.draft_automation(hass, "porch at dusk", client=client)
+    assert res["ok"] is True
+    assert "light.porch" in res["draft"]["yaml"]
+    second_round = client.seen[1]["messages"]
+    assert any(m.get("role") == "tool" and "light.ghost" in (m.get("content") or "")
+               for m in second_round)
+
+
+@pytest.mark.asyncio
 async def test_draft_surfaces_invalid_names(creator, tmp_path):
     hass = _home(tmp_path)
-    client = _Client({"tool_calls": [{"args": {
+    client = _Client({"tool_calls": [{"id": "c1", "name": "create_automation", "args": {
         "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
         "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}],
     }}]})
