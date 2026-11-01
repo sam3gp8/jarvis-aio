@@ -421,6 +421,122 @@ class OpenAIProvider(LLMProvider):
         return any(v in self.model.lower() for v in vision_models)
 
 
+# ─── Gemma native function-calling recovery ──────────────────────────────────
+# Gemma 3/4 emit function calls in Google's OWN token format, not OpenAI JSON:
+#   <|tool_call>call:NAME{arg:<|"|>value<|"|>,num:15}<tool_call|>
+# (ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4). When
+# served through Ollama's OpenAI-compatible API, Ollama may present the tools but
+# NOT parse this native output back into `tool_calls` — so the call lands in the
+# message *content* and a naive caller sees "no tool call". These helpers recover
+# it: Gemma's documented format is authoritative, and we tolerate the
+# special-token-stripped form Ollama's decoder can leave behind
+# (``call:NAME{...}`` with the <|...|> markers removed). Gated on the call naming
+# a DECLARED tool, so ordinary prose can't masquerade as a call.
+
+# <|tool_call> … <tool_call|>, tolerating minor delimiter variants Ollama emits.
+_GEMMA_CALL_FULL = re.compile(
+    r"<\|?tool_call\|?>\s*call:(\w+)\s*\{(.*?)\}\s*<\|?/?tool_call\|?>", re.S)
+# Fallback once the special tokens have been stripped to plain text.
+_GEMMA_CALL_BARE = re.compile(r"(?:^|[\s>|])call:(\w+)\s*\{(.*?)\}", re.S)
+# key:<|"|>string<|"|>  |  key:"string"  |  key:bareword
+_GEMMA_ARG = re.compile(
+    r'(\w+)\s*:\s*(?:<\|"\|>(.*?)<\|"\|>|"([^"]*)"|([^,}]*))', re.S)
+
+
+def _gemma_cast(v: str):
+    """Cast a Gemma arg value the way Google's reference parser does."""
+    s = (v or "").strip()
+    low = s.lower()
+    if low == "true":
+        return True
+    if low == "false":
+        return False
+    if low in ("null", "none"):
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    return s.strip("'\"")
+
+
+def _parse_gemma_args(blob: str) -> dict:
+    out: dict = {}
+    for m in _GEMMA_ARG.finditer(blob or ""):
+        key = m.group(1)
+        quoted = m.group(2) if m.group(2) is not None else m.group(3)
+        if quoted is not None:
+            out[key] = quoted
+        else:
+            out[key] = _gemma_cast(m.group(4) or "")
+    return out
+
+
+def parse_gemma_tool_calls(text: str, tool_names: Optional[set] = None):
+    """Recover Gemma-native function calls from model text. Returns
+    ``(tool_calls, cleaned_text)`` — tool_calls in the standard
+    ``[{"id","name","args"}]`` shape, and the text with the call syntax removed.
+    Empty list (and the text unchanged) when none is found."""
+    if not text:
+        return [], text
+    matches = list(_GEMMA_CALL_FULL.finditer(text))
+    if not matches:
+        matches = list(_GEMMA_CALL_BARE.finditer(text))
+    calls = []
+    spans = []
+    for i, m in enumerate(matches):
+        name = m.group(1)
+        if tool_names and name not in tool_names:
+            continue
+        calls.append({"id": f"gemma_call_{i}", "name": name,
+                      "args": _parse_gemma_args(m.group(2))})
+        spans.append(m.span())
+    if not calls:
+        return [], text
+    cleaned = text
+    for s, e in reversed(spans):
+        cleaned = cleaned[:s] + cleaned[e:]
+    # Drop any stray Gemma tool/turn markers left in the user-facing reply.
+    cleaned = re.sub(r"<\|?/?tool_(?:call|response)\|?>|<\|?/?turn\|?>|<\|\"\|>",
+                     "", cleaned).strip()
+    return calls, cleaned
+
+
+def _is_ollama_toolparse_error(exc) -> bool:
+    """Whether an Ollama error is the known Gemma tool-call argument-parsing bug
+    (unescaped quotes in args, chiefly on 26b/31b), rather than a connectivity or
+    model-not-found failure."""
+    msg = str(exc).lower()
+    return (("object key" in msg or "invalid character" in msg
+             or "unmarshal" in msg or "cannot unmarshal" in msg)
+            and ("tool" in msg or "object key" in msg or "invalid character" in msg))
+
+
+_OLLAMA_TOOLPARSE_WARNED = False
+
+
+def _warn_ollama_toolparse_once(model: str) -> None:
+    """Log the Gemma/Ollama tool-parse bug + remedy once per process."""
+    global _OLLAMA_TOOLPARSE_WARNED
+    if _OLLAMA_TOOLPARSE_WARNED:
+        return
+    _OLLAMA_TOOLPARSE_WARNED = True
+    hint = (f"Ollama failed to parse a Gemma tool call for model '{model}'. This "
+            "is a known Ollama bug with larger Gemma 4 models (26b/31b) on older "
+            "builds — update Ollama (>= 0.12) to fix native tool calling. JARVIS "
+            "is falling back to its JSON-action path for now.")
+    _LOGGER.warning(hint)
+    try:
+        from .websocket import jarvis_log
+        jarvis_log("WARNING", hint)
+    except Exception:
+        pass
+
+
 # ─── Ollama (local, self-hosted) ─────────────────────────────────────────────
 # Tuning for local inference: keep the model resident so we don't pay the
 # load-into-VRAM cost on every call; raise the context window well above
@@ -499,7 +615,40 @@ class OllamaProvider(OpenAIProvider):
         # and many others don't. We can't tell from the model name reliably, so
         # return None — the tool_driver probes once and caches the verdict, and
         # a model that can't call tools transparently gets the JSON-action loop.
+        # The probe goes through chat() below, so Gemma's native tool-call format
+        # is recovered there before the probe's verdict is taken.
         return None
+
+    def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
+             thinking=None, run_state=None):
+        try:
+            result = super().chat(messages, tools, max_tokens, temperature, model_override,
+                                  thinking, run_state)
+        except Exception as exc:
+            # A known Ollama bug: on larger Gemma 4 (26b/31b) older Ollama builds
+            # fail to escape double quotes inside tool-call arguments and raise
+            # "invalid character after object key:value pair" while parsing the
+            # model's tool call (github.com/ollama/ollama/issues/15241). Make it
+            # VISIBLE with the remedy instead of letting it vanish into the silent
+            # JSON fallback, then re-raise so that fallback still runs.
+            if tools and _is_ollama_toolparse_error(exc):
+                _warn_ollama_toolparse_once(model_override or self.model)
+            raise
+        # Gemma (3/4) emits calls in Google's native token format, which some
+        # Ollama builds leave unparsed in the content (see parse_gemma_tool_calls).
+        # When we offered tools but got no OpenAI tool_calls back, recover them
+        # from the text so the native tool loop works for Gemma via Ollama.
+        if tools and not result.get("tool_calls") and result.get("text"):
+            names = {((t or {}).get("function") or {}).get("name")
+                     for t in tools if isinstance(t, dict)}
+            names.discard(None)
+            recovered, cleaned = parse_gemma_tool_calls(result["text"], names)
+            if recovered:
+                result["tool_calls"] = recovered
+                result["text"] = cleaned
+                _LOGGER.debug("recovered %d Gemma-native tool call(s) from content",
+                              len(recovered))
+        return result
 
 
 # ─── Gemini (Google GenAI Interactions API) ──────────────────────────────────
