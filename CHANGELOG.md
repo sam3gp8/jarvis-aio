@@ -1,3 +1,53 @@
+## [9.64.0] — Gemma speaks its NATIVE function-calling format — JARVIS now understands it
+
+Gemma 3/4 **do** support function-calling, but in **Google's own token format**,
+not the OpenAI JSON API — e.g.
+`<|tool_call>call:get_current_weather{location:<|"|>Tokyo, JP<|"|>}<tool_call|>`
+([ai.google.dev](https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4)).
+Served through Ollama's OpenAI-compatible API, Ollama can present the tools but
+**not parse that native output back into `tool_calls`** — so the call lands in
+the message *content* and JARVIS's native tool loop saw "no tool call", fell back
+to the generic JSON protocol, and a model as capable as `gemma4:26b` (which is
+`gemma-4-26B-A4B-it`) never got to use the format it was actually trained on.
+
+`OllamaProvider` now **recovers Gemma's native tool calls from the content**:
+when tools were offered but no OpenAI `tool_calls` came back, it parses the
+documented Gemma format out of the text (Google's own format is authoritative),
+tolerating the special-token-stripped variant Ollama's decoder can leave behind
+(`call:NAME{...}`), and casts args the way Google's reference parser does. It is
+**gated on the call naming a declared tool**, so ordinary prose can never be
+mistaken for a tool call, and the call syntax is stripped from the user-facing
+reply. This also lets the capability probe recognise Gemma as tool-capable, so
+the composer and agent use Gemma's **native** function-calling — far more
+reliable than an ad-hoc protocol a model was never trained on.
+
+It also **surfaces the known Ollama bug** instead of swallowing it: on older
+Ollama builds, larger Gemma 4 models (26b/31b) raise *"invalid character after
+object key:value pair"* while parsing a tool call (unescaped quotes in args,
+[ollama#15241](https://github.com/ollama/ollama/issues/15241)). JARVIS now detects
+that specific failure and logs a one-time warning with the remedy — **update
+Ollama** — then falls back to the JSON path, so a user sees *why* native tool
+calling isn't engaging rather than silent degradation. (Native Gemma 4 tool
+calling via Ollama also needs the context window above the 4096 default, which
+`ollama_num_ctx` already controls.)
+
+This stacks with 9.63.0's convergence fixes: whichever path a given Ollama
+build + model supports, JARVIS now drives it. If Ollama can't present tools to
+Gemma on a given build, the 9.63.0 JSON-action loop remains the working fallback.
+
+Honest note: I could not reach `ai.google.dev` from the build environment, so
+this is implemented from the Gemma docs the user supplied, against Google's exact
+documented format and reference regex — not a guess. The one thing I can't verify
+without the live Ollama is whether a given Ollama build renders Gemma's tool
+declarations in the first place; the 9.63.0 diagnostic logging will show which
+path engages on a real install.
+
+Tests: the recovery parses the documented full-token form (comma-in-value
+preserved) and the stripped plain-text form (with int/bool casting); it is gated
+on declared tool names; `OllamaProvider.chat` recovers a call from content and
+strips it from the reply, and leaves a real `tool_calls` response untouched.
+Full `tests/` green; all 8 kernel gates + audit green.
+
 ## [9.63.0] — Fix: local models now converge instead of looping to nothing (composer + agent)
 
 Reported from the live `ollama` / `gemma4:26b` install (everything local): the
