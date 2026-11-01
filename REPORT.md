@@ -1,35 +1,33 @@
-# JARVIS traction report — 2026-10-31
+# JARVIS traction report — 2026-11-01
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-30 vs the 7 before
+## 7 days to 2026-10-31 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 650 | 217 | +200% |
-| Unique visitors (sum of daily) | 239 | 114 | +110% |
-| Clones | 1120 | 501 | +124% |
-| Unique cloners (sum of daily) | 287 | 191 | +50% |
+| Views | 650 | 258 | +152% |
+| Unique visitors (sum of daily) | 254 | 114 | +123% |
+| Clones | 1231 | 702 | +75% |
+| Unique cloners (sum of daily) | 307 | 225 | +36% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 33 | +3 | +13 |
-| Forks | 8 | +2 | +5 |
+| Stars | 34 | +4 | +13 |
+| Forks | 8 | +1 | +5 |
 | Watchers | 1 | +0 | -1 |
-| HA analytics installs | 127 | +19 | — |
+| HA analytics installs | 129 | +18 | — |
 | Release asset downloads | 0 | +0 | +0 |
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1449** views (+532 this week), **12** replies (+8 this week).
+[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1529** views (+553 this week), **12** replies (+7 this week).
 
 New posts in the last 7 days:
-- #5 @sam3gp8 (2026-10-24): @williammorran thanks for reporting this. It turned up a real bug. JARVIS was reading secrets.yaml more strictly than Home Assistant does. If the file had a Home Assistant-only tag anywhere in it, li…
-- #6 @williammorran (2026-10-24): Thanks ill take a look when they restore internet to the area, cloud routers suck so I cant even access my internal network as the cloud based settings control even dhcp. But thanks for the change il…
 - #7 @biancapascal (2026-10-26): I installed Yarvis, also i have credits on openrouter.ai but for some reasons he dos’nt speak. in settalite speakers i also have no speaker what i try Can anybody help me please?
 - #8 @sam3gp8 (2026-10-27): Hi! Two separate things are probably going on here — let’s split them, because one is the “brain” (OpenRouter) and one is the “voice” (speaking). The quickest way to tell which: open the JARVIS panel…
 - #9 @biancapascal (2026-10-27): a.> JARVIS AI Assistant HA OS b.> allot of speakers i have, sonos, tv , chrome cast. c.> Jarvis replies very good in de chat, if i try in my setting off HA the tts pipe i hear it speak. I tryed many…
@@ -42,9 +40,9 @@ New posts in the last 7 days:
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 80 | 50 |
-| Google | 37 | 22 |
-| github.com | 30 | 20 |
+| community.home-assistant.io | 83 | 57 |
+| Google | 40 | 25 |
+| github.com | 33 | 23 |
 | aocr.org | 9 | 9 |
 | Bing | 2 | 2 |
 | DuckDuckGo | 1 | 1 |
@@ -53,21 +51,22 @@ New posts in the last 7 days:
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 426 | 232 |
-| `/sam3gp8/jarvis-aio/issues` | 97 | 38 |
-| `/sam3gp8/jarvis-aio/pulls` | 39 | 8 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 19 | 17 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 18 | 14 |
-| `/sam3gp8/jarvis-aio/issues/334` | 8 | 8 |
-| `/sam3gp8/jarvis-aio/releases` | 7 | 7 |
+| `/sam3gp8/jarvis-aio` | 449 | 246 |
+| `/sam3gp8/jarvis-aio/issues` | 94 | 36 |
+| `/sam3gp8/jarvis-aio/pulls` | 47 | 8 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 21 | 19 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 21 | 17 |
+| `/sam3gp8/jarvis-aio/releases` | 8 | 8 |
 | `/sam3gp8/jarvis-aio/blob/main/docs/media/activity-feed.png` | 7 | 6 |
 | `/sam3gp8/jarvis-aio/discussions` | 7 | 5 |
 | `/sam3gp8/jarvis-aio/issues/413` | 7 | 4 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/floor-plan-import.md` | 6 | 6 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-10-31 | 102 | 41 | 355 | 76 |
 | 2026-10-30 | 138 | 44 | 346 | 87 |
 | 2026-10-29 | 206 | 63 | 249 | 46 |
 | 2026-10-28 | 68 | 30 | 101 | 29 |
@@ -96,4 +95,3 @@ New posts in the last 7 days:
 | 2026-10-05 | 103 | 34 | 677 | 170 |
 | 2026-10-04 | 77 | 28 | 1258 | 270 |
 | 2026-10-03 | 92 | 20 | 384 | 125 |
-| 2026-10-02 | 128 | 37 | 1077 | 233 |
