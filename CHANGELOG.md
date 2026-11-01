@@ -1,3 +1,43 @@
+## [9.66.0] — Composer: one-shot drafting for local models (stop making a weak model drive a search loop)
+
+The diagnostic logging kept paying off. On the live `gemma4:26b` install (a
+**1789-entity** home), the composer still failed — the log showed Gemma emitting
+a lone `{"tool":"search_entities","args":{"query":"living room occupancy"}}` and
+never a create. Two root causes, both now fixed:
+
+1. **A weak local model can't drive a multi-step search→create loop.** In a large
+   home it searches, re-searches, and never commits to building — even when told
+   to. So for a model without function-calling, the composer no longer uses the
+   agentic loop at all. Instead it **one-shots**: JARVIS pre-searches the request,
+   ranks the real devices, hands the model that focused list, and asks for the
+   whole automation in a SINGLE reply — there is no search tool to get stuck on.
+   On a bad entity name it retries up to twice with the closest real ids fed back
+   deterministically. Tool-capable cloud models keep the agentic loop unchanged.
+
+2. **The candidate list was huge and unranked.** The old hint dumped ~300+
+   entities into the prompt and ranked "relevant" ones only by first-match. In a
+   1789-entity home that drowns the few devices that matter. The new
+   `_relevant_entities` **ranks by how many request words each device matches**,
+   so the living-room occupancy sensor (matches "living"+"room"+"occupancy")
+   outranks a bedroom sensor (matches only "room"), and the model gets a short,
+   correctly-ordered list.
+
+Plus **real observability**: the composer now logs the candidate devices it
+offered and the outcome, so a failure shows whether the right devices were even
+found — not a black box. (This is how the above was diagnosed.)
+
+Net: on a clear request a local model should now return a reviewable draft in one
+turn. If a device genuinely isn't discoverable from the request's words, the
+composer says so with specifics instead of a generic shrug, and the log shows the
+candidate list.
+
+Tests: one-shot drafts for a local model from a single reply; it is handed the
+ranked candidates (living-room sensor present) and never offered function-calling
+tools; it picks the automation out of a reply with stray objects, corrects a bad
+name on retry, and surfaces the specific bad names (not the generic message) when
+it gives up. Tool-capable models still run the agentic loop. Full `tests/` green;
+all 8 kernel gates + audit green.
+
 ## [9.65.0] — Composer fix: a model that emits its whole plan in one reply now reaches the create
 
 The new composer failure-logging (9.63.0) caught the real bug on the live

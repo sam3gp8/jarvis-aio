@@ -61,10 +61,16 @@ class _Hass:
 
 
 class _Client:
-    """Minimal LLMProvider stand-in: chat() returns a canned result dict."""
-    def __init__(self, result):
+    """Minimal LLMProvider stand-in: chat() returns a canned result dict.
+    `supports=True` routes draft_automation down the agentic (native tool) path;
+    `supports=False` routes it down the one-shot (local) path."""
+    def __init__(self, result, *, supports=False):
         self._result = result
+        self._supports = supports
         self.seen = None
+
+    def supports_tools(self):
+        return self._supports
 
     def chat(self, **kw):
         self.seen = kw
@@ -74,10 +80,14 @@ class _Client:
 class _ScriptClient:
     """LLMProvider stand-in that returns a scripted sequence of chat results,
     recording the messages it was called with each round (for agentic tests)."""
-    def __init__(self, results):
+    def __init__(self, results, *, supports=False):
         self._results = list(results)
+        self._supports = supports
         self.calls = 0
         self.seen = []
+
+    def supports_tools(self):
+        return self._supports
 
     def chat(self, **kw):
         self.calls += 1
@@ -132,7 +142,7 @@ async def test_draft_builds_validated_preview_without_installing(creator, tmp_pa
         "alias": "Porch at dusk",
         "trigger": [{"trigger": "sun", "event": "sunset"}],
         "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}],
-    }}]})
+    }}]}, supports=True)
     res = await creator.draft_automation(
         hass, "turn on the porch light at sunset", client=client)
     assert res["ok"] is True
@@ -158,7 +168,7 @@ async def test_draft_searches_then_composes(creator, tmp_path):
             "alias": "Porch at dusk",
             "trigger": [{"trigger": "sun", "event": "sunset"}],
             "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}]},
-    ])
+    ], supports=True)
     res = await creator.draft_automation(hass, "porch light at sunset", client=client)
     assert res["ok"] is True
     assert "light.porch" in res["draft"]["yaml"]
@@ -181,7 +191,7 @@ async def test_draft_retries_after_a_bad_name(creator, tmp_path):
         {"tool_calls": [{"id": "c2", "name": "create_automation", "args": {
             "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
             "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}]},
-    ])
+    ], supports=True)
     res = await creator.draft_automation(hass, "porch at dusk", client=client)
     assert res["ok"] is True
     assert "light.porch" in res["draft"]["yaml"]
@@ -193,10 +203,10 @@ async def test_draft_retries_after_a_bad_name(creator, tmp_path):
 @pytest.mark.asyncio
 async def test_draft_surfaces_invalid_names(creator, tmp_path):
     hass = _home(tmp_path)
-    client = _Client({"tool_calls": [{"id": "c1", "name": "create_automation", "args": {
+    client = _Client({"text": "", "tool_calls": [{"id": "c1", "name": "create_automation", "args": {
         "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
         "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}],
-    }}]})
+    }}]}, supports=True)
     res = await creator.draft_automation(hass, "...", client=client)
     assert res["ok"] is False
     assert "light.ghost" in (res.get("invalid_entities") or {})
@@ -204,151 +214,93 @@ async def test_draft_surfaces_invalid_names(creator, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_draft_json_fallback_for_non_tool_models(creator, tmp_path):
-    """A provider without function-calling (no tool_calls ever — e.g. local Gemma
-    via Ollama) still drafts, via the tools-free JSON-output fallback."""
+async def test_oneshot_compose_for_local_model(creator, tmp_path):
+    """A local model (no function-calling) drafts via the ONE-SHOT path: JARVIS
+    hands it the ranked candidate devices and it returns the automation in one
+    reply — no search loop to get stuck on."""
     states = [_State("light.chaise_lamp", "Chaise Lamp"),
-              _State("binary_sensor.living_room_presence", "Living Room Presence")]
+              _State("binary_sensor.living_room_presence", "Living Room Presence"),
+              _State("binary_sensor.bedroom_presence", "Bedroom Presence")]
     services = {"light": {"turn_on": None, "turn_off": None}}
     hass = _Hass(states, services, tmp_path / "automations.yaml")
     jdoc = json.dumps({
-        "alias": "Chaise lamp on presence",
+        "alias": "Chaise on presence",
         "trigger": [{"trigger": "state", "entity_id": "binary_sensor.living_room_presence", "to": "on"}],
-        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}],
-    })
-    client = _ScriptClient([
-        {"text": "", "tool_calls": []},     # tools call → model can't do function-calling
-        {"text": jdoc, "tool_calls": []},   # JSON fallback → the draft
-    ])
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]})
+    client = _Client({"text": jdoc, "tool_calls": []}, supports=False)
     res = await creator.draft_automation(
         hass, "turn on the chaise lamp when the living room presence sensor detects someone",
         client=client)
     assert res["ok"] is True
     assert "light.chaise_lamp" in res["draft"]["yaml"]
-    assert client.calls == 2
-    assert "tools" in client.seen[0]          # first round offered tools
-    assert "tools" not in client.seen[1]      # fallback round did NOT
-    # the fallback prompt was seeded with the request's relevant entities
-    assert "binary_sensor.living_room_presence" in client.seen[1]["messages"][0]["content"]
-    assert hass.services.calls == []          # drafting never installs
-
-
-@pytest.mark.asyncio
-async def test_draft_json_fallback_handles_code_fences(creator, tmp_path):
-    states = [_State("light.chaise_lamp", "Chaise Lamp")]
-    services = {"light": {"turn_on": None}}
-    hass = _Hass(states, services, tmp_path / "automations.yaml")
-    fenced = "Sure, here it is:\n```json\n" + json.dumps({
-        "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
-        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}],
-    }) + "\n```"
-    client = _ScriptClient([{"text": "", "tool_calls": []},
-                            {"text": fenced, "tool_calls": []}])
-    res = await creator.draft_automation(hass, "chaise lamp at sunset", client=client)
-    assert res["ok"] is True
-    assert "light.chaise_lamp" in res["draft"]["yaml"]
-
-
-@pytest.mark.asyncio
-async def test_json_fallback_searches_then_creates(creator, tmp_path):
-    """A non-tool model drives the search → create JSON-action loop: it searches
-    for the device, gets real ids fed back, then composes — the same capability as
-    the native tool loop, over a plain-JSON protocol."""
-    states = [_State("light.chaise_lamp", "Chaise Lamp"),
-              _State("binary_sensor.living_room_presence", "Living Room Presence")]
-    services = {"light": {"turn_on": None}}
-    hass = _Hass(states, services, tmp_path / "automations.yaml")
-    client = _ScriptClient([
-        {"text": "", "tool_calls": []},                                       # no function-calling
-        {"text": json.dumps({"tool": "search", "query": "chaise lamp"}), "tool_calls": []},
-        {"text": json.dumps({"tool": "create", "automation": {
-            "alias": "Chaise on presence",
-            "trigger": [{"trigger": "state", "entity_id": "binary_sensor.living_room_presence", "to": "on"}],
-            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]}}),
-         "tool_calls": []},
-    ])
-    res = await creator.draft_automation(
-        hass, "chaise lamp on when the living room presence sensor trips", client=client)
-    assert res["ok"] is True
-    assert "light.chaise_lamp" in res["draft"]["yaml"]
-    assert client.calls == 3
-    # the search ran and its results were threaded back before the create round
-    create_round = client.seen[2]["messages"]
-    assert any(m.get("role") == "user" and "search results" in (m.get("content") or "")
-               and "light.chaise_lamp" in (m.get("content") or "") for m in create_round)
+    assert "tools" not in client.seen           # one-shot never offers function-calling tools
+    sysmsg = client.seen["messages"][0]["content"]
+    assert "binary_sensor.living_room_presence" in sysmsg   # ranked candidates handed over
+    assert "light.chaise_lamp" in sysmsg
     assert hass.services.calls == []
 
 
 @pytest.mark.asyncio
-async def test_json_fallback_retries_search_after_bad_name(creator, tmp_path):
-    """On an invalid name the loop feeds the failure back and the model searches +
-    re-composes with the real id."""
+async def test_oneshot_handles_code_fences(creator, tmp_path):
     states = [_State("light.chaise_lamp", "Chaise Lamp")]
     services = {"light": {"turn_on": None}}
     hass = _Hass(states, services, tmp_path / "automations.yaml")
-    bad = {"tool": "create", "automation": {
+    fenced = "Sure:\n```json\n" + json.dumps({
         "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
-        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}]}}
-    good = {"tool": "create", "automation": {
-        "alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
-        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]}}
-    client = _ScriptClient([
-        {"text": "", "tool_calls": []},
-        {"text": json.dumps(bad), "tool_calls": []},
-        {"text": json.dumps(good), "tool_calls": []},
-    ])
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]}) + "\n```"
+    client = _Client({"text": fenced, "tool_calls": []}, supports=False)
     res = await creator.draft_automation(hass, "chaise lamp at sunset", client=client)
     assert res["ok"] is True
     assert "light.chaise_lamp" in res["draft"]["yaml"]
-    # the bad name was fed back before the corrected round
-    corrected_round = client.seen[2]["messages"]
-    assert any(m.get("role") == "user" and "light.ghost" in (m.get("content") or "")
-               for m in corrected_round)
 
 
 @pytest.mark.asyncio
-async def test_json_closing_forces_create_after_searching(creator, tmp_path):
-    """A weak local model that keeps searching without ever building: the closing
-    step forces the create, so the composer produces a draft instead of the
-    generic 'couldn't compose' failure (the gemma4:26b symptom)."""
-    hass = _home(tmp_path)   # light.porch exists
-    create = {"tool": "create", "automation": {
-        "alias": "Porch at dusk",
-        "trigger": [{"trigger": "sun", "event": "sunset"}],
-        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}
-    search = {"text": json.dumps({"tool": "search", "query": "porch"}), "tool_calls": []}
-    client = _ScriptClient(
-        [{"text": "", "tool_calls": []}]        # native attempt → no tool call → JSON
-        + [search] * 5                          # 5 JSON steps: only searches
-        + [{"text": json.dumps(create), "tool_calls": []}])   # closing: the create
-    res = await creator.draft_automation(hass, "porch light at sunset", client=client)
-    assert res["ok"] is True
-    assert "light.porch" in res["draft"]["yaml"]
-    assert hass.services.calls == []            # drafting never installs
-
-
-@pytest.mark.asyncio
-async def test_composer_handles_plan_emitted_in_one_reply(creator, tmp_path):
-    """The real gemma4:26b failure: the model emits two searches AND the create in
-    ONE reply (each in its own ```json fence). The composer must run the create,
-    not loop forever on the first search."""
-    hass = _home(tmp_path)   # light.porch exists
+async def test_oneshot_picks_automation_among_extra_objects(creator, tmp_path):
+    """gemma4:26b often emits stray objects alongside the automation (a leftover
+    search, prose); one-shot picks the object that IS an automation."""
+    hass = _home(tmp_path)   # light.porch
     reply = "\n".join([
         '```json\n{"tool": "search_entities", "args": {"query": "porch"}}\n```',
-        '```json\n{"tool": "search_entities", "args": {"query": "porch light"}}\n```',
-        '```json\n{"tool": "create_automation", "args": {"alias": "Porch at dusk",'
-        ' "trigger": [{"trigger": "sun", "event": "sunset"}],'
-        ' "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}\n```',
+        '```json\n{"alias": "Porch at dusk", "trigger": [{"trigger": "sun", "event": "sunset"}],'
+        ' "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}\n```',
     ])
-    client = _ScriptClient([
-        {"text": "", "tool_calls": []},            # native attempt → no tool call → JSON
-        {"text": reply, "tool_calls": []},         # the whole plan in one message
-    ])
+    client = _Client({"text": reply, "tool_calls": []}, supports=False)
     res = await creator.draft_automation(hass, "porch light at sunset", client=client)
     assert res["ok"] is True
     assert "light.porch" in res["draft"]["yaml"]
-    assert client.calls == 2                       # native probe-less + one JSON turn
-    assert hass.services.calls == []
+
+
+@pytest.mark.asyncio
+async def test_oneshot_corrects_bad_name(creator, tmp_path):
+    """One-shot retry: the first reply uses a wrong id; validation fails, the bad
+    name is fed back, and the second reply fixes it."""
+    hass = _home(tmp_path)   # light.porch exists
+    bad = json.dumps({"alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+                      "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}]})
+    good = json.dumps({"alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+                       "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]})
+    client = _ScriptClient([{"text": bad, "tool_calls": []},
+                            {"text": good, "tool_calls": []}], supports=False)
+    res = await creator.draft_automation(hass, "porch light at sunset", client=client)
+    assert res["ok"] is True
+    assert "light.porch" in res["draft"]["yaml"]
+    assert client.calls == 2
+    second = client.seen[1]["messages"]
+    assert any(m.get("role") == "user" and "light.ghost" in (m.get("content") or "")
+               for m in second)
+
+
+@pytest.mark.asyncio
+async def test_oneshot_surfaces_specific_error_on_giveup(creator, tmp_path):
+    """If the model never produces a valid automation, the composer returns the
+    SPECIFIC bad names (not the generic message), so the failure is diagnosable."""
+    hass = _home(tmp_path)
+    bad = json.dumps({"alias": "x", "trigger": [{"trigger": "sun", "event": "sunset"}],
+                      "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}]})
+    client = _Client({"text": bad, "tool_calls": []}, supports=False)   # always wrong
+    res = await creator.draft_automation(hass, "ghost light at dusk", client=client)
+    assert res["ok"] is False
+    assert "light.ghost" in (res.get("invalid_entities") or {})
 
 
 def test_extract_json_handles_prose_and_fences(creator):
