@@ -403,6 +403,36 @@ async def test_json_closing_dispatches_default_tool(td):
 
 
 @pytest.mark.asyncio
+async def test_json_prefers_finishing_action_among_many(td):
+    # The gemma4:26b symptom: the model emits its whole plan — two searches AND
+    # the create — in ONE reply, each in its own ```json fence. The loop must run
+    # the create, not loop forever on the first search.
+    reply = "\n".join([
+        '```json\n{"tool": "search", "args": {"query": "a"}}\n```',
+        '```json\n{"tool": "search", "args": {"query": "b"}}\n```',
+        '```json\n{"tool": "create", "args": {"alias": "X", "trigger": [1], "action": [2]}}\n```',
+    ])
+    client = _Client([{"text": reply, "tool_calls": []}], supports=False)
+    searched = []
+
+    def _search(args):
+        searched.append(args)
+        return "no matches"
+
+    async def _create(args):
+        return td.Done(args)
+
+    res = await td.run_tool_loop(
+        _Hass(), client, system="s", user="u",
+        tools=[_tool("search"), _tool("create")],
+        handlers={"search": _search, "create": _create},
+        default_tool="create", max_steps=3)
+    assert res["done"]["alias"] == "X"     # ran the create
+    assert searched == []                  # jumped straight past the searches
+    assert client.calls == 1               # in a single turn
+
+
+@pytest.mark.asyncio
 async def test_json_repeat_guard_nudges(td):
     client = _Client([
         {"text": json.dumps({"tool": "lookup", "args": {"q": "a"}}), "tool_calls": []},

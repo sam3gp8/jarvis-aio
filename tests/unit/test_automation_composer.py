@@ -327,6 +327,30 @@ async def test_json_closing_forces_create_after_searching(creator, tmp_path):
     assert hass.services.calls == []            # drafting never installs
 
 
+@pytest.mark.asyncio
+async def test_composer_handles_plan_emitted_in_one_reply(creator, tmp_path):
+    """The real gemma4:26b failure: the model emits two searches AND the create in
+    ONE reply (each in its own ```json fence). The composer must run the create,
+    not loop forever on the first search."""
+    hass = _home(tmp_path)   # light.porch exists
+    reply = "\n".join([
+        '```json\n{"tool": "search_entities", "args": {"query": "porch"}}\n```',
+        '```json\n{"tool": "search_entities", "args": {"query": "porch light"}}\n```',
+        '```json\n{"tool": "create_automation", "args": {"alias": "Porch at dusk",'
+        ' "trigger": [{"trigger": "sun", "event": "sunset"}],'
+        ' "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}\n```',
+    ])
+    client = _ScriptClient([
+        {"text": "", "tool_calls": []},            # native attempt → no tool call → JSON
+        {"text": reply, "tool_calls": []},         # the whole plan in one message
+    ])
+    res = await creator.draft_automation(hass, "porch light at sunset", client=client)
+    assert res["ok"] is True
+    assert "light.porch" in res["draft"]["yaml"]
+    assert client.calls == 2                       # native probe-less + one JSON turn
+    assert hass.services.calls == []
+
+
 def test_extract_json_handles_prose_and_fences(creator):
     assert creator._extract_json('{"a": 1}') == {"a": 1}
     assert creator._extract_json('Here: {"a": {"b": 2}} done')["a"]["b"] == 2

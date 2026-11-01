@@ -1,3 +1,35 @@
+## [9.65.0] — Composer fix: a model that emits its whole plan in one reply now reaches the create
+
+The new composer failure-logging (9.63.0) caught the real bug on the live
+`gemma4:26b` install. The model wasn't failing to produce an automation — it was
+emitting its **entire plan in a single reply**, three JSON blocks at once:
+
+```json
+{"tool": "search_entities", "args": {"query": "chaise lamp"}}
+{"tool": "search_entities", "args": {"query": "living room person"}}
+{"tool": "create_automation", "args": { … the full automation … }}
+```
+
+The JSON loop took only the **first** object (a `search`), ran it, asked for the
+"next action" — and the model re-emitted all three. It never reached the
+`create`, so every draft ended in the generic "couldn't compose".
+
+Fix: the loop now **parses every action in a reply** and **prefers the finishing
+action** (the composer's `create`) over an intermediate one (a `search`). So a
+model that plans the whole sequence up front reaches the goal in one turn instead
+of looping on its first step. The closing step does the same. This applies to any
+JSON-protocol caller, not just the composer.
+
+(This is distinct from 9.63.0, which stopped the loop ending *empty*, and 9.64.0,
+which recovers Gemma's *native* tool-call format. This one is about a model
+emitting *several* JSON actions at once — the shape `gemma4:26b` actually
+produces.)
+
+Tests: the driver runs the create when a reply contains two searches AND the
+create (and does not run the searches first); the composer produces a validated
+draft from a single reply that carries the whole plan. Full `tests/` green; all 8
+kernel gates + audit green.
+
 ## [9.64.0] — Gemma speaks its NATIVE function-calling format — JARVIS now understands it
 
 Gemma 3/4 **do** support function-calling, but in **Google's own token format**,

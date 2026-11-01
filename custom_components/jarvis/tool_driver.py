@@ -258,6 +258,46 @@ def _json_protocol_prompt(tools: list[dict], hint: str = "") -> str:
     return "\n".join(lines)
 
 
+def _extract_json_actions(text: str) -> list:
+    """Every parseable JSON object in a model reply, in order. A weak local model
+    often emits several actions in ONE message — e.g. two `search_entities` AND
+    the `create_automation` — so the loop must see all of them, not just the first
+    (observed with gemma4:26b: it plans the whole sequence up front)."""
+    if not text:
+        return []
+    t = re.sub(r"```(?:json)?", " ", text)
+    out: list = []
+    for span in _iter_json_objects(t):
+        try:
+            obj = json.loads(span)
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+    return out
+
+
+def _choose_action(actions: list, handlers: dict, default_tool):
+    """Pick which of several emitted actions to run. Prefer the FINISHING action
+    (the one that shares a handler with ``default_tool`` — the composer's create)
+    over an intermediate one (a search), so a model that emits its whole plan in
+    one reply reaches the goal instead of looping on the first step. Returns
+    ``(name, args)`` or ``(None, {})``."""
+    resolved = []
+    for a in actions:
+        t, ar = _resolve_target(a, handlers, default_tool)
+        if t is not None:
+            resolved.append((t, ar))
+    if not resolved:
+        return None, {}
+    if default_tool and default_tool in handlers:
+        dh = handlers.get(default_tool)
+        for t, ar in resolved:
+            if handlers.get(t) is dh:
+                return t, ar
+    return resolved[0]
+
+
 def _resolve_target(action, handlers: dict, default_tool):
     """From a parsed JSON action, work out which handler to run and with what
     args. Returns ``(name, args)`` or ``(None, {})``. A known ``tool`` wins; an
@@ -402,16 +442,18 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
         raw = ((res or {}).get("text") or "")
         last_raw = raw or last_raw
         messages.append({"role": "assistant", "content": raw[:1200]})
-        action = _extract_json(raw)
-        tool = action.get("tool") if isinstance(action, dict) else None
+        actions = _extract_json_actions(raw)
 
-        # Explicit "I'm done" → final answer.
-        if tool in _FINAL_TOOLS:
-            final = (action.get("text") or action.get("answer") or "").strip()
+        # Explicit "I'm done" → final answer (whichever action carries it).
+        fin = next((a for a in actions if a.get("tool") in _FINAL_TOOLS), None)
+        if fin is not None:
+            final = (fin.get("text") or fin.get("answer") or "").strip()
             return {"done": None, "text": final or raw.strip(),
                     "used": "json", "steps": step + 1, "last_raw": raw[:300]}
 
-        target, args = _resolve_target(action, handlers, default_tool)
+        # A weak model often emits its whole plan in one reply (two searches AND
+        # the create); prefer the finishing action so it reaches the goal.
+        target, args = _choose_action(actions, handlers, default_tool)
         if target is not None:
             out = await _dispatch(handlers, target, args)
             if isinstance(out, Done):
@@ -444,11 +486,12 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
                 "last_raw": last_raw[:300]}
     raw = ((res or {}).get("text") or "")
     last_raw = raw or last_raw
-    action = _extract_json(raw)
-    tool = action.get("tool") if isinstance(action, dict) else None
-    # A composer (default_tool set) may close by finally emitting its create.
-    if default_tool is not None and tool not in _FINAL_TOOLS:
-        target, args = _resolve_target(action, handlers, default_tool)
+    actions = _extract_json_actions(raw)
+    closing_final = next((a for a in actions if a.get("tool") in _FINAL_TOOLS), None)
+    # A composer (default_tool set) may close by finally emitting its create
+    # (possibly among other actions in the same reply).
+    if default_tool is not None and closing_final is None:
+        target, args = _choose_action(actions, handlers, default_tool)
         if target is not None:
             out = await _dispatch(handlers, target, args)
             if isinstance(out, Done):
@@ -456,8 +499,8 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
                         "steps": max_steps + 1}
     # Otherwise the closing reply is the best-effort final answer.
     final = ""
-    if isinstance(action, dict) and tool in _FINAL_TOOLS:
-        final = (action.get("text") or action.get("answer") or "").strip()
+    if closing_final is not None:
+        final = (closing_final.get("text") or closing_final.get("answer") or "").strip()
     return {"done": None,
             "text": (final or raw.strip() or (prior_prose or "")).strip(),
             "used": "json", "steps": max_steps + 1, "exhausted": True,
