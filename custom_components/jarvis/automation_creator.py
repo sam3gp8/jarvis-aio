@@ -21,10 +21,10 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .tool_driver import Done, run_tool_loop
+from .tool_driver import Done, run_tool_loop, supports_tools
 # Re-exported: the composer's JSON parsing lives in the shared driver now, but
 # tests and any caller still reach it here.
-from .tool_driver import _extract_json  # noqa: F401
+from .tool_driver import _extract_json, _extract_json_actions  # noqa: F401
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -389,23 +389,34 @@ async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[st
     """Turn a plain-language request into a reviewed automation draft WITHOUT
     installing it.
 
-    Runs the shared agentic tool-driver: search → compose → validate, retrying a
-    bad name. The driver picks native function-calling or a tools-free JSON-action
-    protocol by the model's capability (probed and cached), so a local model that
-    can't call functions — like Gemma via Ollama — drafts with the SAME search +
-    retry capability over plain JSON. Returns the draft + its YAML for review
-    (install is a separate step), or the last validation failure with the closest
-    real names. Never raises."""
+    Routes by model capability:
+      • a tool-capable model (every cloud provider) runs the agentic loop —
+        search → compose → validate, retrying a bad name;
+      • a local model that can't drive that loop (Gemma via Ollama — it loops on
+        search and never commits) runs a ONE-SHOT compose instead: JARVIS
+        pre-searches the request and ranks the real devices, hands the model that
+        focused list, and asks for the automation in a single reply (no search
+        tool to get stuck on), with deterministic bad-name correction.
+
+    Returns the draft + its YAML for review (install is a separate step), or the
+    last validation failure with the closest real names. Never raises."""
     text = (text or "").strip()
     if not text:
         return {"ok": False, "error": "Describe the automation you'd like."}
     if client is None:
         return {"ok": False, "error": ("No reasoning provider is configured, so I "
                 "can't draft automations from the panel yet.")}
+    try:
+        cap = await supports_tools(hass, client)
+    except Exception:
+        cap = None
+    if cap is True:
+        return await _draft_agentic(hass, text, client)
+    return await _compose_oneshot(hass, text, client)
 
-    # The handlers are shared by both driver modes; state captures the last
-    # validation failure so a give-up surfaces the composer's precise feedback
-    # (closest real names), not a generic message.
+
+async def _draft_agentic(hass: HomeAssistant, text: str, client) -> dict[str, Any]:
+    """Agentic search → compose → validate loop for a tool-capable model."""
     state: dict[str, Any] = {"last_error": None, "last_args": None}
 
     def _do_search(args: dict):
@@ -439,49 +450,149 @@ async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[st
         "modern keys ('trigger', 'action'). If create_automation reports an unknown "
         "name, search for the correct one and try again. Some of the home's "
         "entities:\n" + _entity_hint(hass))
-    system_json = (
-        "You create ONE Home Assistant automation for the user's request. Search for "
-        "each device the request names before building, and use ONLY entity_ids that "
-        "search returned — never invent them. Entities to start from:\n"
-        + _relevant_entity_hint(hass, text))
     json_hint = (
         "Each trigger/action item uses Home Assistant's modern keys "
         "'trigger'/'action', e.g. "
         '{"trigger":"state","entity_id":"binary_sensor.x","to":"on"} and '
         '{"action":"light.turn_on","target":{"entity_id":"light.y"}}. '
-        "Search AT MOST twice to resolve the devices the request names, then STOP "
-        "searching and build the automation in ONE create. Find device ids with "
-        '{"tool":"search_entities","args":{"query":"..."}}, then build it with '
-        '{"tool":"create_automation","args":{"alias":"...","trigger":[...],'
-        '"condition":[...],"action":[...]}}. Always finish with a create.')
-    closing = (
-        "Stop searching. Using the entity_ids you have already found, output "
-        "ONLY the create action now: "
-        '{"tool":"create_automation","args":{"alias":"...","trigger":[...],'
-        '"condition":[...],"action":[...]}}. If you genuinely cannot build it, '
-        'reply {"tool":"final","text":"<one sentence saying what you need>"}.')
+        'Build it with {"tool":"create_automation","args":{"alias":"...",'
+        '"trigger":[...],"condition":[...],"action":[...]}}.')
 
     res = await run_tool_loop(
-        hass, client,
-        system=system_native, json_system=system_json, user=text,
+        hass, client, system=system_native, user=text,
         tools=[_SEARCH_TOOL, _COMPOSER_TOOL], handlers=handlers,
-        json_hint=json_hint, default_tool="create", closing_prompt=closing,
-        max_steps=_DRAFT_MAX_STEPS, temperature=0.2)
+        json_hint=json_hint, default_tool="create",
+        max_steps=_DRAFT_MAX_STEPS, temperature=0.2, native=True)
 
     if isinstance(res.get("done"), dict):
         return res["done"]
-    # Draft failed. Leave a trace in the log (the composer previously failed
-    # silently — invisible in diagnostics) with what the model last said, so a
-    # persistent failure on a given model can actually be diagnosed.
+    _log_compose(hass, "agentic draft produced nothing — model last said: %s"
+                 % ((res.get("last_raw") or res.get("text") or "")[:200]), [],
+                 bad=_bad_names(state["last_error"]) if state.get("last_error") else None)
+    return _draft_fail(state["last_error"], state["last_args"], prose=res.get("text"))
+
+
+# How many one-shot attempts a local model gets (first try + bad-name corrections).
+_ONESHOT_ATTEMPTS = 3
+
+
+def _log_compose(hass, msg: str, cands: list, *, bad: str | None = None) -> None:
+    """Record a composer step in the JARVIS log so a failure is diagnosable — the
+    candidates we offered (did we even find the right devices?) and what the model
+    did with them. Never raises."""
     try:
         from .websocket import jarvis_log
-        jarvis_log("AGENT", "composer: no automation produced (%s) — model last said: %s"
-                   % (("validation: " + _bad_names(state["last_error"]))
-                      if state.get("last_error") else "no create emitted",
-                      (res.get("last_raw") or res.get("text") or "")[:200]))
+        cand_s = (", ".join(c["entity_id"] for c in cands[:14]) or "none") if cands else "—"
+        jarvis_log("AGENT", "composer: %s | candidates[%d]: %s%s"
+                   % (msg, len(cands or []), cand_s, (f" | bad: {bad}" if bad else "")))
     except Exception:
         pass
-    return _draft_fail(state["last_error"], state["last_args"], prose=res.get("text"))
+
+
+def _first_automation(raw: str) -> dict | None:
+    """Pull the first object that looks like an automation (has trigger+action)
+    out of a reply, skipping any stray search/other JSON the model emitted."""
+    for obj in _extract_json_actions(raw):
+        auto = _coerce_automation(obj)
+        if auto:
+            return auto
+    return _coerce_automation(_extract_json(raw))
+
+
+def _corrections_for(hass: HomeAssistant, preview: dict) -> str:
+    """For each bad entity name, offer the closest real ids from the home, so the
+    retry can fix it deterministically rather than hoping the model guesses."""
+    lines: list[str] = []
+    for bad in list((preview.get("invalid_entities") or {}).keys()):
+        key = bad.split(".")[-1].replace("_", " ")
+        hits = _search_entities_for_draft(hass, key, limit=5)
+        opts = [h["entity_id"] for h in hits]
+        near = (preview.get("invalid_entities") or {}).get(bad)
+        if not opts and near:
+            opts = [near]
+        if opts:
+            lines.append(f"  instead of '{bad}': " + ", ".join(opts))
+    return "\n".join(lines)
+
+
+async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, Any]:
+    """One-shot compose for a model that can't drive the agentic loop. JARVIS
+    pre-searches + ranks the real devices the request names, hands the model that
+    focused list, and asks for the whole automation in a SINGLE JSON object — no
+    search tool to loop on. Validates, and on a bad name retries with the closest
+    real ids. Logs the candidates + outcome so a failure is diagnosable."""
+    cands = _relevant_entities(hass, text, limit=40)
+    cand_lines = ("\n".join(f"- {c['entity_id']} ({c['friendly']})" for c in cands)
+                  or "(no obvious device matches were found for this request)")
+    system = (
+        "You write ONE Home Assistant automation for the user's request, as a "
+        "SINGLE JSON object and NOTHING else — no prose, no search, no extra "
+        "objects.\n\n"
+        "Use ONLY these real devices (copy the entity_id EXACTLY; never invent "
+        "one):\n" + cand_lines + "\n\n"
+        "Reply with exactly this shape (Home Assistant modern keys):\n"
+        '{"alias":"<short name>","trigger":[ ... ],"condition":[ ... ],"action":[ ... ]}\n'
+        "Item examples:\n"
+        '  trigger:   {"trigger":"state","entity_id":"binary_sensor.x","to":"on"}\n'
+        '             {"trigger":"sun","event":"sunset"}\n'
+        '  condition: {"condition":"sun","after":"sunset","before":"sunrise"}  '
+        "(use this for a dusk-to-dawn / night-only window — no entity needed)\n"
+        '  action:    {"action":"light.turn_on","target":{"entity_id":"light.y"}}\n'
+        "Cover both directions if the request implies on AND off (e.g. a presence "
+        "sensor turning to 'on' and to 'off'). Output the JSON object now.")
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": text}]
+    last_error: dict | None = None
+    last_args: dict | None = None
+    last_raw = ""
+
+    for attempt in range(_ONESHOT_ATTEMPTS):
+        def _call():
+            return client.chat(messages=messages, max_tokens=1024, temperature=0.1)
+        try:
+            res = await hass.async_add_executor_job(_call)
+        except Exception as exc:
+            _log_compose(hass, f"one-shot call failed: {exc}", cands)
+            return _draft_fail({"error": f"Drafting failed: {exc}"}, last_args)
+        raw = (res or {}).get("text") or ""
+        last_raw = raw or last_raw
+        auto = _first_automation(raw)
+        if not auto:
+            messages.append({"role": "assistant", "content": raw[:1000]})
+            messages.append({"role": "user", "content":
+                "Output ONLY the automation as one JSON object: "
+                '{"alias":"...","trigger":[...],"condition":[...],"action":[...]}. '
+                "No other text, no search."})
+            continue
+        last_args = {
+            "alias": auto.get("alias") or "Automation",
+            "description": auto.get("description", ""),
+            "trigger": auto.get("trigger"), "condition": auto.get("condition"),
+            "action": auto.get("action"), "mode": auto.get("mode", "single"),
+        }
+        preview = await create_automation(hass, validate=True, install=False, **last_args)
+        if preview.get("success"):
+            _log_compose(hass, "one-shot OK (attempt %d): %s"
+                         % (attempt + 1, last_args.get("alias")), cands)
+            return _draft_ok(preview, last_args)
+        last_error = preview
+        corrections = _corrections_for(hass, preview)
+        messages.append({"role": "assistant", "content": raw[:1000]})
+        messages.append({"role": "user", "content":
+            f"These are NOT real devices and must be replaced: "
+            f"{_bad_names(preview) or preview.get('error')}.\n"
+            + (("Use one of these real ids instead:\n" + corrections + "\n")
+               if corrections else "")
+            + "Re-output the FULL automation as one JSON object using only real "
+              "entity_ids from the list."})
+
+    _log_compose(hass, "one-shot gave up after %d attempts — model last said: %s"
+                 % (_ONESHOT_ATTEMPTS, last_raw[:200]), cands,
+                 bad=(_bad_names(last_error) if last_error else "no valid JSON object"))
+    # No valid automation ever parsed → surface the model's own words (e.g. a
+    # clarifying question); a validation failure → surface the specific bad names.
+    prose = last_raw.strip() if last_error is None else None
+    return _draft_fail(last_error, last_args, prose=prose)
 
 
 _DRAFT_STOP = {
@@ -492,23 +603,41 @@ _DRAFT_STOP = {
 }
 
 
-def _relevant_entity_hint(hass: HomeAssistant, text: str, limit: int = 160) -> str:
-    """Entity hint biased toward the request: entities whose name matches a word in
-    the text lead, then the general list — so a tools-free model still picks the
-    real ids for the devices the request actually names."""
-    words = [w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
-             if len(w) >= 3 and w not in _DRAFT_STOP]
-    relevant: list[str] = []
+def _relevant_entities(hass: HomeAssistant, text: str, limit: int = 40) -> list[dict]:
+    """Rank the home's devices by how well they match the request, so a one-shot
+    composer hands the model a SMALL, FOCUSED, correctly-ordered candidate list
+    (the living-room occupancy sensor that matches 'living'+'room'+'occupancy'
+    outranks a bedroom sensor that matches only 'room'). Essential in a big home
+    where a flat dump of hundreds of entities drowns the few that matter.
+
+    Scored by the number of distinct request keywords found in the entity's
+    friendly name + id; actuatable domains (for actions) are scanned before
+    triggerable ones (for triggers). Best-effort; never raises."""
+    words = {w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+             if len(w) >= 3 and w not in _DRAFT_STOP}
+    if not words:
+        return []
+    scored: list[dict] = []
     seen: set = set()
-    for w in words:
-        for hit in _search_entities_for_draft(hass, w, limit=8):
-            if hit["entity_id"] not in seen:
-                seen.add(hit["entity_id"])
-                relevant.append(f"{hit['entity_id']} — {hit.get('friendly_name') or ''}")
-    general = _entity_hint(hass, limit=limit)
-    if relevant:
-        return "Likely relevant:\n" + "\n".join(relevant[:40]) + "\n\nAll entities:\n" + general
-    return general
+    for pri, dom in enumerate(_ACTUATABLE + _TRIGGERABLE):
+        try:
+            for st in hass.states.async_all(dom):
+                if st.entity_id in seen:
+                    continue
+                fn = str(st.attributes.get("friendly_name") or "")
+                hay = (fn + " " + st.entity_id.replace(".", " ").replace("_", " ")).lower()
+                score = sum(1 for w in words if w in hay)
+                if score > 0:
+                    seen.add(st.entity_id)
+                    scored.append({"entity_id": st.entity_id,
+                                   "friendly": fn or st.entity_id,
+                                   "domain": dom, "score": score, "pri": pri})
+        except Exception:
+            continue
+    # highest keyword overlap first; ties broken by domain priority (actuatable
+    # before triggerable), then entity_id for stability.
+    scored.sort(key=lambda c: (-c["score"], c["pri"], c["entity_id"]))
+    return scored[:limit]
 
 
 def _bad_names(preview: dict) -> str:
