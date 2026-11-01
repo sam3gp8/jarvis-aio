@@ -449,20 +449,38 @@ async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[st
         "'trigger'/'action', e.g. "
         '{"trigger":"state","entity_id":"binary_sensor.x","to":"on"} and '
         '{"action":"light.turn_on","target":{"entity_id":"light.y"}}. '
-        "Find device ids with "
+        "Search AT MOST twice to resolve the devices the request names, then STOP "
+        "searching and build the automation in ONE create. Find device ids with "
         '{"tool":"search_entities","args":{"query":"..."}}, then build it with '
         '{"tool":"create_automation","args":{"alias":"...","trigger":[...],'
-        '"condition":[...],"action":[...]}}.')
+        '"condition":[...],"action":[...]}}. Always finish with a create.')
+    closing = (
+        "Stop searching. Using the entity_ids you have already found, output "
+        "ONLY the create action now: "
+        '{"tool":"create_automation","args":{"alias":"...","trigger":[...],'
+        '"condition":[...],"action":[...]}}. If you genuinely cannot build it, '
+        'reply {"tool":"final","text":"<one sentence saying what you need>"}.')
 
     res = await run_tool_loop(
         hass, client,
         system=system_native, json_system=system_json, user=text,
         tools=[_SEARCH_TOOL, _COMPOSER_TOOL], handlers=handlers,
-        json_hint=json_hint, default_tool="create",
+        json_hint=json_hint, default_tool="create", closing_prompt=closing,
         max_steps=_DRAFT_MAX_STEPS, temperature=0.2)
 
     if isinstance(res.get("done"), dict):
         return res["done"]
+    # Draft failed. Leave a trace in the log (the composer previously failed
+    # silently — invisible in diagnostics) with what the model last said, so a
+    # persistent failure on a given model can actually be diagnosed.
+    try:
+        from .websocket import jarvis_log
+        jarvis_log("AGENT", "composer: no automation produced (%s) — model last said: %s"
+                   % (("validation: " + _bad_names(state["last_error"]))
+                      if state.get("last_error") else "no create emitted",
+                      (res.get("last_raw") or res.get("text") or "")[:200]))
+    except Exception:
+        pass
     return _draft_fail(state["last_error"], state["last_args"], prose=res.get("text"))
 
 

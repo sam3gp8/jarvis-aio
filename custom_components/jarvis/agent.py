@@ -4095,25 +4095,33 @@ async def _run_agent_json(
     handlers = {name: _make_handler(name) for name in names}
     json_hint = (
         "Call ONE tool per reply to control or query the home — use "
-        "search_entities when unsure of an entity_id, never guess. When you have "
-        'the answer and need no more tools, reply with {"tool":"final","text":'
+        "search_entities when unsure of an entity_id, never guess. A tool that "
+        "returned nothing useful will not help on a retry; answer with what you "
+        'know instead. When you can answer, reply with {"tool":"final","text":'
         '"<your reply to the user>"}.')
+    closing = (
+        "You cannot use any more tools. Answer the user now in JARVIS's voice, "
+        'concisely, with what you have learned. Reply with {"tool":"final",'
+        '"text":"<your answer>"} — or just the answer as plain text.')
 
     cap = (MAX_TOOL_ITERATIONS if max_iterations is None
            else max(1, min(int(max_iterations), MAX_TOOL_ITERATIONS)))
 
     res = await tool_driver.run_tool_loop(
         hass, client, messages=working, tools=json_tools, handlers=handlers,
-        json_hint=json_hint, max_steps=cap, temperature=0.3, native=False)
+        json_hint=json_hint, closing_prompt=closing, max_steps=cap,
+        temperature=0.3, native=False)
 
     text = (res.get("text") or "").strip()
     _emit_conversational_shadow(acted=acted["v"], answered=bool(text))
     if not text:
         try:
             from .websocket import jarvis_log
-            jarvis_log("AGENT", _no_action_note(
-                f"{getattr(client, 'name', '?')}/{getattr(client, 'model', '?')} "
-                f"(json-action)", len(json_tools)))
+            jarvis_log("AGENT", "%s — model last said: %s" % (
+                _no_action_note(
+                    f"{getattr(client, 'name', '?')}/{getattr(client, 'model', '?')} "
+                    f"(json-action)", len(json_tools)),
+                (res.get("last_raw") or "")[:160]))
         except Exception:
             pass
     return text if text else _empty_reply_fallback(config)

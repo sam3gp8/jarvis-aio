@@ -1,3 +1,51 @@
+## [9.63.0] — Fix: local models now converge instead of looping to nothing (composer + agent)
+
+Reported from the live `ollama` / `gemma4:26b` install (everything local): the
+Suggestions-tab composer still returned **"I couldn't compose that automation —
+try describing it more specifically"**, and the chat agent would **narrate
+nothing**. The diagnostic log showed the real cause — and it was *not* a parsing
+failure. The JSON-action loop was working: gemma emitted valid tool actions. It
+just never **converged**. In one logged turn it drove `web_research` **nine
+times** (each "no results"), hit the step cap, emitted no final answer, and
+returned empty. The composer failed the same way: gemma searched and searched
+without ever emitting a `create`, the loop ran out, and the generic error was
+all that was left.
+
+Three fixes to the shared `tool_driver` JSON loop, so a weak local model finishes:
+
+- **A closing step.** When the loop runs out of steps without finishing, it now
+  asks once more for the final answer — or, for the composer, the `create` — so
+  the loop **never ends empty**. The agent returns the model's best answer
+  instead of a blank turn; the composer forces one last `create` from the ids it
+  found instead of giving up. (The native loop already did an equivalent summary
+  step; the JSON loop didn't.)
+- **An anti-loop guard.** The protocol prompt now tells the model not to repeat a
+  tool that didn't help and to prefer finishing; and when it *does* repeat a call,
+  the result is fed back with an explicit "you already tried that — don't repeat
+  it, answer now." No more nine-times `web_research`.
+- **Template-safe JSON parsing.** `_extract_json` is now string-aware, so braces
+  inside a string value — a Home Assistant template like
+  `"{{ is_state('binary_sensor.x','on') }}"` — no longer break the brace count
+  and discard an otherwise-valid automation. It also tolerates reasoning prose
+  around the JSON and prefers the action-shaped object among several.
+
+Plus **observability**: the composer previously failed *silently* — invisible in
+the diagnostic log. It now logs a one-line reason and what the model last said, so
+a persistent failure on a given model can actually be diagnosed instead of guessed.
+
+Cloud and tool-capable models are unaffected (the closing step only engages when
+a JSON loop would otherwise end empty; the native path is unchanged). Honest
+note: this fixes the *convergence* bug — a local model now produces a draft or a
+specific error rather than looping to a generic one; how well a 26B model fills a
+complex two-trigger automation still depends on the model, but it will no longer
+fail invisibly.
+
+Tests: the JSON loop's closing step returns a final answer on exhaustion and
+dispatches a composer `create` on close; the repeat guard nudges; `_extract_json`
+handles HA template braces and prefers the action object; and the composer draft
+succeeds when the model only searches until the closing step forces the create.
+Full `tests/` green; all 8 kernel gates + audit green.
+
 ## [9.62.0] — Local-parity: finish the sweep + document the principle
 
 Steps 4 and 5 (the last) of the local-capability-parity roadmap. Auditing the
