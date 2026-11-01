@@ -60,31 +60,79 @@ class Done:
         self.value = value
 
 
+def _iter_json_objects(text: str):
+    """Yield each top-level ``{...}`` span in ``text``, honoring quoted strings
+    and escapes — so braces inside a string VALUE (e.g. a Home Assistant template
+    ``"{{ is_state('x','on') }}"``) don't throw off the brace count. Skips a
+    truncated/unbalanced object rather than mis-pairing. Best-effort; never raises."""
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        j = i
+        matched = False
+        while j < n:
+            c = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    yield text[i:j + 1]
+                    matched = True
+                    break
+            j += 1
+        i = j + 1 if matched else i + 1
+
+
+# Keys that mark an object as an intended action/automation rather than a stray
+# JSON blob in the model's reasoning. Checked strongest-first in _extract_json.
 def _extract_json(text: str):
-    """Best-effort: pull the first JSON object out of a model reply — handles
-    ```json fences and surrounding prose. Returns a dict/list, or None. Shared so
-    every JSON-protocol caller parses model output the same way."""
+    """Best-effort: pull the INTENDED JSON object out of a model reply. Handles
+    ```json fences, surrounding prose/reasoning, several objects in one reply, and
+    braces inside string values (HA templates). Prefers an action/automation-shaped
+    object over a stray blob; falls back to the first object that parses. Returns a
+    dict/list, or None. Shared so every JSON-protocol caller parses the same way."""
     if not text:
         return None
-    t = text.strip()
-    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", t, re.S)
-    if m:
-        t = m.group(1)
-    start = t.find("{")
-    if start < 0:
+    t = re.sub(r"```(?:json)?", " ", text)
+    objs: list = []
+    for span in _iter_json_objects(t):
+        try:
+            obj = json.loads(span)
+        except Exception:
+            continue
+        if isinstance(obj, (dict, list)):
+            objs.append(obj)
+    if not objs:
         return None
-    depth = 0
-    for i in range(start, len(t)):
-        if t[i] == "{":
-            depth += 1
-        elif t[i] == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(t[start:i + 1])
-                except Exception:
-                    return None
-    return None
+    # 1) a clear action/automation: a tool verb, a wrapped automation, or a bare
+    #    automation (trigger + action).
+    for obj in objs:
+        if isinstance(obj, dict) and (
+                "tool" in obj or "automation" in obj
+                or ("trigger" in obj and "action" in obj)):
+            return obj
+    # 2) a weaker signal (a final answer, or a named draft).
+    for obj in objs:
+        if isinstance(obj, dict) and (
+                "alias" in obj or "answer" in obj or "text" in obj):
+            return obj
+    # 3) whatever parsed first.
+    return objs[0]
 
 
 def _as_text(value: Any) -> str:
@@ -200,9 +248,40 @@ def _json_protocol_prompt(tools: list[dict], hint: str = "") -> str:
         lines.append(f'  • {name} — {desc}  args: {{{arg_bits}}}')
     lines.append('When you are done and need no more tools, reply with '
                  '{"tool": "final", "text": "<your answer>"}.')
+    lines.append(
+        "Use a tool only when it adds something new. NEVER repeat a tool with the "
+        "same or similar arguments — if it did not help once it will not help "
+        "again; give your final answer instead. Prefer finishing over exploring: "
+        "as soon as you can answer or act, do it.")
     if hint:
         lines.append(hint.strip())
     return "\n".join(lines)
+
+
+def _resolve_target(action, handlers: dict, default_tool):
+    """From a parsed JSON action, work out which handler to run and with what
+    args. Returns ``(name, args)`` or ``(None, {})``. A known ``tool`` wins; an
+    unlabelled object (or one naming the default tool) routes to ``default_tool``
+    so a model that emits the bare payload still reaches the right handler."""
+    if not isinstance(action, dict):
+        return None, {}
+    tool = action.get("tool")
+    target = tool if (tool and tool in handlers) else None
+    if target is None and default_tool in handlers and (tool is None or tool == default_tool):
+        target = default_tool
+    if target is None:
+        return None, {}
+    args = action.get("args")
+    if not isinstance(args, dict):
+        args = {k: v for k, v in action.items() if k != "tool"}
+    return target, args
+
+
+# Default closing instruction when a JSON loop runs out of steps without finishing.
+_DEFAULT_CLOSING = (
+    "You cannot use any more tools now. Give your FINAL answer to the user in your "
+    "own words, based on what you already have. Reply with "
+    '{"tool":"final","text":"<your answer>"} — or just the answer as plain text.')
 
 
 async def _dispatch(handlers: dict, name: str, args: dict):
@@ -277,13 +356,20 @@ _FINAL_TOOLS = ("final", "answer", "done")
 
 async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
                     default_tool=None, json_hint="", prior_prose=None,
-                    system=None, user=None, messages=None) -> dict:
+                    closing_prompt=None, system=None, user=None, messages=None) -> dict:
     """Tools-free JSON-action loop for a model without function-calling. The
     model drives the SAME handlers by emitting one JSON action per turn.
 
     Starts from a pre-built ``messages`` history when given — the JSON protocol is
     appended to its system turn (or a system turn is prepended) — otherwise from
-    ``system`` + ``user`` with the protocol appended to the system prompt."""
+    ``system`` + ``user`` with the protocol appended to the system prompt.
+
+    Two convergence guards keep a weak local model from spinning (observed with
+    gemma4:26b looping web_research nine times then returning nothing):
+      - a repeat guard tells the model when it just reran a tool to no effect, and
+      - a CLOSING step: if the loop runs out of steps without finishing, it asks
+        once more for the final answer (or, for a composer with ``default_tool``,
+        the create), so the loop never ends empty."""
     proto = _json_protocol_prompt(tools, json_hint)
     if messages is not None:
         base = [dict(m) for m in messages]
@@ -299,15 +385,22 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
     # JSON following is most reliable at a low temperature regardless of the
     # caller's native setting.
     temp = min(temperature, 0.3)
-    for step in range(max_steps):
+    last_raw = ""
+    seen_calls: set = set()
+
+    async def _ask():
         def _call():
             return client.chat(messages=messages, max_tokens=1024, temperature=temp)
+        return await hass.async_add_executor_job(_call)
+
+    for step in range(max_steps):
         try:
-            res = await hass.async_add_executor_job(_call)
+            res = await _ask()
         except Exception as exc:
-            return {"done": None, "text": "", "used": "json",
-                    "steps": step + 1, "error": str(exc)}
+            return {"done": None, "text": (prior_prose or "").strip(), "used": "json",
+                    "steps": step + 1, "error": str(exc), "last_raw": last_raw[:300]}
         raw = ((res or {}).get("text") or "")
+        last_raw = raw or last_raw
         messages.append({"role": "assistant", "content": raw[:1200]})
         action = _extract_json(raw)
         tool = action.get("tool") if isinstance(action, dict) else None
@@ -316,27 +409,23 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
         if tool in _FINAL_TOOLS:
             final = (action.get("text") or action.get("answer") or "").strip()
             return {"done": None, "text": final or raw.strip(),
-                    "used": "json", "steps": step + 1}
+                    "used": "json", "steps": step + 1, "last_raw": raw[:300]}
 
-        # A known tool, OR an unlabelled JSON object routed to the default tool
-        # (so a model that emits the bare payload, e.g. an automation object with
-        # no "tool" key, still reaches the right handler).
-        target = tool if (tool and tool in handlers) else None
-        if target is None and isinstance(action, dict) and default_tool in handlers \
-                and (tool is None or tool == default_tool):
-            target = default_tool
+        target, args = _resolve_target(action, handlers, default_tool)
         if target is not None:
-            args = action.get("args") if isinstance(action, dict) else None
-            if not isinstance(args, dict):
-                args = {k: v for k, v in action.items() if k != "tool"} \
-                    if isinstance(action, dict) else {}
             out = await _dispatch(handlers, target, args)
             if isinstance(out, Done):
                 return {"done": out.value, "text": "", "used": "json",
                         "steps": step + 1}
+            sig = f"{target}:{json.dumps(args, sort_keys=True, default=str)[:160]}"
+            repeat = sig in seen_calls
+            seen_calls.add(sig)
+            nudge = (" You already tried that and it did not help — do NOT repeat it. "
+                     "Try something clearly different, or finish with "
+                     '{"tool":"final","text":"..."}.') if repeat else ""
             messages.append({"role": "user",
                              "content": _as_text(out) +
-                             "\nReply with your next JSON action."})
+                             "\nReply with your next JSON action." + nudge})
             continue
 
         # Unparseable / unknown — nudge back to the protocol and try again.
@@ -345,13 +434,40 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
                          '{"tool":"<name>","args":{...}} '
                          'or {"tool":"final","text":"<answer>"}.'})
 
-    return {"done": None, "text": (prior_prose or "").strip(),
-            "used": "json", "steps": max_steps, "exhausted": True}
+    # Out of steps — one closing attempt so the loop never ends empty.
+    messages.append({"role": "user", "content": closing_prompt or _DEFAULT_CLOSING})
+    try:
+        res = await _ask()
+    except Exception as exc:
+        return {"done": None, "text": (prior_prose or "").strip(), "used": "json",
+                "steps": max_steps + 1, "exhausted": True, "error": str(exc),
+                "last_raw": last_raw[:300]}
+    raw = ((res or {}).get("text") or "")
+    last_raw = raw or last_raw
+    action = _extract_json(raw)
+    tool = action.get("tool") if isinstance(action, dict) else None
+    # A composer (default_tool set) may close by finally emitting its create.
+    if default_tool is not None and tool not in _FINAL_TOOLS:
+        target, args = _resolve_target(action, handlers, default_tool)
+        if target is not None:
+            out = await _dispatch(handlers, target, args)
+            if isinstance(out, Done):
+                return {"done": out.value, "text": "", "used": "json",
+                        "steps": max_steps + 1}
+    # Otherwise the closing reply is the best-effort final answer.
+    final = ""
+    if isinstance(action, dict) and tool in _FINAL_TOOLS:
+        final = (action.get("text") or action.get("answer") or "").strip()
+    return {"done": None,
+            "text": (final or raw.strip() or (prior_prose or "")).strip(),
+            "used": "json", "steps": max_steps + 1, "exhausted": True,
+            "last_raw": last_raw[:300]}
 
 
 async def run_tool_loop(hass, client, *, system=None, user=None, messages=None,
                         tools, handlers, json_system=None, json_hint="",
-                        default_tool=None, max_steps=MAX_DRIVER_STEPS,
+                        default_tool=None, closing_prompt=None,
+                        max_steps=MAX_DRIVER_STEPS,
                         temperature=0.4, native=None) -> dict:
     """Drive an agentic tool loop, native or JSON, picking the mode by capability.
 
@@ -387,7 +503,8 @@ async def run_tool_loop(hass, client, *, system=None, user=None, messages=None,
             hass, client, system=(json_system or system), user=user,
             messages=messages, tools=tools, handlers=handlers,
             max_steps=max_steps, temperature=temperature,
-            default_tool=default_tool, json_hint=json_hint)
+            default_tool=default_tool, json_hint=json_hint,
+            closing_prompt=closing_prompt)
 
     res = await _run_native(
         hass, client, system=system, user=user, messages=messages, tools=tools,
@@ -399,5 +516,5 @@ async def run_tool_loop(hass, client, *, system=None, user=None, messages=None,
             messages=messages, tools=tools, handlers=handlers,
             max_steps=max_steps, temperature=temperature,
             default_tool=default_tool, json_hint=json_hint,
-            prior_prose=res.get("prose"))
+            closing_prompt=closing_prompt, prior_prose=res.get("prose"))
     return res

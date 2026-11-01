@@ -71,6 +71,26 @@ def test_extract_json(td):
     assert td._extract_json("") is None
 
 
+def test_extract_json_handles_template_braces(td):
+    # A Home Assistant template value contains { } inside a STRING — the brace
+    # count must not be thrown off by it (this broke the pre-9.63 parser).
+    s = json.dumps({"tool": "create_automation", "args": {
+        "alias": "x",
+        "trigger": [{"trigger": "template",
+                     "value_template": "{{ is_state('binary_sensor.x','on') }}"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.y"}}]}})
+    obj = td._extract_json("Sure, here it is: " + s + "\nLet me know!")
+    assert obj["tool"] == "create_automation"
+    assert "{{" in obj["args"]["trigger"][0]["value_template"]
+    assert obj["args"]["action"][0]["action"] == "light.turn_on"
+
+
+def test_extract_json_prefers_action_object(td):
+    # A reasoning blob precedes the real action — the action must win.
+    s = 'Planning: {"note":"let me think"} and then {"tool":"final","text":"hi"}'
+    assert td._extract_json(s) == {"tool": "final", "text": "hi"}
+
+
 # ── capability probe ──────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -332,6 +352,74 @@ async def test_fallback_native_to_json_when_unknown(td):
     assert res["done"] == "done"
     assert "tools" in client.seen[0]          # native tried first
     assert "tools" not in client.seen[1]      # then JSON
+
+
+@pytest.mark.asyncio
+async def test_json_closing_gives_final_answer_on_exhaustion(td):
+    # The model loops a tool without ever finishing; the loop must not end empty —
+    # the closing step asks once more and returns the answer (fixes the gemma
+    # "web_research nine times then nothing" symptom).
+    client = _Client([
+        {"text": json.dumps({"tool": "lookup", "args": {"q": "a"}}), "tool_calls": []},
+        {"text": json.dumps({"tool": "lookup", "args": {"q": "a"}}), "tool_calls": []},
+        {"text": "The answer is 42.", "tool_calls": []},   # closing reply
+    ], supports=False)
+
+    def _lookup(args):
+        return "nothing useful"
+
+    res = await td.run_tool_loop(
+        _Hass(), client, system="s", user="u", tools=[_tool("lookup")],
+        handlers={"lookup": _lookup}, max_steps=2)
+    assert res["exhausted"] is True
+    assert res["text"] == "The answer is 42."
+    assert client.calls == 3   # 2 steps + 1 closing
+
+
+@pytest.mark.asyncio
+async def test_json_closing_dispatches_default_tool(td):
+    # A composer-style loop (default_tool set) that only searched can still close
+    # by finally emitting its create on the closing step.
+    client = _Client([
+        {"text": json.dumps({"tool": "search", "args": {"q": "x"}}), "tool_calls": []},
+        {"text": json.dumps({"tool": "search", "args": {"q": "x"}}), "tool_calls": []},
+        {"text": json.dumps({"alias": "A", "trigger": [1], "action": [2]}),
+         "tool_calls": []},                                 # closing create (bare)
+    ], supports=False)
+
+    def _search(args):
+        return "no matches"
+
+    async def _create(args):
+        return td.Done(args)
+
+    res = await td.run_tool_loop(
+        _Hass(), client, system="s", user="u",
+        tools=[_tool("search"), _tool("create")],
+        handlers={"search": _search, "create": _create},
+        default_tool="create", max_steps=2)
+    assert res["done"]["alias"] == "A"
+    assert client.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_json_repeat_guard_nudges(td):
+    client = _Client([
+        {"text": json.dumps({"tool": "lookup", "args": {"q": "a"}}), "tool_calls": []},
+        {"text": json.dumps({"tool": "lookup", "args": {"q": "a"}}), "tool_calls": []},
+        {"text": json.dumps({"tool": "final", "text": "done"}), "tool_calls": []},
+    ], supports=False)
+
+    def _lookup(args):
+        return "nope"
+
+    res = await td.run_tool_loop(
+        _Hass(), client, system="s", user="u", tools=[_tool("lookup")],
+        handlers={"lookup": _lookup}, max_steps=5)
+    assert res["text"] == "done"
+    # the repeated lookup got a "do NOT repeat" nudge, visible to the 3rd call
+    assert any("do NOT repeat" in (m.get("content") or "")
+               for m in client.seen[2]["messages"])
 
 
 @pytest.mark.asyncio

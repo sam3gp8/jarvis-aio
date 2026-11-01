@@ -306,6 +306,27 @@ async def test_json_fallback_retries_search_after_bad_name(creator, tmp_path):
                for m in corrected_round)
 
 
+@pytest.mark.asyncio
+async def test_json_closing_forces_create_after_searching(creator, tmp_path):
+    """A weak local model that keeps searching without ever building: the closing
+    step forces the create, so the composer produces a draft instead of the
+    generic 'couldn't compose' failure (the gemma4:26b symptom)."""
+    hass = _home(tmp_path)   # light.porch exists
+    create = {"tool": "create", "automation": {
+        "alias": "Porch at dusk",
+        "trigger": [{"trigger": "sun", "event": "sunset"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}
+    search = {"text": json.dumps({"tool": "search", "query": "porch"}), "tool_calls": []}
+    client = _ScriptClient(
+        [{"text": "", "tool_calls": []}]        # native attempt → no tool call → JSON
+        + [search] * 5                          # 5 JSON steps: only searches
+        + [{"text": json.dumps(create), "tool_calls": []}])   # closing: the create
+    res = await creator.draft_automation(hass, "porch light at sunset", client=client)
+    assert res["ok"] is True
+    assert "light.porch" in res["draft"]["yaml"]
+    assert hass.services.calls == []            # drafting never installs
+
+
 def test_extract_json_handles_prose_and_fences(creator):
     assert creator._extract_json('{"a": 1}') == {"a": 1}
     assert creator._extract_json('Here: {"a": {"b": 2}} done')["a"]["b"] == 2
