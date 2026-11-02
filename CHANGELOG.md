@@ -1,3 +1,21 @@
+## [9.67.0] — Answer JARVIS's follow-up without the wake word (continued conversation on by default)
+
+**#463:** JARVIS frequently asks *"I can do X — would you like me to?"* and then
+stops listening, so you can't just answer. The turn-taking that keeps the mic
+open for your reply was already built (conservative, speaker-aware, with a
+room-to-room handoff option) — it was simply **off by default**, so almost
+nobody got it.
+
+This flips `continued_conversation` **on by default** (kill-switchable via the
+*Continued conversation* toggle in the panel, or `continued_conversation_enabled`).
+It stays deliberately conservative: the mic only reopens when JARVIS's reply is a
+**question** or a **clear offer to act** ("shall I?", "would you like me to…",
+"should I…"). A plain "Done." still ends the turn exactly as before — no mic held
+open after a statement — and if nothing is said, the reopened mic just times out.
+
+So now, after JARVIS offers to do something, you answer "yes" (or "no") straight
+back, no wake word. Nothing else changes; turn it off anytime.
+
 ## [9.66.0] — Composer: one-shot drafting for local models (stop making a weak model drive a search loop)
 
 The diagnostic logging kept paying off. On the live `gemma4:26b` install (a

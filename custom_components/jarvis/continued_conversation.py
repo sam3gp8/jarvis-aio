@@ -7,8 +7,12 @@ invites a follow-up (should_continue) and reads the enable flag; conversation.py
 sets continue_conversation on the result accordingly, and the assist pipeline
 honors it by reopening the mic.
 
-Conservative and OFF by default. It only continues on a clear question or an
-explicit offer to act — it will not hold the mic open after a plain statement.
+Conservative, and ON by default (kill-switchable via
+continued_conversation_enabled). It only continues on a clear question or an
+explicit offer to act — it will not hold the mic open after a plain statement,
+so a plain "Done." ends the turn exactly as before. This default-on behaviour
+is what lets a person answer JARVIS's "…would you like me to?" without saying
+the wake word again.
 
 The external-speaker reopen timing IS implemented here (schedule_reopen): for a
 mic-only satellite whose reply plays on a separate speaker, JARVIS watches that
@@ -33,12 +37,16 @@ _INVITE = re.compile(
 
 
 def enabled() -> bool:
-    """Whether continued conversation is turned on (off by default)."""
+    """Whether continued conversation is turned on (ON by default). Set
+    continued_conversation_enabled to False to turn it off."""
     try:
         from . import jarvis_config
-        return bool(jarvis_config.get("continued_conversation_enabled", False))
+        return bool(jarvis_config.get("continued_conversation_enabled", True))
     except Exception:
-        return False
+        # If config can't be read, default to the on behaviour too — it's
+        # conservative (only continues on a question/offer) and matches the
+        # resolved default the panel shows.
+        return True
 
 
 def should_continue(text: str) -> bool:

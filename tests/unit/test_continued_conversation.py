@@ -30,17 +30,20 @@ def test_no_continue_on_midtext_question_mark(cc):
     assert cc.should_continue("You asked why? Here is the reason: it was off.") is False
 
 
-def test_enabled_default_off(cc, load, monkeypatch):
+def test_enabled_default_on(cc, load, monkeypatch):
+    # #463: default ON so a person can answer JARVIS's follow-up without the
+    # wake word. "nothing set" returns the default, which must now be True.
     jc = load("jarvis_config")
     monkeypatch.setattr(jc, "get", lambda k, d=None: d)          # nothing set
-    assert cc.enabled() is False
+    assert cc.enabled() is True
 
 
-def test_enabled_when_set(cc, load, monkeypatch):
+def test_enabled_kill_switch(cc, load, monkeypatch):
+    # Explicitly turning it off is honoured (kill switch).
     jc = load("jarvis_config")
     monkeypatch.setattr(jc, "get",
-                        lambda k, d=None: True if k == "continued_conversation_enabled" else d)
-    assert cc.enabled() is True
+                        lambda k, d=None: False if k == "continued_conversation_enabled" else d)
+    assert cc.enabled() is False
 
 
 # ── speaker-aware follow-up reopen ──────────────────────────────────────────
