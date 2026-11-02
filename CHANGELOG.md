@@ -1,3 +1,9 @@
+## [9.75.0] — Live W × H readout while dragging rooms
+
+Dragging or resizing a room now floats an amber `W × L` label just above the
+shape, updating every frame in the plan's real units (ft or m). Pulling a
+polygon corner shows the live bounding box too. The label clears on drop.
+
 ## [9.74.4] — Selection survives the post-drag re-render
 
 updateInfo fired on mousedown but endDrag treats polygon moves as heavy and

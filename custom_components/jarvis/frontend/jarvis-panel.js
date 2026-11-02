@@ -7916,6 +7916,21 @@ ${this._renderExcludedEntities(d)}
       if (hy != null) h += '<line x1="' + v.x + '" y1="' + hy + '" x2="' + (v.x + v.w) + '" y2="' + hy + '" stroke="#00f5a0" stroke-width="0.7" stroke-dasharray="3 2"/>';
       g.innerHTML = h;
     };
+    // Floating W × H readout that tracks the shape while you resize/drag it.
+    const _showLiveDims = (g, x, y, txt) => {
+      if (!g) return;
+      let t = g.querySelector('.fp-live-dims');
+      if (!t) {
+        t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('class', 'fp-live-dims');
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('pointer-events', 'none');
+        t.setAttribute('style', 'font-size:5.5px;fill:#ffb85a;letter-spacing:0.4px;');
+        g.appendChild(t);
+      }
+      t.setAttribute('x', x); t.setAttribute('y', y);
+      t.textContent = txt;
+    };
 
     function updateInfo(rm) {
       if (!infoEl || !rm) return;
@@ -8205,6 +8220,9 @@ ${this._renderExcludedEntities(d)}
         if (g) {
           const path = g.querySelector('.fp-zone-path'); if (path) path.setAttribute('d', self._propPathD(rm.points));
           const dot = g.querySelector('.fp-zone-vtx[data-vtx="' + dragging.vi + '"]'); if (dot) { dot.setAttribute('cx', p[0]); dot.setAttribute('cy', p[1]); }
+          let _bx0 = 1e9, _by0 = 1e9, _bx1 = -1e9, _by1 = -1e9;
+          rm.points.forEach(q => { _bx0 = Math.min(_bx0, q[0]); _by0 = Math.min(_by0, q[1]); _bx1 = Math.max(_bx1, q[0]); _by1 = Math.max(_by1, q[1]); });
+          _showLiveDims(g, (_bx0 + _bx1) / 2, _by0 - 4, self._fpToReal(_bx1 - _bx0) + ' × ' + self._fpToReal(_by1 - _by0) + ' ' + self._fpUnitLabel());
         }
         return;
       }
@@ -8304,6 +8322,7 @@ ${this._renderExcludedEntities(d)}
         if (t) { t.setAttribute("x", rm.x + rm.w/2); t.setAttribute("y", rm.y + rm.h/2 + 2); }
         const rh = g.querySelector(".fp-resize-handle");
         if (rh) { rh.setAttribute("x", rm.x + rm.w - 8); rh.setAttribute("y", rm.y + rm.h - 8); }
+        _showLiveDims(g, rm.x + rm.w / 2, rm.y - 4, self._fpToReal(rm.w) + ' × ' + self._fpToReal(rm.h) + ' ' + self._fpUnitLabel());
       }
     });
 
@@ -8335,6 +8354,7 @@ ${this._renderExcludedEntities(d)}
       const heavy = dragging.camera || dragging.property || dragging.zoneVtx || dragging.zoneBody || dragging.opening != null;
       dragging = null;
       const _sg = svgEl.querySelector('.fp-snap-g'); if (_sg) _sg.remove();
+      svgEl.querySelectorAll('.fp-live-dims').forEach(t => t.remove());
       if (heavy) self._rerenderFloorEditor(); else redraw();
     };
     svgEl.addEventListener("mouseup", endDrag);
