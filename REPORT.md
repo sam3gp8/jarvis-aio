@@ -1,71 +1,63 @@
-# JARVIS traction report — 2026-11-01
+# JARVIS traction report — 2026-11-02
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-10-31 vs the 7 before
+## 7 days to 2026-11-01 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 650 | 258 | +152% |
-| Unique visitors (sum of daily) | 254 | 114 | +123% |
-| Clones | 1231 | 702 | +75% |
-| Unique cloners (sum of daily) | 307 | 225 | +36% |
+| Views | 737 | 236 | +212% |
+| Unique visitors (sum of daily) | 278 | 102 | +173% |
+| Clones | 1370 | 753 | +82% |
+| Unique cloners (sum of daily) | 352 | 229 | +54% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 34 | +4 | +13 |
+| Stars | 34 | +3 | +12 |
 | Forks | 8 | +1 | +5 |
-| Watchers | 1 | +0 | -1 |
-| HA analytics installs | 129 | +18 | — |
+| Watchers | 1 | +0 | +0 |
+| HA analytics installs | 133 | +19 | — |
 | Release asset downloads | 0 | +0 | +0 |
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1529** views (+553 this week), **12** replies (+7 this week).
-
-New posts in the last 7 days:
-- #7 @biancapascal (2026-10-26): I installed Yarvis, also i have credits on openrouter.ai but for some reasons he dos’nt speak. in settalite speakers i also have no speaker what i try Can anybody help me please?
-- #8 @sam3gp8 (2026-10-27): Hi! Two separate things are probably going on here — let’s split them, because one is the “brain” (OpenRouter) and one is the “voice” (speaking). The quickest way to tell which: open the JARVIS panel…
-- #9 @biancapascal (2026-10-27): a.> JARVIS AI Assistant HA OS b.> allot of speakers i have, sonos, tv , chrome cast. c.> Jarvis replies very good in de chat, if i try in my setting off HA the tts pipe i hear it speak. I tryed many…
-- #10 @sam3gp8 (2026-10-28): @biancapascal thanks, that narrows it down a lot. Chat works and HA’s own voice works, so your speakers and TTS are fine. The problem is the voice JARVIS asks for. Please try this: In the JARVIS pane…
-- #11 @biancapascal (2026-10-28): I have from everything the latest version. This says my log.: 19:09:59 AGENT replied with no tool call — served by custom/google/gemini-2.5-flash, 50 tool(s) available 19:09:57 AGENT LLM needed (comp…
-- #12 @sam3gp8 (2026-10-29): @biancapascal thanks for the log, that explains it! device=None means the message was typed (in the JARVIS chat or the Assist text box). JARVIS answers typed messages in text only. It speaks only whe…
-- #14 @sam3gp8 (2026-10-29): @neena022gupta this was fixed in 9.30.2 . Update JARVIS in HACS and restart, then follow the steps in my reply to williammorran above (post #5 ). If it still doesn’t work, post the exact error JARVIS…
+_Forum thread not reachable today._
 
 ## Top referrers (rolling 14 days)
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 83 | 57 |
-| Google | 40 | 25 |
-| github.com | 33 | 23 |
+| community.home-assistant.io | 79 | 57 |
+| Google | 38 | 25 |
+| github.com | 33 | 21 |
 | aocr.org | 9 | 9 |
-| Bing | 2 | 2 |
+| Bing | 1 | 1 |
 | DuckDuckGo | 1 | 1 |
 
 ## Most-visited pages (rolling 14 days)
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 449 | 246 |
-| `/sam3gp8/jarvis-aio/issues` | 94 | 36 |
-| `/sam3gp8/jarvis-aio/pulls` | 47 | 8 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 21 | 19 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 21 | 17 |
-| `/sam3gp8/jarvis-aio/releases` | 8 | 8 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/activity-feed.png` | 7 | 6 |
-| `/sam3gp8/jarvis-aio/discussions` | 7 | 5 |
-| `/sam3gp8/jarvis-aio/issues/413` | 7 | 4 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/floor-plan-import.md` | 6 | 6 |
+| `/sam3gp8/jarvis-aio` | 471 | 254 |
+| `/sam3gp8/jarvis-aio/issues` | 108 | 43 |
+| `/sam3gp8/jarvis-aio/pulls` | 48 | 9 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 24 | 20 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 22 | 20 |
+| `/sam3gp8/jarvis-aio/releases` | 9 | 9 |
+| `/sam3gp8/jarvis-aio/issues/334` | 8 | 8 |
+| `/sam3gp8/jarvis-aio/discussions` | 8 | 6 |
+| `/sam3gp8/jarvis-aio/tree/main` | 8 | 6 |
+| `/sam3gp8/jarvis-aio/forks` | 8 | 4 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-11-01 | 115 | 42 | 232 | 72 |
 | 2026-10-31 | 102 | 41 | 355 | 76 |
 | 2026-10-30 | 138 | 44 | 346 | 87 |
 | 2026-10-29 | 206 | 63 | 249 | 46 |
@@ -94,4 +86,5 @@ New posts in the last 7 days:
 | 2026-10-06 | 183 | 30 | 478 | 114 |
 | 2026-10-05 | 103 | 34 | 677 | 170 |
 | 2026-10-04 | 77 | 28 | 1258 | 270 |
-| 2026-10-03 | 92 | 20 | 384 | 125 |
+
+> Sources that failed today: forum
