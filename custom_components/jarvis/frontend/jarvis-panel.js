@@ -3804,6 +3804,12 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     // Cape Cod with default dormers => let the model render its exact approved layout.
     spec.dormersFront = fEx != null ? fEx : sd.dormersFront;
     spec.dormersRear = rEx != null ? rEx : sd.dormersRear;
+    // A single-storey building gets no roof dormers — they're a 1.5+ storey
+    // feature. Only the STYLE default is suppressed; an explicit pick wins.
+    if (spec.stories <= 1) {
+      if (fEx == null) spec.dormersFront = 0;
+      if (rEx == null) spec.dormersRear = 0;
+    }
     if (num(c.garage_bays) != null) spec.garageBays = num(c.garage_bays);
     if (c.chimney_side) spec.chimney = c.chimney_side;
     // #324: center / multiple chimneys (common on European houses) + where the

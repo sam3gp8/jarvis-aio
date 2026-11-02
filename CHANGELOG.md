@@ -1,3 +1,9 @@
+## [9.71.2] — Single-storey homes no longer sprout style-default dormers
+
+Style defaults (Cape Cod's 2 front + 1 rear dormers, etc.) leaked through to
+single-storey houses, where roof dormers make no sense. The default is now
+suppressed when Stories ≤ 1; an explicit dormer pick still wins.
+
 ## [9.71.1] — Floor plan fixes: one roof across small room gaps; ghosts only mirror the main mass
 
 Two corrections to 9.71.0: footprint masses now bridge gaps up to ~2.5 ft, so
