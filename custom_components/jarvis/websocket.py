@@ -873,7 +873,7 @@ async def ws_get_panel_data(
                 "memory_threading_enabled": bool(_runtime_opt(hass, entry, "memory_threading_enabled", True)),
                 "memory_threading_hours": _runtime_opt(hass, entry, "memory_threading_hours", 48),
                 "memory_threading_max": _runtime_opt(hass, entry, "memory_threading_max", 12),
-                "continued_conversation_enabled": bool(_runtime_opt(hass, entry, "continued_conversation_enabled", False)),
+                "continued_conversation_enabled": bool(_runtime_opt(hass, entry, "continued_conversation_enabled", True)),
                 "continued_conversation_speaker_reopen": bool(_runtime_opt(hass, entry, "continued_conversation_speaker_reopen", True)),
                 "continued_conversation_multi_satellite": bool(_runtime_opt(hass, entry, "continued_conversation_multi_satellite", False)),
                 "observer_group_debounce": _runtime_opt(hass, entry, "observer_group_debounce", 90),
