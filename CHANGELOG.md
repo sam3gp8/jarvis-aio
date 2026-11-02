@@ -1,3 +1,11 @@
+## [9.74.0] — Per-building roof types: a shed can lean while the house gables
+
+Select any enclosed room and the info bar gains a "roof" dropdown — the full
+13-style list plus "House default". The override is stored on the room
+(`roof`), survives floor-plan save/load, and applies per footprint mass: a
+detached shed can wear a lean-to while the main house keeps its gable.
+Rooms merged into one mass share one roof — disjoint buildings diverge.
+
 ## [9.73.1] — Flat & hip roofs roof each building, not the whole lot
 
 The flat/hip paths roofed the whole footprint bounding box — one slab from

@@ -818,6 +818,17 @@ const JARVIS3D = (function () {
       if (attach === 'bottom') r.y1 += h;
       return r;
     };
+    // Per-building roof: a room may carry `roof` — the first override found
+    // inside a mass wins (merged masses are one building, so they can't split).
+    var _roomRoof = function (m) {
+      var t = null;
+      (plan['1f'] || []).forEach(function (r) {
+        if (t || !r.roof) return;
+        var cx = r.x + r.w / 2, cy = r.y + r.d / 2;
+        if (cx >= m.x0 - 0.5 && cx <= m.x1 + 0.5 && cy >= m.y0 - 0.5 && cy <= m.y1 + 0.5) t = r.roof;
+      });
+      return t || rt;
+    };
     // Extra roof styles — each draws into L and returns {a,b} for dormer refs.
     function shedRoofOver(L, GL, x0, y0, x1, y1, eave, rise) {   // lean-to: one slope, high at front
       var z0 = eave + (rise || _roofRise(y1 - y0));
@@ -867,7 +878,9 @@ const JARVIS3D = (function () {
       F(L, [[x1,y0,eave],[x1,y1,eave],[x1 - clip,cy,pk]], C.roofF, C.roofS, 1);
       return r;
     }
-    function roofOver(L, GL, rt, x0, y0, x1, y1, eave, rise) {
+    function roofOver(L, GL, rt, x0, y0, x1, y1, eave, rise, ztop) {
+      if (rt === 'flat')        return flatRoofOver(L, GL, x0, y0, x1, y1, ztop || eave);
+      if (rt === 'hip')         return hipRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
       if (rt === 'gambrel')     return gambrelRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
       if (rt === 'shed')        return shedRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
       if (rt === 'mansard')     return mansardOver(L, GL, x0, y0, x1, y1, eave, rise);
@@ -886,8 +899,7 @@ const JARVIS3D = (function () {
       _fm.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
       _fm.forEach(function (m, mi) {
         var _rs = _roofExt(m, mi === 0);
-        var _r = (rt === 'flat') ? flatRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, ztop)
-                                 : hipRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise);
+        var _r = roofOver(L, GL, _roomRoof(m), _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise, ztop);
         if (mi === 0) roof = _r;
       });
     }
@@ -902,10 +914,10 @@ const JARVIS3D = (function () {
       if (!houseRect) {
         var hmasses = _footprintMasses(houseRooms);
         hmasses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
-        hmasses.forEach(function (m, mi) { var _rs = _roofExt(m, mi === 0); var _r = roofOver(L, GL, rt, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise); if (mi === 0) roof = _r; });
+        hmasses.forEach(function (m, mi) { var _rs = _roofExt(m, mi === 0); var _r = roofOver(L, GL, _roomRoof(m), _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise, ztop); if (mi === 0) roof = _r; });
       } else {
         var _rsh = _roofExt({ x0: hb.x0, y0: hb.y0, x1: hb.x1, y1: hb.y1 }, true);
-        roof = roofOver(L, GL, rt, _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise);
+        roof = roofOver(L, GL, _roomRoof({ x0: hb.x0, y0: hb.y0, x1: hb.x1, y1: hb.y1 }), _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise, ztop);
       }
       // attached garage: low, shallow-pitch roof over its ACTUAL bbox (spans its real depth)
       gableRoofOver(L, GL, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, 0.20);
@@ -915,12 +927,12 @@ const JARVIS3D = (function () {
         _masses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
         _masses.forEach(function (m, mi) {
           var _rs = _roofExt(m, mi === 0);
-          var _r = roofOver(L, GL, rt, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise);
+          var _r = roofOver(L, GL, _roomRoof(m), _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise, ztop);
           if (mi === 0) roof = _r;   // largest mass is the dormer reference
         });
       } else {
         var _rs2 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1);
-        roof = roofOver(L, GL, rt, _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise);
+        roof = roofOver(L, GL, _roomRoof({ x0: minx, y0: miny, x1: maxx, y1: maxy }), _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise, ztop);
       }
     }
 
@@ -3664,7 +3676,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         name: (r.name || '').toLowerCase(),
         label: (r.name || '').toUpperCase(),
         x: (r.x || 0) * FT, y: (r.y || 0) * FT, w: (r.w || 0) * FT, d: (r.h || 0) * FT,
-        type: r.type,
+        type: r.type, roof: r.roof,
         points: (Array.isArray(r.points) && r.points.length >= 3) ? r.points.map(p => [p[0] * FT, p[1] * FT]) : undefined,
       }));
     });
@@ -7924,6 +7936,17 @@ ${this._renderExcludedEntities(d)}
           _infoIdx = -1;
           self._rerenderFloorEditor();
         });
+        // Per-building roof type — only meaningful on a disjoint building
+        // (merged masses share one roof); pick "House default" to inherit.
+        if (rm.type !== 'outdoor' && rm.type !== 'stairs' && rm.type !== 'door') {
+          infoEl.innerHTML += ' \u00b7 roof <select class="fp-room-roof" style="background:var(--bg);border:1px solid var(--line);color:var(--cyan);border-radius:4px;padding:1px 3px;font-family:var(--font-mono);font-size:10px;">'
+            + self._optsLabeled([['', 'House default']].concat(self._roofTypePairs().slice(1)), rm.roof || '') + '</select>';
+          infoEl.querySelector('.fp-room-roof').addEventListener('change', (ev) => {
+            const r = rooms[_infoIdx]; if (!r) return;
+            if (ev.target.value) r.roof = ev.target.value; else delete r.roof;
+            self._refreshEditorPreview();
+          });
+        }
         infoEl.querySelectorAll('.fp-dim-in').forEach(inp => {
           inp.addEventListener('change', () => {
             const r = rooms[_infoIdx]; if (!r) return;
