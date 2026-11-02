@@ -437,7 +437,10 @@ const JARVIS3D = (function () {
       encl.forEach(function (r) { _polyScanX(_roomCorners(r), ym).forEach(function (iv) { ivs.push(iv); }); });
       ivs.sort(function (a, b) { return a[0] - b[0]; });
       var merged = [];
-      ivs.forEach(function (iv) { var last = merged[merged.length - 1]; if (last && iv[0] <= last[1] + 0.01) last[1] = Math.max(last[1], iv[1]); else merged.push([iv[0], iv[1]]); });
+      // Bridge small gaps (<=2.5 ft): rooms drawn a few units apart are the same
+      // building sketched loosely — joining them yields ONE roof mass instead of
+      // a gable per room. Detached buildings sit far enough away to stay split.
+      ivs.forEach(function (iv) { var last = merged[merged.length - 1]; if (last && iv[0] <= last[1] + 2.5) last[1] = Math.max(last[1], iv[1]); else merged.push([iv[0], iv[1]]); });
       merged.forEach(function (iv) { rects.push({ x0: iv[0], y0: y0, x1: iv[1], y1: y1 }); });
     }
     var changed = true;
@@ -851,11 +854,15 @@ const JARVIS3D = (function () {
     // dim ghost — party wall + shared-roof read, without claiming lit windows.
     var attach = SPEC.attached || 'none';
     if (attach !== 'none') {
+      // Only the MAIN mass gets a neighbour — mirroring every mass would drop a
+      // ghost into the gap between the house and any detached outbuilding.
       var _gm = _footprintMasses(plan['1f'] || []);
-      if (!_gm.length && (plan['1f'] || []).length) _gm = [{ x0: minx, y0: miny, x1: maxx, y1: maxy }];
+      var _main = null;
+      _gm.forEach(function (m) { if (!_main || (m.x1 - m.x0) * (m.y1 - m.y0) > (_main.x1 - _main.x0) * (_main.y1 - _main.y0)) _main = m; });
+      if (!_main && (plan['1f'] || []).length) _main = { x0: minx, y0: miny, x1: maxx, y1: maxy };
       var gFill = 'rgba(10,20,30,0.55)', gStroke = 'rgba(90,130,160,0.3)', gRoof = 'rgba(8,17,26,0.88)', gRoofS = 'rgba(90,130,160,0.22)';
-      _gm.forEach(function (m) {
-        var mw = m.x1 - m.x0;
+      if (_main) {
+        var m = _main, mw = m.x1 - m.x0;
         [['left', m.x0 - mw, m.x0], ['right', m.x1, m.x1 + mw]].forEach(function (s) {
           if (attach !== 'both' && attach !== s[0]) return;
           var gx0 = s[1], gx1 = s[2], gy0 = m.y0, gy1 = m.y1, rcx = (gx0 + gx1) / 2;
@@ -873,7 +880,7 @@ const JARVIS3D = (function () {
             F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[gx1,gy1,eave],[gx0,gy1,eave]], gRoof, gRoofS, 0.4);
           }
         });
-      });
+      }
     }
 
     // 2nd-floor placed windows: side walls land on the gable ends, front/back on the

@@ -1,3 +1,12 @@
+## [9.71.1] — Floor plan fixes: one roof across small room gaps; ghosts only mirror the main mass
+
+Two corrections to 9.71.0: footprint masses now bridge gaps up to ~2.5 ft, so
+house rooms sketched a few units apart merge into a single roof (detached
+buildings sit far enough away to stay split — complementing the drag snap,
+which fixes layout at the source). And attached-side ghost neighbours now
+mirror only the **largest** mass — mirroring every mass was dropping a ghost
+into the gap between the house and any detached outbuilding.
+
 ## [9.71.0] — Floor plan: rooms snap together into one house + UK semi/terrace styles
 
 Two gaps surfaced the moment real homes met the editor. Disjoint rooms — a
