@@ -1,3 +1,38 @@
+## [9.70.0] — Floor plan: openings anchor to real wall edges — L-shaped rooms, detached buildings, drag-to-place
+
+The floor-plan editor had three walls it couldn't see past. Rooms could only be
+rectangles: an L-shaped kitchen-diner had to be drawn as two overlapping boxes.
+Windows and doors were worse — each opening pinned to `front`/`back`/`left`/`right`
+of a **bounding box**, slid along it with a `pos` slider. On a plan with an
+external building (a detached garage, a shed), "front" meant the front of the
+*whole site*, so there was no way to put a door on the shed's side wall — and on
+an L-shaped footprint the slider happily floated openings across the notch, on
+no wall at all.
+
+**Openings now anchor to a wall edge, not a side name.** An element carries
+`room` (any enclosed room — a detached building is just another room), `edge`
+(the index into that room's corner list), and `pos` (0–1 along the edge). The
+`wall` cardinal stays in the data as a derived hint for the 3D model, and
+older `wall` + `pos` elements still resolve against their bounding box — no
+migration, nothing to re-place.
+
+**Markers are draggable.** Drag a window or door marker on the plan and it snaps
+onto the nearest wall edge of *any* room — house wall, L-notch wall, shed wall —
+updating room, edge and position on drop. Right-click a marker to delete the
+opening, same gesture as cameras and device pins. The row controls are still
+there for fine tuning: the room picker now applies to every opening kind, and
+the old four-way wall dropdown is replaced by a per-edge list (Front / Right /
+Back / Left for rectangles, numbered walls with direction arrows for polygons).
+
+**L-rooms get a front door, too.** Reshaping into a polygon already existed
+("◇ Reshape"), but was easy to miss — there's now a "+ L Room" button that drops
+a six-corner L you pull into shape, and a selected polygon reports its corners
+and offers "Make rectangular" to go back.
+
+Everything downstream follows the real geometry: camera line-of-sight gaps now
+cut through actual polygon edges instead of the bounding-box side, and the 3D
+house draws each opening on the wall it was anchored to.
+
 ## [9.69.0] — Composer: local models draft one-shot via native function-calling, never the agentic loop
 
 v9.68.0's observability immediately earned its keep. On the live `gemma4:26b`

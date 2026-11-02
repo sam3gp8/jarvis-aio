@@ -35,6 +35,30 @@ axis-aligned bounding box plus, optionally, its exact polygon:
 * Two rooms are treated as adjacent when their boxes touch or nearly touch, so
   keep neighbouring rooms sharing an edge.
 
+### Openings anchor to a wall edge, not a side name
+
+`floor_plan_elements` (windows/doors placed on the plan) anchors each opening to
+an **edge of a room's polygon** — or to the whole-house footprint rectangle when
+`room` is unset:
+
+```json
+{ "type": "door", "kind": "exterior", "room": "Shed", "edge": 1, "pos": 0.5, "w": 8 }
+```
+
+* `room` — the room/building whose wall holds the opening. Any enclosed room is
+  a valid anchor, so a detached garage or shed can carry its own doors.
+* `edge` — index into that room's corner list (`points`, or the four bounding-box
+  corners for a plain rectangle). This is what makes L-shaped rooms work: the
+  notch walls are real edges, not a side of the bounding box.
+* `pos` — position along the edge, `0`–`1`.
+* `wall` — kept as a derived `front`/`back`/`left`/`right` hint (the dominant
+  outward direction of the edge) for consumers that only understand cardinals,
+  such as the 3D model. Older elements with only `wall` + `pos` still resolve
+  against the anchor's bounding box, so nothing needs migrating.
+
+In the editor, dragging an opening's marker snaps it onto the nearest wall edge
+of any room and fills `room`/`edge`/`pos`/`wall` automatically.
+
 ### Object vs. stringified string
 
 You do **not** need to double-escape anything. JARVIS accepts `floor_plan_rooms`

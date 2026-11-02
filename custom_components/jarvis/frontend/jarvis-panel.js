@@ -768,7 +768,7 @@ const JARVIS3D = (function () {
       // user-placed exterior openings — windows lit by the room they front, doors open/closed from their sensor
       placed.forEach(function (e) {
         var p = e.pos != null ? e.pos : 0.5, w = e.w || 4, horiz = (e.wall === 'front' || e.wall === 'back');
-        var xy = wallXY(e.wall, p), cx = xy[0], cy = xy[1];
+        var xy = (e.x != null) ? [e.x, e.y] : wallXY(e.wall, p), cx = xy[0], cy = xy[1];
         if (e.type === 'window') {
           var st = winOcc(cx, cy);
           if (horiz) winY(L, GL, cy, cx - w / 2, cx + w / 2, z0, z1, st, true, e.wall === 'front' ? -0.06 : 0.06);
@@ -862,7 +862,15 @@ const JARVIS3D = (function () {
     var gyC = (h2.y0 + h2.y1) / 2, gHalf = Math.max((h2.y1 - h2.y0) / 2, 0.1), ridgeApprox = eave + (minRise || 0);
     ((opts.elements && opts.elements['2f']) || []).filter(function (e) { return e.type === 'window'; }).forEach(function (e) {
       var p = e.pos != null ? e.pos : 0.5, w = e.w || 4;
-      if (e.wall === 'left' || e.wall === 'right') {
+      if (e.x != null) {
+        // edge-anchored: resolved centre + cardinal hint from the real wall
+        if (e.wall === 'front' || e.wall === 'back') winY(L, GL, e.y, e.x - w / 2, e.x + w / 2, 10.8, 13.8, winOcc2f(e.x, e.y), true, e.wall === 'front' ? -0.3 : 0.3);
+        else {
+          var roofAtEx = eave + (1 - Math.min(1, Math.abs(e.y - gyC) / gHalf)) * (ridgeApprox - eave);
+          var zHiE = Math.min(15.0, roofAtEx - 0.5), zLoE = Math.max(zHiE - 2.8, 10.2);
+          winX(L, GL, e.x, e.y - w / 2, e.y + w / 2, zLoE, zHiE, winOcc2f(e.x, e.y), true, e.wall === 'left' ? -0.06 : 0.06);
+        }
+      } else if (e.wall === 'left' || e.wall === 'right') {
         var xg = e.wall === 'left' ? ((h2.x0 - minx < 3) ? minx : h2.x0) : ((maxx - h2.x1 < 3) ? maxx : h2.x1), yc = h2.y0 + p * (h2.y1 - h2.y0);
         var roofAtYc = eave + (1 - Math.min(1, Math.abs(yc - gyC) / gHalf)) * (ridgeApprox - eave);
         var zHi = Math.min(15.0, roofAtYc - 0.5), zLo = Math.max(zHi - 2.8, 10.2);
@@ -883,7 +891,8 @@ const JARVIS3D = (function () {
     if (hb && placedB.length) {
       placedB.forEach(function (e) {
         var p = e.pos != null ? e.pos : 0.5, w = e.w || 4, horiz = (e.wall === 'front' || e.wall === 'back'), cx, cy;
-        if (e.wall === 'front') { cx = hb.x0 + p * (hb.x1 - hb.x0); cy = miny; }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else if (e.wall === 'front') { cx = hb.x0 + p * (hb.x1 - hb.x0); cy = miny; }
         else if (e.wall === 'back') { cx = hb.x0 + p * (hb.x1 - hb.x0); cy = maxy; }
         else if (e.wall === 'left') { cx = (hb.x0 - minx < 3) ? minx : hb.x0; cy = hb.y0 + p * (hb.y1 - hb.y0); }
         else { cx = (maxx - hb.x1 < 3) ? maxx : hb.x1; cy = hb.y0 + p * (hb.y1 - hb.y0); }
@@ -965,7 +974,8 @@ const JARVIS3D = (function () {
         if (!rr) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 3);
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d, cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
         else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
         else if (e.wall === 'left') { cx = rx0; cy = ry0 + p * (ry1 - ry0); }
         else { cx = rx1; cy = ry0 + p * (ry1 - ry0); }
@@ -977,7 +987,8 @@ const JARVIS3D = (function () {
         if (!rr) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 3);
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d, cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
         else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
         else if (e.wall === 'left') { cx = rx0; cy = ry0 + p * (ry1 - ry0); }
         else { cx = rx1; cy = ry0 + p * (ry1 - ry0); }
@@ -992,10 +1003,10 @@ const JARVIS3D = (function () {
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 2);
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
         var zw0 = zf[0] + 2.5, zw1 = Math.min(zf[0] + 6.5, zf[1] - 0.4), cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry0, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, -0.06); }
-        else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry1, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, 0.06); }
-        else if (e.wall === 'left') { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx0, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, -0.06); }
-        else { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx1, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, 0.06); }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else { cx = (e.wall === 'left' || e.wall === 'right') ? 0 : rx0 + p * (rx1 - rx0); cy = (e.wall === 'front' || e.wall === 'back') ? 0 : ry0 + p * (ry1 - ry0); }
+        if (e.wall === 'front' || e.wall === 'back') winY(L, GL, cy, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, e.wall === 'front' ? -0.06 : 0.06);
+        else winX(L, GL, cx, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, e.wall === 'left' ? -0.06 : 0.06);
       });
       // balcony / French doors — a full-height glazed door on a chosen room's
       // wall (floor-to-head glass), lit when its sensor says open (#324).
@@ -1005,10 +1016,10 @@ const JARVIS3D = (function () {
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 4, 3), stt = e.open ? 'on' : 'off';
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
         var zd0 = zf[0] + 0.3, zd1 = Math.min(zf[0] + 7, zf[1] - 0.2), cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry0, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, -0.07, 2); }
-        else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry1, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, 0.07, 2); }
-        else if (e.wall === 'left') { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx0, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, -0.07); }
-        else { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx1, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, 0.07); }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else { cx = (e.wall === 'left' || e.wall === 'right') ? 0 : rx0 + p * (rx1 - rx0); cy = (e.wall === 'front' || e.wall === 'back') ? 0 : ry0 + p * (ry1 - ry0); }
+        if (e.wall === 'front' || e.wall === 'back') winY(L, GL, cy, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, e.wall === 'front' ? -0.07 : 0.07, 2);
+        else winX(L, GL, cx, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, e.wall === 'left' ? -0.07 : 0.07);
       });
       return { faces: L, glow: GL, labels: LBL };
     }
@@ -3196,6 +3207,107 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _setProperty(pts) { this._editingProperty = pts; }
   _propPathD(pts) { return pts.map((p, k) => (k ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ') + ' Z'; }
   _floorBelow(floor) { return ({ '2f': '1f', '1f': 'bsmt' })[floor] || null; }
+
+  // ---------- opening anchors: a window/door sits on a wall EDGE ----------
+  // An opening anchors to an edge of a room's polygon — or, with no room
+  // picked, to the whole-house footprint rectangle (legacy behaviour). `edge`
+  // = index into the anchor's corner list, `pos` = 0..1 along it. `wall` stays
+  // stored as a derived front/back/left/right hint for consumers that only
+  // know cardinals (the 3D model). Works for L-shaped rooms and detached
+  // buildings: any enclosed room's edge is a valid anchor.
+  _footprintPts(rooms) {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+    (rooms || []).forEach(r => {
+      if (r.type === 'outdoor') return;
+      any = true;
+      this._zonePoints(r).forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+    });
+    return any ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1]] : null;
+  }
+  _anchorPts(rooms, e) {
+    if (e && e.room) {
+      const rr = (rooms || []).filter(r => r.type !== 'outdoor' && r.name === e.room)[0];
+      if (rr) return this._zonePoints(rr);
+    }
+    return this._footprintPts(rooms);
+  }
+  _polyWinding(pts) {   // >0 for the _zonePoints corner order → outward = right of edge dir
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
+    return a;
+  }
+  _edgeNormal(pts, k, winding) {
+    const a = pts[k], b = pts[(k + 1) % pts.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1;
+    const ux = dx / L, uy = dy / L;
+    return (winding > 0) ? { ux, uy, nx: uy, ny: -ux } : { ux, uy, nx: -uy, ny: ux };
+  }
+  _wallFromNormal(nx, ny) {
+    return Math.abs(nx) > Math.abs(ny) ? (nx < 0 ? 'left' : 'right') : (ny < 0 ? 'front' : 'back');
+  }
+  _edgeForWall(pts, wall) {   // edge whose outward normal best matches a cardinal
+    const tgt = { front: [0, -1], back: [0, 1], left: [-1, 0], right: [1, 0] }[wall] || [0, -1];
+    const w = this._polyWinding(pts);
+    let best = 0, bd = -1e9;
+    for (let k = 0; k < pts.length; k++) {
+      const n = this._edgeNormal(pts, k, w), d = n.nx * tgt[0] + n.ny * tgt[1];
+      if (d > bd) { bd = d; best = k; }
+    }
+    return best;
+  }
+  // Resolved placement of an opening, in editor units: {x, y, ux, uy, nx, ny,
+  // wall, edge, pts} — edge direction (u), outward normal (n) — or null.
+  _openingAnchorRooms(rooms, e) {
+    const pts = this._anchorPts(rooms, e);
+    if (!pts || pts.length < 2) return null;
+    const winding = this._polyWinding(pts), p = e.pos != null ? e.pos : 0.5;
+    if (Number.isInteger(e.edge) && e.edge >= 0 && e.edge < pts.length) {
+      const a = pts[e.edge], b = pts[(e.edge + 1) % pts.length];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 0.001) return null;
+      const n = this._edgeNormal(pts, e.edge, winding), t = Math.min(1, Math.max(0, p));
+      return { x: a[0] + n.ux * L * t, y: a[1] + n.uy * L * t, ux: n.ux, uy: n.uy,
+               nx: n.nx, ny: n.ny, wall: this._wallFromNormal(n.nx, n.ny), edge: e.edge, pts };
+    }
+    // legacy: wall + pos on the anchor's bounding box
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    pts.forEach(pt => { x0 = Math.min(x0, pt[0]); y0 = Math.min(y0, pt[1]); x1 = Math.max(x1, pt[0]); y1 = Math.max(y1, pt[1]); });
+    const wall = e.wall || 'front';
+    let x, y, ux, uy, nx, ny;
+    if (wall === 'back') { x = x0 + p * (x1 - x0); y = y1; ux = 1; uy = 0; nx = 0; ny = 1; }
+    else if (wall === 'left') { x = x0; y = y0 + p * (y1 - y0); ux = 0; uy = 1; nx = -1; ny = 0; }
+    else if (wall === 'right') { x = x1; y = y0 + p * (y1 - y0); ux = 0; uy = 1; nx = 1; ny = 0; }
+    else { x = x0 + p * (x1 - x0); y = y0; ux = 1; uy = 0; nx = 0; ny = -1; }
+    return { x, y, ux, uy, nx, ny, wall, edge: this._edgeForWall(pts, wall), pts };
+  }
+  _openingAnchor(floor, e) {
+    return this._openingAnchorRooms(((this._getEditingPlan()[floor] || {}).rooms) || [], e);
+  }
+  // Nearest wall edge across every snap-eligible room — for dragging an opening
+  // onto a wall (incl. detached buildings, which are just rooms).
+  _snapToWall(floor, px, py) {
+    const rooms = ((this._getEditingPlan()[floor] || {}).rooms) || [];
+    let best = null, bd = 1e18;
+    for (let zi = 0; zi < rooms.length; zi++) {
+      const r = rooms[zi];
+      if (r.type === 'outdoor' || r.type === 'stairs' || r.type === 'door') continue;
+      const pts = this._zonePoints(r), w = this._polyWinding(pts);
+      for (let k = 0; k < pts.length; k++) {
+        const a = pts[k], b = pts[(k + 1) % pts.length];
+        const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+        if (L2 < 0.001) continue;
+        const t = Math.min(1, Math.max(0, ((px - a[0]) * dx + (py - a[1]) * dy) / L2));
+        const qx = a[0] + dx * t, qy = a[1] + dy * t, d = (px - qx) * (px - qx) + (py - qy) * (py - qy);
+        if (d < bd) {
+          const n = this._edgeNormal(pts, k, w);
+          bd = d;
+          best = { zi, edge: k, t, x: qx, y: qy, ux: n.ux, uy: n.uy, nx: n.nx, ny: n.ny, deg: Math.atan2(n.uy, n.ux) * 180 / Math.PI };
+        }
+      }
+    }
+    return best;
+  }
+
   _applyEditVB(svgEl) {
     const v = this._editVB; if (!v || !svgEl) return;
     svgEl.setAttribute('viewBox', v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h);
@@ -3260,24 +3372,12 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       const _rp = this._zonePoints(r);   // polygon edges block LOS (= the 4 rect sides for a plain room)
       for (let _wi = 0; _wi < _rp.length; _wi++) { const _a = _rp[_wi], _b = _rp[(_wi + 1) % _rp.length]; walls.push({ x0: _a[0], y0: _a[1], x1: _b[0], y1: _b[1] }); }
     });
-    let fb = null;
-    if (rooms.length) { let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9; rooms.forEach(r=>{mnx=Math.min(mnx,r.x);mny=Math.min(mny,r.y);mxx=Math.max(mxx,r.x+r.w);mxy=Math.max(mxy,r.y+r.h);}); fb={x0:mnx,y0:mny,x1:mxx,y1:mxy}; }
     (this._elemsFor(floor) || []).forEach(e => {
       if (e.type !== 'door' && e.type !== 'window') return;
+      const a = this._openingAnchorRooms(rooms, e);
+      if (!a) return;
       const ow = e.w || 20;
-      let bb = fb;
-      if ((e.kind === 'interior' || e.kind === 'cased') && e.room) {
-        const rr = rooms.filter(r => r.name === e.room)[0];
-        if (rr) bb = { x0: rr.x, y0: rr.y, x1: rr.x + rr.w, y1: rr.y + rr.h };
-      }
-      if (!bb) return;
-      const p = e.pos != null ? e.pos : 0.5;
-      let gx0, gy0, gx1, gy1;
-      if (e.wall === 'front') { const c = bb.x0 + p*(bb.x1-bb.x0); gx0=c-ow/2; gx1=c+ow/2; gy0=gy1=bb.y0; }
-      else if (e.wall === 'back') { const c = bb.x0 + p*(bb.x1-bb.x0); gx0=c-ow/2; gx1=c+ow/2; gy0=gy1=bb.y1; }
-      else if (e.wall === 'left') { const c = bb.y0 + p*(bb.y1-bb.y0); gy0=c-ow/2; gy1=c+ow/2; gx0=gx1=bb.x0; }
-      else { const c = bb.y0 + p*(bb.y1-bb.y0); gy0=c-ow/2; gy1=c+ow/2; gx0=gx1=bb.x1; }
-      gaps.push({ x0: gx0, y0: gy0, x1: gx1, y1: gy1 });
+      gaps.push({ x0: a.x - a.ux * ow / 2, y0: a.y - a.uy * ow / 2, x1: a.x + a.ux * ow / 2, y1: a.y + a.uy * ow / 2 });
     });
     return { walls, gaps };
   }
@@ -3476,19 +3576,26 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   }
   _house3dPlan() { return this._planToFeet(this._getFloorPlan()); }
 
-  // Placed openings -> feet, with open/closed resolved from each mapped sensor (v7.94.0).
-  _elementsToFeet(raw) {
+  // Placed openings -> feet, with open/closed resolved from each mapped sensor
+  // (v7.94.0). When the opening anchors to a room-edge or the footprint, the
+  // resolved centre is emitted too (x/y, feet) so the 3D model can draw it on
+  // the REAL wall — incl. L-room notch walls and detached buildings.
+  _elementsToFeet(raw, plan) {
     const FT = 0.2, states = this._hass?.states || {}, out = {};
     Object.keys(raw || {}).forEach(fk => {
+      const rooms = ((plan || {})[fk] || {}).rooms || [];
       out[fk] = (raw[fk] || []).map(e => {
         let open = false;
         if (e.entity && states[e.entity]) { const s = states[e.entity].state; open = (s === 'on' || s === 'open'); }
-        return { type: e.type, kind: e.kind, wall: e.wall, room: e.room, slope: e.slope, pos: (e.pos != null ? e.pos : 0.5), w: (e.w || 20) * FT, open };
+        const a = this._openingAnchorRooms(rooms, e);
+        return { type: e.type, kind: e.kind, wall: a ? a.wall : e.wall, room: e.room, slope: e.slope,
+                 pos: (e.pos != null ? e.pos : 0.5), w: (e.w || 20) * FT, open,
+                 x: a ? a.x * FT : undefined, y: a ? a.y * FT : undefined };
       });
     });
     return out;
   }
-  _house3dElements() { return this._elementsToFeet(this._getFloorElements()); }
+  _house3dElements() { return this._elementsToFeet(this._getFloorElements(), this._getFloorPlan()); }
 
   // Live 3D preview for the editor — built from the working copies so it updates
   // as you edit, before saving (v7.94.0).
@@ -3517,7 +3624,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _renderEditorPreview() {
     try {
       const plan = this._planToFeet(this._getEditingPlan());
-      const elements = this._elementsToFeet(this._getEditingElements());
+      const elements = this._elementsToFeet(this._getEditingElements(), this._getEditingPlan());
       const spec = this._houseSpec();
       const garage = this._house3dGarage();
       const box = JARVIS3D.fixedBox({ floor: 'all', spec, plan, elements, garage });
@@ -3999,6 +4106,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     html += '<button class="ctrl" id="fp-export" style="padding:5px 10px;font-size:9px;">Export</button>';
     html += '<label class="ctrl" style="padding:5px 10px;font-size:9px;cursor:pointer;">Import <input type="file" accept=".json,application/json" class="fp-import-layout" style="display:none"/></label>';
     html += '<button class="ctrl" id="fp-add-room" style="padding:5px 10px;font-size:9px;">+ Add Room</button>';
+    html += '<button class="ctrl" id="fp-add-lroom" title="Add an L-shaped room you can reshape corner-by-corner" style="padding:5px 10px;font-size:9px;">+ L Room</button>';
     html += '<button class="ctrl" id="fp-add-zone" style="padding:5px 10px;font-size:9px;margin-left:6px;">+ Outdoor Zone</button>';
     { const _pp = this._propertyPts(); const _has = _pp.length >= 3;
       html += '<button class="ctrl" id="fp-add-property" style="padding:5px 10px;font-size:9px;margin-left:6px;">' + (_has ? 'Clear Property' : '+ Property Line') + '</button>';
@@ -4008,7 +4116,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     html += '</div>';
 
     // Instructions
-    html += '<div style="font-size:9px;color:var(--text-dim);font-family:var(--font-mono);letter-spacing:0.06em;margin-bottom:6px;">DRAG to move · Bottom-right handle to resize · Right-click to delete · Click to select</div>';
+    html += '<div style="font-size:9px;color:var(--text-dim);font-family:var(--font-mono);letter-spacing:0.06em;margin-bottom:6px;">DRAG to move · Bottom-right handle to resize · Right-click to delete · Click to select · select a room → ◇ Reshape for L-shapes · drag door/window markers onto any wall</div>';
 
     // Floor plan canvas (full width)
     html += this._viewPresetBar('editor');
@@ -4253,21 +4361,38 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _renderOpenings(floor) {
     const els = this._elemsFor(floor), uL = this._fpUnitLabel();
     const rooms = ((this._getEditingPlan()[floor] || {}).rooms) || [];
-    const walls = [['front','Front'],['back','Back'],['left','Left'],['right','Right']];
-    const wsel = (e, i) => '<select class="op-field" data-op="wall" data-i="' + i + '" title="wall">' + walls.map(w => '<option value="' + w[0] + '"' + (e.wall === w[0] ? ' selected' : '') + '>' + w[1] + '</option>').join('') + '</select>';
-    const rsel = (e, i) => '<select class="op-field op-room" data-op="room" data-i="' + i + '" title="room"><option value="">\u2014 room \u2014</option>' + rooms.filter(r => r.type !== 'outdoor').map(r => '<option value="' + this._esc(r.name) + '"' + (e.room === r.name ? ' selected' : '') + '>' + this._esc(r.name) + '</option>').join('') + '</select>';
+    const anchorRooms = rooms.filter(r => r.type !== 'outdoor' && r.type !== 'stairs' && r.type !== 'door');
+    const rsel = (e, i) => '<select class="op-field op-room" data-op="room" data-i="' + i + '" title="building/room whose wall holds this opening"><option value="">\u2014 footprint \u2014</option>' + anchorRooms.map(r => '<option value="' + this._esc(r.name) + '"' + (e.room === r.name ? ' selected' : '') + '>' + this._esc(r.name) + '</option>').join('') + '</select>';
+    // Wall-edge picker: one option per edge of the anchor (room polygon or the
+    // footprint rectangle). Labels show the outward direction so notch walls of
+    // an L-shape and detached buildings are distinguishable.
+    const esel = (e, i) => {
+      const pts = this._anchorPts(rooms, e);
+      if (!pts || pts.length < 2) return '';
+      const sel = (Number.isInteger(e.edge) && e.edge >= 0 && e.edge < pts.length) ? e.edge : this._edgeForWall(pts, e.wall || 'front');
+      const winding = this._polyWinding(pts), rect = pts.length === 4;
+      const AR = ['\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196', '\u2191', '\u2197'];
+      const nm = ['Front', 'Right', 'Back', 'Left'];
+      let o = '';
+      for (let k = 0; k < pts.length; k++) {
+        const n = this._edgeNormal(pts, k, winding);
+        const ar = AR[((Math.round(Math.atan2(n.ny, n.nx) / (Math.PI / 4))) % 8 + 8) % 8];
+        o += '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + (rect ? nm[k] : 'Wall ' + (k + 1)) + ' ' + ar + '</option>';
+      }
+      return '<select class="op-field" data-op="edge" data-i="' + i + '" title="which wall edge (drag the marker on the plan to pick)">' + o + '</select>';
+    };
     const rows = els.map((e, i) => {
       const isD = e.type === 'dormer';
       const t = isD ? (e.slope === 'rear' ? 'REAR DORMER' : 'FRONT DORMER')
         : (e.type === 'window' ? (e.kind === 'interior' ? 'INT WINDOW' : 'WINDOW')
         : (e.kind === 'interior' ? 'INT DOOR' : (e.kind === 'cellar' ? 'CELLAR'
         : (e.kind === 'cased' ? 'CASED OPENING' : (e.kind === 'french' ? 'BALCONY DOOR' : 'EXT DOOR')))));
-      // Interior windows, interior/cased doors and balcony doors attach to a room's
-      // wall (not the four outer walls), so they get a room picker (#324).
-      const roomAnchored = (e.kind === 'interior' || e.kind === 'cased' || e.kind === 'french');
+      // Every opening can anchor to any building/room's wall — pick the room
+      // (or leave it on the whole footprint), then the edge — or just drag the
+      // marker on the plan and it snaps to the nearest wall.
       const place = isD
         ? ('<select class="op-field" data-op="slope" data-i="' + i + '" title="roof slope"><option value="front"' + (e.slope !== 'rear' ? ' selected' : '') + '>Front slope</option><option value="rear"' + (e.slope === 'rear' ? ' selected' : '') + '>Rear slope</option></select>')
-        : (roomAnchored ? (rsel(e, i) + ' ' + wsel(e, i)) : wsel(e, i));
+        : (rsel(e, i) + ' ' + esel(e, i));
       const kc = isD ? ' op-dormer' : (e.kind === 'interior' ? ' op-int' : (e.kind === 'cellar' ? ' op-cellar' : (e.kind === 'cased' ? ' op-cased' : '')));
       return '<div class="op-row" data-i="' + i + '">'
         + '<span class="op-type op-' + (isD ? 'dormer' : e.type) + kc + '">' + t + '</span>'
@@ -4280,7 +4405,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     }).join('');
     const dBtns = floor === '2f' ? '<button class="ctrl" id="op-add-fdormer">+ Front Dormer</button><button class="ctrl" id="op-add-rdormer">+ Rear Dormer</button>' : '';
     return '<div class="fp-openings">'
-      + '<div class="op-headr">OPENINGS \u00b7 windows, doors &amp; dormers <span class="op-hint">interior windows, interior / balcony doors &amp; cased openings attach to a room\u2019s wall (not just the outer walls) \u2014 pick the room, then the wall \u00b7 a balcony door is full-height glass \u00b7 a cased opening is a doorway with no door \u00b7 dormers on the 2nd floor</span></div>'
+      + '<div class="op-headr">OPENINGS \u00b7 windows, doors &amp; dormers <span class="op-hint">drag a marker on the plan and it snaps onto the nearest wall \u2014 incl. L-room notch walls and detached buildings \u00b7 or pick the room + wall edge below \u00b7 a balcony door is full-height glass \u00b7 a cased opening is a doorway with no door \u00b7 dormers on the 2nd floor</span></div>'
       + '<div class="op-add"><button class="ctrl" id="op-add-window">+ Window</button><button class="ctrl" id="op-add-intwindow">+ Interior Window</button><button class="ctrl" id="op-add-extdoor">+ Exterior Door</button><button class="ctrl" id="op-add-frenchdoor">+ Balcony Door</button><button class="ctrl" id="op-add-cellar">+ Cellar Door</button><button class="ctrl" id="op-add-intdoor">+ Interior Door</button><button class="ctrl" id="op-add-cased">+ Cased Opening</button>' + dBtns + '</div>'
       + (rows || '<div class="op-empty">No openings placed on this floor yet \u2014 add one above.</div>')
       + '</div>';
@@ -4409,30 +4534,28 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       svg += '<text x="' + lbl.x + '" y="' + lbl.y + '" text-anchor="middle" fill="#1a3040" font-size="4" font-family="JetBrains Mono, monospace">' + lbl.text + '</text>';
     }
 
-    // placed openings as wall markers (v7.94.0)
+    // placed openings as wall markers (v7.94.0) — edge-anchored + draggable:
+    // drag a marker and it snaps onto the nearest room edge, so openings land
+    // on L-room notch walls and detached buildings, not just the bbox sides.
     var _els = (this._getEditingElements()[floor]) || [];
     if (_els.length && floorData.rooms && floorData.rooms.length) {
       var mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
       floorData.rooms.forEach(function (r) { if (r.type === 'outdoor') return; mnx = Math.min(mnx, r.x); mny = Math.min(mny, r.y); mxx = Math.max(mxx, r.x + r.w); mxy = Math.max(mxy, r.y + r.h); });
-      _els.forEach(function (e, i) {
+      _els.forEach((e, i) => {
         if (e.type === 'dormer') {
           var dp = e.pos != null ? e.pos : 0.5, dcx = mnx + dp * (mxx - mnx), dcy = e.slope === 'rear' ? mxy : mny;
           svg += '<rect class="op-marker" data-op-marker="' + i + '" x="' + (dcx - 4) + '" y="' + (dcy - 3) + '" width="8" height="6" fill="#b06aff" opacity="0.9" rx="1.5" pointer-events="none"/>';
           return;
         }
-        var w = e.w || 20, p = e.pos != null ? e.pos : 0.5, cx, cy, horiz = (e.wall === 'front' || e.wall === 'back');
-        var bx0 = mnx, by0 = mny, bx1 = mxx, by1 = mxy;
-        if ((e.kind === 'interior' || e.kind === 'cased' || e.kind === 'french') && e.room) {
-          var rr = floorData.rooms.filter(function (r) { return r.name === e.room; })[0];
-          if (rr) { bx0 = rr.x; by0 = rr.y; bx1 = rr.x + rr.w; by1 = rr.y + rr.h; }
-        }
-        if (e.wall === 'front') { cx = bx0 + p * (bx1 - bx0); cy = by0; }
-        else if (e.wall === 'back') { cx = bx0 + p * (bx1 - bx0); cy = by1; }
-        else if (e.wall === 'left') { cx = bx0; cy = by0 + p * (by1 - by0); }
-        else { cx = bx1; cy = by0 + p * (by1 - by0); }
+        var a = this._openingAnchorRooms(floorData.rooms, e);
+        if (!a) return;
+        var w = e.w || 20;
         var col = e.type === 'window' ? '#00f2fe' : (e.kind === 'interior' ? '#5a7a8a' : (e.kind === 'cellar' ? '#c98a2a' : (e.kind === 'cased' ? '#78b9d7' : (e.kind === 'french' ? '#4fd4e0' : '#ffaa28'))));
-        var ex = horiz ? cx - w / 2 : cx - 2, ey = horiz ? cy - 2 : cy - w / 2, ew = horiz ? w : 4, eh = horiz ? 4 : w;
-        svg += '<rect class="op-marker" data-op-marker="' + i + '" x="' + ex + '" y="' + ey + '" width="' + ew + '" height="' + eh + '" fill="' + col + '" opacity="0.9" rx="1" pointer-events="none"/>';
+        var deg = Math.atan2(a.uy, a.ux) * 180 / Math.PI;
+        svg += '<g class="fp-op" data-op-i="' + i + '" transform="translate(' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) + ') rotate(' + deg.toFixed(1) + ')" style="cursor:grab">'
+          + '<rect class="op-marker" data-op-marker="' + i + '" x="' + (-w / 2) + '" y="-2" width="' + w + '" height="4" fill="' + col + '" opacity="0.9" rx="1"/>'
+          + '<rect x="' + (-w / 2 - 2) + '" y="-5" width="' + (w + 4) + '" height="10" fill="#000" fill-opacity="0"/>'
+          + '</g>';
       });
     }
 
@@ -7165,6 +7288,24 @@ ${this._renderExcludedEntities(d)}
         this._toast("Added " + name + " \u2014 drag to position, then Save", "ok");
       });
     }
+    // L-shaped room: a six-corner polygon you can pull into any L/T/U by
+    // dragging corners; edge midpoints add more corners.
+    const fpLRoom = this.shadowRoot.querySelector("#fp-add-lroom");
+    if (fpLRoom) {
+      fpLRoom.addEventListener("click", () => {
+        const plan = this._getEditingPlan();
+        const floor = this._editorFloor || '1f';
+        if (!plan[floor]) return;
+        const name = prompt("Room name:");
+        if (!name) return;
+        const x = 40, y = 40;
+        const pts = [[x, y], [x + 80, y], [x + 80, y + 45], [x + 45, y + 45], [x + 45, y + 80], [x, y + 80]];
+        plan[floor].rooms = plan[floor].rooms || [];
+        plan[floor].rooms.push({ name: name, x: x, y: y, w: 80, h: 80, type: 'room', points: pts });
+        this._rerenderFloorEditor();
+        this._toast("Added L-shaped " + name + " \u2014 drag the corners to shape it, then Save", "ok");
+      });
+    }
     const fpZone = this.shadowRoot.querySelector("#fp-add-zone");
     if (fpZone) {
       fpZone.addEventListener("click", () => {
@@ -7462,6 +7603,12 @@ ${this._renderExcludedEntities(d)}
         const op = f.getAttribute('data-op');
         if (op === 'w') e.w = this._fpFromReal(parseFloat(f.value) || 4);
         else if (op === 'pos') e.pos = parseFloat(f.value);
+        else if (op === 'edge') {
+          e.edge = parseInt(f.value, 10) || 0;
+          const a = this._openingAnchor(this._editorFloor || '1f', e);
+          if (a) e.wall = a.wall;
+        }
+        else if (op === 'room') { e.room = f.value; delete e.edge; }
         else e[op] = f.value;
         this._rerenderFloorEditor();
       });
@@ -7529,17 +7676,28 @@ ${this._renderExcludedEntities(d)}
       const ist = 'width:54px;background:var(--bg);border:1px solid var(--line);color:var(--cyan);border-radius:4px;padding:2px 4px;font-family:var(--font-mono);font-size:11px;';
       if (idx !== _infoIdx) {
         _infoIdx = idx;
+        const isPoly = !!(rm.points && rm.points.length >= 3);
         infoEl.innerHTML = '<b>' + rm.name.toUpperCase() + '</b> \u00b7 ' + rm.type + ' \u00b7 '
-          + 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
-          + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
-          + (rm.type !== 'outdoor' && !(rm.points && rm.points.length >= 3) ? ' <button class="ctrl fp-reshape-btn" style="padding:2px 8px;font-size:9px;margin-left:8px;">\u25c7 Reshape</button>' : '');
+          + (isPoly
+            ? rm.points.length + ' corners \u00b7 drag a corner to reshape \u00b7 edge midpoint adds one \u00b7 right-click removes it'
+              + ' <button class="ctrl fp-unshape-btn" style="padding:2px 8px;font-size:9px;margin-left:8px;">\u25ad Make rectangular</button>'
+            : 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + (rm.type !== 'outdoor' ? ' <button class="ctrl fp-reshape-btn" style="padding:2px 8px;font-size:9px;margin-left:8px;">\u25c7 Reshape</button>' : ''));
         const rshBtn = infoEl.querySelector('.fp-reshape-btn');
         if (rshBtn) rshBtn.addEventListener('click', () => {
           const r = rooms[_infoIdx]; if (!r) return;
           self._ensureZonePoints(r); self._syncRoomBBox(r);
           _infoIdx = -1;
           self._rerenderFloorEditor();
-          self._toast('Reshape: drag the corners, double-click an edge to add one, right-click a corner to remove', 'ok');
+          self._toast('Reshape: drag the corners, click an edge midpoint to add one, right-click a corner to remove', 'ok');
+        });
+        const ushBtn = infoEl.querySelector('.fp-unshape-btn');
+        if (ushBtn) ushBtn.addEventListener('click', () => {
+          const r = rooms[_infoIdx]; if (!r) return;
+          delete r.points;
+          _infoIdx = -1;
+          self._rerenderFloorEditor();
         });
         infoEl.querySelectorAll('.fp-dim-in').forEach(inp => {
           inp.addEventListener('change', () => {
@@ -7714,6 +7872,24 @@ ${this._renderExcludedEntities(d)}
       });
     });
 
+    // Opening markers — drag snaps onto the nearest wall edge of any room
+    // (incl. detached buildings); right-click removes the opening.
+    svgEl.querySelectorAll(".fp-op").forEach(g => {
+      g.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const oi = parseInt(g.getAttribute("data-op-i"));
+        if (!(self._elemsFor(floor) || [])[oi]) return;
+        dragging = { opening: oi, snap: null };
+      });
+      g.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const oi = parseInt(g.getAttribute("data-op-i"));
+        const arr = self._elemsFor(floor);
+        if (arr[oi] && confirm("Delete this opening?")) { arr.splice(oi, 1); redraw(); self._toast("Opening removed", "ok"); }
+      });
+    });
+
     // Resize handles
     svgEl.querySelectorAll(".fp-resize-handle").forEach(handle => {
       handle.addEventListener("mousedown", (e) => {
@@ -7796,6 +7972,15 @@ ${this._renderExcludedEntities(d)}
         }
         return;
       }
+      if (dragging.opening != null) {
+        const s = self._snapToWall(floor, pt.x, pt.y);
+        if (s) {
+          dragging.snap = s;
+          const g = svgEl.querySelector('.fp-op[data-op-i="' + dragging.opening + '"]');
+          if (g) g.setAttribute('transform', 'translate(' + s.x.toFixed(1) + ' ' + s.y.toFixed(1) + ') rotate(' + s.deg.toFixed(1) + ')');
+        }
+        return;
+      }
       const rm = rooms[dragging.idx];
       if (!rm) return;
 
@@ -7834,7 +8019,20 @@ ${this._renderExcludedEntities(d)}
       if (dragging.entity && !dragging.moved && dragging.entId) {
         self.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: dragging.entId }, bubbles: true, composed: true }));
       }
-      const heavy = dragging.camera || dragging.property || dragging.zoneVtx || dragging.zoneBody;
+      // Commit an opening drag: anchor it to the room whose edge it snapped to.
+      if (dragging.opening != null) {
+        const el = (self._elemsFor(floor) || [])[dragging.opening], s = dragging.snap;
+        if (el && s) {
+          const rr = rooms[s.zi];
+          if (rr) {
+            el.room = rr.name;
+            el.edge = s.edge;
+            el.pos = Math.round(s.t * 100) / 100;
+            el.wall = self._wallFromNormal(s.nx, s.ny);
+          }
+        }
+      }
+      const heavy = dragging.camera || dragging.property || dragging.zoneVtx || dragging.zoneBody || dragging.opening != null;
       dragging = null;
       if (heavy) self._rerenderFloorEditor(); else redraw();
     };
@@ -7854,7 +8052,7 @@ ${this._renderExcludedEntities(d)}
     svgEl.addEventListener("mousedown", (e) => {
       if (dragging) return;   // an object drag started first (its handler ran)
       const mid = e.button === 1;
-      const bg = e.button === 0 && !e.target.closest('.fp-drag-room, .fp-cam, .fp-zone, .fp-prop-vtx, .fp-prop-mid, .fp-zone-vtx, .fp-zone-mid, .fp-zone-path, .fp-resize-handle');
+      const bg = e.button === 0 && !e.target.closest('.fp-drag-room, .fp-cam, .fp-zone, .fp-prop-vtx, .fp-prop-mid, .fp-zone-vtx, .fp-zone-mid, .fp-zone-path, .fp-resize-handle, .fp-op, .fp-ent');
       if (!mid && !bg) return;
       e.preventDefault();
       const v = self._editVB || vbFromAttr();

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JARVIS floor-plan editor — local harness</title>
+<style>
+  html,body { margin:0; background:#04080c; }
+  body { font-family:"JetBrains Mono", ui-monospace, monospace; }
+  #bar { position:sticky; top:0; z-index:10; display:flex; gap:10px; align-items:center;
+    padding:8px 14px; background:#060d15; border-bottom:1px solid rgba(0,242,254,0.15);
+    color:#9fb3c0; font-size:11px; }
+  #bar b { color:#00f2fe; letter-spacing:2px; }
+  #bar button { background:rgba(0,242,254,0.06); border:1px solid rgba(0,242,254,0.25);
+    color:#00f2fe; padding:4px 12px; border-radius:4px; font:inherit; cursor:pointer; }
+  #dump { margin:10px 14px; padding:10px; max-height:220px; overflow:auto; display:none;
+    background:#060d15; border:1px solid rgba(0,242,254,0.15); color:#78b9d7; font-size:10px;
+    white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>FLOOR-PLAN EDITOR HARNESS</b>
+  <span>settings &rarr; floorplan opens automatically &middot; drag opening markers onto any wall &middot; "+ L Room" drops an L &middot; Save logs the payload to console</span>
+  <span style="flex:1"></span>
+  <button id="btn-dump">Dump elements JSON</button>
+  <button id="btn-editor">Re-open editor</button>
+</div>
+<pre id="dump"></pre>
+<jarvis-panel></jarvis-panel>
+
+<script src="../jarvis-panel.js"></script>
+<script>
+// ── Stub hass: canned panel data + log every update_config save ─────────────
+// Preloaded plan exercises the new paths: an L-shaped room (points), a detached
+// "Shed" outbuilding, one legacy wall+pos door and one edge-anchored window.
+const PANEL = {
+  status: { observer: { state: "RUNNING", level: "live" } },
+  meta: { bedrooms: 3, areas_monitored: 5, announcements_today: 0, est_cost: "—", uptime: "1m" },
+  dominant: { area_id: "kitchen", name: "Kitchen", subtitle: "Occupied", coord: "", temp: "70°", humidity: "50%", lights: "ON", satellite: "—", last_motion: "1m" },
+  areas: [
+    { id: "kitchen", name: "Kitchen", caps: [], active: true, bedroom: false, lights_on: 1, lights_total: 1, temp: null, humidity: null, temp_entity: null, humidity_entity: null, last_motion: "1m" },
+  ],
+  areasGrid: [],
+  onboarding: { dismissed: true, show: false, done_count: 5, total: 5, steps: [] },
+  suggestions: [], goals: [],
+  config: {
+    floor_plan_units: "imperial",
+    floor_plan_rooms: {
+      "1f": {
+        label: "1st Floor", viewBox: "0 0 400 240",
+        rooms: [
+          { name: "Kitchen",  x: 10,  y: 10,  w: 70,  h: 50, type: "room" },
+          { name: "L Living", x: 85,  y: 10,  w: 80,  h: 80, type: "room",
+            points: [[85,10],[165,10],[165,55],[130,55],[130,90],[85,90]] },
+          { name: "Hallway",  x: 10,  y: 65,  w: 70,  h: 25, type: "room" },
+          { name: "Shed",     x: 240, y: 15,  w: 50,  h: 50, type: "room" },
+        ],
+      },
+    },
+    floor_plan_elements: {
+      "1f": [
+        { id: "e1", type: "door",   kind: "exterior", wall: "front", pos: 0.5, w: 12, entity: "binary_sensor.front_door" },
+        { id: "e2", type: "window", room: "Shed", edge: 1, pos: 0.5, w: 10, entity: "binary_sensor.shed_window" },
+        { id: "e3", type: "door",   kind: "interior", room: "L Living", edge: 3, pos: 0.5, w: 8, entity: "binary_sensor.l_living_door" },
+      ],
+    },
+    floor_plan_cameras: { "1f": [{ id: "c1", x: 120, y: 70, angle: 0, fov: 100, range: 70, entity: "camera.front", indoor: false }] },
+    floor_plan_entities: {},
+    floor_plan_property: { points: [[-40,-40],[330,-40],[330,140],[-40,140]] },
+    cameras: [],
+    lockdown: { active: false },
+  },
+};
+
+const hass = {
+  config: { location_name: "Harness", latitude: 0, longitude: 0 },
+  states: {
+    "binary_sensor.front_door":  { state: "off", attributes: { friendly_name: "Front Door", device_class: "door" } },
+    "binary_sensor.shed_window": { state: "on",  attributes: { friendly_name: "Shed Window", device_class: "window" } },
+    "binary_sensor.l_living_door": { state: "off", attributes: { friendly_name: "L Living Door", device_class: "door" } },
+    "camera.front":              { state: "idle", attributes: { friendly_name: "Front Cam", access_token: "tok" } },
+  },
+  callWS: async (m) => {
+    if (m.type === "jarvis/get_panel_data") return PANEL;
+    if (m.type === "jarvis/update_config") {
+      console.log("%c[harness] update_config " + m.key, "color:#00f2fe", m.value);
+      PANEL.config[m.key] = m.value;
+      return { ok: true };
+    }
+    if (m.type === "jarvis/floorplan_sources") return { sources: [] };
+    if (m.type === "jarvis/mmwave_overview") return { rooms: [], summary: {} };
+    if (m.type === "jarvis/compute_camera_coverage") return { covered: [], reason: "harness stub" };
+    if (m.type === "jarvis/get_activity_log") return { entries: [] };
+    console.log("[harness] callWS (unhandled → {})", m.type);
+    return {};
+  },
+  callService: async () => {},
+  connection: { subscribeMessage: () => Promise.resolve(() => {}) },
+};
+
+const el = document.querySelector("jarvis-panel");
+el.hass = hass;
+
+// Render is async (initial callWS round-trip) — jump to the editor once it's up.
+const go = () => el._navigateTo("settings", "floorplan");
+setTimeout(go, 300);
+setTimeout(go, 1500);   // belt & suspenders for slow first paint
+document.getElementById("btn-editor").addEventListener("click", go);
+document.getElementById("btn-dump").addEventListener("click", () => {
+  const d = document.getElementById("dump");
+  d.style.display = "block";
+  d.textContent = JSON.stringify(el._editingElements || PANEL.config.floor_plan_elements, null, 2);
+});
+</script>
+</body>
+</html>
