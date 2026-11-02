@@ -1,3 +1,9 @@
+## [9.73.1] — Flat & hip roofs roof each building, not the whole lot
+
+The flat/hip paths roofed the whole footprint bounding box — one slab from
+the main house across every detached outbuilding. They now draw per-mass
+like gable does, so each building gets its own roof.
+
 ## [9.73.0] — Roof type picker: 13 roof styles on any home type
 
 Home styles bundled the roof with the massing; real houses don't. A new

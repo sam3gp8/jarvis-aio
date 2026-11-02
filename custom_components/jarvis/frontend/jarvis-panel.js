@@ -878,8 +878,19 @@ const JARVIS3D = (function () {
       if (rt === 'hipvalley')   return hipRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
       return gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);   // gable / dormer / unknown
     }
-    if (rt === 'flat') { var _rs0 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1); roof = flatRoofOver(L, GL, _rs0.x0, _rs0.y0, _rs0.x1, _rs0.y1, ztop); }
-    else if (rt === 'hip') { var _rs1 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1); roof = hipRoofOver(L, GL, _rs1.x0, _rs1.y0, _rs1.x1, _rs1.y1, eave, minRise); }
+    if (rt === 'flat' || rt === 'hip') {
+      // Per-mass: a flat or hip roof belongs to EACH building — one slab must
+      // never span from the main house across every detached outbuilding.
+      var _fm = _footprintMasses(plan['1f'] || []);
+      if (!_fm.length) _fm = [{ x0: minx, y0: miny, x1: maxx, y1: maxy }];
+      _fm.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
+      _fm.forEach(function (m, mi) {
+        var _rs = _roofExt(m, mi === 0);
+        var _r = (rt === 'flat') ? flatRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, ztop)
+                                 : hipRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise);
+        if (mi === 0) roof = _r;
+      });
+    }
     else if (gLow) {
       // House = non-garage 1f rooms. If they nearly fill their bbox it's a rectangle -> one
       // gable (un-roomed interior gaps don't fragment it); a real notch (<85%) -> per mass.
