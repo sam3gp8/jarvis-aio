@@ -1,3 +1,17 @@
+## [9.75.1] — PR review fixes: persistence, roof geometry, anchor remapping
+
+Copilot review of #468 found eleven real defects, all addressed: `home_attached`
+and `home_roof` are now writable/read-back so the new settings actually persist;
+footprint masses bridge gaps in BOTH axes (not just x); a per-room roof override
+follows every mass the room spans (L-rooms no longer half-override); cross-gable
+wings run perpendicular to the main ridge; jerkinhead draws a real clipped gable
+instead of spikes over an intact one; garage roof overrides are honored; terrace
+'both' draws left+right ghosts only; reshaping (midpoint-add, corner-remove)
+remaps opening edge anchors instead of silently reattaching them to wrong walls;
+openings resolve on the same snapped geometry the renderer uses; the backend's
+injected dormer defaults no longer defeat the single-storey suppression; and
+the info bar's roof dropdown no longer detaches the Reshape/Make-rect buttons.
+
 ## [9.75.0] — Live W × H readout while dragging rooms
 
 Dragging or resizing a room now floats an amber `W × L` label just above the

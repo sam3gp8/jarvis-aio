@@ -984,6 +984,8 @@ async def ws_get_panel_data(
                 # Residence model detail controls — same read-back requirement:
                 # these save fine but reset on re-render unless surfaced here.
                 "residence_style":      str(_runtime_opt(hass, entry, "residence_style", "cape_cod") or "cape_cod"),
+                "home_attached":        str(_runtime_opt(hass, entry, "home_attached", "") or ""),
+                "home_roof":            str(_runtime_opt(hass, entry, "home_roof", "") or ""),
                 "floor_plan_sqft":      _runtime_opt(hass, entry, "floor_plan_sqft", ""),
                 "floor_plan_units":     str(_runtime_opt(hass, entry, "floor_plan_units", "imperial") or "imperial"),
                 "floor_plan_elements":  _get_runtime_json(hass, entry, "floor_plan_elements", {}),
@@ -1522,6 +1524,8 @@ PANEL_WRITABLE_KEYS = {
     "has_basement",              # bool: whether to show the basement floor
     "dormers_front",             # int: front dormer count override
     "dormers_rear",              # int: rear dormer count override
+    "home_attached",             # str: party wall side for UK semi/terrace (''|none|left|right|top|bottom|both)
+    "home_roof",                 # str: roof type override (''|gable|hip|gambrel|mansard|flat|shed|dormer|mshape|butterfly|jerkinhead|crossgable|hipvalley)
     "garage_bays",               # int: garage bay count
     "chimney_side",              # str: chimney placement (left/right/center/none)
     "home_bedrooms",             # int: bedroom count (Residence stats)

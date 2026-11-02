@@ -451,7 +451,7 @@ const JARVIS3D = (function () {
         for (var b = a + 1; b < rects.length; b++) {
           if (!rects[b]) continue;
           var A = rects[a], B = rects[b];
-          if (Math.abs(A.x0 - B.x0) < 0.01 && Math.abs(A.x1 - B.x1) < 0.01 && (Math.abs(A.y1 - B.y0) < 0.01 || Math.abs(B.y1 - A.y0) < 0.01)) {
+          if (Math.abs(A.x0 - B.x0) < 0.01 && Math.abs(A.x1 - B.x1) < 0.01 && (Math.abs(A.y1 - B.y0) < 2.5 || Math.abs(B.y1 - A.y0) < 2.5)) {
             A.y0 = Math.min(A.y0, B.y0); A.y1 = Math.max(A.y1, B.y1); rects[b] = null; changed = true;
           }
         }
@@ -834,8 +834,15 @@ const JARVIS3D = (function () {
       var t = null;
       (plan['1f'] || []).forEach(function (r) {
         if (t || !r.roof) return;
-        var cx = r.x + r.w / 2, cy = r.y + r.d / 2;
-        if (cx >= m.x0 - 0.5 && cx <= m.x1 + 0.5 && cy >= m.y0 - 0.5 && cy <= m.y1 + 0.5) t = r.roof;
+        // Any corner (or polygon vertex) inside the mass counts as membership —
+        // an L-room decomposes into several masses and must carry its override
+        // to all of them, not just the one holding its centre.
+        var pts = [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.d], [r.x, r.y + r.d], [r.x + r.w / 2, r.y + r.d / 2]];
+        (r.points || []).forEach(function (p) { pts.push(p); });
+        for (var i = 0; i < pts.length; i++) {
+          var p = pts[i];
+          if (p[0] >= m.x0 - 0.01 && p[0] <= m.x1 + 0.01 && p[1] >= m.y0 - 0.01 && p[1] <= m.y1 + 0.01) { t = r.roof; break; }
+        }
       });
       return t || rt;
     };
@@ -873,20 +880,41 @@ const JARVIS3D = (function () {
     }
     function crossGableOver(L, GL, x0, y0, x1, y1, eave, rise) { // main gable + perpendicular wing
       var r = gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
-      var cy0 = y0 + (y1 - y0) * 0.3, cy1 = y0 + (y1 - y0) * 0.7, rc = (cy0 + cy1) / 2;
-      var cx0 = x0 + (x1 - x0) * 0.12, cx1 = x1 - (x1 - x0) * 0.12, pk = eave + (rise || _roofRise(cy1 - cy0)) * 0.8;
-      F(L, [[cx0,cy0,eave],[cx1,cy0,eave],[cx1,rc,pk],[cx0,rc,pk]], C.roofF, C.roofS, 1);
-      F(L, [[cx0,cy1,eave],[cx1,cy1,eave],[cx1,rc,pk],[cx0,rc,pk]], C.roofF, C.roofS, 1);
-      F(L, [[cx0,cy0,eave],[cx0,cy1,eave],[cx0,rc,pk]], C.roofF, C.roofS, 1);
-      F(L, [[cx1,cy0,eave],[cx1,cy1,eave],[cx1,rc,pk]], C.roofF, C.roofS, 1);
+      var pk = eave + (rise || _roofRise(Math.min(x1 - x0, y1 - y0))) * 0.8;
+      var wy0 = y0 + (y1 - y0) * 0.3, wy1 = y0 + (y1 - y0) * 0.7, wx0 = x0 + (x1 - x0) * 0.12, wx1 = x1 - (x1 - x0) * 0.12;
+      if (r.axis === 'x') {   // main ridge along x → wing ridge along y
+        var rcx = (wx0 + wx1) / 2;
+        F(L, [[wx0,wy0,eave],[wx0,wy1,eave],[rcx,wy1,pk],[rcx,wy0,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx1,wy0,eave],[wx1,wy1,eave],[rcx,wy1,pk],[rcx,wy0,pk]], C.roofDk, C.roofSdk, 0.7);
+        F(L, [[wx0,wy0,eave],[wx1,wy0,eave],[rcx,wy0,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx0,wy1,eave],[wx1,wy1,eave],[rcx,wy1,pk]], C.roofDk, C.roofSdk, 0.7);
+      } else {                // main ridge along y → wing ridge along x
+        var rc = (wy0 + wy1) / 2;
+        F(L, [[wx0,wy0,eave],[wx1,wy0,eave],[wx1,rc,pk],[wx0,rc,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx0,wy1,eave],[wx1,wy1,eave],[wx1,rc,pk],[wx0,rc,pk]], C.roofDk, C.roofSdk, 0.7);
+        F(L, [[wx0,wy0,eave],[wx0,wy1,eave],[wx0,rc,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx1,wy0,eave],[wx1,wy1,eave],[wx1,rc,pk]], C.roofDk, C.roofSdk, 0.7);
+      }
       return r;
     }
-    function jerkinheadOver(L, GL, x0, y0, x1, y1, eave, rise) { // clipped-gable tips
-      var r = gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
-      var pk = eave + (rise || _roofRise(x1 - x0)), clip = (x1 - x0) * 0.18, cy = (y0 + y1) / 2;
-      F(L, [[x0,y0,eave],[x0,y1,eave],[x0 + clip,cy,pk]], C.roofF, C.roofS, 1);
-      F(L, [[x1,y0,eave],[x1,y1,eave],[x1 - clip,cy,pk]], C.roofF, C.roofS, 1);
-      return r;
+    function jerkinheadOver(L, GL, x0, y0, x1, y1, eave, rise) { // clipped gable — shortened ridge + hip end caps
+      var W = x1 - x0, Dd = y1 - y0, alongX = W >= Dd, span = alongX ? Dd : W;
+      var p = SPEC.pitch != null ? SPEC.pitch : 1;
+      var zR = eave + Math.max((span / 2) * 0.9 * Math.max(p, 0.08), rise || 0);
+      if (alongX) {   // ridge along x at yC, clipped at both x ends
+        var yC = (y0 + y1) / 2, clip = W * 0.15;
+        F(L, [[x0,y0,eave],[x1,y0,eave],[x1 - clip,yC,zR],[x0 + clip,yC,zR]], C.roofF, C.roofS, 0.85);   // front slope
+        F(L, [[x0,y1,eave],[x1,y1,eave],[x1 - clip,yC,zR],[x0 + clip,yC,zR]], C.roofDk, C.roofSdk, 0.7); // back slope
+        F(L, [[x0,y0,eave],[x0,y1,eave],[x0 + clip,yC,zR]], C.roofF, C.roofS, 0.8);                      // left hip cap
+        F(L, [[x1,y0,eave],[x1,y1,eave],[x1 - clip,yC,zR]], C.roofDk, C.roofSdk, 0.7);                   // right hip cap
+      } else {        // ridge along y at xC, clipped at both y ends
+        var xC = (x0 + x1) / 2, clip = Dd * 0.15;
+        F(L, [[x0,y0,eave],[x0,y1,eave],[xC,y1 - clip,zR],[xC,y0 + clip,zR]], C.roofF, C.roofS, 0.85);
+        F(L, [[x1,y0,eave],[x1,y1,eave],[xC,y1 - clip,zR],[xC,y0 + clip,zR]], C.roofDk, C.roofSdk, 0.7);
+        F(L, [[x0,y0,eave],[x1,y0,eave],[xC,y0 + clip,zR]], C.roofF, C.roofS, 0.8);
+        F(L, [[x0,y1,eave],[x1,y1,eave],[xC,y1 - clip,zR]], C.roofDk, C.roofSdk, 0.7);
+      }
+      return { a: x0, b: x1 };
     }
     function roofOver(L, GL, rt, x0, y0, x1, y1, eave, rise, ztop) {
       if (rt === 'flat')        return flatRoofOver(L, GL, x0, y0, x1, y1, ztop || eave);
@@ -930,7 +958,9 @@ const JARVIS3D = (function () {
         roof = roofOver(L, GL, _roomRoof({ x0: hb.x0, y0: hb.y0, x1: hb.x1, y1: hb.y1 }), _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise, ztop);
       }
       // attached garage: low, shallow-pitch roof over its ACTUAL bbox (spans its real depth)
-      gableRoofOver(L, GL, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, 0.20);
+      // — honor a per-room roof override when the user set one.
+      if (garageRoom.roof) roofOver(L, GL, garageRoom.roof, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, ztop);
+      else gableRoofOver(L, GL, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, 0.20);
     } else {
       var _masses = _footprintMasses(plan['1f'] || []);
       if (_masses.length > 1) {   // irregular footprint (L/T) -> a gable per rectangular mass
@@ -978,7 +1008,8 @@ const JARVIS3D = (function () {
          ['right', m.x1, m.x1 + mw, m.y0, m.y1],
          ['top', m.x0, m.x1, m.y0 - mh, m.y0],
          ['bottom', m.x0, m.x1, m.y1, m.y1 + mh]].forEach(function (s) {
-          if (attach !== 'both' && attach !== s[0]) return;
+          // 'both' = terrace = left+right only; top/bottom ghosts would be unroofed
+          if (attach === 'both' ? (s[0] !== 'left' && s[0] !== 'right') : attach !== s[0]) return;
           var gx0 = s[1], gx1 = s[2], gy0 = s[3], gy1 = s[4];
           // Walls only — the widened main roof already spans this ghost mass,
           // so the pair shares ONE roof instead of two parallel gables.
@@ -3725,15 +3756,18 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   // the REAL wall — incl. L-room notch walls and detached buildings.
   _elementsToFeet(raw, plan) {
     const FT = 0.2, states = this._hass?.states || {}, out = {};
+    // Resolve anchors on the SNAPPED feet plan so openings sit exactly on the
+    // walls the renderer draws (editor coords drift up to ~0.5 ft post-snap).
+    const fp = this._planToFeet(plan);
     Object.keys(raw || {}).forEach(fk => {
-      const rooms = ((plan || {})[fk] || {}).rooms || [];
+      const rooms = (fp[fk] || []).map(r => ({ ...r, h: r.d }));
       out[fk] = (raw[fk] || []).map(e => {
         let open = false;
         if (e.entity && states[e.entity]) { const s = states[e.entity].state; open = (s === 'on' || s === 'open'); }
         const a = this._openingAnchorRooms(rooms, e);
         return { type: e.type, kind: e.kind, wall: a ? a.wall : e.wall, room: e.room, slope: e.slope,
                  pos: (e.pos != null ? e.pos : 0.5), w: (e.w || 20) * FT, open,
-                 x: a ? a.x * FT : undefined, y: a ? a.y * FT : undefined };
+                 x: a ? a.x : undefined, y: a ? a.y : undefined };
       });
     });
     return out;
@@ -3914,11 +3948,13 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     // A single-storey building gets no roof dormers — they're a 1.5+ storey
     // feature. Only the STYLE default is suppressed; an explicit pick wins.
     if (spec.stories <= 1) {
-      if (fEx == null) spec.dormersFront = 0;
-      if (rEx == null) spec.dormersRear = 0;
+      // The backend injects dormers_front=2 / dormers_rear=1 when unset, so
+      // "explicit" only counts when the value differs from those defaults.
+      if (fEx == null || fEx === 2) spec.dormersFront = 0;
+      if (rEx == null || rEx === 1) spec.dormersRear = 0;
     }
     // 'dormer' roof type = gable with front dormers baked in (explicit pick wins).
-    if (spec.roof === 'dormer' && fEx == null) spec.dormersFront = Math.max(spec.dormersFront || 0, 2);
+    if (spec.roof === 'dormer') spec.dormersFront = Math.max(spec.dormersFront || 0, 2);
     if (num(c.garage_bays) != null) spec.garageBays = num(c.garage_bays);
     if (c.chimney_side) spec.chimney = c.chimney_side;
     // #324: center / multiple chimneys (common on European houses) + where the
@@ -7967,8 +8003,8 @@ ${this._renderExcludedEntities(d)}
         // Per-building roof type — only meaningful on a disjoint building
         // (merged masses share one roof); pick "House default" to inherit.
         if (rm.type !== 'outdoor' && rm.type !== 'stairs' && rm.type !== 'door') {
-          infoEl.innerHTML += ' \u00b7 roof <select class="fp-room-roof" style="background:var(--bg);border:1px solid var(--line);color:var(--cyan);border-radius:4px;padding:1px 3px;font-family:var(--font-mono);font-size:10px;">'
-            + self._optsLabeled([['', 'House default']].concat(self._roofTypePairs().slice(1)), rm.roof || '') + '</select>';
+          infoEl.insertAdjacentHTML('beforeend', ' \u00b7 roof <select class="fp-room-roof" style="background:var(--bg);border:1px solid var(--line);color:var(--cyan);border-radius:4px;padding:1px 3px;font-family:var(--font-mono);font-size:10px;">'
+            + self._optsLabeled([['', 'House default']].concat(self._roofTypePairs().slice(1)), rm.roof || '') + '</select>');
           infoEl.querySelector('.fp-room-roof').addEventListener('change', (ev) => {
             const r = rooms[_infoIdx]; if (!r) return;
             if (ev.target.value) r.roof = ev.target.value; else delete r.roof;
@@ -8075,6 +8111,19 @@ ${this._renderExcludedEntities(d)}
         const rm = rooms[zi]; if (!rm) return;
         const pts = self._ensureZonePoints(rm);
         if (pts.length <= 3) { self._toast("Needs at least 3 corners", "warn"); return; }
+        // Removing vertex vi merges edges (vi-1) and vi into one — remap anchors
+        // onto the merged edge before the splice changes indices.
+        const n = pts.length, pv = (vi - 1 + n) % n;
+        const va = pts[pv], vb = pts[vi], vc = pts[(vi + 1) % n];
+        const lenA = Math.hypot(vb[0] - va[0], vb[1] - va[1]), lenB = Math.hypot(vc[0] - vb[0], vc[1] - vb[1]), tot = lenA + lenB || 1;
+        const midx = (vi === 0) ? n - 2 : vi - 1;
+        (self._elemsFor(floor) || []).forEach(el => {
+          if (el.room !== rm.name || el.edge == null) return;
+          const p = el.pos != null ? el.pos : 0.5;
+          if (el.edge === pv) { el.edge = midx; el.pos = p * lenA / tot; }
+          else if (el.edge === vi) { el.edge = midx; el.pos = (lenA + lenB * p) / tot; }
+          else if (el.edge > vi) el.edge -= 1;
+        });
         pts.splice(vi, 1); self._syncRoomBBox(rm); self._rerenderFloorEditor();
       });
     });
@@ -8087,6 +8136,13 @@ ${this._renderExcludedEntities(d)}
         const pts = self._ensureZonePoints(rm);
         const a = pts[ei], b = pts[(ei + 1) % pts.length]; if (!a || !b) return;
         pts.splice(ei + 1, 0, [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2)]);
+        // Remap opening anchors: edge ei just split in two at its midpoint.
+        (self._elemsFor(floor) || []).forEach(el => {
+          if (el.room !== rm.name || el.edge == null) return;
+          const p = el.pos != null ? el.pos : 0.5;
+          if (el.edge === ei) { if (p > 0.5) { el.edge = ei + 1; el.pos = p * 2 - 1; } else el.pos = p * 2; }
+          else if (el.edge > ei) el.edge += 1;
+        });
         self._rerenderFloorEditor();
       });
     });
