@@ -8037,6 +8037,7 @@ ${this._renderExcludedEntities(d)}
         self._ensureZonePoints(rm);
         const pt = svgPoint(e);
         dragging = { zoneBody: true, zi, startX: pt.x, startY: pt.y, ddx: 0, ddy: 0 };
+        updateInfo(rm);
       });
     });
     svgEl.querySelectorAll(".fp-zone-vtx").forEach(v => {

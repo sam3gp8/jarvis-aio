@@ -1,3 +1,10 @@
+## [9.74.3] — Clicking a polygon room actually selects it
+
+The polygon mousedown only armed a body-drag — it never populated the info
+bar, so L-shaped rooms showed no name/dims/roof controls at all. It now calls
+updateInfo like the rect path, which is also what surfaces the W × L inputs
+added in 9.74.2.
+
 ## [9.74.2] — L-shaped rooms get W × L dimension inputs too
 
 Selected polygon rooms showed only "N corners · Make rectangular" — no way to
