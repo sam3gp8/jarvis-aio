@@ -1,10 +1,48 @@
 """Tests for the Ollama provider tuning (v6.32.0)."""
+import types
+
 import pytest
 
 
 @pytest.fixture
 def llm(load):
     return load("llm_provider")
+
+
+# ── fake OpenAI-SDK response objects (for chat() runtime tests) ──────────────
+class _Msg:
+    def __init__(self, content, reasoning=None, tool_calls=None, extra=None):
+        self.content = content
+        self.tool_calls = tool_calls
+        if reasoning is not None:
+            self.reasoning = reasoning
+        self.model_extra = extra or {}
+
+
+class _Choice:
+    def __init__(self, message, finish_reason):
+        self.message = message
+        self.finish_reason = finish_reason
+
+
+class _Resp:
+    def __init__(self, message, finish_reason):
+        self.choices = [_Choice(message, finish_reason)]
+
+
+class _FakeCompletions:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return self._responses.pop(0)
+
+
+class _FakeClient:
+    def __init__(self, responses):
+        self.chat = types.SimpleNamespace(completions=_FakeCompletions(responses))
 
 
 def test_ollama_registered_as_its_own_provider(llm):
@@ -113,6 +151,64 @@ def test_ollama_chat_warns_once_on_toolparse_error_and_reraises(llm, monkeypatch
     with pytest.raises(ValueError):
         prov.chat([{"role": "user", "content": "hi"}], tools=tools)
     assert llm._OLLAMA_TOOLPARSE_WARNED is True
+
+
+# ── reasoning capture + empty-content retry (thinking models, e.g. gemma4) ──
+
+def test_message_reasoning_from_attr(llm):
+    m = _Msg("", reasoning="deep thoughts")
+    assert llm._message_reasoning(m) == "deep thoughts"
+
+
+def test_message_reasoning_from_model_extra(llm):
+    m = _Msg("", extra={"reasoning_content": "hmm"})
+    assert llm._message_reasoning(m) == "hmm"
+
+
+def test_message_reasoning_absent(llm):
+    assert llm._message_reasoning(_Msg("hi")) == ""
+
+
+def test_chat_result_carries_finish_reason_and_reasoning(llm, monkeypatch):
+    monkeypatch.setattr(llm, "_record_usage_shadow", lambda *a, **k: None)
+    prov = object.__new__(llm.OpenAIProvider)
+    prov.name, prov.model = "openai", "gemma4:26b"
+    prov._client = _FakeClient([_Resp(_Msg("done", reasoning="thought"), "stop")])
+    res = prov.chat([{"role": "user", "content": "hi"}], max_tokens=256)
+    assert res["text"] == "done"
+    assert res["finish_reason"] == "stop"
+    assert res["reasoning"] == "thought"
+
+
+def test_empty_content_on_length_retries_with_bigger_budget(llm, monkeypatch):
+    # A thinking model spends its budget reasoning and returns EMPTY content with
+    # finish_reason='length'. The local max_tokens path must retry once with 4×
+    # room (previously only the max_completion_tokens path did), so a reasonable
+    # answer comes back instead of the empty reply that broke the composer.
+    monkeypatch.setattr(llm, "_record_usage_shadow", lambda *a, **k: None)
+    prov = object.__new__(llm.OpenAIProvider)
+    prov.name, prov.model = "openai", "gemma4:26b"
+    prov._client = _FakeClient([
+        _Resp(_Msg("", reasoning="thinking hard"), "length"),   # empty, budget gone
+        _Resp(_Msg('{"ok": true}'), "stop"),                    # room → real answer
+    ])
+    res = prov.chat([{"role": "user", "content": "hi"}], max_tokens=1024)
+    comp = prov._client.chat.completions
+    assert len(comp.calls) == 2                       # retried exactly once
+    assert comp.calls[1]["max_tokens"] == 4096        # 1024 × 4
+    assert res["text"] == '{"ok": true}'
+
+
+def test_empty_content_on_stop_does_not_retry(llm, monkeypatch):
+    # finish_reason='stop' with empty content isn't a budget exhaustion — don't
+    # burn a second call; surface the empty reply (and its reasoning) as-is.
+    monkeypatch.setattr(llm, "_record_usage_shadow", lambda *a, **k: None)
+    prov = object.__new__(llm.OpenAIProvider)
+    prov.name, prov.model = "openai", "m"
+    prov._client = _FakeClient([_Resp(_Msg("", reasoning="r"), "stop")])
+    res = prov.chat([{"role": "user", "content": "hi"}], max_tokens=1024)
+    assert len(prov._client.chat.completions.calls) == 1
+    assert res["text"] == "" and res["reasoning"] == "r" and res["finish_reason"] == "stop"
 
 
 @pytest.mark.parametrize("inp,out", [

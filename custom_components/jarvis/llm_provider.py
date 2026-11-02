@@ -329,6 +329,29 @@ class GroqProvider(LLMProvider):
 
 # ─── OpenAI / OpenAI-compatible ──────────────────────────────────────────────
 
+def _message_reasoning(message) -> str:
+    """Hidden 'thinking' a reasoning model may return alongside — or instead of —
+    visible content, exposed as ``reasoning`` / ``reasoning_content`` on the
+    message (or in its extra fields; Ollama's OpenAI-compatible endpoint puts a
+    thinking model's reasoning here). Captured for observability, and as a last
+    place to find a JSON answer when a thinking model spends its whole budget
+    reasoning before emitting any visible content. Best-effort; '' when absent."""
+    try:
+        for attr in ("reasoning", "reasoning_content"):
+            v = getattr(message, attr, None)
+            if isinstance(v, str) and v.strip():
+                return v
+        extra = getattr(message, "model_extra", None)
+        if isinstance(extra, dict):
+            for key in ("reasoning", "reasoning_content"):
+                v = extra.get(key)
+                if isinstance(v, str) and v.strip():
+                    return v
+    except Exception:
+        pass
+    return ""
+
+
 class OpenAIProvider(LLMProvider):
     """OpenAI, Azure OpenAI, or any OpenAI-compatible endpoint (Ollama, vLLM, etc)."""
     name = "openai"
@@ -381,15 +404,20 @@ class OpenAIProvider(LLMProvider):
                 raise
         choice = resp.choices[0]
         if (not choice.message.tool_calls and not (choice.message.content or "").strip()
-                and getattr(choice, "finish_reason", None) == "length"
-                and "max_completion_tokens" in kwargs):
-            # Reasoning models (o1/o3/gpt-5.x) spend the token budget on hidden
-            # reasoning before ever emitting visible content — a modest budget
-            # can be exhausted entirely by reasoning, leaving nothing to show
-            # and no error. Retry once with substantially more room.
-            kwargs["max_completion_tokens"] = max(kwargs["max_completion_tokens"] * 4, 2048)
-            resp = self._client.chat.completions.create(**kwargs)
-            choice = resp.choices[0]
+                and getattr(choice, "finish_reason", None) == "length"):
+            # A reasoning model can spend its whole token budget on hidden thinking
+            # before ever emitting visible content — a modest budget is exhausted
+            # by reasoning, leaving nothing to show and no error. Retry once with
+            # far more room. Covers the OpenAI path (max_completion_tokens) AND the
+            # local path (max_tokens) — e.g. a thinking Gemma served through
+            # Ollama's OpenAI-compatible API, which returns empty content exactly
+            # this way even when asked to skip thinking.
+            budget_key = ("max_completion_tokens" if "max_completion_tokens" in kwargs
+                          else "max_tokens" if "max_tokens" in kwargs else None)
+            if budget_key:
+                kwargs[budget_key] = max(int(kwargs[budget_key]) * 4, 2048)
+                resp = self._client.chat.completions.create(**kwargs)
+                choice = resp.choices[0]
         tool_calls = []
         # Check message.tool_calls directly — some providers set
         # finish_reason="stop" even when tool_calls are present.
@@ -405,6 +433,8 @@ class OpenAIProvider(LLMProvider):
             "text": (choice.message.content or "").strip(),
             "tool_calls": tool_calls,
             "raw": choice.message,
+            "finish_reason": getattr(choice, "finish_reason", None),
+            "reasoning": _message_reasoning(choice.message),
         }
 
     def _extra_body(self, thinking: Optional[bool] = None) -> dict:

@@ -474,6 +474,12 @@ async def _draft_agentic(hass: HomeAssistant, text: str, client) -> dict[str, An
 
 # How many one-shot attempts a local model gets (first try + bad-name corrections).
 _ONESHOT_ATTEMPTS = 3
+# Token budget per one-shot attempt. A reasoning model (e.g. gemma4) spends part
+# of its budget on hidden thinking before emitting the JSON, so this must leave
+# room to think AND answer — the old 1024 was smaller than the briefing's own
+# reasoning-aware budget and left such models returning empty content. The
+# provider retries once with 4× more if a reply still comes back empty-on-length.
+_ONESHOT_MAX_TOKENS = 2048
 
 
 def _log_compose(hass, msg: str, cands: list, *, bad: str | None = None) -> None:
@@ -545,10 +551,13 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
     last_error: dict | None = None
     last_args: dict | None = None
     last_raw = ""
+    last_finish: str | None = None
+    saw_reasoning = False
 
     for attempt in range(_ONESHOT_ATTEMPTS):
         def _call():
-            return client.chat(messages=messages, max_tokens=1024, temperature=0.1)
+            return client.chat(messages=messages, max_tokens=_ONESHOT_MAX_TOKENS,
+                               temperature=0.1)
         try:
             res = await hass.async_add_executor_job(_call)
         except Exception as exc:
@@ -556,7 +565,19 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
             return _draft_fail({"error": f"Drafting failed: {exc}"}, last_args)
         raw = (res or {}).get("text") or ""
         last_raw = raw or last_raw
+        last_finish = (res or {}).get("finish_reason") or last_finish
         auto = _first_automation(raw)
+        if not auto:
+            # A thinking model can leave visible content empty and put its answer
+            # (JSON and all) in the reasoning channel — look there before retrying.
+            reasoning = (res or {}).get("reasoning") or ""
+            if reasoning:
+                saw_reasoning = True
+                recovered = _first_automation(reasoning)
+                if recovered:
+                    auto = recovered
+                    if not raw:
+                        last_raw = reasoning
         if not auto:
             messages.append({"role": "assistant", "content": raw[:1000]})
             messages.append({"role": "user", "content":
@@ -586,9 +607,27 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
             + "Re-output the FULL automation as one JSON object using only real "
               "entity_ids from the list."})
 
+    # Distinguish an empty response (the model emitted no visible text at all —
+    # typically a thinking model that spent its budget reasoning) from a non-empty
+    # reply we couldn't use, so the failure is diagnosable instead of a black box.
+    empty = not (last_raw or "").strip()
+    said = "(empty response)" if empty else last_raw[:200]
+    if empty:
+        said += " [finish_reason=%s reasoning=%s]" % (last_finish,
+                                                      "yes" if saw_reasoning else "no")
     _log_compose(hass, "one-shot gave up after %d attempts — model last said: %s"
-                 % (_ONESHOT_ATTEMPTS, last_raw[:200]), cands,
+                 % (_ONESHOT_ATTEMPTS, said), cands,
                  bad=(_bad_names(last_error) if last_error else "no valid JSON object"))
+    if empty and last_error is None:
+        # Nothing to build from. Name the likely cause and a remedy rather than the
+        # generic "describe it more specifically", which misdirects the user.
+        return _draft_fail(
+            {"error": "The model returned an empty response, so there was nothing to "
+                      "build from. This usually means a local 'thinking' model spent "
+                      "its whole output budget on internal reasoning. Try a model "
+                      "without thinking mode for the composer, or give it a larger "
+                      "output/context budget, then try again."},
+            last_args)
     # No valid automation ever parsed → surface the model's own words (e.g. a
     # clarifying question); a validation failure → surface the specific bad names.
     prose = last_raw.strip() if last_error is None else None

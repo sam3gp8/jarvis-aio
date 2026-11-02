@@ -1,3 +1,43 @@
+## [9.68.0] — Composer: stop a reasoning model's empty reply from killing the draft (the real #462 root cause)
+
+The live `gemma4:26b` diagnostics finally showed the actual failure, and it was
+**not** another loop/prompt problem. The composer's log read:
+
+> `one-shot gave up after 3 attempts — model last said:` **(blank)**
+
+The ranked candidates were right (it found `binary_sensor.living_room_presence`,
+the lamps, etc.) — the model simply **returned empty content, three times**, and
+no exception. `gemma4` (`gemma-4-26B-A4B-it`) is a **reasoning model**: on the
+OpenAI-compatible endpoint it spends its token budget on hidden *thinking* and
+leaves `content` empty when the budget runs out — even when asked to skip
+thinking. The composer only gave it **1024** tokens (smaller than the briefing's
+own reasoning-aware budget), and the provider's "empty reply → retry with more
+room" safety net only covered the OpenAI `max_completion_tokens` path, never the
+local `max_tokens` path these models use. So the model never got the room to
+finish, and the user saw the misleading *"try describing it more specifically."*
+
+Four fixes, and — crucially — **observability so this is never a guess again**:
+
+1. **Budget.** The one-shot composer now gives the model **2048** tokens (room to
+   think *and* emit the JSON), and the provider's empty-reply retry (4× more room,
+   once) now fires on the **local `max_tokens` path** too, not just OpenAI's.
+2. **Reasoning channel captured.** Every OpenAI-family reply now carries its
+   `finish_reason` and any hidden `reasoning` — and if a thinking model leaves
+   `content` empty but put the automation in its reasoning, the composer
+   **recovers the JSON from there** instead of giving up.
+3. **Honest failure message.** When the model truly returns nothing, the composer
+   now says *"the model returned an empty response … a local 'thinking' model
+   likely spent its budget on internal reasoning; try a non-thinking model or a
+   larger budget"* — not "describe it more specifically."
+4. **Diagnosable logs.** The give-up log now records `finish_reason` and whether
+   reasoning was present, so an empty reply is a visible signal, not a black box.
+
+Note for anyone seeing a `401 … Incorrect API key provided` with
+`llm_unavailable`: that's a separate, provider-side misconfiguration — a `custom`
+(OpenAI-compatible) provider whose base URL is pointed at OpenAI itself rather
+than your Ollama endpoint. Point the custom base URL at your Ollama `…/v1` (or use
+the Ollama provider directly); plain Ollama ignores the key.
+
 ## [9.67.0] — Answer JARVIS's follow-up without the wake word (continued conversation on by default)
 
 **#463:** JARVIS frequently asks *"I can do X — would you like me to?"* and then
