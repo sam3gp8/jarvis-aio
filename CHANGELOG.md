@@ -1,3 +1,10 @@
+## [9.71.3] — UK styles no longer auto-render the neighbour ghost
+
+Semi-Detached / End-Terrace / Mid-Terrace baked `attached` into their style
+defaults, so picking the style always drew the ghost neighbour. Styles now
+only set roof/pitch — the ghost appears only when **Attached side** is
+explicitly chosen (Detached / party wall left / right / both).
+
 ## [9.71.2] — Single-storey homes no longer sprout style-default dormers
 
 Style defaults (Cape Cod's 2 front + 1 rear dormers, etc.) leaked through to

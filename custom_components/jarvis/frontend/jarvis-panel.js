@@ -3785,9 +3785,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       townhouse: { roof: 'gable', pitch: 0.85, dormersFront: 0, dormersRear: 0 },
       apartment: { roof: 'flat',  pitch: 0.12, dormersFront: 0, dormersRear: 0 },
       cabin:     { roof: 'gable', pitch: 1.25, dormersFront: 2, dormersRear: 1 },
-      semi_detached: { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0, attached: 'right' },
-      end_terrace:   { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0, attached: 'left' },
-      terrace:       { roof: 'gable', pitch: 0.85, dormersFront: 0, dormersRear: 0, attached: 'both' },
+      semi_detached: { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0 },
+      end_terrace:   { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0 },
+      terrace:       { roof: 'gable', pitch: 0.85, dormersFront: 0, dormersRear: 0 },
     };
     return T[style] || T.cape_cod;
   }
