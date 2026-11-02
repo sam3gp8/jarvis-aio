@@ -1,3 +1,11 @@
+## [9.72.2] — Attached houses share ONE roof, like real semis
+
+UK semis and terraces share a single roof — ridge over the party wall, gable
+ends only on the pair's outer edges. The main mass's roofed span is now
+widened by one house-width on the attached side(s) and the ghost draws walls
+only, so the pair reads as one continuous roof instead of two parallel
+gables meeting at a valley.
+
 ## [9.72.1] — Attached side gains top/bottom party walls
 
 Plans aren't always drawn with the street at the bottom — party walls can now

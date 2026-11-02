@@ -803,8 +803,23 @@ const JARVIS3D = (function () {
     }
 
     var roof, gLow = ((rt === 'gable' || rt === 'gambrel') && garageRoom && garageRoom.w > 8);
-    if (rt === 'flat') roof = flatRoofOver(L, GL, minx, miny, maxx, maxy, ztop);
-    else if (rt === 'hip') roof = hipRoofOver(L, GL, minx, miny, maxx, maxy, eave, minRise);
+    // Shared-roof attachment (UK semi/terrace): the main mass's roofed span is
+    // widened by one house-width across the party wall so the ridge lands above
+    // it — one continuous roof for the pair, not two parallel gables.
+    var attach = SPEC.attached || 'none';
+    var _mCnt = _footprintMasses(plan['1f'] || []).length;
+    var _roofExt = function (m, isMain) {
+      var r = { x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1 };
+      if (attach === 'none' || !isMain) return r;
+      var w = r.x1 - r.x0, h = r.y1 - r.y0;
+      if (attach === 'left' || attach === 'both') r.x0 -= w;
+      if (attach === 'right' || attach === 'both') r.x1 += w;
+      if (attach === 'top') r.y0 -= h;
+      if (attach === 'bottom') r.y1 += h;
+      return r;
+    };
+    if (rt === 'flat') { var _rs0 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1); roof = flatRoofOver(L, GL, _rs0.x0, _rs0.y0, _rs0.x1, _rs0.y1, ztop); }
+    else if (rt === 'hip') { var _rs1 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1); roof = hipRoofOver(L, GL, _rs1.x0, _rs1.y0, _rs1.x1, _rs1.y1, eave, minRise); }
     else if (gLow) {
       // House = non-garage 1f rooms. If they nearly fill their bbox it's a rectangle -> one
       // gable (un-roomed interior gaps don't fragment it); a real notch (<85%) -> per mass.
@@ -816,9 +831,10 @@ const JARVIS3D = (function () {
       if (!houseRect) {
         var hmasses = _footprintMasses(houseRooms);
         hmasses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
-        hmasses.forEach(function (m, mi) { var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise) : gableRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise); if (mi === 0) roof = _r; });
+        hmasses.forEach(function (m, mi) { var _rs = _roofExt(m, mi === 0); var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise) : gableRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise); if (mi === 0) roof = _r; });
       } else {
-        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, hb.x0, hb.y0, hb.x1, hb.y1, eave, minRise) : gableRoofOver(L, GL, hb.x0, hb.y0, hb.x1, hb.y1, eave, minRise);
+        var _rsh = _roofExt({ x0: hb.x0, y0: hb.y0, x1: hb.x1, y1: hb.y1 }, true);
+        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise) : gableRoofOver(L, GL, _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise);
       }
       // attached garage: low, shallow-pitch roof over its ACTUAL bbox (spans its real depth)
       gableRoofOver(L, GL, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, 0.20);
@@ -827,11 +843,13 @@ const JARVIS3D = (function () {
       if (_masses.length > 1) {   // irregular footprint (L/T) -> a gable per rectangular mass
         _masses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
         _masses.forEach(function (m, mi) {
-          var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise) : gableRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise);
+          var _rs = _roofExt(m, mi === 0);
+          var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise) : gableRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise);
           if (mi === 0) roof = _r;   // largest mass is the dormer reference
         });
       } else {
-        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, minx, miny, maxx, maxy, eave, minRise) : gableRoofOver(L, GL, minx, miny, maxx, maxy, eave, minRise);
+        var _rs2 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1);
+        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise) : gableRoofOver(L, GL, _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise);
       }
     }
 
@@ -869,28 +887,12 @@ const JARVIS3D = (function () {
          ['bottom', m.x0, m.x1, m.y1, m.y1 + mh]].forEach(function (s) {
           if (attach !== 'both' && attach !== s[0]) return;
           var gx0 = s[1], gx1 = s[2], gy0 = s[3], gy1 = s[4];
+          // Walls only — the widened main roof already spans this ghost mass,
+          // so the pair shares ONE roof instead of two parallel gables.
           F(L, [[gx0,gy0,0],[gx1,gy0,0],[gx1,gy0,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
           F(L, [[gx0,gy1,0],[gx1,gy1,0],[gx1,gy1,eave],[gx0,gy1,eave]], gFill, gStroke, 0.4);
           F(L, [[gx0,gy0,0],[gx0,gy1,0],[gx0,gy1,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
           F(L, [[gx1,gy0,0],[gx1,gy1,0],[gx1,gy1,eave],[gx1,gy0,eave]], gFill, gStroke, 0.4);
-          if (rt !== 'flat') {
-            if (s[0] === 'top' || s[0] === 'bottom') {
-              // Party wall on a plan y-edge — ridge runs across the mass (along x).
-              var gpky = eave + _roofRise(gy1 - gy0), rcy = (gy0 + gy1) / 2;
-              F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[gx1,rcy,gpky],[gx0,rcy,gpky]], gRoof, gRoofS, 0.4);
-              F(L, [[gx0,gy1,eave],[gx1,gy1,eave],[gx1,rcy,gpky],[gx0,rcy,gpky]], gRoof, gRoofS, 0.4);
-              F(L, [[gx0,gy0,eave],[gx0,gy1,eave],[gx0,rcy,gpky]], gFill, gStroke, 0.4);
-              F(L, [[gx1,gy0,eave],[gx1,gy1,eave],[gx1,rcy,gpky]], gFill, gStroke, 0.4);
-            } else {
-              var gpk = eave + _roofRise(gx1 - gx0), rcx = (gx0 + gx1) / 2;
-              F(L, [[gx0,gy0,eave],[gx0,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
-              F(L, [[gx1,gy0,eave],[gx1,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
-              F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[rcx,gy0,gpk]], gFill, gStroke, 0.4);
-              F(L, [[gx0,gy1,eave],[gx1,gy1,eave],[rcx,gy1,gpk]], gFill, gStroke, 0.4);
-            }
-          } else {
-            F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[gx1,gy1,eave],[gx0,gy1,eave]], gRoof, gRoofS, 0.4);
-          }
         });
       }
     }
