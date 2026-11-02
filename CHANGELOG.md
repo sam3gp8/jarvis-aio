@@ -1,3 +1,26 @@
+## [9.71.0] — Floor plan: rooms snap together into one house + UK semi/terrace styles
+
+Two gaps surfaced the moment real homes met the editor. Disjoint rooms — a
+kitchen dragged three units shy of the hallway — produced a gable per room:
+the "house" rendered as a row of separate roofs. And the style list was
+strictly North-American: no way to model the semi-detached and terraced
+houses that make up most UK streets.
+
+**Rooms now snap.** While dragging or resizing, a room's edges pull flush to a
+neighbour's edges within ~4 units — a green guide line shows the snap — for
+rect drags, resize handles, polygon body moves and single-vertex drags alike.
+Flush rooms merge into one footprint mass, so the 3D model draws a single
+roof over the connected house instead of fragmenting into one gable per room.
+Detached buildings are unaffected: outdoor zones, stairs and door slabs are
+never snap targets, and anything further than the threshold stays free.
+
+**UK semi & terrace styles.** Three new home types — *Semi-Detached*,
+*End-of-Terrace*, *Mid Terrace* — plus an "Attached side" override
+(detached / party wall left / party wall right / both) that works on any
+style. Attached sides render the neighbour's mirrored mass as a dim ghost
+with a matching roofline, so the party wall and shared roof read correctly
+without claiming the neighbour's windows.
+
 ## [9.70.0] — Floor plan: openings anchor to real wall edges — L-shaped rooms, detached buildings, drag-to-place
 
 The floor-plan editor had three walls it couldn't see past. Rooms could only be

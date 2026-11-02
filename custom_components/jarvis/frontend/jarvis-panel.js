@@ -847,6 +847,35 @@ const JARVIS3D = (function () {
       else if (SPEC.dormersRear) { var _pra = _autoPos(SPEC.dormersRear); dormersOn(L, GL, roof, 0, d2, true, _pra, _pra.map(_dSt)); }
     }
 
+    // Attached housing (UK semi / terrace): the neighbour's mirrored mass as a
+    // dim ghost — party wall + shared-roof read, without claiming lit windows.
+    var attach = SPEC.attached || 'none';
+    if (attach !== 'none') {
+      var _gm = _footprintMasses(plan['1f'] || []);
+      if (!_gm.length && (plan['1f'] || []).length) _gm = [{ x0: minx, y0: miny, x1: maxx, y1: maxy }];
+      var gFill = 'rgba(10,20,30,0.55)', gStroke = 'rgba(90,130,160,0.3)', gRoof = 'rgba(8,17,26,0.88)', gRoofS = 'rgba(90,130,160,0.22)';
+      _gm.forEach(function (m) {
+        var mw = m.x1 - m.x0;
+        [['left', m.x0 - mw, m.x0], ['right', m.x1, m.x1 + mw]].forEach(function (s) {
+          if (attach !== 'both' && attach !== s[0]) return;
+          var gx0 = s[1], gx1 = s[2], gy0 = m.y0, gy1 = m.y1, rcx = (gx0 + gx1) / 2;
+          F(L, [[gx0,gy0,0],[gx1,gy0,0],[gx1,gy0,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
+          F(L, [[gx0,gy1,0],[gx1,gy1,0],[gx1,gy1,eave],[gx0,gy1,eave]], gFill, gStroke, 0.4);
+          F(L, [[gx0,gy0,0],[gx0,gy1,0],[gx0,gy1,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
+          F(L, [[gx1,gy0,0],[gx1,gy1,0],[gx1,gy1,eave],[gx1,gy0,eave]], gFill, gStroke, 0.4);
+          if (rt !== 'flat') {
+            var gpk = eave + _roofRise(mw);
+            F(L, [[gx0,gy0,eave],[gx0,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
+            F(L, [[gx1,gy0,eave],[gx1,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
+            F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[rcx,gy0,gpk]], gFill, gStroke, 0.4);
+            F(L, [[gx0,gy1,eave],[gx1,gy1,eave],[rcx,gy1,gpk]], gFill, gStroke, 0.4);
+          } else {
+            F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[gx1,gy1,eave],[gx0,gy1,eave]], gRoof, gRoofS, 0.4);
+          }
+        });
+      });
+    }
+
     // 2nd-floor placed windows: side walls land on the gable ends, front/back on the
     // roof slope (front-facing 2F windows are the dormers). Lit by upstairs occupancy.
     var h2 = null;
@@ -3749,6 +3778,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       townhouse: { roof: 'gable', pitch: 0.85, dormersFront: 0, dormersRear: 0 },
       apartment: { roof: 'flat',  pitch: 0.12, dormersFront: 0, dormersRear: 0 },
       cabin:     { roof: 'gable', pitch: 1.25, dormersFront: 2, dormersRear: 1 },
+      semi_detached: { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0, attached: 'right' },
+      end_terrace:   { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0, attached: 'left' },
+      terrace:       { roof: 'gable', pitch: 0.85, dormersFront: 0, dormersRear: 0, attached: 'both' },
     };
     return T[style] || T.cape_cod;
   }
@@ -3772,6 +3804,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     // the auto exterior bulkhead, so existing homes render byte-for-byte as before.
     spec.chimneyCount = Math.max(1, Math.min(4, num(c.chimney_count) || 1));
     spec.basementEntrance = c.basement_entrance || 'bulkhead';
+    // Attached housing (UK semi / terrace): which side(s) share a party wall —
+    // 'none' | 'left' | 'right' | 'both'. Explicit setting beats style default.
+    spec.attached = c.home_attached || sd.attached || 'none';
     return spec;
   }
 
@@ -3854,6 +3889,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       townhouse: { label: 'Townhouse',  roof: 'gable', pitch: 0.85 },
       apartment: { label: 'Apartment',  roof: 'flat',  pitch: 0 },
       cabin:     { label: 'Cabin',      roof: 'gable', pitch: 1.25 },
+      semi_detached: { label: 'Semi-Detached (UK)', roof: 'gable', pitch: 0.9 },
+      end_terrace:   { label: 'End-of-Terrace (UK)', roof: 'gable', pitch: 0.9 },
+      terrace:       { label: 'Mid Terrace (UK)',   roof: 'gable', pitch: 0.85 },
     };
   }
 
@@ -4953,6 +4991,10 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           <div class="cfg-row">
             <label>Home type</label>
             <select class="cfg-field" data-cfg-key="residence_style">${this._residenceStyleOptions(d)}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Attached side <span class="cfg-sub">UK semi / terrace party wall</span></label>
+            <select class="cfg-field" data-cfg-key="home_attached">${this._optsLabeled([['','Style default'],['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['both','Terrace — both sides']], d.config?.home_attached ?? '')}</select>
           </div>
           <div class="cfg-row">
             <label>Stories</label>
@@ -7670,6 +7712,41 @@ ${this._renderExcludedEntities(d)}
     }
     const vbFromAttr = () => { const p = (svgEl.getAttribute('viewBox') || '0 0 320 140').split(' ').map(Number); return { x: p[0], y: p[1], w: p[2], h: p[3] }; };
 
+    // Edge-snap: pull a moving/resizing room flush against another building's
+    // edges, so enclosed rooms form ONE connected footprint — one roof mass in
+    // the 3D render instead of a gable per disjoint room.
+    const SNAP_T = 4;
+    const _edgeCoords = (skipIdx) => {
+      const xs = [], ys = [];
+      rooms.forEach((r, j) => {
+        if (j === skipIdx || r.type === 'outdoor' || r.type === 'stairs' || r.type === 'door') return;
+        self._zonePoints(r).forEach(p => { xs.push(p[0]); ys.push(p[1]); });
+      });
+      return { xs, ys };
+    };
+    const _snapAxis = (edges, cands) => {
+      let best = null;
+      edges.forEach(v => cands.forEach(c => {
+        const d = c - v;
+        if (Math.abs(d) <= SNAP_T && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, pos: c };
+      }));
+      return best;
+    };
+    const _snapGuide = (vx, hy) => {
+      let g = svgEl.querySelector('.fp-snap-g');
+      if (vx == null && hy == null) { if (g) g.remove(); return; }
+      if (!g) {
+        g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'fp-snap-g'); g.setAttribute('pointer-events', 'none');
+        svgEl.appendChild(g);
+      }
+      const v = vbFromAttr();
+      let h = '';
+      if (vx != null) h += '<line x1="' + vx + '" y1="' + v.y + '" x2="' + vx + '" y2="' + (v.y + v.h) + '" stroke="#00f5a0" stroke-width="0.7" stroke-dasharray="3 2"/>';
+      if (hy != null) h += '<line x1="' + v.x + '" y1="' + hy + '" x2="' + (v.x + v.w) + '" y2="' + hy + '" stroke="#00f5a0" stroke-width="0.7" stroke-dasharray="3 2"/>';
+      g.innerHTML = h;
+    };
+
     function updateInfo(rm) {
       if (!infoEl || !rm) return;
       const idx = rooms.indexOf(rm), uL = self._fpUnitLabel();
@@ -7920,6 +7997,11 @@ ${this._renderExcludedEntities(d)}
         const p = rm.points[dragging.vi]; if (!p) return;
         p[0] = Math.round(dragging.origX + (pt.x - dragging.startX));
         p[1] = Math.round(dragging.origY + (pt.y - dragging.startY));
+        const _oc = _edgeCoords(dragging.zi);
+        const _sx = _snapAxis([p[0]], _oc.xs), _sy = _snapAxis([p[1]], _oc.ys);
+        if (_sx) p[0] += _sx.d;
+        if (_sy) p[1] += _sy.d;
+        _snapGuide(_sx ? _sx.pos : null, _sy ? _sy.pos : null);
         const g = svgEl.querySelector('.fp-zone[data-zone-idx="' + dragging.zi + '"]');
         if (g) {
           const path = g.querySelector('.fp-zone-path'); if (path) path.setAttribute('d', self._propPathD(rm.points));
@@ -7929,6 +8011,17 @@ ${this._renderExcludedEntities(d)}
       }
       if (dragging.zoneBody) {
         dragging.ddx = Math.round(pt.x - dragging.startX); dragging.ddy = Math.round(pt.y - dragging.startY);
+        const _zr = rooms[dragging.zi];
+        if (_zr && _zr.points) {
+          let _bx0 = 1e9, _by0 = 1e9, _bx1 = -1e9, _by1 = -1e9;
+          _zr.points.forEach(p => { _bx0 = Math.min(_bx0, p[0]); _by0 = Math.min(_by0, p[1]); _bx1 = Math.max(_bx1, p[0]); _by1 = Math.max(_by1, p[1]); });
+          const _oc = _edgeCoords(dragging.zi);
+          const _sx = _snapAxis([_bx0 + dragging.ddx, _bx1 + dragging.ddx], _oc.xs);
+          const _sy = _snapAxis([_by0 + dragging.ddy, _by1 + dragging.ddy], _oc.ys);
+          if (_sx) dragging.ddx += _sx.d;
+          if (_sy) dragging.ddy += _sy.d;
+          _snapGuide(_sx ? _sx.pos : null, _sy ? _sy.pos : null);
+        }
         const g = svgEl.querySelector('.fp-zone[data-zone-idx="' + dragging.zi + '"]');
         if (g) g.setAttribute('transform', 'translate(' + dragging.ddx + ',' + dragging.ddy + ')');
         return;
@@ -7984,15 +8077,23 @@ ${this._renderExcludedEntities(d)}
       const rm = rooms[dragging.idx];
       if (!rm) return;
 
+      const _oc = _edgeCoords(dragging.idx);
+      let _gx = null, _gy = null;
       if (dragging.resize) {
         rm.w = Math.max(15, Math.round(dragging.origW + (pt.x - dragging.startX)));
         rm.h = Math.max(10, Math.round(dragging.origH + (pt.y - dragging.startY)));
+        const _sx = _snapAxis([rm.x + rm.w], _oc.xs); if (_sx) { rm.w += _sx.d; _gx = _sx.pos; }
+        const _sy = _snapAxis([rm.y + rm.h], _oc.ys); if (_sy) { rm.h += _sy.d; _gy = _sy.pos; }
       } else {
         // No positive clamp — objects place anywhere in the field, including left of
         // the garage (x<0) and in front of the home (y<0). (v7.94.0)
         rm.x = Math.round(dragging.origX + (pt.x - dragging.startX));
         rm.y = Math.round(dragging.origY + (pt.y - dragging.startY));
+        // ...but pull flush to a neighbour's edge so rooms read as one building.
+        const _sx = _snapAxis([rm.x, rm.x + rm.w], _oc.xs); if (_sx) { rm.x += _sx.d; _gx = _sx.pos; }
+        const _sy = _snapAxis([rm.y, rm.y + rm.h], _oc.ys); if (_sy) { rm.y += _sy.d; _gy = _sy.pos; }
       }
+      _snapGuide(_gx, _gy);
       updateInfo(rm);
 
       // Live update SVG elements
@@ -8034,6 +8135,7 @@ ${this._renderExcludedEntities(d)}
       }
       const heavy = dragging.camera || dragging.property || dragging.zoneVtx || dragging.zoneBody || dragging.opening != null;
       dragging = null;
+      const _sg = svgEl.querySelector('.fp-snap-g'); if (_sg) _sg.remove();
       if (heavy) self._rerenderFloorEditor(); else redraw();
     };
     svgEl.addEventListener("mouseup", endDrag);
