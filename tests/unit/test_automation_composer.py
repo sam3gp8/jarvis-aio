@@ -303,6 +303,43 @@ async def test_oneshot_surfaces_specific_error_on_giveup(creator, tmp_path):
     assert "light.ghost" in (res.get("invalid_entities") or {})
 
 
+@pytest.mark.asyncio
+async def test_oneshot_empty_response_reports_thinking_budget(creator, tmp_path):
+    """A thinking model (e.g. gemma4) can return EMPTY content — its whole budget
+    spent on hidden reasoning. The composer must say so and name the remedy, not
+    the misleading 'describe it more specifically' (the real-world #462 failure)."""
+    hass = _home(tmp_path)
+    client = _Client({"text": "", "finish_reason": "length", "reasoning": "",
+                      "tool_calls": []}, supports=False)
+    res = await creator.draft_automation(hass, "porch light at dusk", client=client)
+    assert res["ok"] is False
+    assert "empty response" in res["error"].lower()
+    assert "thinking" in res["error"].lower()
+    assert "describe it more specifically" not in res["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_oneshot_recovers_automation_from_reasoning_channel(creator, tmp_path):
+    """Content empty but the automation JSON landed in the reasoning channel —
+    the composer recovers it from there instead of giving up."""
+    states = [_State("light.chaise_lamp", "Chaise Lamp"),
+              _State("binary_sensor.living_room_presence", "Living Room Presence")]
+    services = {"light": {"turn_on": None, "turn_off": None}}
+    hass = _Hass(states, services, tmp_path / "automations.yaml")
+    jdoc = json.dumps({
+        "alias": "Chaise on presence",
+        "trigger": [{"trigger": "state", "entity_id": "binary_sensor.living_room_presence", "to": "on"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]})
+    client = _Client({"text": "", "finish_reason": "length",
+                      "reasoning": "Let me work it out. " + jdoc, "tool_calls": []},
+                     supports=False)
+    res = await creator.draft_automation(
+        hass, "turn on the chaise lamp when living room presence detects someone",
+        client=client)
+    assert res["ok"] is True
+    assert "light.chaise_lamp" in res["draft"]["yaml"]
+
+
 def test_extract_json_handles_prose_and_fences(creator):
     assert creator._extract_json('{"a": 1}') == {"a": 1}
     assert creator._extract_json('Here: {"a": {"b": 2}} done')["a"]["b"] == 2
