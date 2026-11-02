@@ -271,6 +271,19 @@ class LLMProvider(ABC):
         """
         return True
 
+    def prefers_oneshot_compose(self) -> bool:
+        """Whether the automation composer should draft with its ONE-SHOT path
+        (JARVIS pre-searches and ranks the devices, then asks for the automation
+        in a single reply) rather than the multi-step agentic search→create loop.
+
+        A local model served through Ollama can emit a tool call — so the
+        tool-capability probe may say True — but it can't reliably DRIVE the
+        agentic loop in a large home: it loops on search without committing, or a
+        reasoning model exhausts its budget and returns empty. Those are
+        different capabilities. Such backends opt into the one-shot path here;
+        cloud backends drive the loop, so this stays False for them."""
+        return False
+
 
 # ─── Groq (default) ──────────────────────────────────────────────────────────
 
@@ -648,6 +661,11 @@ class OllamaProvider(OpenAIProvider):
         # The probe goes through chat() below, so Gemma's native tool-call format
         # is recovered there before the probe's verdict is taken.
         return None
+
+    def prefers_oneshot_compose(self) -> bool:
+        # Local models (Gemma etc.) can emit a tool call but can't reliably drive
+        # the agentic search→create loop, so the composer drafts them one-shot.
+        return True
 
     def chat(self, messages, tools=None, max_tokens=512, temperature=0.7, model_override=None,
              thinking=None, run_state=None):

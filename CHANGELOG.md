@@ -1,3 +1,42 @@
+## [9.69.0] — Composer: local models draft one-shot via native function-calling, never the agentic loop
+
+v9.68.0's observability immediately earned its keep. On the live `gemma4:26b`
+install the composer failed again, but the log now read something **new**:
+
+> `composer: agentic draft produced nothing — model last said:` **(blank)** `| candidates[0]: —`
+
+Different path entirely. The composer was no longer one-shotting — it had routed
+Gemma into the **agentic** search→create loop. Why: the one-shot path is chosen
+only for models the tool-capability probe says *can't* call tools, and on current
+Ollama **Gemma now passes that probe** (it can emit a tool call). But emitting a
+tool call and *driving a multi-step search→create loop in a 1789-entity home* are
+different capabilities — and v9.66.0 was built precisely because local models
+**can't** do the latter (they loop on search, or a reasoning model returns empty).
+So the probe flipping to True silently rerouted Gemma back into the loop it can't
+drive, past the robust one-shot path built for it.
+
+Fix: the provider now declares whether the composer should drive the agentic loop
+(`prefers_oneshot_compose()`). **Ollama-served models always draft one-shot** —
+pre-searched, ranked candidates, a single reply, with the v9.68.0 budget/retry/
+reasoning-recovery hardening — regardless of whether they pass the tool probe.
+Capable cloud models (OpenAI, Anthropic, Gemini, Groq) keep the agentic loop.
+
+Net across #462 → this: a local model now gets exactly one, reliable drafting
+path (one-shot, hardened for reasoning models), and the agentic loop is reserved
+for the cloud models that can actually drive it.
+
+**And the one-shot path now plays to Gemma's strength.** Gemma 4 is built for
+**native function-calling** (Google's own format — the same one JARVIS already
+recovers via `parse_gemma_tool_calls`), yet the one-shot path was asking it for
+free-form JSON *prose* — out-of-distribution for a function-calling model, and a
+plausible reason it rambled or returned empty. So the one-shot now offers a
+**single native `create_automation` tool** (candidates pre-filled, no search
+tool) and lets the model make one function call — exactly how Gemma is meant to
+be driven — while still accepting a JSON object in the content or reasoning as a
+fallback. One native call, pre-searched candidates, the reasoning-aware budget,
+and deterministic bad-name correction: the drafting path a local model can
+actually complete.
+
 ## [9.68.0] — Composer: stop a reasoning model's empty reply from killing the draft (the real #462 root cause)
 
 The live `gemma4:26b` diagnostics finally showed the actual failure, and it was

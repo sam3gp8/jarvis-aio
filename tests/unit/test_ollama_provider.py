@@ -50,6 +50,19 @@ def test_ollama_registered_as_its_own_provider(llm):
     assert issubclass(llm.OllamaProvider, llm.OpenAIProvider)
 
 
+def test_ollama_prefers_oneshot_compose(llm):
+    # A local model can emit a tool call but can't drive the agentic composer loop,
+    # so Ollama routes the composer to the one-shot path regardless of the probe.
+    assert object.__new__(llm.OllamaProvider).prefers_oneshot_compose() is True
+
+
+def test_cloud_providers_drive_the_agentic_composer(llm):
+    # Capable cloud backends keep the agentic loop (prefers_oneshot_compose False).
+    assert object.__new__(llm.OpenAIProvider).prefers_oneshot_compose() is False
+    assert object.__new__(llm.GeminiProvider).prefers_oneshot_compose() is False
+    assert object.__new__(llm.AnthropicProvider).prefers_oneshot_compose() is False
+
+
 def test_ollama_extra_body_keeps_model_resident_and_raises_context(llm):
     extra = llm.OllamaProvider._extra_body(None)   # self is unused
     assert extra["keep_alive"] == llm.OLLAMA_KEEP_ALIVE
