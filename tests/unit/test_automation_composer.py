@@ -241,7 +241,9 @@ async def test_oneshot_compose_for_local_model(creator, tmp_path):
         client=client)
     assert res["ok"] is True
     assert "light.chaise_lamp" in res["draft"]["yaml"]
-    assert "tools" not in client.seen           # one-shot never offers function-calling tools
+    # one-shot offers ONLY the native create_automation tool — never a search tool
+    tool_names = {t["function"]["name"] for t in (client.seen.get("tools") or [])}
+    assert tool_names == {"create_automation"}
     sysmsg = client.seen["messages"][0]["content"]
     assert "binary_sensor.living_room_presence" in sysmsg   # ranked candidates handed over
     assert "light.chaise_lamp" in sysmsg
@@ -367,7 +369,9 @@ async def test_local_model_uses_oneshot_even_when_tool_capable(creator, tmp_path
         hass, "turn on the chaise lamp when living room presence detects someone",
         client=client)
     assert res["ok"] is True
-    assert "tools" not in client.seen           # one-shot path never offers function tools
+    # one-shot path: only the native create_automation tool, never a search tool
+    tool_names = {t["function"]["name"] for t in (client.seen.get("tools") or [])}
+    assert tool_names == {"create_automation"}
     # the system prompt carried pre-ranked candidates (one-shot), not the agentic hint
     assert "binary_sensor.living_room_presence" in client.seen["messages"][0]["content"]
 
@@ -387,6 +391,27 @@ async def test_tool_capable_cloud_model_still_uses_agentic(creator, tmp_path):
     assert "light.porch" in res["draft"]["yaml"]
     # agentic path offers the search + compose tools (one-shot never would)
     assert any("tools" in s for s in client.seen)
+
+
+@pytest.mark.asyncio
+async def test_oneshot_uses_native_create_automation_tool_call(creator, tmp_path):
+    """The one-shot path offers a single native create_automation tool and parses
+    the model's NATIVE function call — Gemma 4's strength — not just raw JSON. Here
+    the content is empty and the automation arrives purely as a tool call."""
+    states = [_State("light.chaise_lamp", "Chaise Lamp"),
+              _State("binary_sensor.living_room_presence", "Living Room Presence")]
+    services = {"light": {"turn_on": None, "turn_off": None}}
+    hass = _Hass(states, services, tmp_path / "automations.yaml")
+    client = _Client({"text": "", "tool_calls": [{"id": "c1", "name": "create_automation",
+        "args": {"alias": "Chaise on presence",
+                 "trigger": [{"trigger": "state", "entity_id": "binary_sensor.living_room_presence", "to": "on"}],
+                 "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]}}]},
+        supports=True, oneshot=True)
+    res = await creator.draft_automation(
+        hass, "chaise lamp on living room presence", client=client)
+    assert res["ok"] is True
+    assert res["draft"]["args"]["alias"] == "Chaise on presence"
+    assert "light.chaise_lamp" in res["draft"]["yaml"]
 
 
 def test_extract_json_handles_prose_and_fences(creator):

@@ -543,31 +543,48 @@ def _corrections_for(hass: HomeAssistant, preview: dict) -> str:
     return "\n".join(lines)
 
 
+def _automation_from_result(res: dict) -> dict | None:
+    """Pull the automation out of a one-shot reply, in order of preference:
+    a NATIVE create_automation tool call (a function-calling model's strength —
+    Gemma 4 is built for this), then a JSON object in the visible content, then
+    one in the reasoning channel (a thinking model can leave content empty). The
+    Ollama provider already recovers Gemma's native call format into tool_calls."""
+    for tc in (res or {}).get("tool_calls") or []:
+        if (tc or {}).get("name") in ("create_automation", "create"):
+            auto = _coerce_automation(tc.get("args") or {})
+            if auto:
+                return auto
+    raw = (res or {}).get("text") or ""
+    return _first_automation(raw) or _first_automation((res or {}).get("reasoning") or "")
+
+
 async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, Any]:
-    """One-shot compose for a model that can't drive the agentic loop. JARVIS
-    pre-searches + ranks the real devices the request names, hands the model that
-    focused list, and asks for the whole automation in a SINGLE JSON object — no
-    search tool to loop on. Validates, and on a bad name retries with the closest
-    real ids. Logs the candidates + outcome so a failure is diagnosable."""
+    """One-shot compose for a model that can't drive the multi-step agentic loop.
+    JARVIS pre-searches + ranks the real devices the request names, hands the
+    model that focused list, and asks it to build the automation in a SINGLE call
+    to create_automation — its NATIVE function-calling, not a free-form JSON reply
+    (a function-calling model like Gemma 4 is far more reliable calling a tool than
+    emitting raw JSON prose), and no search tool to loop on. A JSON object in the
+    content or reasoning is still accepted as a fallback. Validates, and on a bad
+    name retries with the closest real ids. Logs candidates + outcome."""
     cands = _relevant_entities(hass, text, limit=40)
     cand_lines = ("\n".join(f"- {c['entity_id']} ({c['friendly']})" for c in cands)
                   or "(no obvious device matches were found for this request)")
     system = (
-        "You write ONE Home Assistant automation for the user's request, as a "
-        "SINGLE JSON object and NOTHING else — no prose, no search, no extra "
-        "objects.\n\n"
+        "You create ONE Home Assistant automation for the user's request by "
+        "calling the create_automation function exactly once — no search, no "
+        "extra calls.\n\n"
         "Use ONLY these real devices (copy the entity_id EXACTLY; never invent "
         "one):\n" + cand_lines + "\n\n"
-        "Reply with exactly this shape (Home Assistant modern keys):\n"
-        '{"alias":"<short name>","trigger":[ ... ],"condition":[ ... ],"action":[ ... ]}\n'
-        "Item examples:\n"
+        "Call create_automation with Home Assistant's modern keys "
+        "('trigger', 'condition', 'action'). Item examples:\n"
         '  trigger:   {"trigger":"state","entity_id":"binary_sensor.x","to":"on"}\n'
         '             {"trigger":"sun","event":"sunset"}\n'
         '  condition: {"condition":"sun","after":"sunset","before":"sunrise"}  '
         "(use this for a dusk-to-dawn / night-only window — no entity needed)\n"
         '  action:    {"action":"light.turn_on","target":{"entity_id":"light.y"}}\n'
         "Cover both directions if the request implies on AND off (e.g. a presence "
-        "sensor turning to 'on' and to 'off'). Output the JSON object now.")
+        "sensor turning to 'on' and to 'off'). Call create_automation now.")
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": text}]
     last_error: dict | None = None
@@ -578,8 +595,8 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
 
     for attempt in range(_ONESHOT_ATTEMPTS):
         def _call():
-            return client.chat(messages=messages, max_tokens=_ONESHOT_MAX_TOKENS,
-                               temperature=0.1)
+            return client.chat(messages=messages, tools=[_COMPOSER_TOOL],
+                               max_tokens=_ONESHOT_MAX_TOKENS, temperature=0.1)
         try:
             res = await hass.async_add_executor_job(_call)
         except Exception as exc:
@@ -588,24 +605,19 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
         raw = (res or {}).get("text") or ""
         last_raw = raw or last_raw
         last_finish = (res or {}).get("finish_reason") or last_finish
-        auto = _first_automation(raw)
-        if not auto:
-            # A thinking model can leave visible content empty and put its answer
-            # (JSON and all) in the reasoning channel — look there before retrying.
-            reasoning = (res or {}).get("reasoning") or ""
-            if reasoning:
-                saw_reasoning = True
-                recovered = _first_automation(reasoning)
-                if recovered:
-                    auto = recovered
-                    if not raw:
-                        last_raw = reasoning
+        if (res or {}).get("reasoning"):
+            saw_reasoning = True
+            if not last_raw:
+                last_raw = res["reasoning"]
+        # Prefer the native create_automation call; fall back to JSON in the
+        # content or the reasoning channel.
+        auto = _automation_from_result(res)
         if not auto:
             messages.append({"role": "assistant", "content": raw[:1000]})
             messages.append({"role": "user", "content":
-                "Output ONLY the automation as one JSON object: "
-                '{"alias":"...","trigger":[...],"condition":[...],"action":[...]}. '
-                "No other text, no search."})
+                "Call create_automation once now with the automation — alias, "
+                "trigger, condition, action — using only the real entity_ids "
+                "listed above. No search, no prose."})
             continue
         last_args = {
             "alias": auto.get("alias") or "Automation",
@@ -626,8 +638,8 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
             f"{_bad_names(preview) or preview.get('error')}.\n"
             + (("Use one of these real ids instead:\n" + corrections + "\n")
                if corrections else "")
-            + "Re-output the FULL automation as one JSON object using only real "
-              "entity_ids from the list."})
+            + "Call create_automation again with the FULL automation, using only "
+              "real entity_ids from the list."})
 
     # Distinguish an empty response (the model emitted no visible text at all —
     # typically a thinking model that spent its budget reasoning) from a non-empty
