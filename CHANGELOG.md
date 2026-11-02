@@ -1,3 +1,10 @@
+## [9.72.1] — Attached side gains top/bottom party walls
+
+Plans aren't always drawn with the street at the bottom — party walls can now
+sit on the plan's top or bottom edge. The ghost neighbour mirrors across the
+y-axis with its ridge running across the mass, in both the Settings card and
+the editor's ATTACHED dropdown.
+
 ## [9.72.0] — Home type + Attached side settable right in the floor-plan editor
 
 The HOUSE and ATTACHED dropdowns now sit in the editor toolbar next to Units,

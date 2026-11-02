@@ -862,20 +862,32 @@ const JARVIS3D = (function () {
       if (!_main && (plan['1f'] || []).length) _main = { x0: minx, y0: miny, x1: maxx, y1: maxy };
       var gFill = 'rgba(10,20,30,0.55)', gStroke = 'rgba(90,130,160,0.3)', gRoof = 'rgba(8,17,26,0.88)', gRoofS = 'rgba(90,130,160,0.22)';
       if (_main) {
-        var m = _main, mw = m.x1 - m.x0;
-        [['left', m.x0 - mw, m.x0], ['right', m.x1, m.x1 + mw]].forEach(function (s) {
+        var m = _main, mw = m.x1 - m.x0, mh = m.y1 - m.y0;
+        [['left', m.x0 - mw, m.x0, m.y0, m.y1],
+         ['right', m.x1, m.x1 + mw, m.y0, m.y1],
+         ['top', m.x0, m.x1, m.y0 - mh, m.y0],
+         ['bottom', m.x0, m.x1, m.y1, m.y1 + mh]].forEach(function (s) {
           if (attach !== 'both' && attach !== s[0]) return;
-          var gx0 = s[1], gx1 = s[2], gy0 = m.y0, gy1 = m.y1, rcx = (gx0 + gx1) / 2;
+          var gx0 = s[1], gx1 = s[2], gy0 = s[3], gy1 = s[4];
           F(L, [[gx0,gy0,0],[gx1,gy0,0],[gx1,gy0,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
           F(L, [[gx0,gy1,0],[gx1,gy1,0],[gx1,gy1,eave],[gx0,gy1,eave]], gFill, gStroke, 0.4);
           F(L, [[gx0,gy0,0],[gx0,gy1,0],[gx0,gy1,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
           F(L, [[gx1,gy0,0],[gx1,gy1,0],[gx1,gy1,eave],[gx1,gy0,eave]], gFill, gStroke, 0.4);
           if (rt !== 'flat') {
-            var gpk = eave + _roofRise(mw);
-            F(L, [[gx0,gy0,eave],[gx0,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
-            F(L, [[gx1,gy0,eave],[gx1,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
-            F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[rcx,gy0,gpk]], gFill, gStroke, 0.4);
-            F(L, [[gx0,gy1,eave],[gx1,gy1,eave],[rcx,gy1,gpk]], gFill, gStroke, 0.4);
+            if (s[0] === 'top' || s[0] === 'bottom') {
+              // Party wall on a plan y-edge — ridge runs across the mass (along x).
+              var gpky = eave + _roofRise(gy1 - gy0), rcy = (gy0 + gy1) / 2;
+              F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[gx1,rcy,gpky],[gx0,rcy,gpky]], gRoof, gRoofS, 0.4);
+              F(L, [[gx0,gy1,eave],[gx1,gy1,eave],[gx1,rcy,gpky],[gx0,rcy,gpky]], gRoof, gRoofS, 0.4);
+              F(L, [[gx0,gy0,eave],[gx0,gy1,eave],[gx0,rcy,gpky]], gFill, gStroke, 0.4);
+              F(L, [[gx1,gy0,eave],[gx1,gy1,eave],[gx1,rcy,gpky]], gFill, gStroke, 0.4);
+            } else {
+              var gpk = eave + _roofRise(gx1 - gx0), rcx = (gx0 + gx1) / 2;
+              F(L, [[gx0,gy0,eave],[gx0,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
+              F(L, [[gx1,gy0,eave],[gx1,gy1,eave],[rcx,gy1,gpk],[rcx,gy0,gpk]], gRoof, gRoofS, 0.4);
+              F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[rcx,gy0,gpk]], gFill, gStroke, 0.4);
+              F(L, [[gx0,gy1,eave],[gx1,gy1,eave],[rcx,gy1,gpk]], gFill, gStroke, 0.4);
+            }
           } else {
             F(L, [[gx0,gy0,eave],[gx1,gy0,eave],[gx1,gy1,eave],[gx0,gy1,eave]], gRoof, gRoofS, 0.4);
           }
@@ -4167,7 +4179,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       html += '<label style="margin-left:10px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">HOUSE'
         + '<select class="ctrl" id="fp-home-type" style="padding:3px 6px;font-size:9px;">' + this._residenceStyleOptions(this._data()) + '</select></label>';
       html += '<label style="margin-left:6px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">ATTACHED'
-        + '<select class="ctrl" id="fp-home-attached" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled([['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['both','Terrace — both sides']], _cfg.home_attached ?? 'none') + '</select></label>'; }
+        + '<select class="ctrl" id="fp-home-attached" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled([['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['top','Semi — party wall top'],['bottom','Semi — party wall bottom'],['both','Terrace — both sides']], _cfg.home_attached ?? 'none') + '</select></label>'; }
     html += '</div>';
     html += '</div>';
 
@@ -5012,7 +5024,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           </div>
           <div class="cfg-row">
             <label>Attached side <span class="cfg-sub">UK semi / terrace party wall</span></label>
-            <select class="cfg-field" data-cfg-key="home_attached">${this._optsLabeled([['','Style default'],['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['both','Terrace — both sides']], d.config?.home_attached ?? '')}</select>
+            <select class="cfg-field" data-cfg-key="home_attached">${this._optsLabeled([['','Style default'],['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['top','Semi — party wall top'],['bottom','Semi — party wall bottom'],['both','Terrace — both sides']], d.config?.home_attached ?? '')}</select>
           </div>
           <div class="cfg-row">
             <label>Stories</label>
