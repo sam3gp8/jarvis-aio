@@ -1,3 +1,10 @@
+## [9.72.0] — Home type + Attached side settable right in the floor-plan editor
+
+The HOUSE and ATTACHED dropdowns now sit in the editor toolbar next to Units,
+so shaping the plan and styling its 3D model happen in one place. Both save
+immediately and the editor's 3D preview updates live — flip to Mid Terrace
+and watch the ghost neighbours appear, no trip to Settings required.
+
 ## [9.71.3] — UK styles no longer auto-render the neighbour ghost
 
 Semi-Detached / End-Terrace / Mid-Terrace baked `attached` into their style

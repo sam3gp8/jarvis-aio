@@ -4163,6 +4163,11 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       html += '<button class="ctrl" id="fp-add-property" style="padding:5px 10px;font-size:9px;margin-left:6px;">' + (_has ? 'Clear Property' : '+ Property Line') + '</button>';
       if (_has) html += '<span class="fp-land-size" style="margin-left:8px;font-family:var(--font-mono);font-size:9px;color:#ffb85a;">Lot: ' + this._propertyArea(_pp) + '</span>'; }
     html += '<button class="ctrl" id="fp-units" style="padding:5px 10px;font-size:9px;">Units: ' + (this._fpUnits() === 'metric' ? 'Metric' : 'Imperial') + '</button>';
+    { const _cfg = (this._data().config || {});
+      html += '<label style="margin-left:10px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">HOUSE'
+        + '<select class="ctrl" id="fp-home-type" style="padding:3px 6px;font-size:9px;">' + this._residenceStyleOptions(this._data()) + '</select></label>';
+      html += '<label style="margin-left:6px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">ATTACHED'
+        + '<select class="ctrl" id="fp-home-attached" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled([['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['both','Terrace — both sides']], _cfg.home_attached ?? 'none') + '</select></label>'; }
     html += '</div>';
     html += '</div>';
 
@@ -7359,6 +7364,29 @@ ${this._renderExcludedEntities(d)}
         plan[floor].rooms.push({ name: name, x: x, y: y, w: 80, h: 80, type: 'room', points: pts });
         this._rerenderFloorEditor();
         this._toast("Added L-shaped " + name + " \u2014 drag the corners to shape it, then Save", "ok");
+      });
+    }
+    // House style + attached side, settable right in the editor — saves config
+    // and re-renders the 3D preview live.
+    const fpHomeType = this.shadowRoot.querySelector("#fp-home-type");
+    if (fpHomeType) {
+      fpHomeType.addEventListener("change", async () => {
+        const val = fpHomeType.value;
+        if (this._liveData && this._liveData.config) this._liveData.config.residence_style = val;
+        this._refreshEditorPreview();
+        const rs = this._resStyles()[val];
+        this._toast("\u25c9 Home type \u2192 " + (rs ? rs.label : val), "ok");
+        try { await this._saveConfig('residence_style', val); } catch (_) {}
+      });
+    }
+    const fpHomeAttach = this.shadowRoot.querySelector("#fp-home-attached");
+    if (fpHomeAttach) {
+      fpHomeAttach.addEventListener("change", async () => {
+        const val = fpHomeAttach.value;
+        if (this._liveData && this._liveData.config) this._liveData.config.home_attached = val;
+        this._refreshEditorPreview();
+        this._toast("\u25c9 Attached \u2192 " + (val === 'none' ? 'detached' : val), "ok");
+        try { await this._saveConfig('home_attached', val); } catch (_) {}
       });
     }
     const fpZone = this.shadowRoot.querySelector("#fp-add-zone");
