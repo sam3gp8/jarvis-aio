@@ -385,18 +385,31 @@ def _draft_fail(last_error: dict | None, last_args: dict | None,
             "draft": ({"args": last_args} if last_args else None)}
 
 
+def _prefers_oneshot(client) -> bool:
+    """True when the provider asks the composer to draft via its one-shot path
+    (local models that can't drive the agentic loop). Best-effort; False by
+    default so any provider without the hint keeps the capability-probe routing."""
+    try:
+        return bool(client.prefers_oneshot_compose())
+    except Exception:
+        return False
+
+
 async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[str, Any]:
     """Turn a plain-language request into a reviewed automation draft WITHOUT
     installing it.
 
-    Routes by model capability:
-      • a tool-capable model (every cloud provider) runs the agentic loop —
-        search → compose → validate, retrying a bad name;
-      • a local model that can't drive that loop (Gemma via Ollama — it loops on
-        search and never commits) runs a ONE-SHOT compose instead: JARVIS
+    Routes by what the model can actually DO (not merely whether it can emit a
+    tool call):
+      • a capable cloud model runs the agentic loop — search → compose →
+        validate, retrying a bad name;
+      • a local model (Gemma via Ollama) runs a ONE-SHOT compose instead, EVEN
+        when it can emit a tool call: it loops on search without committing (or a
+        reasoning model returns empty) if made to drive the loop. JARVIS
         pre-searches the request and ranks the real devices, hands the model that
         focused list, and asks for the automation in a single reply (no search
-        tool to get stuck on), with deterministic bad-name correction.
+        tool to get stuck on), with deterministic bad-name correction. The
+        provider declares this via prefers_oneshot_compose().
 
     Returns the draft + its YAML for review (install is a separate step), or the
     last validation failure with the closest real names. Never raises."""
@@ -406,6 +419,15 @@ async def draft_automation(hass: HomeAssistant, text: str, *, client) -> dict[st
     if client is None:
         return {"ok": False, "error": ("No reasoning provider is configured, so I "
                 "can't draft automations from the panel yet.")}
+    # A local model (Gemma via Ollama) can emit a tool call — so the tool probe
+    # may say True — but it can't reliably DRIVE the multi-step search→create
+    # agentic loop in a large home: it loops on search without committing, or a
+    # reasoning model returns empty. It drafts via the robust one-shot path, which
+    # pre-searches and ranks the devices for it. (#462 established this; the probe
+    # flipping to True for Gemma was silently rerouting it back into the loop it
+    # can't drive — the real failure behind "agentic draft produced nothing".)
+    if _prefers_oneshot(client):
+        return await _compose_oneshot(hass, text, client)
     try:
         cap = await supports_tools(hass, client)
     except Exception:

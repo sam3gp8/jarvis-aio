@@ -64,13 +64,17 @@ class _Client:
     """Minimal LLMProvider stand-in: chat() returns a canned result dict.
     `supports=True` routes draft_automation down the agentic (native tool) path;
     `supports=False` routes it down the one-shot (local) path."""
-    def __init__(self, result, *, supports=False):
+    def __init__(self, result, *, supports=False, oneshot=False):
         self._result = result
         self._supports = supports
+        self._oneshot = oneshot
         self.seen = None
 
     def supports_tools(self):
         return self._supports
+
+    def prefers_oneshot_compose(self):
+        return self._oneshot
 
     def chat(self, **kw):
         self.seen = kw
@@ -80,14 +84,18 @@ class _Client:
 class _ScriptClient:
     """LLMProvider stand-in that returns a scripted sequence of chat results,
     recording the messages it was called with each round (for agentic tests)."""
-    def __init__(self, results, *, supports=False):
+    def __init__(self, results, *, supports=False, oneshot=False):
         self._results = list(results)
         self._supports = supports
+        self._oneshot = oneshot
         self.calls = 0
         self.seen = []
 
     def supports_tools(self):
         return self._supports
+
+    def prefers_oneshot_compose(self):
+        return self._oneshot
 
     def chat(self, **kw):
         self.calls += 1
@@ -338,6 +346,47 @@ async def test_oneshot_recovers_automation_from_reasoning_channel(creator, tmp_p
         client=client)
     assert res["ok"] is True
     assert "light.chaise_lamp" in res["draft"]["yaml"]
+
+
+@pytest.mark.asyncio
+async def test_local_model_uses_oneshot_even_when_tool_capable(creator, tmp_path):
+    """A local model that passes the tool probe (supports_tools=True) but declares
+    prefers_oneshot_compose() must STILL draft one-shot — not be rerouted into the
+    agentic loop it can't drive. This is the real v9.68.0 regression: Gemma began
+    passing the probe and the composer logged 'agentic draft produced nothing'."""
+    states = [_State("light.chaise_lamp", "Chaise Lamp"),
+              _State("binary_sensor.living_room_presence", "Living Room Presence")]
+    services = {"light": {"turn_on": None, "turn_off": None}}
+    hass = _Hass(states, services, tmp_path / "automations.yaml")
+    jdoc = json.dumps({
+        "alias": "Chaise on presence",
+        "trigger": [{"trigger": "state", "entity_id": "binary_sensor.living_room_presence", "to": "on"}],
+        "action": [{"action": "light.turn_on", "target": {"entity_id": "light.chaise_lamp"}}]})
+    client = _Client({"text": jdoc, "tool_calls": []}, supports=True, oneshot=True)
+    res = await creator.draft_automation(
+        hass, "turn on the chaise lamp when living room presence detects someone",
+        client=client)
+    assert res["ok"] is True
+    assert "tools" not in client.seen           # one-shot path never offers function tools
+    # the system prompt carried pre-ranked candidates (one-shot), not the agentic hint
+    assert "binary_sensor.living_room_presence" in client.seen["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_tool_capable_cloud_model_still_uses_agentic(creator, tmp_path):
+    """A model that passes the probe and does NOT prefer one-shot keeps the agentic
+    loop — the local-model reroute must not swallow capable cloud providers."""
+    hass = _home(tmp_path)   # light.porch
+    client = _ScriptClient([
+        {"text": "", "tool_calls": [{"id": "c1", "name": "create_automation", "args": {
+            "alias": "Porch at dusk", "trigger": [{"trigger": "sun", "event": "sunset"}],
+            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}}]},
+    ], supports=True, oneshot=False)
+    res = await creator.draft_automation(hass, "porch light at sunset", client=client)
+    assert res["ok"] is True
+    assert "light.porch" in res["draft"]["yaml"]
+    # agentic path offers the search + compose tools (one-shot never would)
+    assert any("tools" in s for s in client.seen)
 
 
 def test_extract_json_handles_prose_and_fences(creator):
