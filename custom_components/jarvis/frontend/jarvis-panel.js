@@ -818,6 +818,66 @@ const JARVIS3D = (function () {
       if (attach === 'bottom') r.y1 += h;
       return r;
     };
+    // Extra roof styles — each draws into L and returns {a,b} for dormer refs.
+    function shedRoofOver(L, GL, x0, y0, x1, y1, eave, rise) {   // lean-to: one slope, high at front
+      var z0 = eave + (rise || _roofRise(y1 - y0));
+      F(L, [[x0,y0,z0],[x1,y0,z0],[x1,y1,eave],[x0,y1,eave]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y0,eave],[x1,y0,eave],[x1,y0,z0],[x0,y0,z0]], C.wallF, C.wallS, 1);          // raised front fascia
+      F(L, [[x0,y0,eave],[x0,y0,z0],[x0,y1,eave]], C.roofF, C.roofS, 1);
+      F(L, [[x1,y0,eave],[x1,y0,z0],[x1,y1,eave]], C.roofF, C.roofS, 1);
+      return { a: x0, b: x1 };
+    }
+    function mansardOver(L, GL, x0, y0, x1, y1, eave, rise) {    // steep skirt ring + flat cap
+      var rs = rise || _roofRise(Math.min(x1 - x0, y1 - y0)), z1 = eave + rs;
+      var ix0 = x0 + (x1 - x0) * 0.2, ix1 = x1 - (x1 - x0) * 0.2, iy0 = y0 + (y1 - y0) * 0.2, iy1 = y1 - (y1 - y0) * 0.2;
+      F(L, [[x0,y0,eave],[x1,y0,eave],[ix1,iy0,z1],[ix0,iy0,z1]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y1,eave],[x1,y1,eave],[ix1,iy1,z1],[ix0,iy1,z1]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y0,eave],[x0,y1,eave],[ix0,iy1,z1],[ix0,iy0,z1]], C.roofF, C.roofS, 1);
+      F(L, [[x1,y0,eave],[x1,y1,eave],[ix1,iy1,z1],[ix1,iy0,z1]], C.roofF, C.roofS, 1);
+      F(L, [[ix0,iy0,z1],[ix1,iy0,z1],[ix1,iy1,z1],[ix0,iy1,z1]], C.roofF, C.roofS, 1);
+      return { a: x0, b: x1 };
+    }
+    function butterflyOver(L, GL, x0, y0, x1, y1, eave, rise) {  // inverted: valley at the centre
+      var cx = (x0 + x1) / 2, zl = eave - Math.max(1.5, (rise || _roofRise(x1 - x0)) * 0.4);
+      F(L, [[x0,y0,eave],[x0,y1,eave],[cx,y1,zl],[cx,y0,zl]], C.roofF, C.roofS, 1);
+      F(L, [[x1,y0,eave],[x1,y1,eave],[cx,y1,zl],[cx,y0,zl]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y0,eave],[x1,y0,eave],[cx,y0,zl]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y1,eave],[x1,y1,eave],[cx,y1,zl]], C.roofF, C.roofS, 1);
+      return { a: x0, b: x1 };
+    }
+    function mshapeOver(L, GL, x0, y0, x1, y1, eave, rise) {     // twin gables side by side
+      var cx = (x0 + x1) / 2;
+      gableRoofOver(L, GL, x0, y0, cx, y1, eave, rise);
+      return gableRoofOver(L, GL, cx, y0, x1, y1, eave, rise);
+    }
+    function crossGableOver(L, GL, x0, y0, x1, y1, eave, rise) { // main gable + perpendicular wing
+      var r = gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      var cy0 = y0 + (y1 - y0) * 0.3, cy1 = y0 + (y1 - y0) * 0.7, rc = (cy0 + cy1) / 2;
+      var cx0 = x0 + (x1 - x0) * 0.12, cx1 = x1 - (x1 - x0) * 0.12, pk = eave + (rise || _roofRise(cy1 - cy0)) * 0.8;
+      F(L, [[cx0,cy0,eave],[cx1,cy0,eave],[cx1,rc,pk],[cx0,rc,pk]], C.roofF, C.roofS, 1);
+      F(L, [[cx0,cy1,eave],[cx1,cy1,eave],[cx1,rc,pk],[cx0,rc,pk]], C.roofF, C.roofS, 1);
+      F(L, [[cx0,cy0,eave],[cx0,cy1,eave],[cx0,rc,pk]], C.roofF, C.roofS, 1);
+      F(L, [[cx1,cy0,eave],[cx1,cy1,eave],[cx1,rc,pk]], C.roofF, C.roofS, 1);
+      return r;
+    }
+    function jerkinheadOver(L, GL, x0, y0, x1, y1, eave, rise) { // clipped-gable tips
+      var r = gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      var pk = eave + (rise || _roofRise(x1 - x0)), clip = (x1 - x0) * 0.18, cy = (y0 + y1) / 2;
+      F(L, [[x0,y0,eave],[x0,y1,eave],[x0 + clip,cy,pk]], C.roofF, C.roofS, 1);
+      F(L, [[x1,y0,eave],[x1,y1,eave],[x1 - clip,cy,pk]], C.roofF, C.roofS, 1);
+      return r;
+    }
+    function roofOver(L, GL, rt, x0, y0, x1, y1, eave, rise) {
+      if (rt === 'gambrel')     return gambrelRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'shed')        return shedRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'mansard')     return mansardOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'butterfly')   return butterflyOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'mshape')      return mshapeOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'crossgable')  return crossGableOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'jerkinhead')  return jerkinheadOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'hipvalley')   return hipRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      return gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);   // gable / dormer / unknown
+    }
     if (rt === 'flat') { var _rs0 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1); roof = flatRoofOver(L, GL, _rs0.x0, _rs0.y0, _rs0.x1, _rs0.y1, ztop); }
     else if (rt === 'hip') { var _rs1 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1); roof = hipRoofOver(L, GL, _rs1.x0, _rs1.y0, _rs1.x1, _rs1.y1, eave, minRise); }
     else if (gLow) {
@@ -831,10 +891,10 @@ const JARVIS3D = (function () {
       if (!houseRect) {
         var hmasses = _footprintMasses(houseRooms);
         hmasses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
-        hmasses.forEach(function (m, mi) { var _rs = _roofExt(m, mi === 0); var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise) : gableRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise); if (mi === 0) roof = _r; });
+        hmasses.forEach(function (m, mi) { var _rs = _roofExt(m, mi === 0); var _r = roofOver(L, GL, rt, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise); if (mi === 0) roof = _r; });
       } else {
         var _rsh = _roofExt({ x0: hb.x0, y0: hb.y0, x1: hb.x1, y1: hb.y1 }, true);
-        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise) : gableRoofOver(L, GL, _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise);
+        roof = roofOver(L, GL, rt, _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise);
       }
       // attached garage: low, shallow-pitch roof over its ACTUAL bbox (spans its real depth)
       gableRoofOver(L, GL, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, 0.20);
@@ -844,12 +904,12 @@ const JARVIS3D = (function () {
         _masses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
         _masses.forEach(function (m, mi) {
           var _rs = _roofExt(m, mi === 0);
-          var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise) : gableRoofOver(L, GL, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise);
+          var _r = roofOver(L, GL, rt, _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise);
           if (mi === 0) roof = _r;   // largest mass is the dormer reference
         });
       } else {
         var _rs2 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1);
-        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise) : gableRoofOver(L, GL, _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise);
+        roof = roofOver(L, GL, rt, _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise);
       }
     }
 
@@ -3812,7 +3872,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     const num = (v) => (v === '' || v == null ? null : Number(v));
     const fEx = num(c.dormers_front), rEx = num(c.dormers_rear);
     const spec = {};
-    spec.roof = sd.roof || 'gable';
+    spec.roof = c.home_roof || sd.roof || 'gable';
     spec.stories = num(c.home_stories) != null ? num(c.home_stories) : 1.5;
     if (sd.pitch != null) spec.pitch = sd.pitch;
     // Cape Cod with default dormers => let the model render its exact approved layout.
@@ -3824,6 +3884,8 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       if (fEx == null) spec.dormersFront = 0;
       if (rEx == null) spec.dormersRear = 0;
     }
+    // 'dormer' roof type = gable with front dormers baked in (explicit pick wins).
+    if (spec.roof === 'dormer' && fEx == null) spec.dormersFront = Math.max(spec.dormersFront || 0, 2);
     if (num(c.garage_bays) != null) spec.garageBays = num(c.garage_bays);
     if (c.chimney_side) spec.chimney = c.chimney_side;
     // #324: center / multiple chimneys (common on European houses) + where the
@@ -3934,6 +3996,10 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     return Object.keys(styles).map(k =>
       '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + styles[k].label + '</option>'
     ).join('');
+  }
+
+  _roofTypePairs() {
+    return [['','Style default'],['gable','Gable'],['hip','Hip'],['gambrel','Gambrel / Dutch'],['mansard','Mansard'],['flat','Flat'],['shed','Shed (lean-to)'],['dormer','Gable + dormers'],['mshape','M-shaped'],['butterfly','Butterfly'],['jerkinhead','Jerkinhead (clipped gable)'],['crossgable','Cross gable'],['hipvalley','Hip & valley']];
   }
 
   // <option> builders for the Residence/Home config selects.
@@ -4181,7 +4247,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       html += '<label style="margin-left:10px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">HOUSE'
         + '<select class="ctrl" id="fp-home-type" style="padding:3px 6px;font-size:9px;">' + this._residenceStyleOptions(this._data()) + '</select></label>';
       html += '<label style="margin-left:6px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">ATTACHED'
-        + '<select class="ctrl" id="fp-home-attached" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled([['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['top','Semi — party wall top'],['bottom','Semi — party wall bottom'],['both','Terrace — both sides']], _cfg.home_attached ?? 'none') + '</select></label>'; }
+        + '<select class="ctrl" id="fp-home-attached" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled([['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['top','Semi — party wall top'],['bottom','Semi — party wall bottom'],['both','Terrace — both sides']], _cfg.home_attached ?? 'none') + '</select></label>';
+      html += '<label style="margin-left:6px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">ROOF'
+        + '<select class="ctrl" id="fp-home-roof" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled(this._roofTypePairs(), _cfg.home_roof ?? '') + '</select></label>'; }
     html += '</div>';
     html += '</div>';
 
@@ -5027,6 +5095,10 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           <div class="cfg-row">
             <label>Attached side <span class="cfg-sub">UK semi / terrace party wall</span></label>
             <select class="cfg-field" data-cfg-key="home_attached">${this._optsLabeled([['','Style default'],['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['top','Semi — party wall top'],['bottom','Semi — party wall bottom'],['both','Terrace — both sides']], d.config?.home_attached ?? '')}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Roof type <span class="cfg-sub">overrides the style's roof</span></label>
+            <select class="cfg-field" data-cfg-key="home_roof">${this._optsLabeled(this._roofTypePairs(), d.config?.home_roof ?? '')}</select>
           </div>
           <div class="cfg-row">
             <label>Stories</label>
@@ -7401,6 +7473,16 @@ ${this._renderExcludedEntities(d)}
         this._refreshEditorPreview();
         this._toast("\u25c9 Attached \u2192 " + (val === 'none' ? 'detached' : val), "ok");
         try { await this._saveConfig('home_attached', val); } catch (_) {}
+      });
+    }
+    const fpHomeRoof = this.shadowRoot.querySelector("#fp-home-roof");
+    if (fpHomeRoof) {
+      fpHomeRoof.addEventListener("change", async () => {
+        const val = fpHomeRoof.value;
+        if (this._liveData && this._liveData.config) this._liveData.config.home_roof = val;
+        this._refreshEditorPreview();
+        this._toast("\u25c9 Roof \u2192 " + (val || 'style default'), "ok");
+        try { await this._saveConfig('home_roof', val); } catch (_) {}
       });
     }
     const fpZone = this.shadowRoot.querySelector("#fp-add-zone");

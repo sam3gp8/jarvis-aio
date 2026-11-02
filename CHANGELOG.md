@@ -1,3 +1,12 @@
+## [9.73.0] — Roof type picker: 13 roof styles on any home type
+
+Home styles bundled the roof with the massing; real houses don't. A new
+**Roof type** select (editor toolbar's ROOF dropdown and Settings → Residence)
+overrides the style's roof with any of: Gable, Hip, Gambrel/Dutch, Mansard,
+Flat, Shed (lean-to), Gable+dormers, M-shaped, Butterfly, Jerkinhead
+(clipped gable), Cross gable, and Hip & valley (per-mass hips over irregular
+footprints). Works with every home type and the attached-side ghosts.
+
 ## [9.72.2] — Attached houses share ONE roof, like real semis
 
 UK semis and terraces share a single roof — ridge over the party wall, gable
