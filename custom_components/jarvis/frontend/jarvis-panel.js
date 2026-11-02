@@ -7926,7 +7926,10 @@ ${this._renderExcludedEntities(d)}
         const isPoly = !!(rm.points && rm.points.length >= 3);
         infoEl.innerHTML = '<b>' + rm.name.toUpperCase() + '</b> \u00b7 ' + rm.type + ' \u00b7 '
           + (isPoly
-            ? rm.points.length + ' corners \u00b7 drag a corner to reshape \u00b7 edge midpoint adds one \u00b7 right-click removes it'
+            ? rm.points.length + ' corners \u00b7 '
+              + 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + ' \u00b7 drag corners to reshape'
               + ' <button class="ctrl fp-unshape-btn" style="padding:2px 8px;font-size:9px;margin-left:8px;">\u25ad Make rectangular</button>'
             : 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
               + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
@@ -7961,11 +7964,21 @@ ${this._renderExcludedEntities(d)}
           inp.addEventListener('change', () => {
             const r = rooms[_infoIdx]; if (!r) return;
             const v = parseFloat(inp.value); if (!(v > 0)) return;
-            if (inp.getAttribute('data-dim') === 'w') r.w = self._fpFromReal(v); else r.h = self._fpFromReal(v);
+            const isW = inp.getAttribute('data-dim') === 'w', nu = self._fpFromReal(v);
+            if (r.points && r.points.length >= 3) {
+              // Polygon: scale the whole shape so its bounding box hits the
+              // typed dimension — proportions keep, shape stays an L.
+              let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+              r.points.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+              const s = isW ? nu / Math.max(1, x1 - x0) : nu / Math.max(1, y1 - y0);
+              r.points.forEach(p => { if (isW) p[0] = x0 + (p[0] - x0) * s; else p[1] = y0 + (p[1] - y0) * s; });
+              self._syncRoomBBox(r);
+            } else if (isW) r.w = nu; else r.h = nu;
             redraw();
           });
         });
       }
+      if (rm.points && rm.points.length >= 3) self._syncRoomBBox(rm);
       const wIn = infoEl.querySelector('.fp-dim-in[data-dim="w"]');
       const hIn = infoEl.querySelector('.fp-dim-in[data-dim="h"]');
       const act = self.shadowRoot.activeElement;

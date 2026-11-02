@@ -1,3 +1,10 @@
+## [9.74.2] — L-shaped rooms get W × L dimension inputs too
+
+Selected polygon rooms showed only "N corners · Make rectangular" — no way to
+type a size. They now get the same W × L inputs as rectangles: typing a
+dimension scales the polygon so its bounding box hits it, proportions and
+shape preserved. Inputs also stay correct after corner drags.
+
 ## [9.74.1] — Hip roofs ridge along the long axis, no more pyramids
 
 hipRoofOver only ever ridged along x: any building deeper than it was wide
