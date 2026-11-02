@@ -577,7 +577,17 @@ const JARVIS3D = (function () {
 
   function hipRoofOver(L, GL, x0, y0, x1, y1, zE, minRise) {
     var W = x1 - x0, Dd = y1 - y0, ov = OVH, span = Math.min(W, Dd);
-    var rise = Math.max(_roofRise(span), minRise || 0), zR = zE + rise, yC = (y0 + y1) / 2, inset = span / 2;
+    var rise = Math.max(_roofRise(span), minRise || 0), zR = zE + rise, inset = span / 2;
+    if (Dd > W) {   // deeper than wide → ridge runs along y, not a pyramid
+      var xC = (x0 + x1) / 2, a = y0 + inset, b = y1 - inset;
+      if (b < a) { a = b = (y0 + y1) / 2; }
+      F(L, [[x0-ov,y0-ov,zE],[x0-ov,y1+ov,zE],[xC,b,zR],[xC,a,zR]], C.roofF, C.roofS, 0.85);   // left
+      F(L, [[x1+ov,y0-ov,zE],[x1+ov,y1+ov,zE],[xC,b,zR],[xC,a,zR]], C.roofDk, C.roofSdk, 0.7); // right
+      F(L, [[x0-ov,y0-ov,zE],[x1+ov,y0-ov,zE],[xC,a,zR]], C.roofF, C.roofS, 0.8);              // front hip
+      F(L, [[x0-ov,y1+ov,zE],[x1+ov,y1+ov,zE],[xC,b,zR]], C.roofDk, C.roofSdk, 0.7);           // back hip
+      return { axis: 'y', front: y0, eave: zE, ridge: zR, mid: xC, a: x0, b: x1 };
+    }
+    var yC = (y0 + y1) / 2;
     var a = x0 + inset, b = x1 - inset; if (b < a) { a = b = (x0 + x1) / 2; }
     F(L, [[x0-ov,y0-ov,zE],[x1+ov,y0-ov,zE],[b,yC,zR],[a,yC,zR]], C.roofF, C.roofS, 0.85);   // front
     F(L, [[x0-ov,y1+ov,zE],[x1+ov,y1+ov,zE],[b,yC,zR],[a,yC,zR]], C.roofDk, C.roofSdk, 0.7); // back

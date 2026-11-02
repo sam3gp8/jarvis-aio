@@ -1,3 +1,10 @@
+## [9.74.1] — Hip roofs ridge along the long axis, no more pyramids
+
+hipRoofOver only ever ridged along x: any building deeper than it was wide
+collapsed to a point and drew a four-triangle pyramid. It now ridges along
+whichever axis is longer — shortened ridge, trapezoid sides, triangle hips —
+with a true pyramid kept only for square footprints.
+
 ## [9.74.0] — Per-building roof types: a shed can lean while the house gables
 
 Select any enclosed room and the info bar gains a "roof" dropdown — the full
