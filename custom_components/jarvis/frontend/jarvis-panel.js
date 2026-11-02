@@ -8010,6 +8010,7 @@ ${this._renderExcludedEntities(d)}
         const pt = svgPoint(e);
         dragging = { idx, startX: pt.x, startY: pt.y, origX: rm.x, origY: rm.y, resize: false };
         rect.setAttribute("stroke-width", "2.5");
+        self._fpSelIdx = idx;
         updateInfo(rm);
       });
 
@@ -8021,6 +8022,7 @@ ${this._renderExcludedEntities(d)}
         if (!rm) return;
         if (confirm("Delete '" + rm.name + "' from floor plan?")) {
           rooms.splice(idx, 1);
+          self._fpSelIdx = null;
           redraw();
           self._toast("Removed " + rm.name, "ok");
         }
@@ -8037,6 +8039,7 @@ ${this._renderExcludedEntities(d)}
         self._ensureZonePoints(rm);
         const pt = svgPoint(e);
         dragging = { zoneBody: true, zi, startX: pt.x, startY: pt.y, ddx: 0, ddy: 0 };
+        self._fpSelIdx = zi;
         updateInfo(rm);
       });
     });
@@ -8049,6 +8052,7 @@ ${this._renderExcludedEntities(d)}
         const pts = self._ensureZonePoints(rm); const p = pts[vi]; if (!p) return;
         const pt = svgPoint(e);
         dragging = { zoneVtx: true, zi, vi, startX: pt.x, startY: pt.y, origX: p[0], origY: p[1] };
+        self._fpSelIdx = zi;
       });
       v.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -8335,6 +8339,9 @@ ${this._renderExcludedEntities(d)}
     };
     svgEl.addEventListener("mouseup", endDrag);
     svgEl.addEventListener("mouseleave", endDrag);
+    // Restore the selected-room info bar after a heavy re-render (endDrag
+    // rebuilds the editor DOM for zone drags, which used to wipe it).
+    if (self._fpSelIdx != null && rooms[self._fpSelIdx]) updateInfo(rooms[self._fpSelIdx]);
     // Zoom (wheel, cursor-centered) + pan (middle-drag, or left-drag on empty space)
     svgEl.addEventListener("wheel", (e) => {
       e.preventDefault();

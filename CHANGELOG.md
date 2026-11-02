@@ -1,3 +1,10 @@
+## [9.74.4] — Selection survives the post-drag re-render
+
+updateInfo fired on mousedown but endDrag treats polygon moves as heavy and
+re-renders the whole editor — wiping the info bar on mouseup. The selected
+room index now persists on the panel and is restored after every re-render,
+for rects and polygons alike. Cleared when the room is deleted.
+
 ## [9.74.3] — Clicking a polygon room actually selects it
 
 The polygon mousedown only armed a body-drag — it never populated the info
