@@ -1,3 +1,176 @@
+## [9.75.1] — PR review fixes: persistence, roof geometry, anchor remapping
+
+Copilot review of #468 found eleven real defects, all addressed: `home_attached`
+and `home_roof` are now writable/read-back so the new settings actually persist;
+footprint masses bridge gaps in BOTH axes (not just x); a per-room roof override
+follows every mass the room spans (L-rooms no longer half-override); cross-gable
+wings run perpendicular to the main ridge; jerkinhead draws a real clipped gable
+instead of spikes over an intact one; garage roof overrides are honored; terrace
+'both' draws left+right ghosts only; reshaping (midpoint-add, corner-remove)
+remaps opening edge anchors instead of silently reattaching them to wrong walls;
+openings resolve on the same snapped geometry the renderer uses; the backend's
+injected dormer defaults no longer defeat the single-storey suppression; and
+the info bar's roof dropdown no longer detaches the Reshape/Make-rect buttons.
+
+## [9.75.0] — Live W × H readout while dragging rooms
+
+Dragging or resizing a room now floats an amber `W × L` label just above the
+shape, updating every frame in the plan's real units (ft or m). Pulling a
+polygon corner shows the live bounding box too. The label clears on drop.
+
+## [9.74.4] — Selection survives the post-drag re-render
+
+updateInfo fired on mousedown but endDrag treats polygon moves as heavy and
+re-renders the whole editor — wiping the info bar on mouseup. The selected
+room index now persists on the panel and is restored after every re-render,
+for rects and polygons alike. Cleared when the room is deleted.
+
+## [9.74.3] — Clicking a polygon room actually selects it
+
+The polygon mousedown only armed a body-drag — it never populated the info
+bar, so L-shaped rooms showed no name/dims/roof controls at all. It now calls
+updateInfo like the rect path, which is also what surfaces the W × L inputs
+added in 9.74.2.
+
+## [9.74.2] — L-shaped rooms get W × L dimension inputs too
+
+Selected polygon rooms showed only "N corners · Make rectangular" — no way to
+type a size. They now get the same W × L inputs as rectangles: typing a
+dimension scales the polygon so its bounding box hits it, proportions and
+shape preserved. Inputs also stay correct after corner drags.
+
+## [9.74.1] — Hip roofs ridge along the long axis, no more pyramids
+
+hipRoofOver only ever ridged along x: any building deeper than it was wide
+collapsed to a point and drew a four-triangle pyramid. It now ridges along
+whichever axis is longer — shortened ridge, trapezoid sides, triangle hips —
+with a true pyramid kept only for square footprints.
+
+## [9.74.0] — Per-building roof types: a shed can lean while the house gables
+
+Select any enclosed room and the info bar gains a "roof" dropdown — the full
+13-style list plus "House default". The override is stored on the room
+(`roof`), survives floor-plan save/load, and applies per footprint mass: a
+detached shed can wear a lean-to while the main house keeps its gable.
+Rooms merged into one mass share one roof — disjoint buildings diverge.
+
+## [9.73.1] — Flat & hip roofs roof each building, not the whole lot
+
+The flat/hip paths roofed the whole footprint bounding box — one slab from
+the main house across every detached outbuilding. They now draw per-mass
+like gable does, so each building gets its own roof.
+
+## [9.73.0] — Roof type picker: 13 roof styles on any home type
+
+Home styles bundled the roof with the massing; real houses don't. A new
+**Roof type** select (editor toolbar's ROOF dropdown and Settings → Residence)
+overrides the style's roof with any of: Gable, Hip, Gambrel/Dutch, Mansard,
+Flat, Shed (lean-to), Gable+dormers, M-shaped, Butterfly, Jerkinhead
+(clipped gable), Cross gable, and Hip & valley (per-mass hips over irregular
+footprints). Works with every home type and the attached-side ghosts.
+
+## [9.72.2] — Attached houses share ONE roof, like real semis
+
+UK semis and terraces share a single roof — ridge over the party wall, gable
+ends only on the pair's outer edges. The main mass's roofed span is now
+widened by one house-width on the attached side(s) and the ghost draws walls
+only, so the pair reads as one continuous roof instead of two parallel
+gables meeting at a valley.
+
+## [9.72.1] — Attached side gains top/bottom party walls
+
+Plans aren't always drawn with the street at the bottom — party walls can now
+sit on the plan's top or bottom edge. The ghost neighbour mirrors across the
+y-axis with its ridge running across the mass, in both the Settings card and
+the editor's ATTACHED dropdown.
+
+## [9.72.0] — Home type + Attached side settable right in the floor-plan editor
+
+The HOUSE and ATTACHED dropdowns now sit in the editor toolbar next to Units,
+so shaping the plan and styling its 3D model happen in one place. Both save
+immediately and the editor's 3D preview updates live — flip to Mid Terrace
+and watch the ghost neighbours appear, no trip to Settings required.
+
+## [9.71.3] — UK styles no longer auto-render the neighbour ghost
+
+Semi-Detached / End-Terrace / Mid-Terrace baked `attached` into their style
+defaults, so picking the style always drew the ghost neighbour. Styles now
+only set roof/pitch — the ghost appears only when **Attached side** is
+explicitly chosen (Detached / party wall left / right / both).
+
+## [9.71.2] — Single-storey homes no longer sprout style-default dormers
+
+Style defaults (Cape Cod's 2 front + 1 rear dormers, etc.) leaked through to
+single-storey houses, where roof dormers make no sense. The default is now
+suppressed when Stories ≤ 1; an explicit dormer pick still wins.
+
+## [9.71.1] — Floor plan fixes: one roof across small room gaps; ghosts only mirror the main mass
+
+Two corrections to 9.71.0: footprint masses now bridge gaps up to ~2.5 ft, so
+house rooms sketched a few units apart merge into a single roof (detached
+buildings sit far enough away to stay split — complementing the drag snap,
+which fixes layout at the source). And attached-side ghost neighbours now
+mirror only the **largest** mass — mirroring every mass was dropping a ghost
+into the gap between the house and any detached outbuilding.
+
+## [9.71.0] — Floor plan: rooms snap together into one house + UK semi/terrace styles
+
+Two gaps surfaced the moment real homes met the editor. Disjoint rooms — a
+kitchen dragged three units shy of the hallway — produced a gable per room:
+the "house" rendered as a row of separate roofs. And the style list was
+strictly North-American: no way to model the semi-detached and terraced
+houses that make up most UK streets.
+
+**Rooms now snap.** While dragging or resizing, a room's edges pull flush to a
+neighbour's edges within ~4 units — a green guide line shows the snap — for
+rect drags, resize handles, polygon body moves and single-vertex drags alike.
+Flush rooms merge into one footprint mass, so the 3D model draws a single
+roof over the connected house instead of fragmenting into one gable per room.
+Detached buildings are unaffected: outdoor zones, stairs and door slabs are
+never snap targets, and anything further than the threshold stays free.
+
+**UK semi & terrace styles.** Three new home types — *Semi-Detached*,
+*End-of-Terrace*, *Mid Terrace* — plus an "Attached side" override
+(detached / party wall left / party wall right / both) that works on any
+style. Attached sides render the neighbour's mirrored mass as a dim ghost
+with a matching roofline, so the party wall and shared roof read correctly
+without claiming the neighbour's windows.
+
+## [9.70.1] — Floor plan: openings anchor to real wall edges — L-shaped rooms, detached buildings, drag-to-place
+
+The floor-plan editor had three walls it couldn't see past. Rooms could only be
+rectangles: an L-shaped kitchen-diner had to be drawn as two overlapping boxes.
+Windows and doors were worse — each opening pinned to `front`/`back`/`left`/`right`
+of a **bounding box**, slid along it with a `pos` slider. On a plan with an
+external building (a detached garage, a shed), "front" meant the front of the
+*whole site*, so there was no way to put a door on the shed's side wall — and on
+an L-shaped footprint the slider happily floated openings across the notch, on
+no wall at all.
+
+**Openings now anchor to a wall edge, not a side name.** An element carries
+`room` (any enclosed room — a detached building is just another room), `edge`
+(the index into that room's corner list), and `pos` (0–1 along the edge). The
+`wall` cardinal stays in the data as a derived hint for the 3D model, and
+older `wall` + `pos` elements still resolve against their bounding box — no
+migration, nothing to re-place.
+
+**Markers are draggable.** Drag a window or door marker on the plan and it snaps
+onto the nearest wall edge of *any* room — house wall, L-notch wall, shed wall —
+updating room, edge and position on drop. Right-click a marker to delete the
+opening, same gesture as cameras and device pins. The row controls are still
+there for fine tuning: the room picker now applies to every opening kind, and
+the old four-way wall dropdown is replaced by a per-edge list (Front / Right /
+Back / Left for rectangles, numbered walls with direction arrows for polygons).
+
+**L-rooms get a front door, too.** Reshaping into a polygon already existed
+("◇ Reshape"), but was easy to miss — there's now a "+ L Room" button that drops
+a six-corner L you pull into shape, and a selected polygon reports its corners
+and offers "Make rectangular" to go back.
+
+Everything downstream follows the real geometry: camera line-of-sight gaps now
+cut through actual polygon edges instead of the bounding-box side, and the 3D
+house draws each opening on the wall it was anchored to.
+
 ## [9.70.0] — Intrusion: say WHY a known face didn't stand the alert down
 
 Diagnostic for the "constant unidentified‑person alerts even though it's me and
