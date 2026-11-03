@@ -130,6 +130,46 @@ def test_restored_recognition_never_stands_intrusion_down(recog, fake_hass):
     assert mod.resident_present(fake_hass) == "Sam"
 
 
+# ── resident_standdown_reason: WHY an intrusion alert didn't stand down ──────
+# Diagnostic mirror of resident_present(); explains a false "unidentified person"
+# alert so the cause shows in the LOGS tab instead of being guessed at.
+
+def test_standdown_reason_no_fresh_recognition(recog, fake_hass):
+    mod, _fr, _tmp, _reset = recog
+    assert "no fresh face recognition" in mod.resident_standdown_reason(fake_hass)
+
+
+def test_standdown_reason_below_confidence_threshold(recog, fake_hass):
+    mod, fr, _tmp, _reset = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.kitchen", "Sam", 52.0, age_seconds=10)   # < 60 threshold
+    r = mod.resident_standdown_reason(fake_hass)
+    assert "Sam" in r and "52%" in r and "below" in r
+    assert mod.resident_present(fake_hass) is None               # really no stand-down
+
+
+def test_standdown_reason_not_flagged_resident(recog, fake_hass):
+    mod, _fr, _tmp, _reset = recog
+    _cache(mod, "camera.kitchen", "Guest", 88.0, age_seconds=10)  # confident, not a resident
+    r = mod.resident_standdown_reason(fake_hass)
+    assert "Guest" in r and "not flagged as a resident" in r
+    assert mod.resident_present(fake_hass) is None
+
+
+def test_standdown_reason_only_unknown_faces(recog, fake_hass):
+    mod, _fr, _tmp, _reset = recog
+    _cache(mod, "camera.kitchen", "unknown", 70.0, age_seconds=10)
+    assert "none identified" in mod.resident_standdown_reason(fake_hass)
+
+
+def test_standdown_reason_qualifying_resident(recog, fake_hass):
+    mod, fr, _tmp, _reset = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.kitchen", "Sam", 92.0, age_seconds=10)
+    assert "qualifies" in mod.resident_standdown_reason(fake_hass)
+    assert mod.resident_present(fake_hass) == "Sam"              # and it really would
+
+
 def test_remember_recognition_persists(recog):
     mod, _fr, _tmp, _reset = recog
     mod.remember_recognition("front_door", "Sam", 92.0)

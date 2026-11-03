@@ -702,6 +702,21 @@ class SafetyManager:
         except Exception:
             return False
 
+    def _log_standdown_reason(self, where: str) -> None:
+        """Diagnostic only: record WHY the face-recognition resident stand-down did
+        NOT suppress this intrusion alert, so a false 'unidentified person' alarm is
+        self-explaining in the LOGS tab (e.g. 'best match Sam 52% below 60%
+        threshold', 'not flagged as a resident', 'no fresh recognition'). Never
+        affects the decision; never raises."""
+        try:
+            from . import recognition
+            from .websocket import jarvis_log
+            reason = recognition.resident_standdown_reason(self.hass)
+            jarvis_log("SECURITY",
+                       f"intrusion alert at {where}: face stand-down not applied — {reason}")
+        except Exception:
+            pass
+
     def _resident_tracked_home(self) -> bool:
         """A household resident is POSITIVELY tracked home — a person or
         device_tracker reading ``home`` (never motion/occupancy, which is what
@@ -1036,6 +1051,7 @@ class SafetyManager:
                     "vetoed by vision — no person seen" if vision_clear
                     else "damped for learned-benign pattern", breach_area)
                 return None
+            self._log_standdown_reason(where)
             return {
                 "type": "intrusion_investigating", "urgency": "high",
                 "message": msg, "auto_act": True, "entity_id": eid,
@@ -1045,6 +1061,7 @@ class SafetyManager:
             self._last_intrusion_alert = now
             msg = (f"{honorific.title()}, motion detected at {where} "
                    f"while the household is asleep. Investigating.")
+            self._log_standdown_reason(where)
             return {
                 "type": "intrusion_sleep", "urgency": "high",
                 "message": msg, "auto_act": True, "entity_id": eid,

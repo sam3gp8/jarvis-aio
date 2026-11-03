@@ -896,6 +896,58 @@ def resident_present(hass: HomeAssistant, within_secs: int = 180) -> Optional[st
     return best
 
 
+def resident_standdown_reason(hass: HomeAssistant, within_secs: int = 180) -> str:
+    """Diagnostic ONLY — never changes any decision. Explain why the face-
+    recognition intrusion stand-down (``resident_present``) did or did NOT apply,
+    so a false "unidentified person" alert can state in the LOGS tab exactly why a
+    known resident wasn't recognised: a Frigate/Double-Take match below the
+    ``CONFIDENCE_THRESHOLD``, a face not flagged as a resident, a stale/restored
+    sighting, or no fresh recognition at all. Mirrors ``resident_present``'s exact
+    filters. Never raises."""
+    try:
+        from . import face_roster
+    except Exception:
+        return "recognition unavailable"
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        fresh = []  # (name, confidence, age_seconds, restored) within the window
+        for rec in _RECOGNITION_CACHE.values():
+            ts = rec.get("ts")
+            if not ts:
+                continue
+            age = (now - ts).total_seconds()
+            if age > within_secs:
+                continue
+            fresh.append((rec.get("name", ""),
+                          float(rec.get("confidence", 0.0) or 0.0),
+                          age, bool(rec.get("restored"))))
+        if not fresh:
+            return f"no fresh face recognition in the last {within_secs}s"
+        named = [f for f in fresh if f[0] and not _is_unknown(f[0])]
+        if not named:
+            return (f"{len(fresh)} face(s) seen but none identified in the last "
+                    f"{within_secs}s")
+        named.sort(key=lambda f: f[1], reverse=True)   # best confidence first
+        name, conf, age, restored = named[0]
+        try:
+            is_res = bool(face_roster.is_resident(name))
+        except Exception:
+            is_res = False
+        if restored:
+            return (f"best match '{name}' ({conf:.0f}%) was restored from a "
+                    f"previous run, not a live sighting")
+        if conf < CONFIDENCE_THRESHOLD:
+            return (f"best match '{name}' {conf:.0f}% is below the "
+                    f"{CONFIDENCE_THRESHOLD}% stand-down threshold")
+        if not is_res:
+            return (f"recognised '{name}' ({conf:.0f}%) but they are not flagged "
+                    f"as a resident")
+        return (f"resident '{name}' ({conf:.0f}%, {age:.0f}s ago) qualifies — "
+                f"stand-down should have applied")
+    except Exception:
+        return "stand-down diagnostic failed"
+
+
 def recognition_context_string(hass: HomeAssistant) -> str:
     """One-line summary for the conversation agent's system prompt, merging the
     MQTT-driven recognition cache with Frigate's last_recognized_face sensors —

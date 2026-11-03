@@ -1,3 +1,25 @@
+## [9.70.0] — Intrusion: say WHY a known face didn't stand the alert down
+
+Diagnostic for the "constant unidentified‑person alerts even though it's me and
+my daughter home" report. When intrusion monitoring is engaged (a lockdown or an
+armed panel) and motion fires an alert, JARVIS now logs **why** the face‑
+recognition resident stand‑down (`resident_present`, #140) did not suppress it —
+visible in the **LOGS** tab next to the alert:
+
+- `face stand-down not applied — best match 'Sam' 52% is below the 60% threshold`
+- `… recognised 'Eliana' (88%) but they are not flagged as a resident`
+- `… no fresh face recognition in the last 180s`
+- `… 2 face(s) seen but none identified in the last 180s`
+
+The stand‑down requires a **fresh** Frigate/Double‑Take match **≥ 60%** on a face
+**flagged as a resident** — so this line turns a mystery alarm into a one‑line
+cause (a sub‑threshold match, a missing resident flag, or no recognition at all).
+
+**Purely additive — nothing about the intrusion decision changes.** It's a
+`recognition.resident_standdown_reason()` diagnostic logged at the moment an alert
+is raised, so the next alert explains itself instead of being guessed at. Once the
+log names the cause, the real fix follows.
+
 ## [9.69.0] — Composer: local models draft one-shot via native function-calling, never the agentic loop
 
 v9.68.0's observability immediately earned its keep. On the live `gemma4:26b`
