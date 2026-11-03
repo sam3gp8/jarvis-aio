@@ -437,7 +437,10 @@ const JARVIS3D = (function () {
       encl.forEach(function (r) { _polyScanX(_roomCorners(r), ym).forEach(function (iv) { ivs.push(iv); }); });
       ivs.sort(function (a, b) { return a[0] - b[0]; });
       var merged = [];
-      ivs.forEach(function (iv) { var last = merged[merged.length - 1]; if (last && iv[0] <= last[1] + 0.01) last[1] = Math.max(last[1], iv[1]); else merged.push([iv[0], iv[1]]); });
+      // Bridge small gaps (<=2.5 ft): rooms drawn a few units apart are the same
+      // building sketched loosely — joining them yields ONE roof mass instead of
+      // a gable per room. Detached buildings sit far enough away to stay split.
+      ivs.forEach(function (iv) { var last = merged[merged.length - 1]; if (last && iv[0] <= last[1] + 2.5) last[1] = Math.max(last[1], iv[1]); else merged.push([iv[0], iv[1]]); });
       merged.forEach(function (iv) { rects.push({ x0: iv[0], y0: y0, x1: iv[1], y1: y1 }); });
     }
     var changed = true;
@@ -448,7 +451,7 @@ const JARVIS3D = (function () {
         for (var b = a + 1; b < rects.length; b++) {
           if (!rects[b]) continue;
           var A = rects[a], B = rects[b];
-          if (Math.abs(A.x0 - B.x0) < 0.01 && Math.abs(A.x1 - B.x1) < 0.01 && (Math.abs(A.y1 - B.y0) < 0.01 || Math.abs(B.y1 - A.y0) < 0.01)) {
+          if (Math.abs(A.x0 - B.x0) < 0.01 && Math.abs(A.x1 - B.x1) < 0.01 && (Math.abs(A.y1 - B.y0) < 2.5 || Math.abs(B.y1 - A.y0) < 2.5)) {
             A.y0 = Math.min(A.y0, B.y0); A.y1 = Math.max(A.y1, B.y1); rects[b] = null; changed = true;
           }
         }
@@ -574,7 +577,17 @@ const JARVIS3D = (function () {
 
   function hipRoofOver(L, GL, x0, y0, x1, y1, zE, minRise) {
     var W = x1 - x0, Dd = y1 - y0, ov = OVH, span = Math.min(W, Dd);
-    var rise = Math.max(_roofRise(span), minRise || 0), zR = zE + rise, yC = (y0 + y1) / 2, inset = span / 2;
+    var rise = Math.max(_roofRise(span), minRise || 0), zR = zE + rise, inset = span / 2;
+    if (Dd > W) {   // deeper than wide → ridge runs along y, not a pyramid
+      var xC = (x0 + x1) / 2, a = y0 + inset, b = y1 - inset;
+      if (b < a) { a = b = (y0 + y1) / 2; }
+      F(L, [[x0-ov,y0-ov,zE],[x0-ov,y1+ov,zE],[xC,b,zR],[xC,a,zR]], C.roofF, C.roofS, 0.85);   // left
+      F(L, [[x1+ov,y0-ov,zE],[x1+ov,y1+ov,zE],[xC,b,zR],[xC,a,zR]], C.roofDk, C.roofSdk, 0.7); // right
+      F(L, [[x0-ov,y0-ov,zE],[x1+ov,y0-ov,zE],[xC,a,zR]], C.roofF, C.roofS, 0.8);              // front hip
+      F(L, [[x0-ov,y1+ov,zE],[x1+ov,y1+ov,zE],[xC,b,zR]], C.roofDk, C.roofSdk, 0.7);           // back hip
+      return { axis: 'y', front: y0, eave: zE, ridge: zR, mid: xC, a: x0, b: x1 };
+    }
+    var yC = (y0 + y1) / 2;
     var a = x0 + inset, b = x1 - inset; if (b < a) { a = b = (x0 + x1) / 2; }
     F(L, [[x0-ov,y0-ov,zE],[x1+ov,y0-ov,zE],[b,yC,zR],[a,yC,zR]], C.roofF, C.roofS, 0.85);   // front
     F(L, [[x0-ov,y1+ov,zE],[x1+ov,y1+ov,zE],[b,yC,zR],[a,yC,zR]], C.roofDk, C.roofSdk, 0.7); // back
@@ -768,7 +781,7 @@ const JARVIS3D = (function () {
       // user-placed exterior openings — windows lit by the room they front, doors open/closed from their sensor
       placed.forEach(function (e) {
         var p = e.pos != null ? e.pos : 0.5, w = e.w || 4, horiz = (e.wall === 'front' || e.wall === 'back');
-        var xy = wallXY(e.wall, p), cx = xy[0], cy = xy[1];
+        var xy = (e.x != null) ? [e.x, e.y] : wallXY(e.wall, p), cx = xy[0], cy = xy[1];
         if (e.type === 'window') {
           var st = winOcc(cx, cy);
           if (horiz) winY(L, GL, cy, cx - w / 2, cx + w / 2, z0, z1, st, true, e.wall === 'front' ? -0.06 : 0.06);
@@ -800,8 +813,134 @@ const JARVIS3D = (function () {
     }
 
     var roof, gLow = ((rt === 'gable' || rt === 'gambrel') && garageRoom && garageRoom.w > 8);
-    if (rt === 'flat') roof = flatRoofOver(L, GL, minx, miny, maxx, maxy, ztop);
-    else if (rt === 'hip') roof = hipRoofOver(L, GL, minx, miny, maxx, maxy, eave, minRise);
+    // Shared-roof attachment (UK semi/terrace): the main mass's roofed span is
+    // widened by one house-width across the party wall so the ridge lands above
+    // it — one continuous roof for the pair, not two parallel gables.
+    var attach = SPEC.attached || 'none';
+    var _mCnt = _footprintMasses(plan['1f'] || []).length;
+    var _roofExt = function (m, isMain) {
+      var r = { x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1 };
+      if (attach === 'none' || !isMain) return r;
+      var w = r.x1 - r.x0, h = r.y1 - r.y0;
+      if (attach === 'left' || attach === 'both') r.x0 -= w;
+      if (attach === 'right' || attach === 'both') r.x1 += w;
+      if (attach === 'top') r.y0 -= h;
+      if (attach === 'bottom') r.y1 += h;
+      return r;
+    };
+    // Per-building roof: a room may carry `roof` — the first override found
+    // inside a mass wins (merged masses are one building, so they can't split).
+    var _roomRoof = function (m) {
+      var t = null;
+      (plan['1f'] || []).forEach(function (r) {
+        if (t || !r.roof) return;
+        // Any corner (or polygon vertex) inside the mass counts as membership —
+        // an L-room decomposes into several masses and must carry its override
+        // to all of them, not just the one holding its centre.
+        var pts = [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.d], [r.x, r.y + r.d], [r.x + r.w / 2, r.y + r.d / 2]];
+        (r.points || []).forEach(function (p) { pts.push(p); });
+        for (var i = 0; i < pts.length; i++) {
+          var p = pts[i];
+          if (p[0] >= m.x0 - 0.01 && p[0] <= m.x1 + 0.01 && p[1] >= m.y0 - 0.01 && p[1] <= m.y1 + 0.01) { t = r.roof; break; }
+        }
+      });
+      return t || rt;
+    };
+    // Extra roof styles — each draws into L and returns {a,b} for dormer refs.
+    function shedRoofOver(L, GL, x0, y0, x1, y1, eave, rise) {   // lean-to: one slope, high at front
+      var z0 = eave + (rise || _roofRise(y1 - y0));
+      F(L, [[x0,y0,z0],[x1,y0,z0],[x1,y1,eave],[x0,y1,eave]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y0,eave],[x1,y0,eave],[x1,y0,z0],[x0,y0,z0]], C.wallF, C.wallS, 1);          // raised front fascia
+      F(L, [[x0,y0,eave],[x0,y0,z0],[x0,y1,eave]], C.roofF, C.roofS, 1);
+      F(L, [[x1,y0,eave],[x1,y0,z0],[x1,y1,eave]], C.roofF, C.roofS, 1);
+      return { a: x0, b: x1 };
+    }
+    function mansardOver(L, GL, x0, y0, x1, y1, eave, rise) {    // steep skirt ring + flat cap
+      var rs = rise || _roofRise(Math.min(x1 - x0, y1 - y0)), z1 = eave + rs;
+      var ix0 = x0 + (x1 - x0) * 0.2, ix1 = x1 - (x1 - x0) * 0.2, iy0 = y0 + (y1 - y0) * 0.2, iy1 = y1 - (y1 - y0) * 0.2;
+      F(L, [[x0,y0,eave],[x1,y0,eave],[ix1,iy0,z1],[ix0,iy0,z1]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y1,eave],[x1,y1,eave],[ix1,iy1,z1],[ix0,iy1,z1]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y0,eave],[x0,y1,eave],[ix0,iy1,z1],[ix0,iy0,z1]], C.roofF, C.roofS, 1);
+      F(L, [[x1,y0,eave],[x1,y1,eave],[ix1,iy1,z1],[ix1,iy0,z1]], C.roofF, C.roofS, 1);
+      F(L, [[ix0,iy0,z1],[ix1,iy0,z1],[ix1,iy1,z1],[ix0,iy1,z1]], C.roofF, C.roofS, 1);
+      return { a: x0, b: x1 };
+    }
+    function butterflyOver(L, GL, x0, y0, x1, y1, eave, rise) {  // inverted: valley at the centre
+      var cx = (x0 + x1) / 2, zl = eave - Math.max(1.5, (rise || _roofRise(x1 - x0)) * 0.4);
+      F(L, [[x0,y0,eave],[x0,y1,eave],[cx,y1,zl],[cx,y0,zl]], C.roofF, C.roofS, 1);
+      F(L, [[x1,y0,eave],[x1,y1,eave],[cx,y1,zl],[cx,y0,zl]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y0,eave],[x1,y0,eave],[cx,y0,zl]], C.roofF, C.roofS, 1);
+      F(L, [[x0,y1,eave],[x1,y1,eave],[cx,y1,zl]], C.roofF, C.roofS, 1);
+      return { a: x0, b: x1 };
+    }
+    function mshapeOver(L, GL, x0, y0, x1, y1, eave, rise) {     // twin gables side by side
+      var cx = (x0 + x1) / 2;
+      gableRoofOver(L, GL, x0, y0, cx, y1, eave, rise);
+      return gableRoofOver(L, GL, cx, y0, x1, y1, eave, rise);
+    }
+    function crossGableOver(L, GL, x0, y0, x1, y1, eave, rise) { // main gable + perpendicular wing
+      var r = gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      var pk = eave + (rise || _roofRise(Math.min(x1 - x0, y1 - y0))) * 0.8;
+      var wy0 = y0 + (y1 - y0) * 0.3, wy1 = y0 + (y1 - y0) * 0.7, wx0 = x0 + (x1 - x0) * 0.12, wx1 = x1 - (x1 - x0) * 0.12;
+      if (r.axis === 'x') {   // main ridge along x → wing ridge along y
+        var rcx = (wx0 + wx1) / 2;
+        F(L, [[wx0,wy0,eave],[wx0,wy1,eave],[rcx,wy1,pk],[rcx,wy0,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx1,wy0,eave],[wx1,wy1,eave],[rcx,wy1,pk],[rcx,wy0,pk]], C.roofDk, C.roofSdk, 0.7);
+        F(L, [[wx0,wy0,eave],[wx1,wy0,eave],[rcx,wy0,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx0,wy1,eave],[wx1,wy1,eave],[rcx,wy1,pk]], C.roofDk, C.roofSdk, 0.7);
+      } else {                // main ridge along y → wing ridge along x
+        var rc = (wy0 + wy1) / 2;
+        F(L, [[wx0,wy0,eave],[wx1,wy0,eave],[wx1,rc,pk],[wx0,rc,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx0,wy1,eave],[wx1,wy1,eave],[wx1,rc,pk],[wx0,rc,pk]], C.roofDk, C.roofSdk, 0.7);
+        F(L, [[wx0,wy0,eave],[wx0,wy1,eave],[wx0,rc,pk]], C.roofF, C.roofS, 1);
+        F(L, [[wx1,wy0,eave],[wx1,wy1,eave],[wx1,rc,pk]], C.roofDk, C.roofSdk, 0.7);
+      }
+      return r;
+    }
+    function jerkinheadOver(L, GL, x0, y0, x1, y1, eave, rise) { // clipped gable — shortened ridge + hip end caps
+      var W = x1 - x0, Dd = y1 - y0, alongX = W >= Dd, span = alongX ? Dd : W;
+      var p = SPEC.pitch != null ? SPEC.pitch : 1;
+      var zR = eave + Math.max((span / 2) * 0.9 * Math.max(p, 0.08), rise || 0);
+      if (alongX) {   // ridge along x at yC, clipped at both x ends
+        var yC = (y0 + y1) / 2, clip = W * 0.15;
+        F(L, [[x0,y0,eave],[x1,y0,eave],[x1 - clip,yC,zR],[x0 + clip,yC,zR]], C.roofF, C.roofS, 0.85);   // front slope
+        F(L, [[x0,y1,eave],[x1,y1,eave],[x1 - clip,yC,zR],[x0 + clip,yC,zR]], C.roofDk, C.roofSdk, 0.7); // back slope
+        F(L, [[x0,y0,eave],[x0,y1,eave],[x0 + clip,yC,zR]], C.roofF, C.roofS, 0.8);                      // left hip cap
+        F(L, [[x1,y0,eave],[x1,y1,eave],[x1 - clip,yC,zR]], C.roofDk, C.roofSdk, 0.7);                   // right hip cap
+      } else {        // ridge along y at xC, clipped at both y ends
+        var xC = (x0 + x1) / 2, clip = Dd * 0.15;
+        F(L, [[x0,y0,eave],[x0,y1,eave],[xC,y1 - clip,zR],[xC,y0 + clip,zR]], C.roofF, C.roofS, 0.85);
+        F(L, [[x1,y0,eave],[x1,y1,eave],[xC,y1 - clip,zR],[xC,y0 + clip,zR]], C.roofDk, C.roofSdk, 0.7);
+        F(L, [[x0,y0,eave],[x1,y0,eave],[xC,y0 + clip,zR]], C.roofF, C.roofS, 0.8);
+        F(L, [[x0,y1,eave],[x1,y1,eave],[xC,y1 - clip,zR]], C.roofDk, C.roofSdk, 0.7);
+      }
+      return { a: x0, b: x1 };
+    }
+    function roofOver(L, GL, rt, x0, y0, x1, y1, eave, rise, ztop) {
+      if (rt === 'flat')        return flatRoofOver(L, GL, x0, y0, x1, y1, ztop || eave);
+      if (rt === 'hip')         return hipRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'gambrel')     return gambrelRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'shed')        return shedRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'mansard')     return mansardOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'butterfly')   return butterflyOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'mshape')      return mshapeOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'crossgable')  return crossGableOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'jerkinhead')  return jerkinheadOver(L, GL, x0, y0, x1, y1, eave, rise);
+      if (rt === 'hipvalley')   return hipRoofOver(L, GL, x0, y0, x1, y1, eave, rise);
+      return gableRoofOver(L, GL, x0, y0, x1, y1, eave, rise);   // gable / dormer / unknown
+    }
+    if (rt === 'flat' || rt === 'hip') {
+      // Per-mass: a flat or hip roof belongs to EACH building — one slab must
+      // never span from the main house across every detached outbuilding.
+      var _fm = _footprintMasses(plan['1f'] || []);
+      if (!_fm.length) _fm = [{ x0: minx, y0: miny, x1: maxx, y1: maxy }];
+      _fm.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
+      _fm.forEach(function (m, mi) {
+        var _rs = _roofExt(m, mi === 0);
+        var _r = roofOver(L, GL, _roomRoof(m), _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise, ztop);
+        if (mi === 0) roof = _r;
+      });
+    }
     else if (gLow) {
       // House = non-garage 1f rooms. If they nearly fill their bbox it's a rectangle -> one
       // gable (un-roomed interior gaps don't fragment it); a real notch (<85%) -> per mass.
@@ -813,22 +952,27 @@ const JARVIS3D = (function () {
       if (!houseRect) {
         var hmasses = _footprintMasses(houseRooms);
         hmasses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
-        hmasses.forEach(function (m, mi) { var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise) : gableRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise); if (mi === 0) roof = _r; });
+        hmasses.forEach(function (m, mi) { var _rs = _roofExt(m, mi === 0); var _r = roofOver(L, GL, _roomRoof(m), _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise, ztop); if (mi === 0) roof = _r; });
       } else {
-        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, hb.x0, hb.y0, hb.x1, hb.y1, eave, minRise) : gableRoofOver(L, GL, hb.x0, hb.y0, hb.x1, hb.y1, eave, minRise);
+        var _rsh = _roofExt({ x0: hb.x0, y0: hb.y0, x1: hb.x1, y1: hb.y1 }, true);
+        roof = roofOver(L, GL, _roomRoof({ x0: hb.x0, y0: hb.y0, x1: hb.x1, y1: hb.y1 }), _rsh.x0, _rsh.y0, _rsh.x1, _rsh.y1, eave, minRise, ztop);
       }
       // attached garage: low, shallow-pitch roof over its ACTUAL bbox (spans its real depth)
-      gableRoofOver(L, GL, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, 0.20);
+      // — honor a per-room roof override when the user set one.
+      if (garageRoom.roof) roofOver(L, GL, garageRoom.roof, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, ztop);
+      else gableRoofOver(L, GL, garageRoom.x, garageRoom.y, garageRoom.x + garageRoom.w, garageRoom.y + garageRoom.d, _oneFloorTop(), 0, 0.20);
     } else {
       var _masses = _footprintMasses(plan['1f'] || []);
       if (_masses.length > 1) {   // irregular footprint (L/T) -> a gable per rectangular mass
         _masses.sort(function (a, b) { return (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0); });
         _masses.forEach(function (m, mi) {
-          var _r = (rt === 'gambrel') ? gambrelRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise) : gableRoofOver(L, GL, m.x0, m.y0, m.x1, m.y1, eave, minRise);
+          var _rs = _roofExt(m, mi === 0);
+          var _r = roofOver(L, GL, _roomRoof(m), _rs.x0, _rs.y0, _rs.x1, _rs.y1, eave, minRise, ztop);
           if (mi === 0) roof = _r;   // largest mass is the dormer reference
         });
       } else {
-        roof = (rt === 'gambrel') ? gambrelRoofOver(L, GL, minx, miny, maxx, maxy, eave, minRise) : gableRoofOver(L, GL, minx, miny, maxx, maxy, eave, minRise);
+        var _rs2 = _roofExt({ x0: minx, y0: miny, x1: maxx, y1: maxy }, _mCnt <= 1);
+        roof = roofOver(L, GL, _roomRoof({ x0: minx, y0: miny, x1: maxx, y1: maxy }), _rs2.x0, _rs2.y0, _rs2.x1, _rs2.y1, eave, minRise, ztop);
       }
     }
 
@@ -847,6 +991,36 @@ const JARVIS3D = (function () {
       else if (SPEC.dormersRear) { var _pra = _autoPos(SPEC.dormersRear); dormersOn(L, GL, roof, 0, d2, true, _pra, _pra.map(_dSt)); }
     }
 
+    // Attached housing (UK semi / terrace): the neighbour's mirrored mass as a
+    // dim ghost — party wall + shared-roof read, without claiming lit windows.
+    var attach = SPEC.attached || 'none';
+    if (attach !== 'none') {
+      // Only the MAIN mass gets a neighbour — mirroring every mass would drop a
+      // ghost into the gap between the house and any detached outbuilding.
+      var _gm = _footprintMasses(plan['1f'] || []);
+      var _main = null;
+      _gm.forEach(function (m) { if (!_main || (m.x1 - m.x0) * (m.y1 - m.y0) > (_main.x1 - _main.x0) * (_main.y1 - _main.y0)) _main = m; });
+      if (!_main && (plan['1f'] || []).length) _main = { x0: minx, y0: miny, x1: maxx, y1: maxy };
+      var gFill = 'rgba(10,20,30,0.55)', gStroke = 'rgba(90,130,160,0.3)', gRoof = 'rgba(8,17,26,0.88)', gRoofS = 'rgba(90,130,160,0.22)';
+      if (_main) {
+        var m = _main, mw = m.x1 - m.x0, mh = m.y1 - m.y0;
+        [['left', m.x0 - mw, m.x0, m.y0, m.y1],
+         ['right', m.x1, m.x1 + mw, m.y0, m.y1],
+         ['top', m.x0, m.x1, m.y0 - mh, m.y0],
+         ['bottom', m.x0, m.x1, m.y1, m.y1 + mh]].forEach(function (s) {
+          // 'both' = terrace = left+right only; top/bottom ghosts would be unroofed
+          if (attach === 'both' ? (s[0] !== 'left' && s[0] !== 'right') : attach !== s[0]) return;
+          var gx0 = s[1], gx1 = s[2], gy0 = s[3], gy1 = s[4];
+          // Walls only — the widened main roof already spans this ghost mass,
+          // so the pair shares ONE roof instead of two parallel gables.
+          F(L, [[gx0,gy0,0],[gx1,gy0,0],[gx1,gy0,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
+          F(L, [[gx0,gy1,0],[gx1,gy1,0],[gx1,gy1,eave],[gx0,gy1,eave]], gFill, gStroke, 0.4);
+          F(L, [[gx0,gy0,0],[gx0,gy1,0],[gx0,gy1,eave],[gx0,gy0,eave]], gFill, gStroke, 0.4);
+          F(L, [[gx1,gy0,0],[gx1,gy1,0],[gx1,gy1,eave],[gx1,gy0,eave]], gFill, gStroke, 0.4);
+        });
+      }
+    }
+
     // 2nd-floor placed windows: side walls land on the gable ends, front/back on the
     // roof slope (front-facing 2F windows are the dormers). Lit by upstairs occupancy.
     var h2 = null;
@@ -862,7 +1036,15 @@ const JARVIS3D = (function () {
     var gyC = (h2.y0 + h2.y1) / 2, gHalf = Math.max((h2.y1 - h2.y0) / 2, 0.1), ridgeApprox = eave + (minRise || 0);
     ((opts.elements && opts.elements['2f']) || []).filter(function (e) { return e.type === 'window'; }).forEach(function (e) {
       var p = e.pos != null ? e.pos : 0.5, w = e.w || 4;
-      if (e.wall === 'left' || e.wall === 'right') {
+      if (e.x != null) {
+        // edge-anchored: resolved centre + cardinal hint from the real wall
+        if (e.wall === 'front' || e.wall === 'back') winY(L, GL, e.y, e.x - w / 2, e.x + w / 2, 10.8, 13.8, winOcc2f(e.x, e.y), true, e.wall === 'front' ? -0.3 : 0.3);
+        else {
+          var roofAtEx = eave + (1 - Math.min(1, Math.abs(e.y - gyC) / gHalf)) * (ridgeApprox - eave);
+          var zHiE = Math.min(15.0, roofAtEx - 0.5), zLoE = Math.max(zHiE - 2.8, 10.2);
+          winX(L, GL, e.x, e.y - w / 2, e.y + w / 2, zLoE, zHiE, winOcc2f(e.x, e.y), true, e.wall === 'left' ? -0.06 : 0.06);
+        }
+      } else if (e.wall === 'left' || e.wall === 'right') {
         var xg = e.wall === 'left' ? ((h2.x0 - minx < 3) ? minx : h2.x0) : ((maxx - h2.x1 < 3) ? maxx : h2.x1), yc = h2.y0 + p * (h2.y1 - h2.y0);
         var roofAtYc = eave + (1 - Math.min(1, Math.abs(yc - gyC) / gHalf)) * (ridgeApprox - eave);
         var zHi = Math.min(15.0, roofAtYc - 0.5), zLo = Math.max(zHi - 2.8, 10.2);
@@ -883,7 +1065,8 @@ const JARVIS3D = (function () {
     if (hb && placedB.length) {
       placedB.forEach(function (e) {
         var p = e.pos != null ? e.pos : 0.5, w = e.w || 4, horiz = (e.wall === 'front' || e.wall === 'back'), cx, cy;
-        if (e.wall === 'front') { cx = hb.x0 + p * (hb.x1 - hb.x0); cy = miny; }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else if (e.wall === 'front') { cx = hb.x0 + p * (hb.x1 - hb.x0); cy = miny; }
         else if (e.wall === 'back') { cx = hb.x0 + p * (hb.x1 - hb.x0); cy = maxy; }
         else if (e.wall === 'left') { cx = (hb.x0 - minx < 3) ? minx : hb.x0; cy = hb.y0 + p * (hb.y1 - hb.y0); }
         else { cx = (maxx - hb.x1 < 3) ? maxx : hb.x1; cy = hb.y0 + p * (hb.y1 - hb.y0); }
@@ -965,7 +1148,8 @@ const JARVIS3D = (function () {
         if (!rr) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 3);
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d, cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
         else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
         else if (e.wall === 'left') { cx = rx0; cy = ry0 + p * (ry1 - ry0); }
         else { cx = rx1; cy = ry0 + p * (ry1 - ry0); }
@@ -977,7 +1161,8 @@ const JARVIS3D = (function () {
         if (!rr) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 3);
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d, cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
         else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
         else if (e.wall === 'left') { cx = rx0; cy = ry0 + p * (ry1 - ry0); }
         else { cx = rx1; cy = ry0 + p * (ry1 - ry0); }
@@ -992,10 +1177,10 @@ const JARVIS3D = (function () {
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 2);
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
         var zw0 = zf[0] + 2.5, zw1 = Math.min(zf[0] + 6.5, zf[1] - 0.4), cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry0, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, -0.06); }
-        else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry1, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, 0.06); }
-        else if (e.wall === 'left') { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx0, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, -0.06); }
-        else { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx1, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, 0.06); }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else { cx = (e.wall === 'left' || e.wall === 'right') ? 0 : rx0 + p * (rx1 - rx0); cy = (e.wall === 'front' || e.wall === 'back') ? 0 : ry0 + p * (ry1 - ry0); }
+        if (e.wall === 'front' || e.wall === 'back') winY(L, GL, cy, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, e.wall === 'front' ? -0.06 : 0.06);
+        else winX(L, GL, cx, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, e.wall === 'left' ? -0.06 : 0.06);
       });
       // balcony / French doors — a full-height glazed door on a chosen room's
       // wall (floor-to-head glass), lit when its sensor says open (#324).
@@ -1005,10 +1190,10 @@ const JARVIS3D = (function () {
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 4, 3), stt = e.open ? 'on' : 'off';
         var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
         var zd0 = zf[0] + 0.3, zd1 = Math.min(zf[0] + 7, zf[1] - 0.2), cx, cy;
-        if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry0, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, -0.07, 2); }
-        else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); winY(L, GL, ry1, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, 0.07, 2); }
-        else if (e.wall === 'left') { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx0, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, -0.07); }
-        else { cy = ry0 + p * (ry1 - ry0); winX(L, GL, rx1, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, 0.07); }
+        if (e.x != null) { cx = e.x; cy = e.y; }
+        else { cx = (e.wall === 'left' || e.wall === 'right') ? 0 : rx0 + p * (rx1 - rx0); cy = (e.wall === 'front' || e.wall === 'back') ? 0 : ry0 + p * (ry1 - ry0); }
+        if (e.wall === 'front' || e.wall === 'back') winY(L, GL, cy, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, e.wall === 'front' ? -0.07 : 0.07, 2);
+        else winX(L, GL, cx, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, e.wall === 'left' ? -0.07 : 0.07);
       });
       return { faces: L, glow: GL, labels: LBL };
     }
@@ -3196,6 +3381,107 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _setProperty(pts) { this._editingProperty = pts; }
   _propPathD(pts) { return pts.map((p, k) => (k ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ') + ' Z'; }
   _floorBelow(floor) { return ({ '2f': '1f', '1f': 'bsmt' })[floor] || null; }
+
+  // ---------- opening anchors: a window/door sits on a wall EDGE ----------
+  // An opening anchors to an edge of a room's polygon — or, with no room
+  // picked, to the whole-house footprint rectangle (legacy behaviour). `edge`
+  // = index into the anchor's corner list, `pos` = 0..1 along it. `wall` stays
+  // stored as a derived front/back/left/right hint for consumers that only
+  // know cardinals (the 3D model). Works for L-shaped rooms and detached
+  // buildings: any enclosed room's edge is a valid anchor.
+  _footprintPts(rooms) {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+    (rooms || []).forEach(r => {
+      if (r.type === 'outdoor') return;
+      any = true;
+      this._zonePoints(r).forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+    });
+    return any ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1]] : null;
+  }
+  _anchorPts(rooms, e) {
+    if (e && e.room) {
+      const rr = (rooms || []).filter(r => r.type !== 'outdoor' && r.name === e.room)[0];
+      if (rr) return this._zonePoints(rr);
+    }
+    return this._footprintPts(rooms);
+  }
+  _polyWinding(pts) {   // >0 for the _zonePoints corner order → outward = right of edge dir
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
+    return a;
+  }
+  _edgeNormal(pts, k, winding) {
+    const a = pts[k], b = pts[(k + 1) % pts.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1;
+    const ux = dx / L, uy = dy / L;
+    return (winding > 0) ? { ux, uy, nx: uy, ny: -ux } : { ux, uy, nx: -uy, ny: ux };
+  }
+  _wallFromNormal(nx, ny) {
+    return Math.abs(nx) > Math.abs(ny) ? (nx < 0 ? 'left' : 'right') : (ny < 0 ? 'front' : 'back');
+  }
+  _edgeForWall(pts, wall) {   // edge whose outward normal best matches a cardinal
+    const tgt = { front: [0, -1], back: [0, 1], left: [-1, 0], right: [1, 0] }[wall] || [0, -1];
+    const w = this._polyWinding(pts);
+    let best = 0, bd = -1e9;
+    for (let k = 0; k < pts.length; k++) {
+      const n = this._edgeNormal(pts, k, w), d = n.nx * tgt[0] + n.ny * tgt[1];
+      if (d > bd) { bd = d; best = k; }
+    }
+    return best;
+  }
+  // Resolved placement of an opening, in editor units: {x, y, ux, uy, nx, ny,
+  // wall, edge, pts} — edge direction (u), outward normal (n) — or null.
+  _openingAnchorRooms(rooms, e) {
+    const pts = this._anchorPts(rooms, e);
+    if (!pts || pts.length < 2) return null;
+    const winding = this._polyWinding(pts), p = e.pos != null ? e.pos : 0.5;
+    if (Number.isInteger(e.edge) && e.edge >= 0 && e.edge < pts.length) {
+      const a = pts[e.edge], b = pts[(e.edge + 1) % pts.length];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 0.001) return null;
+      const n = this._edgeNormal(pts, e.edge, winding), t = Math.min(1, Math.max(0, p));
+      return { x: a[0] + n.ux * L * t, y: a[1] + n.uy * L * t, ux: n.ux, uy: n.uy,
+               nx: n.nx, ny: n.ny, wall: this._wallFromNormal(n.nx, n.ny), edge: e.edge, pts };
+    }
+    // legacy: wall + pos on the anchor's bounding box
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    pts.forEach(pt => { x0 = Math.min(x0, pt[0]); y0 = Math.min(y0, pt[1]); x1 = Math.max(x1, pt[0]); y1 = Math.max(y1, pt[1]); });
+    const wall = e.wall || 'front';
+    let x, y, ux, uy, nx, ny;
+    if (wall === 'back') { x = x0 + p * (x1 - x0); y = y1; ux = 1; uy = 0; nx = 0; ny = 1; }
+    else if (wall === 'left') { x = x0; y = y0 + p * (y1 - y0); ux = 0; uy = 1; nx = -1; ny = 0; }
+    else if (wall === 'right') { x = x1; y = y0 + p * (y1 - y0); ux = 0; uy = 1; nx = 1; ny = 0; }
+    else { x = x0 + p * (x1 - x0); y = y0; ux = 1; uy = 0; nx = 0; ny = -1; }
+    return { x, y, ux, uy, nx, ny, wall, edge: this._edgeForWall(pts, wall), pts };
+  }
+  _openingAnchor(floor, e) {
+    return this._openingAnchorRooms(((this._getEditingPlan()[floor] || {}).rooms) || [], e);
+  }
+  // Nearest wall edge across every snap-eligible room — for dragging an opening
+  // onto a wall (incl. detached buildings, which are just rooms).
+  _snapToWall(floor, px, py) {
+    const rooms = ((this._getEditingPlan()[floor] || {}).rooms) || [];
+    let best = null, bd = 1e18;
+    for (let zi = 0; zi < rooms.length; zi++) {
+      const r = rooms[zi];
+      if (r.type === 'outdoor' || r.type === 'stairs' || r.type === 'door') continue;
+      const pts = this._zonePoints(r), w = this._polyWinding(pts);
+      for (let k = 0; k < pts.length; k++) {
+        const a = pts[k], b = pts[(k + 1) % pts.length];
+        const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+        if (L2 < 0.001) continue;
+        const t = Math.min(1, Math.max(0, ((px - a[0]) * dx + (py - a[1]) * dy) / L2));
+        const qx = a[0] + dx * t, qy = a[1] + dy * t, d = (px - qx) * (px - qx) + (py - qy) * (py - qy);
+        if (d < bd) {
+          const n = this._edgeNormal(pts, k, w);
+          bd = d;
+          best = { zi, edge: k, t, x: qx, y: qy, ux: n.ux, uy: n.uy, nx: n.nx, ny: n.ny, deg: Math.atan2(n.uy, n.ux) * 180 / Math.PI };
+        }
+      }
+    }
+    return best;
+  }
+
   _applyEditVB(svgEl) {
     const v = this._editVB; if (!v || !svgEl) return;
     svgEl.setAttribute('viewBox', v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h);
@@ -3260,24 +3546,12 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       const _rp = this._zonePoints(r);   // polygon edges block LOS (= the 4 rect sides for a plain room)
       for (let _wi = 0; _wi < _rp.length; _wi++) { const _a = _rp[_wi], _b = _rp[(_wi + 1) % _rp.length]; walls.push({ x0: _a[0], y0: _a[1], x1: _b[0], y1: _b[1] }); }
     });
-    let fb = null;
-    if (rooms.length) { let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9; rooms.forEach(r=>{mnx=Math.min(mnx,r.x);mny=Math.min(mny,r.y);mxx=Math.max(mxx,r.x+r.w);mxy=Math.max(mxy,r.y+r.h);}); fb={x0:mnx,y0:mny,x1:mxx,y1:mxy}; }
     (this._elemsFor(floor) || []).forEach(e => {
       if (e.type !== 'door' && e.type !== 'window') return;
+      const a = this._openingAnchorRooms(rooms, e);
+      if (!a) return;
       const ow = e.w || 20;
-      let bb = fb;
-      if ((e.kind === 'interior' || e.kind === 'cased') && e.room) {
-        const rr = rooms.filter(r => r.name === e.room)[0];
-        if (rr) bb = { x0: rr.x, y0: rr.y, x1: rr.x + rr.w, y1: rr.y + rr.h };
-      }
-      if (!bb) return;
-      const p = e.pos != null ? e.pos : 0.5;
-      let gx0, gy0, gx1, gy1;
-      if (e.wall === 'front') { const c = bb.x0 + p*(bb.x1-bb.x0); gx0=c-ow/2; gx1=c+ow/2; gy0=gy1=bb.y0; }
-      else if (e.wall === 'back') { const c = bb.x0 + p*(bb.x1-bb.x0); gx0=c-ow/2; gx1=c+ow/2; gy0=gy1=bb.y1; }
-      else if (e.wall === 'left') { const c = bb.y0 + p*(bb.y1-bb.y0); gy0=c-ow/2; gy1=c+ow/2; gx0=gx1=bb.x0; }
-      else { const c = bb.y0 + p*(bb.y1-bb.y0); gy0=c-ow/2; gy1=c+ow/2; gx0=gx1=bb.x1; }
-      gaps.push({ x0: gx0, y0: gy0, x1: gx1, y1: gy1 });
+      gaps.push({ x0: a.x - a.ux * ow / 2, y0: a.y - a.uy * ow / 2, x1: a.x + a.ux * ow / 2, y1: a.y + a.uy * ow / 2 });
     });
     return { walls, gaps };
   }
@@ -3443,7 +3717,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         name: (r.name || '').toLowerCase(),
         label: (r.name || '').toUpperCase(),
         x: (r.x || 0) * FT, y: (r.y || 0) * FT, w: (r.w || 0) * FT, d: (r.h || 0) * FT,
-        type: r.type,
+        type: r.type, roof: r.roof,
         points: (Array.isArray(r.points) && r.points.length >= 3) ? r.points.map(p => [p[0] * FT, p[1] * FT]) : undefined,
       }));
     });
@@ -3476,19 +3750,29 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   }
   _house3dPlan() { return this._planToFeet(this._getFloorPlan()); }
 
-  // Placed openings -> feet, with open/closed resolved from each mapped sensor (v7.94.0).
-  _elementsToFeet(raw) {
+  // Placed openings -> feet, with open/closed resolved from each mapped sensor
+  // (v7.94.0). When the opening anchors to a room-edge or the footprint, the
+  // resolved centre is emitted too (x/y, feet) so the 3D model can draw it on
+  // the REAL wall — incl. L-room notch walls and detached buildings.
+  _elementsToFeet(raw, plan) {
     const FT = 0.2, states = this._hass?.states || {}, out = {};
+    // Resolve anchors on the SNAPPED feet plan so openings sit exactly on the
+    // walls the renderer draws (editor coords drift up to ~0.5 ft post-snap).
+    const fp = this._planToFeet(plan);
     Object.keys(raw || {}).forEach(fk => {
+      const rooms = (fp[fk] || []).map(r => ({ ...r, h: r.d }));
       out[fk] = (raw[fk] || []).map(e => {
         let open = false;
         if (e.entity && states[e.entity]) { const s = states[e.entity].state; open = (s === 'on' || s === 'open'); }
-        return { type: e.type, kind: e.kind, wall: e.wall, room: e.room, slope: e.slope, pos: (e.pos != null ? e.pos : 0.5), w: (e.w || 20) * FT, open };
+        const a = this._openingAnchorRooms(rooms, e);
+        return { type: e.type, kind: e.kind, wall: a ? a.wall : e.wall, room: e.room, slope: e.slope,
+                 pos: (e.pos != null ? e.pos : 0.5), w: (e.w || 20) * FT, open,
+                 x: a ? a.x : undefined, y: a ? a.y : undefined };
       });
     });
     return out;
   }
-  _house3dElements() { return this._elementsToFeet(this._getFloorElements()); }
+  _house3dElements() { return this._elementsToFeet(this._getFloorElements(), this._getFloorPlan()); }
 
   // Live 3D preview for the editor — built from the working copies so it updates
   // as you edit, before saving (v7.94.0).
@@ -3517,7 +3801,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _renderEditorPreview() {
     try {
       const plan = this._planToFeet(this._getEditingPlan());
-      const elements = this._elementsToFeet(this._getEditingElements());
+      const elements = this._elementsToFeet(this._getEditingElements(), this._getEditingPlan());
       const spec = this._houseSpec();
       const garage = this._house3dGarage();
       const box = JARVIS3D.fixedBox({ floor: 'all', spec, plan, elements, garage });
@@ -3642,6 +3926,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       townhouse: { roof: 'gable', pitch: 0.85, dormersFront: 0, dormersRear: 0 },
       apartment: { roof: 'flat',  pitch: 0.12, dormersFront: 0, dormersRear: 0 },
       cabin:     { roof: 'gable', pitch: 1.25, dormersFront: 2, dormersRear: 1 },
+      semi_detached: { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0 },
+      end_terrace:   { roof: 'gable', pitch: 0.9, dormersFront: 0, dormersRear: 0 },
+      terrace:       { roof: 'gable', pitch: 0.85, dormersFront: 0, dormersRear: 0 },
     };
     return T[style] || T.cape_cod;
   }
@@ -3652,12 +3939,22 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     const num = (v) => (v === '' || v == null ? null : Number(v));
     const fEx = num(c.dormers_front), rEx = num(c.dormers_rear);
     const spec = {};
-    spec.roof = sd.roof || 'gable';
+    spec.roof = c.home_roof || sd.roof || 'gable';
     spec.stories = num(c.home_stories) != null ? num(c.home_stories) : 1.5;
     if (sd.pitch != null) spec.pitch = sd.pitch;
     // Cape Cod with default dormers => let the model render its exact approved layout.
     spec.dormersFront = fEx != null ? fEx : sd.dormersFront;
     spec.dormersRear = rEx != null ? rEx : sd.dormersRear;
+    // A single-storey building gets no roof dormers — they're a 1.5+ storey
+    // feature. Only the STYLE default is suppressed; an explicit pick wins.
+    if (spec.stories <= 1) {
+      // The backend injects dormers_front=2 / dormers_rear=1 when unset, so
+      // "explicit" only counts when the value differs from those defaults.
+      if (fEx == null || fEx === 2) spec.dormersFront = 0;
+      if (rEx == null || rEx === 1) spec.dormersRear = 0;
+    }
+    // 'dormer' roof type = gable with front dormers baked in (explicit pick wins).
+    if (spec.roof === 'dormer') spec.dormersFront = Math.max(spec.dormersFront || 0, 2);
     if (num(c.garage_bays) != null) spec.garageBays = num(c.garage_bays);
     if (c.chimney_side) spec.chimney = c.chimney_side;
     // #324: center / multiple chimneys (common on European houses) + where the
@@ -3665,6 +3962,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     // the auto exterior bulkhead, so existing homes render byte-for-byte as before.
     spec.chimneyCount = Math.max(1, Math.min(4, num(c.chimney_count) || 1));
     spec.basementEntrance = c.basement_entrance || 'bulkhead';
+    // Attached housing (UK semi / terrace): which side(s) share a party wall —
+    // 'none' | 'left' | 'right' | 'both'. Explicit setting beats style default.
+    spec.attached = c.home_attached || sd.attached || 'none';
     return spec;
   }
 
@@ -3747,6 +4047,9 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       townhouse: { label: 'Townhouse',  roof: 'gable', pitch: 0.85 },
       apartment: { label: 'Apartment',  roof: 'flat',  pitch: 0 },
       cabin:     { label: 'Cabin',      roof: 'gable', pitch: 1.25 },
+      semi_detached: { label: 'Semi-Detached (UK)', roof: 'gable', pitch: 0.9 },
+      end_terrace:   { label: 'End-of-Terrace (UK)', roof: 'gable', pitch: 0.9 },
+      terrace:       { label: 'Mid Terrace (UK)',   roof: 'gable', pitch: 0.85 },
     };
   }
 
@@ -3762,6 +4065,10 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     return Object.keys(styles).map(k =>
       '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + styles[k].label + '</option>'
     ).join('');
+  }
+
+  _roofTypePairs() {
+    return [['','Style default'],['gable','Gable'],['hip','Hip'],['gambrel','Gambrel / Dutch'],['mansard','Mansard'],['flat','Flat'],['shed','Shed (lean-to)'],['dormer','Gable + dormers'],['mshape','M-shaped'],['butterfly','Butterfly'],['jerkinhead','Jerkinhead (clipped gable)'],['crossgable','Cross gable'],['hipvalley','Hip & valley']];
   }
 
   // <option> builders for the Residence/Home config selects.
@@ -3999,16 +4306,24 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     html += '<button class="ctrl" id="fp-export" style="padding:5px 10px;font-size:9px;">Export</button>';
     html += '<label class="ctrl" style="padding:5px 10px;font-size:9px;cursor:pointer;">Import <input type="file" accept=".json,application/json" class="fp-import-layout" style="display:none"/></label>';
     html += '<button class="ctrl" id="fp-add-room" style="padding:5px 10px;font-size:9px;">+ Add Room</button>';
+    html += '<button class="ctrl" id="fp-add-lroom" title="Add an L-shaped room you can reshape corner-by-corner" style="padding:5px 10px;font-size:9px;">+ L Room</button>';
     html += '<button class="ctrl" id="fp-add-zone" style="padding:5px 10px;font-size:9px;margin-left:6px;">+ Outdoor Zone</button>';
     { const _pp = this._propertyPts(); const _has = _pp.length >= 3;
       html += '<button class="ctrl" id="fp-add-property" style="padding:5px 10px;font-size:9px;margin-left:6px;">' + (_has ? 'Clear Property' : '+ Property Line') + '</button>';
       if (_has) html += '<span class="fp-land-size" style="margin-left:8px;font-family:var(--font-mono);font-size:9px;color:#ffb85a;">Lot: ' + this._propertyArea(_pp) + '</span>'; }
     html += '<button class="ctrl" id="fp-units" style="padding:5px 10px;font-size:9px;">Units: ' + (this._fpUnits() === 'metric' ? 'Metric' : 'Imperial') + '</button>';
+    { const _cfg = (this._data().config || {});
+      html += '<label style="margin-left:10px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">HOUSE'
+        + '<select class="ctrl" id="fp-home-type" style="padding:3px 6px;font-size:9px;">' + this._residenceStyleOptions(this._data()) + '</select></label>';
+      html += '<label style="margin-left:6px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">ATTACHED'
+        + '<select class="ctrl" id="fp-home-attached" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled([['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['top','Semi — party wall top'],['bottom','Semi — party wall bottom'],['both','Terrace — both sides']], _cfg.home_attached ?? 'none') + '</select></label>';
+      html += '<label style="margin-left:6px;font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:0.08em;display:flex;align-items:center;gap:5px;">ROOF'
+        + '<select class="ctrl" id="fp-home-roof" style="padding:3px 6px;font-size:9px;">' + this._optsLabeled(this._roofTypePairs(), _cfg.home_roof ?? '') + '</select></label>'; }
     html += '</div>';
     html += '</div>';
 
     // Instructions
-    html += '<div style="font-size:9px;color:var(--text-dim);font-family:var(--font-mono);letter-spacing:0.06em;margin-bottom:6px;">DRAG to move · Bottom-right handle to resize · Right-click to delete · Click to select</div>';
+    html += '<div style="font-size:9px;color:var(--text-dim);font-family:var(--font-mono);letter-spacing:0.06em;margin-bottom:6px;">DRAG to move · Bottom-right handle to resize · Right-click to delete · Click to select · select a room → ◇ Reshape for L-shapes · drag door/window markers onto any wall</div>';
 
     // Floor plan canvas (full width)
     html += this._viewPresetBar('editor');
@@ -4253,21 +4568,38 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _renderOpenings(floor) {
     const els = this._elemsFor(floor), uL = this._fpUnitLabel();
     const rooms = ((this._getEditingPlan()[floor] || {}).rooms) || [];
-    const walls = [['front','Front'],['back','Back'],['left','Left'],['right','Right']];
-    const wsel = (e, i) => '<select class="op-field" data-op="wall" data-i="' + i + '" title="wall">' + walls.map(w => '<option value="' + w[0] + '"' + (e.wall === w[0] ? ' selected' : '') + '>' + w[1] + '</option>').join('') + '</select>';
-    const rsel = (e, i) => '<select class="op-field op-room" data-op="room" data-i="' + i + '" title="room"><option value="">\u2014 room \u2014</option>' + rooms.filter(r => r.type !== 'outdoor').map(r => '<option value="' + this._esc(r.name) + '"' + (e.room === r.name ? ' selected' : '') + '>' + this._esc(r.name) + '</option>').join('') + '</select>';
+    const anchorRooms = rooms.filter(r => r.type !== 'outdoor' && r.type !== 'stairs' && r.type !== 'door');
+    const rsel = (e, i) => '<select class="op-field op-room" data-op="room" data-i="' + i + '" title="building/room whose wall holds this opening"><option value="">\u2014 footprint \u2014</option>' + anchorRooms.map(r => '<option value="' + this._esc(r.name) + '"' + (e.room === r.name ? ' selected' : '') + '>' + this._esc(r.name) + '</option>').join('') + '</select>';
+    // Wall-edge picker: one option per edge of the anchor (room polygon or the
+    // footprint rectangle). Labels show the outward direction so notch walls of
+    // an L-shape and detached buildings are distinguishable.
+    const esel = (e, i) => {
+      const pts = this._anchorPts(rooms, e);
+      if (!pts || pts.length < 2) return '';
+      const sel = (Number.isInteger(e.edge) && e.edge >= 0 && e.edge < pts.length) ? e.edge : this._edgeForWall(pts, e.wall || 'front');
+      const winding = this._polyWinding(pts), rect = pts.length === 4;
+      const AR = ['\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196', '\u2191', '\u2197'];
+      const nm = ['Front', 'Right', 'Back', 'Left'];
+      let o = '';
+      for (let k = 0; k < pts.length; k++) {
+        const n = this._edgeNormal(pts, k, winding);
+        const ar = AR[((Math.round(Math.atan2(n.ny, n.nx) / (Math.PI / 4))) % 8 + 8) % 8];
+        o += '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + (rect ? nm[k] : 'Wall ' + (k + 1)) + ' ' + ar + '</option>';
+      }
+      return '<select class="op-field" data-op="edge" data-i="' + i + '" title="which wall edge (drag the marker on the plan to pick)">' + o + '</select>';
+    };
     const rows = els.map((e, i) => {
       const isD = e.type === 'dormer';
       const t = isD ? (e.slope === 'rear' ? 'REAR DORMER' : 'FRONT DORMER')
         : (e.type === 'window' ? (e.kind === 'interior' ? 'INT WINDOW' : 'WINDOW')
         : (e.kind === 'interior' ? 'INT DOOR' : (e.kind === 'cellar' ? 'CELLAR'
         : (e.kind === 'cased' ? 'CASED OPENING' : (e.kind === 'french' ? 'BALCONY DOOR' : 'EXT DOOR')))));
-      // Interior windows, interior/cased doors and balcony doors attach to a room's
-      // wall (not the four outer walls), so they get a room picker (#324).
-      const roomAnchored = (e.kind === 'interior' || e.kind === 'cased' || e.kind === 'french');
+      // Every opening can anchor to any building/room's wall — pick the room
+      // (or leave it on the whole footprint), then the edge — or just drag the
+      // marker on the plan and it snaps to the nearest wall.
       const place = isD
         ? ('<select class="op-field" data-op="slope" data-i="' + i + '" title="roof slope"><option value="front"' + (e.slope !== 'rear' ? ' selected' : '') + '>Front slope</option><option value="rear"' + (e.slope === 'rear' ? ' selected' : '') + '>Rear slope</option></select>')
-        : (roomAnchored ? (rsel(e, i) + ' ' + wsel(e, i)) : wsel(e, i));
+        : (rsel(e, i) + ' ' + esel(e, i));
       const kc = isD ? ' op-dormer' : (e.kind === 'interior' ? ' op-int' : (e.kind === 'cellar' ? ' op-cellar' : (e.kind === 'cased' ? ' op-cased' : '')));
       return '<div class="op-row" data-i="' + i + '">'
         + '<span class="op-type op-' + (isD ? 'dormer' : e.type) + kc + '">' + t + '</span>'
@@ -4280,7 +4612,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     }).join('');
     const dBtns = floor === '2f' ? '<button class="ctrl" id="op-add-fdormer">+ Front Dormer</button><button class="ctrl" id="op-add-rdormer">+ Rear Dormer</button>' : '';
     return '<div class="fp-openings">'
-      + '<div class="op-headr">OPENINGS \u00b7 windows, doors &amp; dormers <span class="op-hint">interior windows, interior / balcony doors &amp; cased openings attach to a room\u2019s wall (not just the outer walls) \u2014 pick the room, then the wall \u00b7 a balcony door is full-height glass \u00b7 a cased opening is a doorway with no door \u00b7 dormers on the 2nd floor</span></div>'
+      + '<div class="op-headr">OPENINGS \u00b7 windows, doors &amp; dormers <span class="op-hint">drag a marker on the plan and it snaps onto the nearest wall \u2014 incl. L-room notch walls and detached buildings \u00b7 or pick the room + wall edge below \u00b7 a balcony door is full-height glass \u00b7 a cased opening is a doorway with no door \u00b7 dormers on the 2nd floor</span></div>'
       + '<div class="op-add"><button class="ctrl" id="op-add-window">+ Window</button><button class="ctrl" id="op-add-intwindow">+ Interior Window</button><button class="ctrl" id="op-add-extdoor">+ Exterior Door</button><button class="ctrl" id="op-add-frenchdoor">+ Balcony Door</button><button class="ctrl" id="op-add-cellar">+ Cellar Door</button><button class="ctrl" id="op-add-intdoor">+ Interior Door</button><button class="ctrl" id="op-add-cased">+ Cased Opening</button>' + dBtns + '</div>'
       + (rows || '<div class="op-empty">No openings placed on this floor yet \u2014 add one above.</div>')
       + '</div>';
@@ -4409,30 +4741,28 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       svg += '<text x="' + lbl.x + '" y="' + lbl.y + '" text-anchor="middle" fill="#1a3040" font-size="4" font-family="JetBrains Mono, monospace">' + lbl.text + '</text>';
     }
 
-    // placed openings as wall markers (v7.94.0)
+    // placed openings as wall markers (v7.94.0) — edge-anchored + draggable:
+    // drag a marker and it snaps onto the nearest room edge, so openings land
+    // on L-room notch walls and detached buildings, not just the bbox sides.
     var _els = (this._getEditingElements()[floor]) || [];
     if (_els.length && floorData.rooms && floorData.rooms.length) {
       var mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
       floorData.rooms.forEach(function (r) { if (r.type === 'outdoor') return; mnx = Math.min(mnx, r.x); mny = Math.min(mny, r.y); mxx = Math.max(mxx, r.x + r.w); mxy = Math.max(mxy, r.y + r.h); });
-      _els.forEach(function (e, i) {
+      _els.forEach((e, i) => {
         if (e.type === 'dormer') {
           var dp = e.pos != null ? e.pos : 0.5, dcx = mnx + dp * (mxx - mnx), dcy = e.slope === 'rear' ? mxy : mny;
           svg += '<rect class="op-marker" data-op-marker="' + i + '" x="' + (dcx - 4) + '" y="' + (dcy - 3) + '" width="8" height="6" fill="#b06aff" opacity="0.9" rx="1.5" pointer-events="none"/>';
           return;
         }
-        var w = e.w || 20, p = e.pos != null ? e.pos : 0.5, cx, cy, horiz = (e.wall === 'front' || e.wall === 'back');
-        var bx0 = mnx, by0 = mny, bx1 = mxx, by1 = mxy;
-        if ((e.kind === 'interior' || e.kind === 'cased' || e.kind === 'french') && e.room) {
-          var rr = floorData.rooms.filter(function (r) { return r.name === e.room; })[0];
-          if (rr) { bx0 = rr.x; by0 = rr.y; bx1 = rr.x + rr.w; by1 = rr.y + rr.h; }
-        }
-        if (e.wall === 'front') { cx = bx0 + p * (bx1 - bx0); cy = by0; }
-        else if (e.wall === 'back') { cx = bx0 + p * (bx1 - bx0); cy = by1; }
-        else if (e.wall === 'left') { cx = bx0; cy = by0 + p * (by1 - by0); }
-        else { cx = bx1; cy = by0 + p * (by1 - by0); }
+        var a = this._openingAnchorRooms(floorData.rooms, e);
+        if (!a) return;
+        var w = e.w || 20;
         var col = e.type === 'window' ? '#00f2fe' : (e.kind === 'interior' ? '#5a7a8a' : (e.kind === 'cellar' ? '#c98a2a' : (e.kind === 'cased' ? '#78b9d7' : (e.kind === 'french' ? '#4fd4e0' : '#ffaa28'))));
-        var ex = horiz ? cx - w / 2 : cx - 2, ey = horiz ? cy - 2 : cy - w / 2, ew = horiz ? w : 4, eh = horiz ? 4 : w;
-        svg += '<rect class="op-marker" data-op-marker="' + i + '" x="' + ex + '" y="' + ey + '" width="' + ew + '" height="' + eh + '" fill="' + col + '" opacity="0.9" rx="1" pointer-events="none"/>';
+        var deg = Math.atan2(a.uy, a.ux) * 180 / Math.PI;
+        svg += '<g class="fp-op" data-op-i="' + i + '" transform="translate(' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) + ') rotate(' + deg.toFixed(1) + ')" style="cursor:grab">'
+          + '<rect class="op-marker" data-op-marker="' + i + '" x="' + (-w / 2) + '" y="-2" width="' + w + '" height="4" fill="' + col + '" opacity="0.9" rx="1"/>'
+          + '<rect x="' + (-w / 2 - 2) + '" y="-5" width="' + (w + 4) + '" height="10" fill="#000" fill-opacity="0"/>'
+          + '</g>';
       });
     }
 
@@ -4830,6 +5160,14 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           <div class="cfg-row">
             <label>Home type</label>
             <select class="cfg-field" data-cfg-key="residence_style">${this._residenceStyleOptions(d)}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Attached side <span class="cfg-sub">UK semi / terrace party wall</span></label>
+            <select class="cfg-field" data-cfg-key="home_attached">${this._optsLabeled([['','Style default'],['none','Detached'],['left','Semi — party wall left'],['right','Semi — party wall right'],['top','Semi — party wall top'],['bottom','Semi — party wall bottom'],['both','Terrace — both sides']], d.config?.home_attached ?? '')}</select>
+          </div>
+          <div class="cfg-row">
+            <label>Roof type <span class="cfg-sub">overrides the style's roof</span></label>
+            <select class="cfg-field" data-cfg-key="home_roof">${this._optsLabeled(this._roofTypePairs(), d.config?.home_roof ?? '')}</select>
           </div>
           <div class="cfg-row">
             <label>Stories</label>
@@ -7165,6 +7503,57 @@ ${this._renderExcludedEntities(d)}
         this._toast("Added " + name + " \u2014 drag to position, then Save", "ok");
       });
     }
+    // L-shaped room: a six-corner polygon you can pull into any L/T/U by
+    // dragging corners; edge midpoints add more corners.
+    const fpLRoom = this.shadowRoot.querySelector("#fp-add-lroom");
+    if (fpLRoom) {
+      fpLRoom.addEventListener("click", () => {
+        const plan = this._getEditingPlan();
+        const floor = this._editorFloor || '1f';
+        if (!plan[floor]) return;
+        const name = prompt("Room name:");
+        if (!name) return;
+        const x = 40, y = 40;
+        const pts = [[x, y], [x + 80, y], [x + 80, y + 45], [x + 45, y + 45], [x + 45, y + 80], [x, y + 80]];
+        plan[floor].rooms = plan[floor].rooms || [];
+        plan[floor].rooms.push({ name: name, x: x, y: y, w: 80, h: 80, type: 'room', points: pts });
+        this._rerenderFloorEditor();
+        this._toast("Added L-shaped " + name + " \u2014 drag the corners to shape it, then Save", "ok");
+      });
+    }
+    // House style + attached side, settable right in the editor — saves config
+    // and re-renders the 3D preview live.
+    const fpHomeType = this.shadowRoot.querySelector("#fp-home-type");
+    if (fpHomeType) {
+      fpHomeType.addEventListener("change", async () => {
+        const val = fpHomeType.value;
+        if (this._liveData && this._liveData.config) this._liveData.config.residence_style = val;
+        this._refreshEditorPreview();
+        const rs = this._resStyles()[val];
+        this._toast("\u25c9 Home type \u2192 " + (rs ? rs.label : val), "ok");
+        try { await this._saveConfig('residence_style', val); } catch (_) {}
+      });
+    }
+    const fpHomeAttach = this.shadowRoot.querySelector("#fp-home-attached");
+    if (fpHomeAttach) {
+      fpHomeAttach.addEventListener("change", async () => {
+        const val = fpHomeAttach.value;
+        if (this._liveData && this._liveData.config) this._liveData.config.home_attached = val;
+        this._refreshEditorPreview();
+        this._toast("\u25c9 Attached \u2192 " + (val === 'none' ? 'detached' : val), "ok");
+        try { await this._saveConfig('home_attached', val); } catch (_) {}
+      });
+    }
+    const fpHomeRoof = this.shadowRoot.querySelector("#fp-home-roof");
+    if (fpHomeRoof) {
+      fpHomeRoof.addEventListener("change", async () => {
+        const val = fpHomeRoof.value;
+        if (this._liveData && this._liveData.config) this._liveData.config.home_roof = val;
+        this._refreshEditorPreview();
+        this._toast("\u25c9 Roof \u2192 " + (val || 'style default'), "ok");
+        try { await this._saveConfig('home_roof', val); } catch (_) {}
+      });
+    }
     const fpZone = this.shadowRoot.querySelector("#fp-add-zone");
     if (fpZone) {
       fpZone.addEventListener("click", () => {
@@ -7462,6 +7851,12 @@ ${this._renderExcludedEntities(d)}
         const op = f.getAttribute('data-op');
         if (op === 'w') e.w = this._fpFromReal(parseFloat(f.value) || 4);
         else if (op === 'pos') e.pos = parseFloat(f.value);
+        else if (op === 'edge') {
+          e.edge = parseInt(f.value, 10) || 0;
+          const a = this._openingAnchor(this._editorFloor || '1f', e);
+          if (a) e.wall = a.wall;
+        }
+        else if (op === 'room') { e.room = f.value; delete e.edge; }
         else e[op] = f.value;
         this._rerenderFloorEditor();
       });
@@ -7523,33 +7918,118 @@ ${this._renderExcludedEntities(d)}
     }
     const vbFromAttr = () => { const p = (svgEl.getAttribute('viewBox') || '0 0 320 140').split(' ').map(Number); return { x: p[0], y: p[1], w: p[2], h: p[3] }; };
 
+    // Edge-snap: pull a moving/resizing room flush against another building's
+    // edges, so enclosed rooms form ONE connected footprint — one roof mass in
+    // the 3D render instead of a gable per disjoint room.
+    const SNAP_T = 4;
+    const _edgeCoords = (skipIdx) => {
+      const xs = [], ys = [];
+      rooms.forEach((r, j) => {
+        if (j === skipIdx || r.type === 'outdoor' || r.type === 'stairs' || r.type === 'door') return;
+        self._zonePoints(r).forEach(p => { xs.push(p[0]); ys.push(p[1]); });
+      });
+      return { xs, ys };
+    };
+    const _snapAxis = (edges, cands) => {
+      let best = null;
+      edges.forEach(v => cands.forEach(c => {
+        const d = c - v;
+        if (Math.abs(d) <= SNAP_T && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, pos: c };
+      }));
+      return best;
+    };
+    const _snapGuide = (vx, hy) => {
+      let g = svgEl.querySelector('.fp-snap-g');
+      if (vx == null && hy == null) { if (g) g.remove(); return; }
+      if (!g) {
+        g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'fp-snap-g'); g.setAttribute('pointer-events', 'none');
+        svgEl.appendChild(g);
+      }
+      const v = vbFromAttr();
+      let h = '';
+      if (vx != null) h += '<line x1="' + vx + '" y1="' + v.y + '" x2="' + vx + '" y2="' + (v.y + v.h) + '" stroke="#00f5a0" stroke-width="0.7" stroke-dasharray="3 2"/>';
+      if (hy != null) h += '<line x1="' + v.x + '" y1="' + hy + '" x2="' + (v.x + v.w) + '" y2="' + hy + '" stroke="#00f5a0" stroke-width="0.7" stroke-dasharray="3 2"/>';
+      g.innerHTML = h;
+    };
+    // Floating W × H readout that tracks the shape while you resize/drag it.
+    const _showLiveDims = (g, x, y, txt) => {
+      if (!g) return;
+      let t = g.querySelector('.fp-live-dims');
+      if (!t) {
+        t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('class', 'fp-live-dims');
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('pointer-events', 'none');
+        t.setAttribute('style', 'font-size:5.5px;fill:#ffb85a;letter-spacing:0.4px;');
+        g.appendChild(t);
+      }
+      t.setAttribute('x', x); t.setAttribute('y', y);
+      t.textContent = txt;
+    };
+
     function updateInfo(rm) {
       if (!infoEl || !rm) return;
       const idx = rooms.indexOf(rm), uL = self._fpUnitLabel();
       const ist = 'width:54px;background:var(--bg);border:1px solid var(--line);color:var(--cyan);border-radius:4px;padding:2px 4px;font-family:var(--font-mono);font-size:11px;';
       if (idx !== _infoIdx) {
         _infoIdx = idx;
+        const isPoly = !!(rm.points && rm.points.length >= 3);
         infoEl.innerHTML = '<b>' + rm.name.toUpperCase() + '</b> \u00b7 ' + rm.type + ' \u00b7 '
-          + 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
-          + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
-          + (rm.type !== 'outdoor' && !(rm.points && rm.points.length >= 3) ? ' <button class="ctrl fp-reshape-btn" style="padding:2px 8px;font-size:9px;margin-left:8px;">\u25c7 Reshape</button>' : '');
+          + (isPoly
+            ? rm.points.length + ' corners \u00b7 '
+              + 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + ' \u00b7 drag corners to reshape'
+              + ' <button class="ctrl fp-unshape-btn" style="padding:2px 8px;font-size:9px;margin-left:8px;">\u25ad Make rectangular</button>'
+            : 'W <input class="fp-dim-in" data-dim="w" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + ' \u00d7 L <input class="fp-dim-in" data-dim="h" type="number" step="0.5" min="1" style="' + ist + '"> ' + uL
+              + (rm.type !== 'outdoor' ? ' <button class="ctrl fp-reshape-btn" style="padding:2px 8px;font-size:9px;margin-left:8px;">\u25c7 Reshape</button>' : ''));
         const rshBtn = infoEl.querySelector('.fp-reshape-btn');
         if (rshBtn) rshBtn.addEventListener('click', () => {
           const r = rooms[_infoIdx]; if (!r) return;
           self._ensureZonePoints(r); self._syncRoomBBox(r);
           _infoIdx = -1;
           self._rerenderFloorEditor();
-          self._toast('Reshape: drag the corners, double-click an edge to add one, right-click a corner to remove', 'ok');
+          self._toast('Reshape: drag the corners, click an edge midpoint to add one, right-click a corner to remove', 'ok');
         });
+        const ushBtn = infoEl.querySelector('.fp-unshape-btn');
+        if (ushBtn) ushBtn.addEventListener('click', () => {
+          const r = rooms[_infoIdx]; if (!r) return;
+          delete r.points;
+          _infoIdx = -1;
+          self._rerenderFloorEditor();
+        });
+        // Per-building roof type — only meaningful on a disjoint building
+        // (merged masses share one roof); pick "House default" to inherit.
+        if (rm.type !== 'outdoor' && rm.type !== 'stairs' && rm.type !== 'door') {
+          infoEl.insertAdjacentHTML('beforeend', ' \u00b7 roof <select class="fp-room-roof" style="background:var(--bg);border:1px solid var(--line);color:var(--cyan);border-radius:4px;padding:1px 3px;font-family:var(--font-mono);font-size:10px;">'
+            + self._optsLabeled([['', 'House default']].concat(self._roofTypePairs().slice(1)), rm.roof || '') + '</select>');
+          infoEl.querySelector('.fp-room-roof').addEventListener('change', (ev) => {
+            const r = rooms[_infoIdx]; if (!r) return;
+            if (ev.target.value) r.roof = ev.target.value; else delete r.roof;
+            self._refreshEditorPreview();
+          });
+        }
         infoEl.querySelectorAll('.fp-dim-in').forEach(inp => {
           inp.addEventListener('change', () => {
             const r = rooms[_infoIdx]; if (!r) return;
             const v = parseFloat(inp.value); if (!(v > 0)) return;
-            if (inp.getAttribute('data-dim') === 'w') r.w = self._fpFromReal(v); else r.h = self._fpFromReal(v);
+            const isW = inp.getAttribute('data-dim') === 'w', nu = self._fpFromReal(v);
+            if (r.points && r.points.length >= 3) {
+              // Polygon: scale the whole shape so its bounding box hits the
+              // typed dimension — proportions keep, shape stays an L.
+              let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+              r.points.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+              const s = isW ? nu / Math.max(1, x1 - x0) : nu / Math.max(1, y1 - y0);
+              r.points.forEach(p => { if (isW) p[0] = x0 + (p[0] - x0) * s; else p[1] = y0 + (p[1] - y0) * s; });
+              self._syncRoomBBox(r);
+            } else if (isW) r.w = nu; else r.h = nu;
             redraw();
           });
         });
       }
+      if (rm.points && rm.points.length >= 3) self._syncRoomBBox(rm);
       const wIn = infoEl.querySelector('.fp-dim-in[data-dim="w"]');
       const hIn = infoEl.querySelector('.fp-dim-in[data-dim="h"]');
       const act = self.shadowRoot.activeElement;
@@ -7581,6 +8061,7 @@ ${this._renderExcludedEntities(d)}
         const pt = svgPoint(e);
         dragging = { idx, startX: pt.x, startY: pt.y, origX: rm.x, origY: rm.y, resize: false };
         rect.setAttribute("stroke-width", "2.5");
+        self._fpSelIdx = idx;
         updateInfo(rm);
       });
 
@@ -7592,6 +8073,7 @@ ${this._renderExcludedEntities(d)}
         if (!rm) return;
         if (confirm("Delete '" + rm.name + "' from floor plan?")) {
           rooms.splice(idx, 1);
+          self._fpSelIdx = null;
           redraw();
           self._toast("Removed " + rm.name, "ok");
         }
@@ -7608,6 +8090,8 @@ ${this._renderExcludedEntities(d)}
         self._ensureZonePoints(rm);
         const pt = svgPoint(e);
         dragging = { zoneBody: true, zi, startX: pt.x, startY: pt.y, ddx: 0, ddy: 0 };
+        self._fpSelIdx = zi;
+        updateInfo(rm);
       });
     });
     svgEl.querySelectorAll(".fp-zone-vtx").forEach(v => {
@@ -7619,6 +8103,7 @@ ${this._renderExcludedEntities(d)}
         const pts = self._ensureZonePoints(rm); const p = pts[vi]; if (!p) return;
         const pt = svgPoint(e);
         dragging = { zoneVtx: true, zi, vi, startX: pt.x, startY: pt.y, origX: p[0], origY: p[1] };
+        self._fpSelIdx = zi;
       });
       v.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -7626,6 +8111,19 @@ ${this._renderExcludedEntities(d)}
         const rm = rooms[zi]; if (!rm) return;
         const pts = self._ensureZonePoints(rm);
         if (pts.length <= 3) { self._toast("Needs at least 3 corners", "warn"); return; }
+        // Removing vertex vi merges edges (vi-1) and vi into one — remap anchors
+        // onto the merged edge before the splice changes indices.
+        const n = pts.length, pv = (vi - 1 + n) % n;
+        const va = pts[pv], vb = pts[vi], vc = pts[(vi + 1) % n];
+        const lenA = Math.hypot(vb[0] - va[0], vb[1] - va[1]), lenB = Math.hypot(vc[0] - vb[0], vc[1] - vb[1]), tot = lenA + lenB || 1;
+        const midx = (vi === 0) ? n - 2 : vi - 1;
+        (self._elemsFor(floor) || []).forEach(el => {
+          if (el.room !== rm.name || el.edge == null) return;
+          const p = el.pos != null ? el.pos : 0.5;
+          if (el.edge === pv) { el.edge = midx; el.pos = p * lenA / tot; }
+          else if (el.edge === vi) { el.edge = midx; el.pos = (lenA + lenB * p) / tot; }
+          else if (el.edge > vi) el.edge -= 1;
+        });
         pts.splice(vi, 1); self._syncRoomBBox(rm); self._rerenderFloorEditor();
       });
     });
@@ -7638,6 +8136,13 @@ ${this._renderExcludedEntities(d)}
         const pts = self._ensureZonePoints(rm);
         const a = pts[ei], b = pts[(ei + 1) % pts.length]; if (!a || !b) return;
         pts.splice(ei + 1, 0, [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2)]);
+        // Remap opening anchors: edge ei just split in two at its midpoint.
+        (self._elemsFor(floor) || []).forEach(el => {
+          if (el.room !== rm.name || el.edge == null) return;
+          const p = el.pos != null ? el.pos : 0.5;
+          if (el.edge === ei) { if (p > 0.5) { el.edge = ei + 1; el.pos = p * 2 - 1; } else el.pos = p * 2; }
+          else if (el.edge > ei) el.edge += 1;
+        });
         self._rerenderFloorEditor();
       });
     });
@@ -7714,6 +8219,24 @@ ${this._renderExcludedEntities(d)}
       });
     });
 
+    // Opening markers — drag snaps onto the nearest wall edge of any room
+    // (incl. detached buildings); right-click removes the opening.
+    svgEl.querySelectorAll(".fp-op").forEach(g => {
+      g.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const oi = parseInt(g.getAttribute("data-op-i"));
+        if (!(self._elemsFor(floor) || [])[oi]) return;
+        dragging = { opening: oi, snap: null };
+      });
+      g.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const oi = parseInt(g.getAttribute("data-op-i"));
+        const arr = self._elemsFor(floor);
+        if (arr[oi] && confirm("Delete this opening?")) { arr.splice(oi, 1); redraw(); self._toast("Opening removed", "ok"); }
+      });
+    });
+
     // Resize handles
     svgEl.querySelectorAll(".fp-resize-handle").forEach(handle => {
       handle.addEventListener("mousedown", (e) => {
@@ -7744,15 +8267,34 @@ ${this._renderExcludedEntities(d)}
         const p = rm.points[dragging.vi]; if (!p) return;
         p[0] = Math.round(dragging.origX + (pt.x - dragging.startX));
         p[1] = Math.round(dragging.origY + (pt.y - dragging.startY));
+        const _oc = _edgeCoords(dragging.zi);
+        const _sx = _snapAxis([p[0]], _oc.xs), _sy = _snapAxis([p[1]], _oc.ys);
+        if (_sx) p[0] += _sx.d;
+        if (_sy) p[1] += _sy.d;
+        _snapGuide(_sx ? _sx.pos : null, _sy ? _sy.pos : null);
         const g = svgEl.querySelector('.fp-zone[data-zone-idx="' + dragging.zi + '"]');
         if (g) {
           const path = g.querySelector('.fp-zone-path'); if (path) path.setAttribute('d', self._propPathD(rm.points));
           const dot = g.querySelector('.fp-zone-vtx[data-vtx="' + dragging.vi + '"]'); if (dot) { dot.setAttribute('cx', p[0]); dot.setAttribute('cy', p[1]); }
+          let _bx0 = 1e9, _by0 = 1e9, _bx1 = -1e9, _by1 = -1e9;
+          rm.points.forEach(q => { _bx0 = Math.min(_bx0, q[0]); _by0 = Math.min(_by0, q[1]); _bx1 = Math.max(_bx1, q[0]); _by1 = Math.max(_by1, q[1]); });
+          _showLiveDims(g, (_bx0 + _bx1) / 2, _by0 - 4, self._fpToReal(_bx1 - _bx0) + ' × ' + self._fpToReal(_by1 - _by0) + ' ' + self._fpUnitLabel());
         }
         return;
       }
       if (dragging.zoneBody) {
         dragging.ddx = Math.round(pt.x - dragging.startX); dragging.ddy = Math.round(pt.y - dragging.startY);
+        const _zr = rooms[dragging.zi];
+        if (_zr && _zr.points) {
+          let _bx0 = 1e9, _by0 = 1e9, _bx1 = -1e9, _by1 = -1e9;
+          _zr.points.forEach(p => { _bx0 = Math.min(_bx0, p[0]); _by0 = Math.min(_by0, p[1]); _bx1 = Math.max(_bx1, p[0]); _by1 = Math.max(_by1, p[1]); });
+          const _oc = _edgeCoords(dragging.zi);
+          const _sx = _snapAxis([_bx0 + dragging.ddx, _bx1 + dragging.ddx], _oc.xs);
+          const _sy = _snapAxis([_by0 + dragging.ddy, _by1 + dragging.ddy], _oc.ys);
+          if (_sx) dragging.ddx += _sx.d;
+          if (_sy) dragging.ddy += _sy.d;
+          _snapGuide(_sx ? _sx.pos : null, _sy ? _sy.pos : null);
+        }
         const g = svgEl.querySelector('.fp-zone[data-zone-idx="' + dragging.zi + '"]');
         if (g) g.setAttribute('transform', 'translate(' + dragging.ddx + ',' + dragging.ddy + ')');
         return;
@@ -7796,18 +8338,35 @@ ${this._renderExcludedEntities(d)}
         }
         return;
       }
+      if (dragging.opening != null) {
+        const s = self._snapToWall(floor, pt.x, pt.y);
+        if (s) {
+          dragging.snap = s;
+          const g = svgEl.querySelector('.fp-op[data-op-i="' + dragging.opening + '"]');
+          if (g) g.setAttribute('transform', 'translate(' + s.x.toFixed(1) + ' ' + s.y.toFixed(1) + ') rotate(' + s.deg.toFixed(1) + ')');
+        }
+        return;
+      }
       const rm = rooms[dragging.idx];
       if (!rm) return;
 
+      const _oc = _edgeCoords(dragging.idx);
+      let _gx = null, _gy = null;
       if (dragging.resize) {
         rm.w = Math.max(15, Math.round(dragging.origW + (pt.x - dragging.startX)));
         rm.h = Math.max(10, Math.round(dragging.origH + (pt.y - dragging.startY)));
+        const _sx = _snapAxis([rm.x + rm.w], _oc.xs); if (_sx) { rm.w += _sx.d; _gx = _sx.pos; }
+        const _sy = _snapAxis([rm.y + rm.h], _oc.ys); if (_sy) { rm.h += _sy.d; _gy = _sy.pos; }
       } else {
         // No positive clamp — objects place anywhere in the field, including left of
         // the garage (x<0) and in front of the home (y<0). (v7.94.0)
         rm.x = Math.round(dragging.origX + (pt.x - dragging.startX));
         rm.y = Math.round(dragging.origY + (pt.y - dragging.startY));
+        // ...but pull flush to a neighbour's edge so rooms read as one building.
+        const _sx = _snapAxis([rm.x, rm.x + rm.w], _oc.xs); if (_sx) { rm.x += _sx.d; _gx = _sx.pos; }
+        const _sy = _snapAxis([rm.y, rm.y + rm.h], _oc.ys); if (_sy) { rm.y += _sy.d; _gy = _sy.pos; }
       }
+      _snapGuide(_gx, _gy);
       updateInfo(rm);
 
       // Live update SVG elements
@@ -7819,6 +8378,7 @@ ${this._renderExcludedEntities(d)}
         if (t) { t.setAttribute("x", rm.x + rm.w/2); t.setAttribute("y", rm.y + rm.h/2 + 2); }
         const rh = g.querySelector(".fp-resize-handle");
         if (rh) { rh.setAttribute("x", rm.x + rm.w - 8); rh.setAttribute("y", rm.y + rm.h - 8); }
+        _showLiveDims(g, rm.x + rm.w / 2, rm.y - 4, self._fpToReal(rm.w) + ' × ' + self._fpToReal(rm.h) + ' ' + self._fpUnitLabel());
       }
     });
 
@@ -7834,12 +8394,30 @@ ${this._renderExcludedEntities(d)}
       if (dragging.entity && !dragging.moved && dragging.entId) {
         self.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: dragging.entId }, bubbles: true, composed: true }));
       }
-      const heavy = dragging.camera || dragging.property || dragging.zoneVtx || dragging.zoneBody;
+      // Commit an opening drag: anchor it to the room whose edge it snapped to.
+      if (dragging.opening != null) {
+        const el = (self._elemsFor(floor) || [])[dragging.opening], s = dragging.snap;
+        if (el && s) {
+          const rr = rooms[s.zi];
+          if (rr) {
+            el.room = rr.name;
+            el.edge = s.edge;
+            el.pos = Math.round(s.t * 100) / 100;
+            el.wall = self._wallFromNormal(s.nx, s.ny);
+          }
+        }
+      }
+      const heavy = dragging.camera || dragging.property || dragging.zoneVtx || dragging.zoneBody || dragging.opening != null;
       dragging = null;
+      const _sg = svgEl.querySelector('.fp-snap-g'); if (_sg) _sg.remove();
+      svgEl.querySelectorAll('.fp-live-dims').forEach(t => t.remove());
       if (heavy) self._rerenderFloorEditor(); else redraw();
     };
     svgEl.addEventListener("mouseup", endDrag);
     svgEl.addEventListener("mouseleave", endDrag);
+    // Restore the selected-room info bar after a heavy re-render (endDrag
+    // rebuilds the editor DOM for zone drags, which used to wipe it).
+    if (self._fpSelIdx != null && rooms[self._fpSelIdx]) updateInfo(rooms[self._fpSelIdx]);
     // Zoom (wheel, cursor-centered) + pan (middle-drag, or left-drag on empty space)
     svgEl.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -7854,7 +8432,7 @@ ${this._renderExcludedEntities(d)}
     svgEl.addEventListener("mousedown", (e) => {
       if (dragging) return;   // an object drag started first (its handler ran)
       const mid = e.button === 1;
-      const bg = e.button === 0 && !e.target.closest('.fp-drag-room, .fp-cam, .fp-zone, .fp-prop-vtx, .fp-prop-mid, .fp-zone-vtx, .fp-zone-mid, .fp-zone-path, .fp-resize-handle');
+      const bg = e.button === 0 && !e.target.closest('.fp-drag-room, .fp-cam, .fp-zone, .fp-prop-vtx, .fp-prop-mid, .fp-zone-vtx, .fp-zone-mid, .fp-zone-path, .fp-resize-handle, .fp-op, .fp-ent');
       if (!mid && !bg) return;
       e.preventDefault();
       const v = self._editVB || vbFromAttr();
