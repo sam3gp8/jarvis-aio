@@ -751,21 +751,32 @@ const JARVIS3D = (function () {
     var TOL = 1.5, EDGE = 3, z0 = 3, z1 = 7, garageRoom = null;
     (plan['1f'] || []).forEach(function (r) { if (String(r.name).toLowerCase().indexOf('garage') >= 0 && !garageRoom) garageRoom = r; });
 
+    // Returns true when (cx,cy) is inside room r or within 1 unit of its boundary.
+    // Uses bbox fast-path; for polygon rooms adds a pip + edge-proximity check so
+    // the notch of an L-shaped room is not falsely matched.
+    var _inRoom = function (r, cx, cy) {
+      if (!(cx >= r.x - 1 && cx <= r.x + r.w + 1 && cy >= r.y - 1 && cy <= r.y + r.d + 1)) return false;
+      if (!r.points || r.points.length < 3) return true;
+      var pts = r.points, inside = false;
+      for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        var xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+        if (((yi > cy) !== (yj > cy)) && (cx < (xj - xi) * (cy - yi) / (yj - yi) + xi)) inside = !inside;
+        var dx = xj - xi, dy = yj - yi, L2 = dx * dx + dy * dy;
+        if (L2 > 0) { var t = Math.max(0, Math.min(1, ((cx - xi) * dx + (cy - yi) * dy) / L2)); var ex = xi + t * dx - cx, ey = yi + t * dy - cy; if (ex * ex + ey * ey <= 1) return true; }
+      }
+      return inside;
+    };
     var winOcc = function (cx, cy) {
       var best = 'off';
       (plan['1f'] || []).forEach(function (r) {
-        if (cx >= r.x - 1 && cx <= r.x + r.w + 1 && cy >= r.y - 1 && cy <= r.y + r.d + 1) {
-          var s = wOf(r.name); if (s === 'dom') best = 'dom'; else if (s === 'on' && best !== 'dom') best = 'on';
-        }
+        if (_inRoom(r, cx, cy)) { var s = wOf(r.name); if (s === 'dom') best = 'dom'; else if (s === 'on' && best !== 'dom') best = 'on'; }
       });
       return best;
     };
     var winOcc2f = function (cx, cy) {
       var best = 'off';
       (plan['2f'] || []).forEach(function (r) {
-        if (cx >= r.x - 1 && cx <= r.x + r.w + 1 && cy >= r.y - 1 && cy <= r.y + r.d + 1) {
-          var s = wOf(r.name); if (s === 'dom') best = 'dom'; else if (s === 'on' && best !== 'dom') best = 'on';
-        }
+        if (_inRoom(r, cx, cy)) { var s = wOf(r.name); if (s === 'dom') best = 'dom'; else if (s === 'on' && best !== 'dom') best = 'on'; }
       });
       return best;
     };
@@ -1145,9 +1156,9 @@ const JARVIS3D = (function () {
       ((opts.elements && opts.elements[pf]) || []).filter(function (e) { return e.type === 'door' && e.kind === 'interior'; }).forEach(function (e) {
         var rname = String(e.room || '').toLowerCase();
         var rr = (plan[pf] || []).filter(function (r) { return String(r.name).toLowerCase() === rname; })[0];
-        if (!rr) return;
+        if (!rr && e.x == null) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 3);
-        var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d, cx, cy;
+        var rx0 = rr ? rr.x : 0, ry0 = rr ? rr.y : 0, rx1 = rr ? rr.x + rr.w : 0, ry1 = rr ? rr.y + rr.d : 0, cx, cy;
         if (e.x != null) { cx = e.x; cy = e.y; }
         else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
         else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
@@ -1158,9 +1169,9 @@ const JARVIS3D = (function () {
       ((opts.elements && opts.elements[pf]) || []).filter(function (e) { return e.type === 'door' && e.kind === 'cased'; }).forEach(function (e) {
         var rname = String(e.room || '').toLowerCase();
         var rr = (plan[pf] || []).filter(function (r) { return String(r.name).toLowerCase() === rname; })[0];
-        if (!rr) return;
+        if (!rr && e.x == null) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 3);
-        var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d, cx, cy;
+        var rx0 = rr ? rr.x : 0, ry0 = rr ? rr.y : 0, rx1 = rr ? rr.x + rr.w : 0, ry1 = rr ? rr.y + rr.d : 0, cx, cy;
         if (e.x != null) { cx = e.x; cy = e.y; }
         else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
         else if (e.wall === 'back') { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
@@ -1173,12 +1184,15 @@ const JARVIS3D = (function () {
       // the four outer walls like exterior windows (#324).
       ((opts.elements && opts.elements[pf]) || []).filter(function (e) { return e.type === 'window' && e.kind === 'interior'; }).forEach(function (e) {
         var rr = (plan[pf] || []).filter(function (r) { return String(r.name).toLowerCase() === String(e.room || '').toLowerCase(); })[0];
-        if (!rr) return;
+        if (!rr && e.x == null) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 3, 2);
-        var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
+        var rx0 = rr ? rr.x : 0, ry0 = rr ? rr.y : 0, rx1 = rr ? rr.x + rr.w : 0, ry1 = rr ? rr.y + rr.d : 0;
         var zw0 = zf[0] + 2.5, zw1 = Math.min(zf[0] + 6.5, zf[1] - 0.4), cx, cy;
         if (e.x != null) { cx = e.x; cy = e.y; }
-        else { cx = (e.wall === 'left' || e.wall === 'right') ? 0 : rx0 + p * (rx1 - rx0); cy = (e.wall === 'front' || e.wall === 'back') ? 0 : ry0 + p * (ry1 - ry0); }
+        else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
+        else if (e.wall === 'back')  { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
+        else if (e.wall === 'left')  { cx = rx0; cy = ry0 + p * (ry1 - ry0); }
+        else                         { cx = rx1; cy = ry0 + p * (ry1 - ry0); }
         if (e.wall === 'front' || e.wall === 'back') winY(L, GL, cy, cx - w / 2, cx + w / 2, zw0, zw1, 'off', true, e.wall === 'front' ? -0.06 : 0.06);
         else winX(L, GL, cx, cy - w / 2, cy + w / 2, zw0, zw1, 'off', true, e.wall === 'left' ? -0.06 : 0.06);
       });
@@ -1186,12 +1200,15 @@ const JARVIS3D = (function () {
       // wall (floor-to-head glass), lit when its sensor says open (#324).
       ((opts.elements && opts.elements[pf]) || []).filter(function (e) { return e.type === 'door' && e.kind === 'french'; }).forEach(function (e) {
         var rr = (plan[pf] || []).filter(function (r) { return String(r.name).toLowerCase() === String(e.room || '').toLowerCase(); })[0];
-        if (!rr) return;
+        if (!rr && e.x == null) return;
         var p = e.pos != null ? e.pos : 0.5, w = Math.max(e.w || 4, 3), stt = e.open ? 'on' : 'off';
-        var rx0 = rr.x, ry0 = rr.y, rx1 = rr.x + rr.w, ry1 = rr.y + rr.d;
+        var rx0 = rr ? rr.x : 0, ry0 = rr ? rr.y : 0, rx1 = rr ? rr.x + rr.w : 0, ry1 = rr ? rr.y + rr.d : 0;
         var zd0 = zf[0] + 0.3, zd1 = Math.min(zf[0] + 7, zf[1] - 0.2), cx, cy;
         if (e.x != null) { cx = e.x; cy = e.y; }
-        else { cx = (e.wall === 'left' || e.wall === 'right') ? 0 : rx0 + p * (rx1 - rx0); cy = (e.wall === 'front' || e.wall === 'back') ? 0 : ry0 + p * (ry1 - ry0); }
+        else if (e.wall === 'front') { cx = rx0 + p * (rx1 - rx0); cy = ry0; }
+        else if (e.wall === 'back')  { cx = rx0 + p * (rx1 - rx0); cy = ry1; }
+        else if (e.wall === 'left')  { cx = rx0; cy = ry0 + p * (ry1 - ry0); }
+        else                         { cx = rx1; cy = ry0 + p * (ry1 - ry0); }
         if (e.wall === 'front' || e.wall === 'back') winY(L, GL, cy, cx - w / 2, cx + w / 2, zd0, zd1, stt, true, e.wall === 'front' ? -0.07 : 0.07, 2);
         else winX(L, GL, cx, cy - w / 2, cy + w / 2, zd0, zd1, stt, true, e.wall === 'left' ? -0.07 : 0.07);
       });
