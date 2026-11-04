@@ -3400,7 +3400,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   }
   _anchorPts(rooms, e) {
     if (e && e.room) {
-      const rr = (rooms || []).filter(r => r.type !== 'outdoor' && r.name === e.room)[0];
+      const rr = (rooms || []).filter(r => r.type !== 'outdoor' && r.name.toLowerCase() === (e.room || '').toLowerCase())[0];
       if (rr) return this._zonePoints(rr);
     }
     return this._footprintPts(rooms);
