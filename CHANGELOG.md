@@ -1,3 +1,18 @@
+## [9.79.0] — Download diagnostics straight from the panel
+
+A second, more robust route to the diagnostics dump that doesn't depend on Home
+Assistant's "Download diagnostics" endpoint at all. **Settings → General → System
+Diagnostics** now has a **⬇ DOWNLOAD DIAG** button: it pulls the full dump over
+the authenticated panel websocket and saves it as
+`jarvis-diagnostics-<timestamp>.json` right from the browser.
+
+Because the file is built client-side from the websocket result, it sidesteps
+whatever was making HA's own button hand back an unparseable file for JARVIS —
+you get a clean, complete, credential-redacted JSON every time. (The 9.78.0
+`_json_safe()` hardening still fixes HA's native button too; this just gives you
+a one-click path that can't be broken by the HA endpoint.) Admin only, since the
+dump includes redacted config and recent logs.
+
 ## [9.78.0] — Stop announcing ordinary passers-by, and fix the JARVIS diagnostics download
 
 Two fixes from field reports.

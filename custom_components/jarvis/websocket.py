@@ -82,6 +82,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_documents)
         websocket_api.async_register_command(hass, ws_semantic_search)
         websocket_api.async_register_command(hass, ws_diagnostics)
+        websocket_api.async_register_command(hass, ws_download_diagnostics)
         websocket_api.async_register_command(hass, ws_voice_confirm_test)
         websocket_api.async_register_command(hass, ws_intrusion)
         websocket_api.async_register_command(hass, ws_faces)
@@ -3503,6 +3504,35 @@ async def ws_diagnostics(
         connection.send_result(msg["id"], res)
     except Exception as exc:
         _LOGGER.exception("ws_diagnostics failed: %s", exc)
+        connection.send_error(msg["id"], "diagnostics_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/download_diagnostics",
+})
+@websocket_api.async_response
+async def ws_download_diagnostics(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Build the full JARVIS diagnostics dump and hand it to the panel so the user
+    can download it straight from Settings → General, without HA's own "Download
+    diagnostics" button (v9.78.0+). It returns exactly what that button would —
+    ``async_get_config_entry_diagnostics`` — which is credential-redacted and run
+    through ``_json_safe`` so the payload is always strict, parseable JSON. Admin
+    only, since the dump includes (redacted) config and recent logs."""
+    if _deny_non_admin(connection, msg):
+        return
+    try:
+        from . import diagnostics
+        from .const import DOMAIN
+        entries = hass.config_entries.async_entries(DOMAIN)
+        entry = entries[0] if entries else None
+        data = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
+        connection.send_result(msg["id"], data)
+    except Exception as exc:
+        _LOGGER.exception("ws_download_diagnostics failed: %s", exc)
         connection.send_error(msg["id"], "diagnostics_failed", str(exc))
 
 
