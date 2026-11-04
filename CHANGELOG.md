@@ -1,3 +1,28 @@
+## [9.77.0] — Stop calling a recognised resident an "unidentified person" on the camera that can't see their face
+
+Follow-up to the intrusion diagnostic (9.70.0). The real source of the false
+"unidentified person" narrations turned out to be the **camera scene-analysis**
+path, not the intrusion path — and the cause is that its face-recognition hint
+was **per-camera only**. Frigate recognises you at 92–96% on the camera that sees
+your face, but the kitchen camera watching your back has no match, so that
+camera's narration calls you "a person" / "an unidentified person" — and at the
+`important` alert level, announces it. The logs showed exactly this split: the
+same walk through the house logged `[known_resident]` on one camera and
+`[person] ⚠NOTABLE: An unidentified person` on the next.
+
+Fix: the camera recognition hint now has a **home-wide fallback**. When the
+specific camera has no fresh face match but a flagged resident was confidently
+recognised on **any** camera in the last few minutes (`resident_present`), the
+vision prompt is told a resident is in the home and that a person seen here is
+most likely them — so a resident whose face one camera can't see is no longer
+narrated (or announced) as a stranger. It stays deliberately soft: the model is
+still free to flag a genuine stranger it can plainly see, so a real intruder
+while you're home is not masked.
+
+Requires that you (and other residents) are flagged as **residents** in the Faces
+tab with reference photos — which is also what lets Frigate's recognition stand
+down intrusion. The hint logic moved into a tested `_recognition_hint()` helper.
+
 ## [9.76.0] — Direct Reasoning: skip JARVIS's local classification and go straight to the agent
 
 **Discussion #469.** JARVIS is local-first: every chat input runs through its own
