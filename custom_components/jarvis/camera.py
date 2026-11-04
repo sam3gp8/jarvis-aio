@@ -35,7 +35,7 @@ from .directive_helper import build_system_prompt
 from .tts_helper import async_announce
 
 try:
-    from .recognition import last_seen_at, recognition_context_string
+    from .recognition import last_seen_at, recognition_context_string, resident_present
     _RECOGNITION_AVAILABLE = True
 except ImportError:
     _RECOGNITION_AVAILABLE = False
@@ -1213,6 +1213,49 @@ def _announce_decision(judgment: dict, analysis: str, *, gate_announce: bool,
     return None
 
 
+def _recognition_hint(hass: HomeAssistant, entity_id: str) -> str:
+    """Face-recognition context for the vision prompt. Two tiers:
+
+    1. A fresh, confident recognition ON THIS camera → name the person directly.
+    2. Home-wide fallback: no match on this camera, but a flagged resident was
+       confidently recognised on ANOTHER camera within the last few minutes. A
+       person here is then almost certainly that resident, not a stranger —
+       per-camera recognition is incomplete by nature (a subject whose back is to
+       one camera still shows a face to another), so without this a resident whose
+       face a given camera can't see gets narrated as an 'unidentified person' and,
+       at the 'important' alert level, announced as one. Deliberately soft: it
+       steers away from a false stranger alarm while still letting the model flag a
+       genuine stranger it can plainly see.
+
+    Returns '' when recognition is unavailable or nothing qualifies. Never raises."""
+    if not _RECOGNITION_AVAILABLE:
+        return ""
+    try:
+        last = last_seen_at(hass, entity_id)
+        if last and last.get("is_confident", False) is not False:
+            name = last.get("name", "")
+            confidence = last.get("confidence", 0)
+            age = last.get("age_seconds", 999)
+            if name and name.lower() != "unknown" and confidence >= 60 and age < 60:
+                return (
+                    f"\n\nIMPORTANT: Face recognition has identified the person "
+                    f"on camera as '{name}' (confidence {confidence:.0f}%). "
+                    f"Refer to them by name in your description."
+                )
+        resident = resident_present(hass)   # any camera, ≤180s, confident, flagged resident
+        if resident:
+            return (
+                f"\n\nCONTEXT: Face recognition identified household resident "
+                f"'{resident}' in the home moments ago (on another camera). A person "
+                f"seen here is most likely '{resident}' or another resident. Do NOT "
+                f"describe them as 'unidentified' or flag a stranger unless the image "
+                f"clearly shows someone who is not a resident of this home."
+            )
+    except Exception:
+        pass
+    return ""
+
+
 async def async_analyze_camera(
     hass: HomeAssistant,
     call: ServiceCall,
@@ -1300,22 +1343,7 @@ async def async_analyze_camera(
         images_b64 = [base64.b64encode(fb).decode() for fb in frame_bytes]
 
     # ── Incorporate face recognition (if we know who's on camera) ──────────
-    recognition_hint = ""
-    if _RECOGNITION_AVAILABLE:
-        try:
-            last = last_seen_at(hass, entity_id)
-            if last and last.get("is_confident", False) is not False:
-                name = last.get("name", "")
-                confidence = last.get("confidence", 0)
-                age = last.get("age_seconds", 999)
-                if name and name.lower() != "unknown" and confidence >= 60 and age < 60:
-                    recognition_hint = (
-                        f"\n\nIMPORTANT: Face recognition has identified the person "
-                        f"on camera as '{name}' (confidence {confidence:.0f}%). "
-                        f"Refer to them by name in your description."
-                    )
-        except Exception:
-            pass
+    recognition_hint = _recognition_hint(hass, entity_id)
 
     # ── Vision call ───────────────────────────────────────────────────────────
     # Floor-plan coverage: tell the model which areas this camera actually sees,
