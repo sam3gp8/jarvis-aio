@@ -5340,6 +5340,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             <select class="cfg-field" data-cfg-key="camera_alert_level">${this._optsLabeled([['off','Off — observe only'],['urgent','Urgent only (default)'],['important','Important — + deliveries'],['all','Everything notable']], d.config?.camera_alert_level || 'urgent')}</select>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Property-only scope</span>
+            <span class="toggle-desc">Auto reviews consider only what happens on your property — the home and its own yard, driveway, path, porch &amp; entryways. Activity beyond the property line (the street, sidewalk, a neighbour, passing traffic) is ignored, so a street-facing camera won't narrate the public road. Turn off to also watch public areas. A manual "analyze" always reports the whole frame.</span>
+            <button class="toggle-btn ${(d.config?.camera_property_scope_only !== false) ? 'on' : 'off'}"
+              data-cfg-key="camera_property_scope_only"
+              data-cfg-val="${(d.config?.camera_property_scope_only !== false) ? 'false' : 'true'}">
+              ${(d.config?.camera_property_scope_only !== false) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Package Watch</span>
             <span class="toggle-desc">Detect packages &amp; mail at the door</span>
             <button class="toggle-btn ${(d.config?.package_detection) ? 'on' : 'off'}"

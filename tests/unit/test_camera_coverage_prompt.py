@@ -207,6 +207,47 @@ async def test_rubric_reaches_the_reasoning_model(cam, monkeypatch):
     assert out["speak"] is None          # routine → nothing to say
 
 
+# ── Property-only scope: watch only inside the property line (v9.80.0) ────────
+def test_property_scope_directive_and_default(cam):
+    d = cam._PROPERTY_SCOPE_DIRECTIVE
+    assert "PROPERTY ONLY" in d
+    assert "out of scope" in d and "street" in d and "sidewalk" in d
+    assert "Do NOT describe, flag, or raise" in d
+    # default is ON: confined to the property unless told otherwise
+    assert cam._property_scope_only(None) is True
+
+
+async def test_property_scope_on_for_auto_review(cam, monkeypatch):
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"] = messages[0]["content"]
+        return {"text": '{"severity":"routine","notable":false,"category":"empty","summary":"x","speak":""}'}
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    await cam._reason_about_scene(
+        None, object(), "", "front_yard", "A car drives past on the street.",
+        "motion", property_only=True)
+    assert "SCOPE — PROPERTY ONLY" in captured["system"]
+
+
+async def test_property_scope_off_for_manual_look(cam, monkeypatch):
+    # A manual analyze ("specifically told otherwise") must see the whole frame.
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"] = messages[0]["content"]
+        return {"text": '{"severity":"routine","notable":false,"category":"other","summary":"x","speak":""}'}
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    await cam._reason_about_scene(
+        None, object(), "", "front_yard", "A person on the sidewalk.",
+        "motion", property_only=False)
+    assert "SCOPE — PROPERTY ONLY" not in captured["system"]
+    # the severity rubric is still present either way
+    assert "being unrecognised is NOT by itself notable" in captured["system"]
+
+
 def test_strip_think(cam):
     assert cam._strip_think("<think>reasoning</think>Hello") == "Hello"
     assert cam._strip_think("before<think>x</think>after") == "beforeafter"

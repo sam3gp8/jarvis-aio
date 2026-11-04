@@ -1,3 +1,23 @@
+## [9.80.0] — JARVIS watches only inside the property line
+
+By default JARVIS now confines its camera attention to **your property** — the
+home and its own grounds (yard, driveway, path, porch, entryways) — and
+disregards everything beyond the boundary. A street-facing camera no longer
+narrates the public road: someone walking down the street, a car driving past, a
+neighbour next door are all out of scope, so the scene reads `routine` and
+nothing is said. This hardens 9.78.0's "passers-by are routine" into an explicit
+instruction to **ignore off-property activity entirely** when judging a scene.
+
+"Unless specifically told otherwise":
+- A **manual analyze** (you clicking Analyze / asking JARVIS to look at a camera)
+  always reports the whole frame — you asked, so nothing is hidden.
+- **Settings → Cameras → Property-only scope** (default ON) turns it off, so
+  JARVIS also watches public areas (e.g. a camera you want framing the street).
+
+Scope only changes the *narration/announce* reasoning; it does not touch the
+always-on intrusion path. A person actually coming onto the property or up to a
+door is on-property and still graded normally.
+
 ## [9.79.0] — Download diagnostics straight from the panel
 
 A second, more robust route to the diagnostics dump that doesn't depend on Home

@@ -848,6 +848,7 @@ async def ws_get_panel_data(
                     str(_runtime_opt(hass, entry, "camera_alert_level", "") or "")
                     or ("all" if _runtime_opt(hass, entry, "camera_important_only", True) is False else "urgent")
                 ),
+                "camera_property_scope_only": bool(_runtime_opt(hass, entry, "camera_property_scope_only", True)),
                 "package_detection": bool(_runtime_opt(hass, entry, "package_detection", True)),
                 "visitor_learning": bool(_runtime_opt(hass, entry, "visitor_learning", True)),
                 "rich_reasoning": bool(_runtime_opt(hass, entry, "rich_reasoning", False)),
@@ -1641,6 +1642,7 @@ PANEL_WRITABLE_KEYS = {
     "camera_motion_vision",         # bool: generic HA motion sensor → silent camera vision (#140)
     "camera_important_only",         # bool: (legacy) auto reviews announce only important events
     "camera_alert_level",            # str: off|urgent|important|all — severity threshold for auto camera announcements
+    "camera_property_scope_only",    # bool: auto reviews consider only on-property activity; off = watch public areas too (v9.80.0)
     "package_detection",            # bool: watch porch cameras for packages & mail
     "visitor_learning",             # bool: silent vision learning from person events
     "rich_reasoning",               # bool: cloud-first reasoning for medium+ events

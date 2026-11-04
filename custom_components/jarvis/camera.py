@@ -312,6 +312,35 @@ _SCENE_SEVERITY_RUBRIC = (
     "is 'routine', recognised or not. Do NOT announce ordinary passers-by.\n"
 )
 
+# Property-only scope (v9.80.0). When on (the default), JARVIS confines its
+# attention to its own property and disregards anything beyond the boundary, so a
+# street-facing camera doesn't narrate the public road at all. Reinforces the
+# rubric's "passers-by are routine" with a harder instruction to ignore
+# off-property activity entirely. Suppressed for a manual analyze (the user
+# explicitly asked to look) and toggleable off via `camera_property_scope_only`.
+_PROPERTY_SCOPE_DIRECTIVE = (
+    "SCOPE — PROPERTY ONLY: consider only what happens ON this property — the home "
+    "itself and its own grounds (yard, driveway, path, porch, entryways). Treat "
+    "everything beyond the property line as out of scope: the street, road, "
+    "sidewalk, a neighbour's property, vehicles parked or passing in the road, and "
+    "anything in the far distance. Do NOT describe, flag, or raise the severity "
+    "for people, vehicles, or activity that is off the property — judge the scene "
+    "only by what occurs on it. If the only activity is off-property (someone "
+    "walking down the street, a car driving past, a neighbour next door), the "
+    "scene is 'routine' and there is nothing worth saying.\n"
+)
+
+
+def _property_scope_only(hass: HomeAssistant) -> bool:
+    """Whether auto camera reviews are confined to the property (default True).
+    'Unless specifically told otherwise': a manual analyze bypasses this, and the
+    `camera_property_scope_only` option turns it off to watch public areas too.
+    Never raises — on any config-read error it fails safe to property-only."""
+    try:
+        return bool(_cfg_opt(hass, "camera_property_scope_only", True))
+    except Exception:
+        return True
+
 
 async def _reason_about_scene(
     hass: HomeAssistant,
@@ -322,6 +351,7 @@ async def _reason_about_scene(
     det_type: str,
     covered: list | None = None,
     frigate_dets: dict | None = None,
+    property_only: bool = True,
 ) -> dict:
     """
     Camera-reasoning step: interpret a raw vision description into a judgment.
@@ -344,6 +374,7 @@ async def _reason_about_scene(
         "camera saw, classify how much it warrants the resident's attention. "
         "Default to 'routine' — the large majority of footage is routine.\n"
         + _SCENE_SEVERITY_RUBRIC
+        + (_PROPERTY_SCOPE_DIRECTIVE if property_only else "")
         + "You may be given Frigate object-detector ground truth: if the description "
         "claims a PERSON but Frigate reports NO person, treat it as a likely false "
         "positive (a shadow, reflection, or headlight — very common in night or "
@@ -1514,9 +1545,12 @@ async def async_analyze_camera(
     rsn_model = _cfg_opt(hass, "camera_reasoning_model", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
     rsn_client = await async_make_client(
         hass, rsn_provider, rsn_model, groq_client)
+    # Property-only scope applies to automatic reviews; a manual analyze
+    # (gate_announce False — the user explicitly asked to look) sees everything.
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,
         covered=cov_rooms, frigate_dets=frigate_dets,
+        property_only=(gate_announce and _property_scope_only(hass)),
     )
     summary = judgment["summary"]
 
