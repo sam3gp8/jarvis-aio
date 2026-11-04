@@ -5367,6 +5367,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             </button>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Direct Reasoning</span>
+            <span class="toggle-desc">On = skip JARVIS's local classification and send chat input straight to the reasoning agent. For installs that front JARVIS with their own agent (#469); off keeps the zero-API local engine primary</span>
+            <button class="toggle-btn ${(d.config?.direct_reasoning) ? 'on' : 'off'}"
+              data-cfg-key="direct_reasoning"
+              data-cfg-val="${(d.config?.direct_reasoning) ? 'false' : 'true'}">
+              ${(d.config?.direct_reasoning) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Light Control</span>
             <span class="toggle-desc">Off = still show which rooms have lights on, but disable toggling from the dashboard</span>
             <button class="toggle-btn ${(d.config?.light_control_enabled !== false) ? 'on' : 'off'}"

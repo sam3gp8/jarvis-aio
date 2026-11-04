@@ -1002,14 +1002,24 @@ class JarvisAgent(conversation.ConversationEntity):
             # API cost. Only genuinely complex/creative/analytical requests
             # fall through to the configured LLM agent.
             from .local_engine import try_local, score_complexity
-            local_result = await try_local(self.hass, user_input.text, honorific)
+            # Direct-reasoning (#469): an install that fronts JARVIS with its own
+            # agent (one that already triaged the request) can skip JARVIS's
+            # local-first classification — try_local + complexity scoring — and
+            # send the request STRAIGHT to the reasoning agent, saving the
+            # double-classification latency. Default OFF: the local engine stays
+            # primary and still handles ~95% of requests at zero API cost for
+            # everyone else. Offline safety is preserved below (a doomed LLM call
+            # still falls back to a forced local salvage pass).
+            _direct = bool(self._opt("direct_reasoning", False))
+            local_result = None if _direct else await try_local(
+                self.hass, user_input.text, honorific)
 
             if local_result and local_result.handled:
                 response_text = local_result.text
                 _LOGGER.info("JARVIS local: %s", response_text[:100])
                 jarvis_log("LOCAL", f"handled: {response_text[:80]}")
             else:
-                complexity = score_complexity(user_input.text)
+                complexity = -1 if _direct else score_complexity(user_input.text)
                 # v5.9.06: Connectivity-aware escalation. If the circuit breaker
                 # is OPEN (LLM known-unreachable), skip the doomed network call
                 # entirely and attempt an offline salvage pass instead.
@@ -1031,7 +1041,10 @@ class JarvisAgent(conversation.ConversationEntity):
                             f"connectivity returns."
                         )
                 else:
-                    jarvis_log("AGENT", f"LLM needed (complexity={complexity}): {user_input.text[:60]}")
+                    jarvis_log("AGENT",
+                               f"direct reasoning (local triage off): {user_input.text[:60]}"
+                               if _direct else
+                               f"LLM needed (complexity={complexity}): {user_input.text[:60]}")
                     # Complex request — use the configured LLM agent.
                     from .agent import run_agent
                     from . import ha_secrets as _hs

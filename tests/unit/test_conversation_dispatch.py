@@ -1030,3 +1030,65 @@ def test_connectivity_failure_sentinel_only_matches_real_failure_phrases():
     ) is True
     assert mod._is_connectivity_failure("My reasoning systems are working fine.") is False
     assert mod._is_connectivity_failure("") is True
+
+
+def test_direct_reasoning_skips_local_triage_and_goes_straight_to_agent(monkeypatch):
+    """#469: with direct_reasoning ON, conversation input bypasses JARVIS's local
+    engine (try_local / score_complexity) and goes STRAIGHT to the reasoning
+    agent — for installs that front JARVIS with their own classifier. On the
+    online path try_local is never consulted."""
+    import asyncio
+    import sys
+
+    mod = _load_conversation_module(monkeypatch)
+    agent = _make_dispatch_agent(mod)
+    # direct_reasoning ON; everything else keeps its default (relevance_gate True).
+    agent._opt = lambda key, default=None: True if key == "direct_reasoning" else default
+
+    local_engine = sys.modules[f"{mod.__package__}.local_engine"]
+    local_calls = []
+    async def spy_local(hass, text, honorific, force=False):
+        local_calls.append(force)
+        return types.SimpleNamespace(handled=force, text="salvage" if force else "")
+    local_engine.try_local = spy_local
+
+    agent_mod = sys.modules[f"{mod.__package__}.agent"]
+    agent_calls = []
+    async def capture_agent(hass, **kwargs):
+        agent_calls.append(kwargs)
+        return "Reasoned answer."
+    agent_mod.run_agent = capture_agent
+
+    user_input = types.SimpleNamespace(
+        text="what is the history of the Roman empire", device_id=None,
+        conversation_id="direct", language="en", context={})
+    result = asyncio.run(agent._handle_message_impl(user_input))
+
+    assert result.response.speech == "Reasoned answer."
+    assert agent_calls, "run_agent must be called in direct mode"
+    assert local_calls == [], "try_local must NOT be consulted when direct_reasoning is on (online path)"
+
+
+def test_local_first_still_default_when_direct_reasoning_off(monkeypatch):
+    """Default (direct_reasoning OFF): the local engine stays primary — try_local
+    is consulted before any escalation, exactly as before #469."""
+    import asyncio
+    import sys
+
+    mod = _load_conversation_module(monkeypatch)
+    agent = _make_dispatch_agent(mod)   # _opt returns the default → direct_reasoning False
+
+    local_engine = sys.modules[f"{mod.__package__}.local_engine"]
+    local_calls = []
+    async def spy_local(hass, text, honorific, force=False):
+        local_calls.append(force)
+        return types.SimpleNamespace(handled=True, text="Handled locally.")
+    local_engine.try_local = spy_local
+
+    user_input = types.SimpleNamespace(
+        text="turn on the kitchen light", device_id=None,
+        conversation_id="local", language="en", context={})
+    result = asyncio.run(agent._handle_message_impl(user_input))
+
+    assert local_calls == [False], "try_local must be consulted first by default"
+    assert "Handled locally." in result.response.speech

@@ -850,6 +850,7 @@ async def ws_get_panel_data(
                 "package_detection": bool(_runtime_opt(hass, entry, "package_detection", True)),
                 "visitor_learning": bool(_runtime_opt(hass, entry, "visitor_learning", True)),
                 "rich_reasoning": bool(_runtime_opt(hass, entry, "rich_reasoning", False)),
+                "direct_reasoning": bool(_runtime_opt(hass, entry, "direct_reasoning", False)),
                 "light_control_enabled": bool(_runtime_opt(hass, entry, "light_control_enabled", True)),
                 "appliance_power_guessing": bool(_runtime_opt(hass, entry, "appliance_power_guessing", False)),
                 "departure_alerts_enabled": bool(_runtime_opt(hass, entry, "departure_alerts_enabled", True)),
@@ -1642,6 +1643,7 @@ PANEL_WRITABLE_KEYS = {
     "package_detection",            # bool: watch porch cameras for packages & mail
     "visitor_learning",             # bool: silent vision learning from person events
     "rich_reasoning",               # bool: cloud-first reasoning for medium+ events
+    "direct_reasoning",             # bool: skip JARVIS's local triage, send conversation input straight to the reasoning agent (#469)
     "llm_base_url",                 # str: OpenAI-compatible endpoint (Ollama GPU server)
     "pattern_min_occurrences",      # int: pattern engine repeat threshold
     "pattern_confidence",           # float: pattern engine confidence threshold
