@@ -8,6 +8,7 @@ available on site"."""
 from __future__ import annotations
 
 import logging
+import math
 
 from .fault_log import FaultLog
 from .heartbeat import HeartbeatMonitor
@@ -26,6 +27,71 @@ _REDACT_KEYS = {
     "client_secret", "client_id", "password", "secret", "notify_service",
     "floor_plan_address", "imap_user",
 }
+
+
+def _json_safe(obj, _depth: int = 0, _seen: frozenset = frozenset()):
+    """Return a structurally-equivalent object that serialises to STRICT, valid
+    JSON — string keys only, no NaN/Infinity, no datetimes / sets / bytes / opaque
+    objects. Never raises.
+
+    Why this exists: Home Assistant serialises the diagnostics dict with
+    ``json.dumps`` when the "Download diagnostics" button is used. Two things a
+    live subsystem can hand back break that download even though building the dict
+    succeeded:
+
+    * a **non-string dict key** (an int, an enum, a tuple) → ``json.dumps`` raises
+      ``TypeError`` and HA returns an error instead of a file; and
+    * a **NaN / Infinity float** (a ``0/0`` rate, an unavailable sensor reading) →
+      ``json.dumps`` emits the bare tokens ``NaN`` / ``Infinity``, which are not
+      valid JSON, so the downloaded file won't parse in a strict reader.
+
+    The dict-building code (``_redact`` and the collectors) guards against
+    *exceptions*, but not against either of these — the value sails through and
+    only blows up in HA's serializer, downstream of us. This final pass closes
+    that gap so the download is always a valid, parseable ``.json`` file. (v9.78.0)
+    """
+    try:
+        if obj is None or isinstance(obj, (bool, int, str)):
+            return obj
+        if isinstance(obj, float):
+            # NaN / ±Infinity are not valid JSON — coerce to null.
+            return obj if math.isfinite(obj) else None
+        if isinstance(obj, (bytes, bytearray)):
+            try:
+                return bytes(obj).decode("utf-8", "replace")
+            except Exception:
+                return repr(bytes(obj))
+        if _depth > 40:
+            return "**max-depth**"
+        if isinstance(obj, dict):
+            if id(obj) in _seen:
+                return "**circular**"
+            seen = _seen | {id(obj)}
+            out = {}
+            for k, v in obj.items():
+                if isinstance(k, str):
+                    key = k
+                elif isinstance(k, bool) or k is None or isinstance(k, (int, float)):
+                    key = str(k)
+                else:
+                    key = repr(k)
+                out[key] = _json_safe(v, _depth + 1, seen)
+            return out
+        if isinstance(obj, (list, tuple, set, frozenset)):
+            if id(obj) in _seen:
+                return "**circular**"
+            seen = _seen | {id(obj)}
+            return [_json_safe(v, _depth + 1, seen) for v in obj]
+        # datetime / date / time and the like → isoformat; anything else → str.
+        iso = getattr(obj, "isoformat", None)
+        if callable(iso):
+            try:
+                return obj.isoformat()
+            except Exception:
+                pass
+        return str(obj)
+    except Exception:
+        return "**unserializable**"
 
 
 def _redact(obj):
@@ -210,5 +276,9 @@ async def async_get_config_entry_diagnostics(hass, entry) -> dict:
     except Exception as exc:
         diag["conversation_log_error"] = str(exc)
 
-    return diag
+    # Final guarantee: whatever the collectors handed back, the download must be a
+    # valid, parseable JSON file. HA serialises this with json.dumps; a non-string
+    # key or a NaN/Infinity from a live subsystem would otherwise fail the download
+    # or produce a file a strict parser rejects. (v9.78.0)
+    return _json_safe(diag)
 

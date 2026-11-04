@@ -5340,6 +5340,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             <select class="cfg-field" data-cfg-key="camera_alert_level">${this._optsLabeled([['off','Off — observe only'],['urgent','Urgent only (default)'],['important','Important — + deliveries'],['all','Everything notable']], d.config?.camera_alert_level || 'urgent')}</select>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Property-only scope</span>
+            <span class="toggle-desc">Auto reviews consider only what happens on your property — the home and its own yard, driveway, path, porch &amp; entryways. Activity beyond the property line (the street, sidewalk, a neighbour, passing traffic) is ignored, so a street-facing camera won't narrate the public road. Turn off to also watch public areas. A manual "analyze" always reports the whole frame.</span>
+            <button class="toggle-btn ${(d.config?.camera_property_scope_only !== false) ? 'on' : 'off'}"
+              data-cfg-key="camera_property_scope_only"
+              data-cfg-val="${(d.config?.camera_property_scope_only !== false) ? 'false' : 'true'}">
+              ${(d.config?.camera_property_scope_only !== false) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Package Watch</span>
             <span class="toggle-desc">Detect packages &amp; mail at the door</span>
             <button class="toggle-btn ${(d.config?.package_detection) ? 'on' : 'off'}"
@@ -5797,6 +5806,7 @@ ${this._renderExcludedEntities(d)}
         <div class="mem-sub">Health of the core services JARVIS calls — LLM, embeddings, speech. A quick "is everything up?" check.</div>
         <div class="doclib-controls">
           <button class="cam-diag-btn" id="diag-refresh">⟳ RUN CHECK</button>
+          <button class="cam-diag-btn" id="diag-download" title="Download JARVIS's full diagnostics as a JSON file (credential-redacted) — for sharing when reporting an issue.">⬇ DOWNLOAD DIAG</button>
         </div>
         <div class="diag-body" id="diag-body">
           <div class="mmwave-empty">Loading…</div>
@@ -9798,6 +9808,36 @@ ${this._renderExcludedEntities(d)}
       btn.textContent = "⟳ CHECKING…";
       try { await this._fetchDiagnostics(); }
       finally { btn.disabled = false; btn.textContent = orig; }
+    });
+
+    // Download the full diagnostics dump straight from the panel. This goes over
+    // the authenticated websocket and builds the file in the browser, so it never
+    // depends on HA's own "Download diagnostics" endpoint (which can choke on a
+    // value its JSON serializer rejects). The backend payload is already
+    // credential-redacted and JSON-safe. (v9.78.0)
+    const dl = this.shadowRoot?.getElementById("diag-download");
+    dl?.addEventListener("click", async () => {
+      if (!this._hass) return;
+      dl.disabled = true;
+      const orig = dl.textContent;
+      dl.textContent = "⬇ BUILDING…";
+      try {
+        const data = await this._hass.callWS({ type: "jarvis/download_diagnostics" });
+        const text = JSON.stringify(data, null, 2);
+        const blob = new Blob([text], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        a.href = url;
+        a.download = `jarvis-diagnostics-${stamp}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        this._toast("✓ Diagnostics downloaded", "ok");
+      } catch (err) {
+        this._toast(`✗ Diagnostics download failed — ${err?.message || err}`, "err");
+      } finally {
+        dl.disabled = false; dl.textContent = orig;
+      }
     });
   }
 

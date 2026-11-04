@@ -172,6 +172,82 @@ def test_level_rank_ordering(cam):
     assert cam._SEV_RANK["urgent"] > cam._SEV_RANK["notable"] > cam._SEV_RANK["routine"]
 
 
+# ── Scene-severity rubric: stop announcing ordinary passers-by (v9.78.0) ──────
+def test_rubric_declares_unrecognised_is_not_notable(cam):
+    r = cam._SCENE_SEVERITY_RUBRIC
+    # the headline policy: being unrecognised is not, by itself, worth announcing
+    assert "being unrecognised is NOT by itself notable" in r
+    assert "Do NOT announce ordinary passers-by." in r
+    # public-space / passing traffic is explicitly routine
+    assert "passing by on a street" in r
+    assert "recognised or not" in r
+    # notable is reserved for coming ONTO the property; urgent stays for threats
+    assert "ONTO the property" in r
+    assert "prowler" in r
+
+
+async def test_rubric_reaches_the_reasoning_model(cam, monkeypatch):
+    # A street passer-by must carry the recalibrated rubric to the model, and the
+    # model's 'routine' verdict must pass through so nothing is announced.
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"] = messages[0]["content"]
+        return {"text": ('{"severity":"routine","notable":false,'
+                         '"category":"person","summary":"A person walks along the '
+                         'street.","speak":""}')}
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    out = await cam._reason_about_scene(
+        None, object(), "", "front_yard",
+        "A person is walking along the sidewalk out on the street.", "motion")
+    assert "Do NOT announce ordinary passers-by." in captured["system"]
+    assert "being unrecognised is NOT by itself notable" in captured["system"]
+    assert out["severity"] == "routine"
+    assert out["speak"] is None          # routine → nothing to say
+
+
+# ── Property-only scope: watch only inside the property line (v9.80.0) ────────
+def test_property_scope_directive_and_default(cam):
+    d = cam._PROPERTY_SCOPE_DIRECTIVE
+    assert "PROPERTY ONLY" in d
+    assert "out of scope" in d and "street" in d and "sidewalk" in d
+    assert "Do NOT describe, flag, or raise" in d
+    # default is ON: confined to the property unless told otherwise
+    assert cam._property_scope_only(None) is True
+
+
+async def test_property_scope_on_for_auto_review(cam, monkeypatch):
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"] = messages[0]["content"]
+        return {"text": '{"severity":"routine","notable":false,"category":"empty","summary":"x","speak":""}'}
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    await cam._reason_about_scene(
+        None, object(), "", "front_yard", "A car drives past on the street.",
+        "motion", property_only=True)
+    assert "SCOPE — PROPERTY ONLY" in captured["system"]
+
+
+async def test_property_scope_off_for_manual_look(cam, monkeypatch):
+    # A manual analyze ("specifically told otherwise") must see the whole frame.
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"] = messages[0]["content"]
+        return {"text": '{"severity":"routine","notable":false,"category":"other","summary":"x","speak":""}'}
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    await cam._reason_about_scene(
+        None, object(), "", "front_yard", "A person on the sidewalk.",
+        "motion", property_only=False)
+    assert "SCOPE — PROPERTY ONLY" not in captured["system"]
+    # the severity rubric is still present either way
+    assert "being unrecognised is NOT by itself notable" in captured["system"]
+
+
 def test_strip_think(cam):
     assert cam._strip_think("<think>reasoning</think>Hello") == "Hello"
     assert cam._strip_think("before<think>x</think>after") == "beforeafter"

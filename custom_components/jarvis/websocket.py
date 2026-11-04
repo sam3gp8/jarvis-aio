@@ -82,6 +82,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_documents)
         websocket_api.async_register_command(hass, ws_semantic_search)
         websocket_api.async_register_command(hass, ws_diagnostics)
+        websocket_api.async_register_command(hass, ws_download_diagnostics)
         websocket_api.async_register_command(hass, ws_voice_confirm_test)
         websocket_api.async_register_command(hass, ws_intrusion)
         websocket_api.async_register_command(hass, ws_faces)
@@ -847,6 +848,7 @@ async def ws_get_panel_data(
                     str(_runtime_opt(hass, entry, "camera_alert_level", "") or "")
                     or ("all" if _runtime_opt(hass, entry, "camera_important_only", True) is False else "urgent")
                 ),
+                "camera_property_scope_only": bool(_runtime_opt(hass, entry, "camera_property_scope_only", True)),
                 "package_detection": bool(_runtime_opt(hass, entry, "package_detection", True)),
                 "visitor_learning": bool(_runtime_opt(hass, entry, "visitor_learning", True)),
                 "rich_reasoning": bool(_runtime_opt(hass, entry, "rich_reasoning", False)),
@@ -1640,6 +1642,7 @@ PANEL_WRITABLE_KEYS = {
     "camera_motion_vision",         # bool: generic HA motion sensor → silent camera vision (#140)
     "camera_important_only",         # bool: (legacy) auto reviews announce only important events
     "camera_alert_level",            # str: off|urgent|important|all — severity threshold for auto camera announcements
+    "camera_property_scope_only",    # bool: auto reviews consider only on-property activity; off = watch public areas too (v9.80.0)
     "package_detection",            # bool: watch porch cameras for packages & mail
     "visitor_learning",             # bool: silent vision learning from person events
     "rich_reasoning",               # bool: cloud-first reasoning for medium+ events
@@ -3503,6 +3506,35 @@ async def ws_diagnostics(
         connection.send_result(msg["id"], res)
     except Exception as exc:
         _LOGGER.exception("ws_diagnostics failed: %s", exc)
+        connection.send_error(msg["id"], "diagnostics_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/download_diagnostics",
+})
+@websocket_api.async_response
+async def ws_download_diagnostics(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Build the full JARVIS diagnostics dump and hand it to the panel so the user
+    can download it straight from Settings → General, without HA's own "Download
+    diagnostics" button (v9.78.0+). It returns exactly what that button would —
+    ``async_get_config_entry_diagnostics`` — which is credential-redacted and run
+    through ``_json_safe`` so the payload is always strict, parseable JSON. Admin
+    only, since the dump includes (redacted) config and recent logs."""
+    if _deny_non_admin(connection, msg):
+        return
+    try:
+        from . import diagnostics
+        from .const import DOMAIN
+        entries = hass.config_entries.async_entries(DOMAIN)
+        entry = entries[0] if entries else None
+        data = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
+        connection.send_result(msg["id"], data)
+    except Exception as exc:
+        _LOGGER.exception("ws_download_diagnostics failed: %s", exc)
         connection.send_error(msg["id"], "diagnostics_failed", str(exc))
 
 

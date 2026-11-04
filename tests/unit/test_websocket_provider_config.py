@@ -2599,3 +2599,34 @@ async def test_voices_enroll_admin_stores_voiceprint(fake_hass, monkeypatch):
     assert admin.error is None
     assert calls and calls[0][0] == "Sam"      # enroll() was called with the name
     assert admin.result is not None             # returns the refreshed list
+
+
+# ── jarvis/download_diagnostics: panel-side diagnostics download (v9.79.0) ──────
+async def test_download_diagnostics_returns_full_dump_for_admin(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    entry = object()
+    fake_hass.config_entries.async_entries = lambda *a, **k: [entry]
+
+    captured = {}
+    diag_mod = types.ModuleType("jc.diagnostics")
+    async def _fake_dump(hass, ent):
+        captured["entry"] = ent
+        return {"integration": "jarvis", "ok": True}
+    diag_mod.async_get_config_entry_diagnostics = _fake_dump
+    _install_jc_module(monkeypatch, "diagnostics", diag_mod)
+
+    admin = _Conn(is_admin=True)
+    await websocket.ws_download_diagnostics(fake_hass, admin, {"id": 3})
+    assert admin.error is None
+    assert admin.result == (3, {"integration": "jarvis", "ok": True})
+    assert captured["entry"] is entry      # the JARVIS config entry was handed through
+
+
+async def test_download_diagnostics_denied_for_non_admin(fake_hass):
+    # The dump carries (redacted) config + recent logs, so it is admin-only and
+    # must refuse before building anything.
+    websocket = _load_websocket_module()
+    nonadmin = _Conn(is_admin=False)
+    await websocket.ws_download_diagnostics(fake_hass, nonadmin, {"id": 4})
+    assert nonadmin.result is None
+    assert nonadmin.error is not None and nonadmin.error[1] == "unauthorized"
