@@ -280,6 +280,39 @@ def _guess_detection_type(prompt: str, analysis: str) -> str:
     return "motion"
 
 
+# Scene-severity rubric for the camera-reasoning model. Pulled out as a constant
+# so the grading policy is reviewable and unit-testable without an LLM call.
+# The headline rule (v9.78.0): being unrecognised is NOT by itself notable —
+# ordinary passers-by and anyone in public space are routine, so JARVIS stops
+# announcing every stranger (and every person out on the street) it ever sees.
+_SCENE_SEVERITY_RUBRIC = (
+    "Severity levels:\n"
+    "- 'urgent': a genuine security concern — an unrecognised person "
+    "approaching, lingering at, or standing at a door or entry; someone "
+    "apparently trying to enter or tamper; a stranger ON the property at an "
+    "unusual hour; a prowler. These are rare.\n"
+    "- 'notable': worth a quiet heads-up but not alarming — a delivery, "
+    "package, or mail dropped off or taken; an unrecognised person who comes "
+    "ONTO the property or right up to the home (walking up a path, driveway, "
+    "or steps; onto a porch; into a private yard) without yet engaging an "
+    "entry.\n"
+    "- 'routine': everything else — a recognised resident coming or going; a "
+    "person, vehicle, or animal simply passing by on a street, sidewalk, road, "
+    "or other public area, or merely visible in the distance or on a "
+    "neighbouring property (ordinary passing foot or road traffic is routine "
+    "EVEN IF the person is unrecognised); an empty or unchanged scene; a car "
+    "parked or passing; a pet or wild animal; weather, shadows, lights, or "
+    "normal indoor activity. When unsure, choose 'routine'.\n"
+    "KEY RULE: being unrecognised is NOT by itself notable or urgent. Judge by "
+    "what the person is DOING and WHERE — not merely that you can't name them. "
+    "A person only rises to 'notable' or 'urgent' when they are on, entering, "
+    "or actively engaging the property, or clearly behaving suspiciously. "
+    "Anyone merely present, passing through, or out in public space — someone "
+    "walking down the street or sidewalk, a neighbour, a passer-by, traffic — "
+    "is 'routine', recognised or not. Do NOT announce ordinary passers-by.\n"
+)
+
+
 async def _reason_about_scene(
     hass: HomeAssistant,
     reasoning_client,
@@ -310,19 +343,8 @@ async def _reason_about_scene(
         "You are JARVIS's camera-reasoning module. Given a description of what a "
         "camera saw, classify how much it warrants the resident's attention. "
         "Default to 'routine' — the large majority of footage is routine.\n"
-        "Severity levels:\n"
-        "- 'urgent': a genuine security concern — an unrecognised person "
-        "approaching, lingering at, or standing at a door or entry; someone "
-        "apparently trying to enter or tamper; a stranger at the property at an "
-        "unusual hour; a prowler. These are rare.\n"
-        "- 'notable': worth a quiet heads-up but not alarming — a delivery, "
-        "package, or mail dropped off or taken; an unrecognised person briefly "
-        "passing through view.\n"
-        "- 'routine': everything else — a recognised resident coming or going, an "
-        "empty or unchanged scene, a car parked or passing, a pet or wild animal, "
-        "weather, shadows, lights, or normal indoor activity. When unsure, choose "
-        "'routine'.\n"
-        "You may be given Frigate object-detector ground truth: if the description "
+        + _SCENE_SEVERITY_RUBRIC
+        + "You may be given Frigate object-detector ground truth: if the description "
         "claims a PERSON but Frigate reports NO person, treat it as a likely false "
         "positive (a shadow, reflection, or headlight — very common in night or "
         "infrared footage) and choose 'routine'.\n"

@@ -1,3 +1,39 @@
+## [9.78.0] — Stop announcing ordinary passers-by, and fix the JARVIS diagnostics download
+
+Two fixes from field reports.
+
+**Camera stopped crying "unidentified person" at everyone.** The scene-reasoning
+rubric graded *"an unrecognised person briefly passing through view"* as
+**notable**, so at the `important` alert level JARVIS announced **every**
+unrecognised person it saw on any camera — including people simply walking down
+the street past an outdoor camera. The rubric is recalibrated: being unrecognised
+is **not** by itself notable. A person now only rises to notable/urgent when they
+are **on, entering, or engaging the property** (up a path/driveway/steps, onto a
+porch, into a private yard), or clearly behaving suspiciously. Anyone merely
+present, passing through, or out in public space — someone on the street or
+sidewalk, a neighbour, passing traffic — is **routine** and is not announced,
+recognised or not. Genuine security events (a stranger approaching or at a door,
+an attempted entry, a prowler at an odd hour) remain urgent, so this narrows the
+noise without lowering the guard. This is independent of lockdown — it's the
+camera narration/announce path, not the intrusion alarm.
+
+**"Download diagnostics" produces a valid file again.** Home Assistant serialises
+the JARVIS diagnostics dump with `json.dumps`; a value a live subsystem handed
+back — a non-string dict key, or a `NaN`/`Infinity` float from an unavailable
+reading — made that serialisation either fail (no file) or emit tokens a strict
+JSON reader rejects (a file that "won't parse"). The builder guarded against
+*exceptions* but not against these, which only surface in HA's serializer
+downstream of us. The dump now goes through a final `_json_safe()` pass that
+guarantees strict, parseable JSON (string keys, finite numbers, ISO timestamps),
+so the download is always a well-formed `config_entry-jarvis-….json`.
+
+**Known follow-up:** when a resident walks right up to their own door and Frigate
+hasn't put a fresh face match in JARVIS's recognition cache, they can still be
+narrated as unrecognised at that entry. JARVIS's `last_seen_at` / `resident_present`
+read only the MQTT recognition cache, not Frigate's `last_recognized_face`
+sensors — wiring those sensors into the narration hint is the next step to name
+residents at their own entries.
+
 ## [9.77.0] — Stop calling a recognised resident an "unidentified person" on the camera that can't see their face
 
 Follow-up to the intrusion diagnostic (9.70.0). The real source of the false

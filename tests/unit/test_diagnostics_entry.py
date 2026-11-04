@@ -100,6 +100,90 @@ def test_diagnostics_exports_entry_point(diag):
     assert "async_get_config_entry_diagnostics" in diag.__all__
 
 
+# ── JSON-safety: the download must always be strict, parseable JSON (v9.78.0) ───
+# HA serialises the dump with json.dumps. A non-string dict key raises TypeError
+# (download fails); a NaN/Infinity float emits invalid-JSON tokens (file won't
+# parse). _json_safe() must neutralise both while preserving the data.
+
+def _strict_dumps(obj):
+    # allow_nan=False makes json.dumps raise on NaN/Infinity instead of emitting
+    # the non-standard tokens — i.e. it accepts ONLY strict, parseable JSON.
+    import json
+    return json.dumps(obj, allow_nan=False)
+
+
+def test_json_safe_stringifies_non_string_keys(diag):
+    import enum
+
+    class Cap(enum.Enum):
+        LOCK = "lock"
+    out = diag._json_safe({1: "a", 3.5: "b", None: "c", True: "d",
+                           ("x", "y"): "e", Cap.LOCK: "f"})
+    # every key is now a string, and the structure still serialises strictly
+    assert all(isinstance(k, str) for k in out)
+    _strict_dumps(out)  # must not raise
+
+
+def test_json_safe_coerces_nan_and_infinity(diag):
+    out = diag._json_safe({"rate": float("nan"), "hi": float("inf"),
+                           "lo": float("-inf"), "ok": 0.5})
+    assert out["rate"] is None and out["hi"] is None and out["lo"] is None
+    assert out["ok"] == 0.5
+    _strict_dumps(out)  # must not raise
+
+
+def test_json_safe_handles_sets_bytes_datetimes_and_objects(diag):
+    import datetime
+
+    class Opaque:
+        def __repr__(self):
+            return "<opaque>"
+    val = {
+        "a_set": {1, 2, 3},
+        "a_tuple": (1, 2),
+        "some_bytes": b"\xff\xfehi",
+        "when": datetime.datetime(2026, 1, 2, 3, 4, 5),
+        "obj": Opaque(),
+    }
+    out = diag._json_safe(val)
+    assert isinstance(out["a_set"], list) and sorted(out["a_set"]) == [1, 2, 3]
+    assert out["a_tuple"] == [1, 2]
+    assert isinstance(out["some_bytes"], str)
+    assert out["when"] == "2026-01-02T03:04:05"
+    assert out["obj"] == "<opaque>"
+    _strict_dumps(out)  # must not raise
+
+
+def test_json_safe_survives_circular_reference(diag):
+    d = {"name": "loop"}
+    d["self"] = d
+    out = diag._json_safe(d)
+    assert out["name"] == "loop"
+    assert out["self"] == "**circular**"
+    _strict_dumps(out)  # must not raise
+
+
+async def test_diagnostics_entry_point_output_is_strict_json(diag):
+    # A live-shaped entry whose values include the exact hazards (a NaN, a set,
+    # a datetime) must still yield a dump that strict JSON accepts.
+    import datetime
+
+    class _Entry:
+        version = 1
+        data = {"api_key": "secret", "ratio": float("nan")}
+        options = {"when": datetime.datetime(2026, 1, 1), "tags": {"a", "b"}}
+    class _States:
+        def async_all(self):
+            return []
+    class _Hass:
+        states = _States()
+        async def async_add_executor_job(self, fn, *a):
+            return fn(*a)
+    out = await diag.async_get_config_entry_diagnostics(_Hass(), _Entry())
+    _strict_dumps(out)  # the whole dump parses strictly — no NaN, no bad keys
+    assert out["integration"] == "jarvis"
+
+
 # ── authority-enforce rollout data (Step A of the allowlist-widening flip) ──────
 
 class _AuthHass:
