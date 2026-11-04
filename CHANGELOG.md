@@ -1,3 +1,23 @@
+## [9.76.0] — Direct Reasoning: skip JARVIS's local classification and go straight to the agent
+
+**Discussion #469.** JARVIS is local-first: every chat input runs through its own
+classification — `try_local()` (rule-based intent handling) + complexity scoring —
+*before* it ever reaches the reasoning agent. That's what handles ~95% of requests
+at zero API cost. But if you front JARVIS with your *own* agent that already
+triaged the request, JARVIS classifies it a second time, adding latency for no
+benefit.
+
+New **Direct Reasoning** toggle (Settings, default **OFF**): when ON, conversation
+input skips JARVIS's local triage entirely and goes **straight to the reasoning
+agent** (`run_agent`). Offline safety is preserved — if the LLM is unreachable the
+request still falls back to a local salvage pass, so you never lose device control
+when the cloud is down. Everyone else is unaffected: the local engine stays primary.
+
+A note on expectations: JARVIS's triage is *local and zero-API*, so if your latency
+is actually the reasoning LLM call itself, this won't change that. But if it's the
+local NLU/entity resolution grinding over a large home, Direct Reasoning removes it
+from the path.
+
 ## [9.75.1] — PR review fixes: persistence, roof geometry, anchor remapping
 
 Copilot review of #468 found eleven real defects, all addressed: `home_attached`
