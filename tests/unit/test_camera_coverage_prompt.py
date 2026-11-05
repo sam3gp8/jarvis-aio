@@ -271,12 +271,26 @@ def _with_floor_plan(cam, monkeypatch, fp):
 def test_public_area_names_from_floor_plan(cam, monkeypatch):
     _with_floor_plan(cam, monkeypatch, _FLOOR_PLAN)
     pub = cam._public_area_names(None)
-    # the owner's named public areas are off-property …
-    assert "street" in pub and "easement" in pub
-    # … the property's own areas and interior rooms are not
+    # the street is off-property …
+    assert "street" in pub
+    # … the property's own areas and interior rooms are not; an EASEMENT is the
+    # owner's land, so it is on-property by default (v9.83.0)
+    assert "easement" not in pub
     assert "front yard" not in pub
     assert "driveway" not in pub
     assert "living room" not in pub
+
+
+def test_easement_public_only_when_tagged(cam, monkeypatch):
+    # Default: on-property. Explicit scope:public opts it out.
+    _with_floor_plan(cam, monkeypatch, {"1f": {"rooms": [
+        {"name": "Easement", "type": "outdoor"},
+    ]}})
+    assert "easement" not in cam._public_area_names(None)
+    _with_floor_plan(cam, monkeypatch, {"1f": {"rooms": [
+        {"name": "Easement", "type": "outdoor", "scope": "public"},
+    ]}})
+    assert "easement" in cam._public_area_names(None)
 
 
 def test_public_areas_in_view_subsets_coverage(cam, monkeypatch):

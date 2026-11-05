@@ -5504,6 +5504,26 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             <label>Use Home Assistant's TTS voice<span class="cfg-hint">briefings &amp; announcements use the voice selected in your HA Assist pipeline instead of JARVIS's built-in Piper voice &mdash; change voices in HA &rarr; Settings &rarr; Voice assistants, no config editing needed</span></label>
             <button class="toggle-btn ${(d.config?.tts_use_ha_voice) ? 'on' : 'off'}" data-cfg-key="tts_use_ha_voice" data-cfg-val="${(d.config?.tts_use_ha_voice) ? 'false' : 'true'}">${(d.config?.tts_use_ha_voice) ? 'ON' : 'OFF'}</button>
           </div>
+          <div class="cfg-row" style="margin-top:10px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+            <label>Arrival greeting <span class="cfg-hint">greet a resident by name when they come through a chosen door &mdash; identified by face (if the door has a camera) or by their phone/tracker arriving home; stays silent if it can't tell who. Opt-in.</span></label>
+            <button class="toggle-btn ${(d.config?.arrival_greeting_enabled) ? 'on' : 'off'}" data-cfg-key="arrival_greeting_enabled" data-cfg-val="${(d.config?.arrival_greeting_enabled) ? 'false' : 'true'}">${(d.config?.arrival_greeting_enabled) ? 'ON' : 'OFF'}</button>
+          </div>
+          <div class="cfg-row">
+            <label>&nbsp;&nbsp;↳ Doors <span class="cfg-hint">door entity IDs to watch, one per line or comma-separated (e.g. binary_sensor.front_door)</span></label>
+            <textarea class="cfg-field cfg-text" id="greet-doors" rows="2" placeholder="binary_sensor.front_door">${this._esc((d.config?.arrival_greeting_doors || []).join('\n'))}</textarea>
+          </div>
+          <div class="cfg-row">
+            <label>&nbsp;&nbsp;↳ Greeting hours <span class="cfg-hint">only greet between these times; leave both blank for any time</span></label>
+            <span style="display:flex;gap:6px;align-items:center;">
+              <input class="cfg-field" type="time" data-cfg-key="arrival_greeting_start" value="${this._esc(d.config?.arrival_greeting_start || '')}">
+              <span style="color:var(--text-dim);font-size:10px;">to</span>
+              <input class="cfg-field" type="time" data-cfg-key="arrival_greeting_end" value="${this._esc(d.config?.arrival_greeting_end || '')}">
+            </span>
+          </div>
+          <div class="cfg-row" style="border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:12px;margin-bottom:2px;">
+            <label>&nbsp;&nbsp;↳ Repeat cooldown (min) <span class="cfg-hint">don't re-greet the same person within this many minutes</span></label>
+            <input class="cfg-field cfg-num" type="number" min="0" max="1440" step="5" data-cfg-key="arrival_greeting_cooldown_min" value="${d.config?.arrival_greeting_cooldown_min ?? ''}" placeholder="30">
+          </div>
           <div class="cfg-row">
             <label>Departure lead (min)</label>
             <input class="cfg-field cfg-num" type="number" min="0" max="240" step="5" data-cfg-key="departure_lead_minutes" value="${d.config?.departure_lead_minutes ?? ''}" placeholder="30">
@@ -7436,6 +7456,20 @@ ${this._renderExcludedEntities(d)}
           this._toast(`\u2717 speaker toggle \u2014 ${err?.message || err}`, "err");
         }
       });
+    });
+
+    // Arrival-greeting doors: free-text entity IDs → saved as a JSON list so it
+    // round-trips (the toggle / hours / cooldown use the generic data-cfg-key path).
+    const greetDoors = this.shadowRoot.getElementById("greet-doors");
+    greetDoors?.addEventListener("change", async () => {
+      if (!this._hass) return;
+      const ids = greetDoors.value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+      try {
+        await this._hass.callWS({ type: "jarvis/update_config", key: "arrival_greeting_doors", value: JSON.stringify(ids) });
+        this._toast(`✓ greeting doors (${ids.length})`, "ok");
+      } catch (err) {
+        this._toast(`✗ greeting doors — ${err?.message || err}`, "err");
+      }
     });
 
     // Floor plan editor controls (floor tabs, add/save/reset/units/map/image, drag)

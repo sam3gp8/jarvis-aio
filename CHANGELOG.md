@@ -1,3 +1,34 @@
+## [9.84.0] — Arrival greetings: welcome a resident by name at the door
+
+Opt-in (default **off**). When a resident comes through a door you've chosen,
+during hours you set, JARVIS greets them by name — *"Good evening, Sam. Welcome
+home."*
+
+- **Who arrived** is resolved two ways, either sufficing: a fresh, confident
+  **face recognition** of a flagged resident (works when the door has a camera),
+  else **presence** — a resident whose `person`/`device_tracker` just flipped to
+  `home`. If it can't tell who it is, JARVIS **stays silent** — it never greets a
+  stranger or guesses.
+- **Settings → Voice → Arrival greeting**: enable, pick the door entities to
+  watch, set the greeting hours (blank = any time), and a per-person repeat
+  cooldown (default 30 min) so a busy door doesn't re-greet.
+- Greeting hours support an overnight window (e.g. 22:00–06:00). The spoken line
+  uses the time-of-day greeting from the briefing module.
+
+Requires that residents are flagged in the Faces tab (same roster the recognition
+and intrusion stand-down use); presence-based greetings also need the person's
+tracker to report `home`.
+
+## [9.83.0] — An easement counts as your property
+
+Correction to 9.81.0's property-line classification: an **easement** is the
+owner's own land (others merely hold a right of access over it), so an area named
+"Easement" is now treated as **on-property** by default rather than public —
+JARVIS will narrate/alert on activity there. `easement` is removed from the
+public-area name patterns. A household that wants a particular easement excluded
+can still tag that floor-plan area `{"scope":"public"}`. Clearly-public areas
+(street, road, sidewalk, alley, right-of-way, curb) are unchanged.
+
 ## [9.82.0] — Configurable whole-home power sensor (#476) + discoverable HA-voice toggle (#477)
 
 **#476 — pick your own whole-home power sensor; stop false "over peak" alerts.**
