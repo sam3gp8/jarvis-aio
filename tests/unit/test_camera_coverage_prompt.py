@@ -248,6 +248,77 @@ async def test_property_scope_off_for_manual_look(cam, monkeypatch):
     assert "being unrecognised is NOT by itself notable" in captured["system"]
 
 
+# ── Property lines grounded in the floor plan (v9.81.0) ──────────────────────
+_FLOOR_PLAN = {
+    "1f": {"rooms": [
+        {"name": "Living Room", "type": "room"},
+        {"name": "Front Yard", "type": "outdoor"},
+        {"name": "Driveway", "type": "outdoor"},
+        {"name": "Street", "type": "outdoor"},
+        {"name": "Easement", "type": "outdoor"},
+    ]}
+}
+
+
+def _with_floor_plan(cam, monkeypatch, fp):
+    import json
+    monkeypatch.setattr(
+        cam, "_cfg_opt",
+        lambda hass, key, default=None: (json.dumps(fp) if key == "floor_plan_rooms" else default),
+        raising=False)
+
+
+def test_public_area_names_from_floor_plan(cam, monkeypatch):
+    _with_floor_plan(cam, monkeypatch, _FLOOR_PLAN)
+    pub = cam._public_area_names(None)
+    # the owner's named public areas are off-property …
+    assert "street" in pub and "easement" in pub
+    # … the property's own areas and interior rooms are not
+    assert "front yard" not in pub
+    assert "driveway" not in pub
+    assert "living room" not in pub
+
+
+def test_public_areas_in_view_subsets_coverage(cam, monkeypatch):
+    _with_floor_plan(cam, monkeypatch, _FLOOR_PLAN)
+    assert cam._public_areas_in_view(None, ["Front Yard", "Driveway", "Street"]) == ["Street"]
+    assert cam._public_areas_in_view(None, ["Living Room"]) == []
+    # no floor plan → empty (generic directive still applies)
+    monkeypatch.setattr(cam, "_cfg_opt", lambda *a, **k: "{}", raising=False)
+    assert cam._public_areas_in_view(None, ["Street"]) == []
+
+
+def test_public_area_explicit_tag_overrides(cam, monkeypatch):
+    fp = {"1f": {"rooms": [
+        {"name": "Side Lot", "type": "outdoor", "scope": "public"},   # force public
+        {"name": "Street", "type": "outdoor", "public": False},       # force on-property
+    ]}}
+    _with_floor_plan(cam, monkeypatch, fp)
+    pub = cam._public_area_names(None)
+    assert "side lot" in pub
+    assert "street" not in pub       # explicit private override beats the name
+
+
+async def test_scope_block_names_the_public_area(cam, monkeypatch):
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"] = messages[0]["content"]
+        captured["user"] = messages[1]["content"]
+        return {"text": '{"severity":"routine","notable":false,"category":"empty","summary":"x","speak":""}'}
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    await cam._reason_about_scene(
+        None, object(), "", "front_yard", "A car passes on the street.", "motion",
+        covered=["Front Yard", "Driveway", "Street"], property_only=True,
+        public_areas=["Street"])
+    # the floor-plan-grounded callout names the public area in the system prompt
+    assert "NOT part of the property" in captured["system"]
+    assert "Street" in captured["system"]
+    # and the areas line marks it so the model reads the boundary from the plan
+    assert "Street [public — NOT the property]" in captured["user"]
+
+
 def test_strip_think(cam):
     assert cam._strip_think("<think>reasoning</think>Hello") == "Hello"
     assert cam._strip_think("before<think>x</think>after") == "beforeafter"

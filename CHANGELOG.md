@@ -1,3 +1,28 @@
+## [9.81.0] — Property lines come from the floor plan, not a guess
+
+9.80.0 told the model "only watch the property" but left it to infer the boundary
+from the image. This grounds that boundary in **the floor plan you actually
+drew**. Your plan already labels outdoor areas — `Front Yard`, `Driveway`,
+`Backyard` (yours) vs `Street` and `Easement` (public) — and the panel already
+knows which of those areas each camera's cone reaches (its coverage). JARVIS now
+combines the two: for each camera it works out which of the areas in view are
+**off-property**, and tells the vision model exactly that — e.g. *"this camera's
+view extends over the Street, which is not part of the property; ignore anything
+there"* — and marks those areas in the "areas in view" list. The model then does
+the **visual confirmation** of where in the frame activity actually is. Floor
+plan says where the lines are; vision says where the person is.
+
+Classification: an area is public when it's an `outdoor` area whose name matches a
+public pattern (street, road, sidewalk, alley, easement, right-of-way, curb,
+public) **or** is tagged explicitly (`"scope":"public"` / `"public":true`).
+Interior rooms and your own outdoor areas (yard, driveway, porch…) are always
+on-property. A per-area `"public":false` / `"scope":"property"` tag forces an area
+on-property if JARVIS guessed wrong (e.g. if you consider your easement yours).
+With no floor plan, the generic 9.80.0 directive still applies.
+
+Note: this treats the **Easement** as off-property by default (it's a boundary
+strip); add `"public": false` to that area if you consider it within your lines.
+
 ## [9.80.0] — JARVIS watches only inside the property line
 
 By default JARVIS now confines its camera attention to **your property** — the

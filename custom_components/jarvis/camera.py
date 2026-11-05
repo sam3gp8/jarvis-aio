@@ -352,6 +352,7 @@ async def _reason_about_scene(
     covered: list | None = None,
     frigate_dets: dict | None = None,
     property_only: bool = True,
+    public_areas: list | None = None,
 ) -> dict:
     """
     Camera-reasoning step: interpret a raw vision description into a judgment.
@@ -369,12 +370,27 @@ async def _reason_about_scene(
     except Exception:
         pass
 
+    # Property-only scope: the generic directive, plus — when the floor plan tells
+    # us this camera's view reaches a named public area (a Street / Easement the
+    # owner drew) — an explicit callout naming it, so the boundary is grounded in
+    # the floor plan rather than guessed from the image. (v9.81.0)
+    scope_block = ""
+    if property_only:
+        scope_block = _PROPERTY_SCOPE_DIRECTIVE
+        if public_areas:
+            scope_block += (
+                "Per the home's floor plan, this camera's view extends over these "
+                "areas that are NOT part of the property: "
+                + ", ".join(str(a) for a in public_areas if a) + ". Anything "
+                "happening there — e.g. out on the street — is off-property and out "
+                "of scope: do not describe, flag, or raise severity for it.\n"
+            )
     system = (
         "You are JARVIS's camera-reasoning module. Given a description of what a "
         "camera saw, classify how much it warrants the resident's attention. "
         "Default to 'routine' — the large majority of footage is routine.\n"
         + _SCENE_SEVERITY_RUBRIC
-        + (_PROPERTY_SCOPE_DIRECTIVE if property_only else "")
+        + scope_block
         + "You may be given Frigate object-detector ground truth: if the description "
         "claims a PERSON but Frigate reports NO person, treat it as a likely false "
         "positive (a shadow, reflection, or headlight — very common in night or "
@@ -414,9 +430,24 @@ async def _reason_about_scene(
             fg_line = f"Frigate detector currently sees: {', '.join(_present)}\n"
         else:
             fg_line = "Frigate detector: nothing detected\n"
+    # Areas in view, marking any the floor plan says are off-property so the model
+    # reads the boundary from the plan, not the pixels.
+    areas_line = ""
+    if covered:
+        _pub_l = {str(p).strip().lower() for p in (public_areas or [])}
+        _parts = []
+        for c in covered:
+            if not c:
+                continue
+            label = str(c)
+            if str(c).strip().lower() in _pub_l:
+                label += " [public — NOT the property]"
+            _parts.append(label)
+        if _parts:
+            areas_line = f"Areas in view: {', '.join(_parts)}\n"
     user = (
         f"Camera: {camera_name}\n"
-        + (f"Areas in view: {', '.join(str(c) for c in covered if c)}\n" if covered else "")
+        + areas_line
         + f"Time: {now}\n"
         f"Detection: {det_type}\n"
         + fg_line
@@ -1125,6 +1156,66 @@ def _camera_coverage_rooms(hass: HomeAssistant, entity_id: str) -> list:
     return _parse_coverage_rooms(_cfg_opt(hass, "floor_plan_cameras", "{}"), entity_id)
 
 
+# Floor-plan outdoor areas whose NAME marks them as public / off-property. A
+# camera whose coverage reaches one of these is told that part of its view is not
+# the property, so property-only scope is grounded in the floor plan the owner
+# actually drew (e.g. a named "Street" / "Easement" area) rather than guessed from
+# the image. (v9.81.0)
+_PUBLIC_AREA_PATTERNS = (
+    "street", "road", "sidewalk", "pavement", "alley", "easement",
+    "right of way", "right-of-way", "curb", "public",
+)
+
+
+def _public_area_names(hass: HomeAssistant) -> set:
+    """Lower-cased names of floor-plan areas that are OFF the property — a public
+    road, sidewalk, easement, etc. An area counts as public when it is tagged one
+    explicitly ({"scope":"public"} or {"public":true}) or is an `outdoor` area
+    whose name matches a public pattern. Interior rooms and the owner's own
+    outdoor areas (yard, driveway, porch…) are never public. Never raises; returns
+    an empty set when there's no floor plan, so the generic property directive
+    still applies. (v9.81.0)"""
+    out: set = set()
+    try:
+        import json as _json
+        raw = _cfg_opt(hass, "floor_plan_rooms", "{}")
+        data = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+        if not isinstance(data, dict):
+            return out
+        for _floor, fdata in data.items():
+            rooms = (fdata or {}).get("rooms") if isinstance(fdata, dict) else None
+            for r in (rooms or []):
+                if not isinstance(r, dict):
+                    continue
+                name = str(r.get("name") or "").strip()
+                if not name:
+                    continue
+                explicit_pub = r.get("scope") == "public" or r.get("public") is True
+                explicit_priv = r.get("scope") == "property" or r.get("public") is False
+                if explicit_priv:
+                    continue
+                is_outdoor = str(r.get("type") or "").lower() == "outdoor"
+                nl = name.lower()
+                if explicit_pub or (is_outdoor and any(p in nl for p in _PUBLIC_AREA_PATTERNS)):
+                    out.add(nl)
+    except Exception:
+        pass
+    return out
+
+
+def _public_areas_in_view(hass: HomeAssistant, covered: list) -> list:
+    """Of a camera's covered floor-plan areas, those that are public/off-property
+    (original casing, order preserved). Empty when none or no floor plan. Never
+    raises. (v9.81.0)"""
+    try:
+        pub = _public_area_names(hass)
+        if not pub:
+            return []
+        return [c for c in (covered or []) if str(c).strip().lower() in pub]
+    except Exception:
+        return []
+
+
 def _coverage_hint(covered: list) -> str:
     """A prompt fragment telling the model which floor-plan areas are in view."""
     covered = [c for c in (covered or []) if c]
@@ -1547,10 +1638,15 @@ async def async_analyze_camera(
         hass, rsn_provider, rsn_model, groq_client)
     # Property-only scope applies to automatic reviews; a manual analyze
     # (gate_announce False — the user explicitly asked to look) sees everything.
+    # When scoped, the floor plan tells us which of this camera's covered areas
+    # are off-property (a named Street/Easement), so the boundary is grounded in
+    # the plan rather than guessed from the image.
+    _scoped = gate_announce and _property_scope_only(hass)
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,
         covered=cov_rooms, frigate_dets=frigate_dets,
-        property_only=(gate_announce and _property_scope_only(hass)),
+        property_only=_scoped,
+        public_areas=(_public_areas_in_view(hass, cov_rooms) if _scoped else None),
     )
     summary = judgment["summary"]
 
