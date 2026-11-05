@@ -129,6 +129,7 @@ def _persist_build(force: bool = False):
                 "confidence": rec.get("confidence", 0.0),
                 "ts": ts.isoformat(),
                 "unknown_count": rec.get("unknown_count", 0),
+                "source": rec.get("source"),
             }
         snaps = {}
         for key, snap in list(_FACE_SNAPSHOTS.items()):
@@ -231,6 +232,7 @@ def _persist_load() -> None:
                 "confidence": float(rec.get("confidence", 0.0) or 0.0),
                 "ts": ts,
                 "unknown_count": int(rec.get("unknown_count", 0) or 0),
+                "source": rec.get("source"),
                 "restored": True,   # SAFETY: never stands intrusion down
             }
         for key, snap in (data.get("snapshots") or {}).items():
@@ -378,10 +380,15 @@ def _camera_entity_from_name(camera_name: str) -> str:
     return f"camera.{camera_name.lower()}"
 
 
-def remember_recognition(camera_name: str, name: str, confidence: float, hass=None) -> None:
+def remember_recognition(camera_name: str, name: str, confidence: float, hass=None,
+                         source: Optional[str] = None) -> None:
     """Store a recognition event in the in-memory cache. Pass ``hass`` (the live
     MQTT callers all have it) so the disk persist runs on the executor instead of
-    blocking the event loop; sync / test callers may omit it for an inline write."""
+    blocking the event loop; sync / test callers may omit it for an inline write.
+
+    ``source`` records which backend produced this recognition ("doubletake" /
+    "frigate"), so the Faces panel can show where each identity came from. It is
+    display provenance only — it never affects the intrusion stand-down."""
     entity_id = _camera_entity_from_name(camera_name)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     prev = _RECOGNITION_CACHE.get(entity_id, {})
@@ -390,6 +397,7 @@ def remember_recognition(camera_name: str, name: str, confidence: float, hass=No
         "confidence": confidence,
         "ts":         now,
         "unknown_count": 0 if name.lower() != "unknown" else prev.get("unknown_count", 0) + 1,
+        "source":     source,
     }
     # Persist so the Faces panel survives a restart (#331). Fresh and untagged —
     # this overwrites any restored entry for the camera, so normal intrusion
@@ -453,11 +461,15 @@ def _should_capture_face(name: str) -> bool:
         return False
 
 
-async def capture_face_snapshot(hass, camera: str, name: str) -> Optional[dict]:
+async def capture_face_snapshot(hass, camera: str, name: str,
+                                confidence: float = 0.0) -> Optional[dict]:
     """Pin the frame from ``camera`` as the recognition-time snapshot for
     ``name``. One stable file per normalized name (latest wins). Best-effort:
     returns the record or None, never raises. Gated/throttled by the caller via
-    :func:`_should_capture_face`; re-checked here so direct callers are safe."""
+    :func:`_should_capture_face`; re-checked here so direct callers are safe.
+
+    ``confidence`` (the recognition score) drives opt-in Phase-3 training: the
+    same frame may be auto-enrolled as the resident's LLM reference photo."""
     try:
         if not camera or not _should_capture_face(name):
             return None
@@ -486,6 +498,13 @@ async def capture_face_snapshot(hass, camera: str, name: str) -> Optional[dict]:
         _FACE_SNAPSHOTS[key] = rec
         await _persist_async(hass)   # keep the pinned-snapshot index across restarts (#331)
         _LOGGER.info("JARVIS: pinned face snapshot for %s from %s", name, camera_entity)
+        # Phase 3 "training": let a confident backend recognition bootstrap the
+        # best-effort LLM matcher's reference set (opt-in; never overwrites a
+        # manual reference; never feeds intrusion). Reuses this same frame.
+        try:
+            await _maybe_auto_enroll_reference(hass, name, confidence, content)
+        except Exception:
+            pass
         return rec
     except Exception as exc:
         _LOGGER.debug("face snapshot capture failed for %s: %s", name, exc)
@@ -499,7 +518,7 @@ def _schedule_face_capture(hass, camera: str, name: str, confidence: float) -> N
     try:
         if confidence < CONFIDENCE_THRESHOLD or not _should_capture_face(name):
             return
-        hass.async_create_task(capture_face_snapshot(hass, camera, name))
+        hass.async_create_task(capture_face_snapshot(hass, camera, name, confidence))
     except Exception:
         pass
 
@@ -519,6 +538,15 @@ def set_face_reference(name: str, jpeg: bytes) -> bool:
         with open(tmp, "wb") as f:
             f.write(jpeg)
         os.replace(tmp, path)
+        # A (re)enrollment clears any auto-train marker; the auto path re-adds it
+        # right after calling this. So a MANUAL upload is sticky — auto-train
+        # treats it as user-set and never touches it again (#140 Phase 3 training).
+        try:
+            marker = os.path.join(FACE_REF_DIR, f"{key}.auto")
+            if os.path.exists(marker):
+                os.remove(marker)
+        except Exception:
+            pass
         return True
     except Exception as exc:
         _LOGGER.debug("set_face_reference failed for %s: %s", name, exc)
@@ -542,12 +570,19 @@ def has_face_reference(name: str) -> bool:
 
 
 def remove_face_reference(name: str) -> bool:
-    """Delete ``name``'s reference photo. Returns True if one was removed."""
+    """Delete ``name``'s reference photo (and any auto-train marker). Returns True
+    if one was removed."""
     try:
         path = face_reference_path(name)
         if not path:
             return False
         os.remove(path)
+        try:
+            marker = _auto_ref_marker_path(name)
+            if marker and os.path.exists(marker):
+                os.remove(marker)
+        except Exception:
+            pass
         return True
     except Exception:
         return False
@@ -561,6 +596,88 @@ def list_face_references() -> list[str]:
         return sorted(f[:-4] for f in os.listdir(FACE_REF_DIR) if f.endswith(".jpg"))
     except Exception:
         return []
+
+
+# ── Auto-enrolled LLM references (#140 Phase 3 "training") ───────────────────────
+# A resident whose reference photo was auto-captured from a CONFIDENT backend
+# recognition (Frigate / Double Take) carries a sidecar ``<norm>.auto`` marker, so
+# the panel can distinguish it from one the user uploaded, and auto-train never
+# fights a manual enrollment. Opt-in via ``llm_face_autotrain`` (default off). The
+# reference feeds ONLY the best-effort LLM matcher, whose output goes to
+# ``_LLM_GUESS_CACHE`` — which ``resident_present`` never reads — so a bad
+# auto-enroll can at worst mislabel a Faces card, never disable an intrusion alert.
+_AUTO_REF_MIN_CONFIDENCE = 80.0   # higher bar than the 60% stand-down threshold
+
+
+def _auto_ref_marker_path(name: str) -> Optional[str]:
+    key = _face_norm(name)
+    return os.path.join(FACE_REF_DIR, f"{key}.auto") if key else None
+
+
+def is_auto_reference(name: str) -> bool:
+    """True when ``name``'s enrolled reference was auto-captured from a backend
+    recognition (not a manual upload). Best-effort; never raises."""
+    try:
+        p = _auto_ref_marker_path(name)
+        return bool(p and os.path.exists(p) and face_reference_path(name))
+    except Exception:
+        return False
+
+
+def list_auto_references() -> list[str]:
+    """Normalized names whose reference photo was auto-enrolled (has a marker)."""
+    try:
+        if not os.path.isdir(FACE_REF_DIR):
+            return []
+        return sorted(f[:-5] for f in os.listdir(FACE_REF_DIR) if f.endswith(".auto"))
+    except Exception:
+        return []
+
+
+def _auto_enroll_reference_sync(name: str, jpeg: bytes) -> bool:
+    """Enroll an auto LLM reference from a backend frame, but ONLY when none exists
+    yet — never overwrite a manual (or earlier auto) reference. Writes the jpg via
+    :func:`set_face_reference` then re-adds the ``.auto`` marker that call cleared.
+    Executor / sync only (file I/O); never raises."""
+    try:
+        if face_reference_path(name):
+            return False
+        if not set_face_reference(name, jpeg):
+            return False
+        marker = _auto_ref_marker_path(name)
+        if marker:
+            try:
+                with open(marker, "w") as f:
+                    f.write("auto")
+            except Exception:
+                pass
+        _LOGGER.info("JARVIS: auto-enrolled an LLM reference photo for %s from a "
+                     "confident backend recognition (Phase 3 training)", name)
+        return True
+    except Exception:
+        return False
+
+
+async def _maybe_auto_enroll_reference(hass, name: str, confidence: float,
+                                       jpeg: bytes) -> None:
+    """If auto-training is enabled and this is a CONFIDENT recognition of a flagged
+    resident, enroll the frame as their best-effort LLM reference — bootstrapping
+    the matcher from Frigate / Double Take with no manual upload. Opt-in, never
+    overwrites an existing reference (the executor job re-checks), and never
+    raises. The existence check runs off-loop inside the executor job so no file
+    I/O touches the event loop here."""
+    try:
+        if not jpeg or _is_unknown(name) or float(confidence or 0.0) < _AUTO_REF_MIN_CONFIDENCE:
+            return
+        from . import jarvis_config
+        if not bool(jarvis_config.get("llm_face_autotrain", False)):
+            return
+        from . import face_roster
+        if not face_roster.is_resident(name):
+            return
+        await hass.async_add_executor_job(_auto_enroll_reference_sync, name, jpeg)
+    except Exception:
+        pass
 
 
 def remember_llm_guess(camera_name: str, name: str, confidence: float) -> None:
@@ -799,7 +916,11 @@ def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
             age = int((now - ts).total_seconds()) if ts else 10 ** 9
             if ts and (now - ts) > CACHE_MAX_AGE:
                 continue
-            _add(rec.get("name"), cam, rec.get("confidence", 0.0), age, "recent_cache")
+            # Carry the backend that produced this recognition ("doubletake" /
+            # "frigate") so the panel can show provenance; fall back to the
+            # generic "recent_cache" for entries written before that was tracked.
+            _add(rec.get("name"), cam, rec.get("confidence", 0.0), age,
+                 rec.get("source") or "recent_cache")
     except Exception:
         pass
     try:
@@ -812,9 +933,19 @@ def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
         pass
     try:
         # Best-effort LLM guesses (Phase 3), flagged low-confidence so the panel
-        # can mark them clearly. A trusted recognition for the same person/camera
-        # already in `rows` wins (it was added first and _add keeps the fresher).
+        # can mark them clearly.
+        #
+        # A real backend (Frigate / Double Take) OVERRIDES the LLM guess: if any
+        # camera already has a trusted recognition in `rows`, we drop every LLM
+        # guess for that camera, even for a different name. The backend recognised
+        # someone there, so a weak/absent LLM guess on the same camera must not
+        # stand beside it (the owner's "frigate/doubletake override LLM guesses"
+        # request). A guess on a camera with no trusted recognition still shows.
+        trusted_cams = {cam for (_n, cam), r in rows.items()
+                        if not r.get("is_low_confidence")}
         for cam, rec in _LLM_GUESS_CACHE.items():
+            if cam in trusted_cams:
+                continue
             ts = rec.get("ts")
             age = int((now - ts).total_seconds()) if ts else 10 ** 9
             if ts and (now - ts) > CACHE_MAX_AGE:
@@ -1030,7 +1161,7 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
         name = match.get("name", "unknown")
         confidence = float(match.get("confidence", 0))
 
-        remember_recognition(camera, name, confidence, hass=hass)
+        remember_recognition(camera, name, confidence, hass=hass, source="doubletake")
         _schedule_face_capture(hass, camera, name, confidence)
 
         # Fire a custom event that automations/blueprints can use
@@ -1134,7 +1265,8 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                     sub = after.get("sub_label")
                     sub_name, sub_conf = _parse_sub_label(sub)
                     if sub_name:
-                        remember_recognition(camera, sub_name, sub_conf, hass=hass)
+                        remember_recognition(camera, sub_name, sub_conf, hass=hass,
+                                             source="frigate")
                         _schedule_face_capture(hass, camera, sub_name, sub_conf)
                         hass.bus.async_fire("jarvis_face_recognized", {
                             "camera": camera,
@@ -1182,7 +1314,8 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                     conf = _normalize_score(payload.get("score"))
                     is_unknown = name.lower() in ("unknown", "unknown person")
                     if camera:
-                        remember_recognition(camera, name, conf, hass=hass)
+                        remember_recognition(camera, name, conf, hass=hass,
+                                             source="frigate")
                         _schedule_face_capture(hass, camera, name, conf)
                     hass.bus.async_fire("jarvis_face_recognized", {
                         "camera": camera,

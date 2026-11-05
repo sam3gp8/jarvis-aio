@@ -1,3 +1,27 @@
+## [9.86.0] — Faces tab: Frigate / Double Take provenance, and training the best-effort matcher
+
+The Faces tab now shows where each identity comes from and lets a real face
+backend teach — and overrule — the best-effort LLM matcher.
+
+- **Identity source on the Faces tab.** The recognition-source selector (Both /
+  Frigate only / Double Take only) now sits on the Faces tab itself, not only in
+  Settings → Cameras.
+- **Source on every face card.** Each recognized face is tagged with the backend
+  that named it — **FRIGATE**, **DOUBLE TAKE**, or **RECOGNIZED** (a generic
+  backend) — alongside the existing **LLM GUESS** flag. The backend is now
+  carried through the recognition cache (and across restarts).
+- **A backend overrides a weak LLM guess.** When Frigate or Double Take has
+  recognized someone on a camera, any best-effort LLM guess on that same camera
+  is suppressed — the real recognition wins, even for a different name.
+- **Training (opt-in, experimental).** New **Settings/Faces → "Train from
+  Frigate / Double Take"** (`llm_face_autotrain`, default **off**). When a
+  resident is recognized with high confidence by a backend, JARVIS auto-saves
+  that frame as their LLM reference photo, so the best-effort matcher learns who
+  residents are with no manual upload. Auto-saved photos are tagged **auto** on
+  the card and **never overwrite** one you set by hand. This feeds only the
+  best-effort guess path and, like all LLM guesses, **never** affects intrusion
+  alerts (`resident_present` never reads the guess cache or auto references).
+
 ## [9.85.0] — Intrusion: interior motion is residents/pets, not an intruder
 
 False intrusion alarms from people and pets moving around the house are the

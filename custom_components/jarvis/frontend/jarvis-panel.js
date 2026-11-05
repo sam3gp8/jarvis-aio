@@ -5141,11 +5141,21 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         <button class="btn primary" id="faces-add-btn">+ Add resident</button>
         <button class="btn" id="faces-refresh">⟳ Refresh</button>
       </div>
+      <div class="faces-src-row">
+        <label>Identity source</label>
+        <select class="cfg-field" data-cfg-key="recognition_source">${this._optsLabeled([['both','Both (Double Take + Frigate)'],['frigate','Frigate only (sub_label)'],['doubletake','Double Take only']], d.config?.recognition_source || 'both')}</select>
+      </div>
+      <div class="mem-sub faces-llm-note">Which backend's face identities JARVIS trusts. A Frigate or Double Take recognition always <b>overrides</b> a best-effort LLM guess on the same camera.</div>
       <div class="faces-llm-row">
         <label>Best-effort face recognition <span class="faces-exp">EXPERIMENTAL</span></label>
         <button class="toggle-btn ${d.config?.llm_face_recognition ? 'on' : 'off'}" data-cfg-key="llm_face_recognition" data-cfg-val="${d.config?.llm_face_recognition ? 'false' : 'true'}">${d.config?.llm_face_recognition ? 'ON' : 'OFF'}</button>
       </div>
       <div class="mem-sub faces-llm-note">No dedicated face backend? With this on, JARVIS asks its own local vision model whether a camera frame matches a resident's <b>reference photo</b> (set one on each resident card below). It's a rough guess — results are clearly marked <b>LLM GUESS</b>, and this never disables intrusion alerts. For reliable recognition, use Frigate's native face recognition instead.</div>
+      <div class="faces-llm-row">
+        <label>Train from Frigate / Double Take <span class="faces-exp">EXPERIMENTAL</span></label>
+        <button class="toggle-btn ${d.config?.llm_face_autotrain ? 'on' : 'off'}" data-cfg-key="llm_face_autotrain" data-cfg-val="${d.config?.llm_face_autotrain ? 'false' : 'true'}">${d.config?.llm_face_autotrain ? 'ON' : 'OFF'}</button>
+      </div>
+      <div class="mem-sub faces-llm-note">When Frigate or Double Take recognizes a resident with high confidence, JARVIS can auto-save that frame as their reference photo — so the best-effort matcher learns residents with no manual upload. Auto-saved photos are tagged <b>auto</b> and never overwrite one you set yourself; this feeds only the guess path above and never affects intrusion alerts.</div>
       <div class="faces-body" id="faces-body"><div class="mmwave-empty">Loading recognized faces…</div></div>
       <div class="voices-body" id="voices-body"></div>
     </div>
@@ -9362,6 +9372,7 @@ ${this._renderExcludedEntities(d)}
     const residents = Array.isArray(f.residents) ? f.residents : [];
     const recent = Array.isArray(f.recent) ? f.recent : [];
     const refSet = new Set((Array.isArray(f.references) ? f.references : []).map(x => String(x).toLowerCase()));
+    const autoRefSet = new Set((Array.isArray(f.auto_references) ? f.auto_references : []).map(x => String(x).toLowerCase()));
     const llmOn = !!f.llm_face_recognition;
     const countEl = this.shadowRoot?.getElementById("faces-count");
     if (countEl) countEl.textContent = `◉ ${residents.length} RESIDENT${residents.length === 1 ? "" : "S"}`;
@@ -9389,9 +9400,11 @@ ${this._renderExcludedEntities(d)}
           age_seconds: seen ? seen.age_seconds : null,
           snapshot_url: seen?.snapshot_url,
           relation: "resident",
+          source: seen?.source,
           actions: [{ label: "Remove", kind: "remove", name: n }],
           ref_name: n,
           has_ref: refSet.has(this._faceNorm(n)),
+          auto_ref: autoRefSet.has(this._faceNorm(n)),
           ref_hint: llmOn,
           // Enroll straight from the camera that last saw them (#140).
           can_capture: !!(seen && seen.camera_entity),
@@ -9419,6 +9432,7 @@ ${this._renderExcludedEntities(d)}
         snapshot_url: r.snapshot_url,
         relation: r.relationship || (r.is_unknown ? "unknown" : "guest"),
         low_conf: !!r.is_low_confidence,
+        source: r.source,
         actions: r.is_unknown ? [] : [{ label: "+ Resident", kind: "add", name: r.name }],
         // Free-text "Name this face" field (residents offered as suggestions).
         labelable: true,
@@ -9620,9 +9634,23 @@ ${this._renderExcludedEntities(d)}
     document.addEventListener("keydown", ov._onKey);
   }
 
+  // Map a recognition source to a short provenance label for a face card.
+  // LLM guesses carry their own "LLM GUESS" badge, so they get no source chip.
+  _faceSourceLabel(source) {
+    switch (String(source || "")) {
+      case "frigate":
+      case "frigate_sensor":
+      case "frigate_tracked_object": return "FRIGATE";
+      case "doubletake":             return "DOUBLE TAKE";
+      case "recent_cache":           return "RECOGNIZED";
+      default:                       return "";
+    }
+  }
+
   // One face card: snapshot (or an initial placeholder) with the name under it.
   _faceCard({ name, camera_entity, camera, confidence, age_seconds, relation, actions,
-              snapshot_url, low_conf, ref_name, has_ref, ref_hint, labelable, can_capture }) {
+              snapshot_url, low_conf, source, ref_name, has_ref, auto_ref, ref_hint,
+              labelable, can_capture }) {
     const safe = this._esc(name || "Unknown");
     const initial = this._esc((name || "?").trim().charAt(0).toUpperCase() || "?");
     let badge = relation === "resident" ? `<span class="faces-badge resident">RESIDENT</span>`
@@ -9630,6 +9658,10 @@ ${this._renderExcludedEntities(d)}
       : relation === "guest" ? `<span class="faces-badge guest">GUEST</span>` : "";
     // A best-effort LLM guess is flagged distinctly and never looks authoritative.
     if (low_conf) badge = `<span class="faces-badge guess">LLM GUESS</span>`;
+    // Which backend named this face (Frigate / Double Take / generic). Not shown
+    // for an LLM guess (its badge already says so) or an unlabelled unknown.
+    const srcLabel = low_conf ? "" : this._faceSourceLabel(source);
+    const srcChip = srcLabel ? `<span class="faces-srcchip">${srcLabel}</span>` : "";
     // Prefer the pinned recognition-time snapshot; else lazily pull a live frame
     // from the camera that saw them; else an initial-letter avatar.
     // Thumbnail priority: a pinned recognition-time sighting → the enrolled
@@ -9657,6 +9689,12 @@ ${this._renderExcludedEntities(d)}
       const lbl = has_ref ? "📷 Change photo" : "📷 Set photo";
       refCtl = `<label class="faces-ref ${has_ref ? "set" : ""}"${ref_hint && !has_ref ? ' title="Add a reference photo to let best-effort recognition match this resident"' : ""}>${lbl}`
         + `<input type="file" accept="image/*" data-faces-ref="${this._esc(ref_name)}" style="display:none"/></label>`;
+      // An auto-enrolled reference (captured from a confident backend recognition)
+      // is marked so the user can tell it from one they set — and knows a manual
+      // "Change photo" will make it sticky.
+      if (has_ref && auto_ref) {
+        refCtl += `<span class="faces-ref-auto" title="Auto-saved from a confident Frigate / Double Take recognition. Set your own photo to override.">auto</span>`;
+      }
       // On-the-fly: enroll this resident's reference straight from the frame that
       // last saw them, no file upload needed (#140).
       if (can_capture) {
@@ -9692,7 +9730,7 @@ ${this._renderExcludedEntities(d)}
         + `</div>`;
     }
     return `<div class="faces-card" data-cam="${this._esc(camera_entity || "")}">
-      <div class="faces-thumb" title="Click to enlarge">${thumb}${badge}</div>
+      <div class="faces-thumb" title="Click to enlarge">${thumb}${badge}${srcChip}</div>
       ${labelCtl}
       <div class="faces-card-name">${safe}</div>
       <div class="faces-card-meta">${meta.join(" · ")}</div>
@@ -12577,7 +12615,13 @@ ${this._renderExcludedEntities(d)}
   .faces-badge.guest { background: rgba(90,170,235,.88); color: #04172b; }
   .faces-badge.unknown { background: rgba(230,180,60,.85); color: #241a02; }
   .faces-badge.guess { background: rgba(170,120,230,.9); color: #160a26; }
+  /* Provenance chip: which backend named this face (top-right of the thumb). */
+  .faces-srcchip { position: absolute; top: 6px; right: 6px; font-size: 7px; letter-spacing: .06em; padding: 1px 4px; border-radius: 6px; font-family: var(--font-mono); background: rgba(0,0,0,.55); color: var(--text-dim, #9fb3c8); border: 1px solid var(--border, rgba(255,255,255,.14)); }
   .faces-src { font-size: 10px; color: var(--text-dim); margin-top: 16px; font-family: var(--font-mono); }
+  /* Identity-source selector row on the Faces tab (mirrors Settings → Cameras). */
+  .faces-src-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
+  .faces-src-row label { font-size: 12px; color: var(--text, #cfe); }
+  .faces-src-row select { min-width: 180px; }
   /* Phase 3: best-effort LLM recognition controls */
   .faces-llm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
   .faces-llm-row label { font-size: 12px; color: var(--text, #cfe); display: flex; align-items: center; gap: 6px; }
@@ -12597,6 +12641,7 @@ ${this._renderExcludedEntities(d)}
   .faces-ref { display: inline-block; font-size: 10px; padding: 3px 8px; border-radius: 6px; border: 1px dashed var(--border, rgba(255,255,255,.2)); color: var(--text-dim); cursor: pointer; }
   .faces-ref.set { border-style: solid; color: var(--text, #cfe); }
   .faces-ref:hover { border-color: var(--cyan, #00f2fe); }
+  .faces-ref-auto { margin-left: 6px; font-size: 8px; letter-spacing: .06em; padding: 1px 5px; border-radius: 6px; font-family: var(--font-mono); background: rgba(170,120,230,.18); color: var(--purple, #b488e6); vertical-align: middle; }
   /* On-the-fly labeling (#140) */
   .faces-cap { background: transparent; margin-left: 6px; font-family: inherit; }
   .faces-card-snap { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
