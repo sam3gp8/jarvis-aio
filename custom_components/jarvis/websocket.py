@@ -1557,6 +1557,7 @@ PANEL_WRITABLE_KEYS = {
     "movie_dim_pct",             # int: Movie mood dim level 0-100 (v7.15.0)
     "energy_agency",             # str: advisory | opt_in | autonomous (v6.62.0)
     "energy_peak_watts",         # float: whole-home peak threshold in watts
+    "energy_power_sensor",       # str: explicit whole-home power sensor entity_id (overrides auto-discovery; #476)
     "energy_mode_bump",          # list: modes that raise energy agency one step
     "biometrics_enabled",        # bool: read wearable context (opt-in) (v6.63.0)
     "biometric_entities",        # dict: explicit kind→entity_id overrides

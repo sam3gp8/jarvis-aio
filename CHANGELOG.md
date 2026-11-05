@@ -1,3 +1,56 @@
+## [9.82.0] — Configurable whole-home power sensor (#476) + discoverable HA-voice toggle (#477)
+
+**#476 — pick your own whole-home power sensor; stop false "over peak" alerts.**
+Energy management auto-discovered the whole-home meter, and on some homes it
+latched onto the wrong entity — e.g. a Powerwall *max-discharge-capability*
+sensor reading ~9 kW — so JARVIS alerted constantly that the home was over an
+8 kW peak while it was actually drawing ~2.8 kW. Now:
+- **Settings → Safety & Energy → Energy Management** has a **Whole-home power
+  sensor** selector (a dropdown of your power sensors, or *auto-detect*) and a
+  **Peak threshold (kW)** field, with the live reading shown so your choice is
+  verifiable. Set via the panel — no `config.json` editing.
+- An explicit `energy_power_sensor` is used **exclusively** (no silent revert to
+  the mis-detected sensor). `energy_peak_watts` stays configurable.
+- Peak is now judged on **grid import**: a signed grid-power sensor reads
+  negative while exporting, and **export never trips an over-consumption alert**
+  (clamped to 0 for the peak test). The raw `signed_watts` and an `exporting`
+  flag are surfaced, and kW units are normalised to W. Existing installs with no
+  override keep auto-discovery.
+
+**#477 — the "use Home Assistant's TTS voice" setting is already there; made it
+discoverable.** `tts_use_ha_voice` already exists and is wired end-to-end, with a
+toggle at **Settings → Voice**. It was easy to miss (the reporter found it only by
+editing `config.json`), so the toggle is relabelled **"Use Home Assistant's TTS
+voice"** with a one-line explanation of what it does and where to change the voice
+(HA → Settings → Voice assistants). Default is unchanged (off = JARVIS's built-in
+voice); flipping the repo-wide default is left as a separate decision since it
+changes behavior for every install.
+
+## [9.81.0] — Property lines come from the floor plan, not a guess
+
+9.80.0 told the model "only watch the property" but left it to infer the boundary
+from the image. This grounds that boundary in **the floor plan you actually
+drew**. Your plan already labels outdoor areas — `Front Yard`, `Driveway`,
+`Backyard` (yours) vs `Street` and `Easement` (public) — and the panel already
+knows which of those areas each camera's cone reaches (its coverage). JARVIS now
+combines the two: for each camera it works out which of the areas in view are
+**off-property**, and tells the vision model exactly that — e.g. *"this camera's
+view extends over the Street, which is not part of the property; ignore anything
+there"* — and marks those areas in the "areas in view" list. The model then does
+the **visual confirmation** of where in the frame activity actually is. Floor
+plan says where the lines are; vision says where the person is.
+
+Classification: an area is public when it's an `outdoor` area whose name matches a
+public pattern (street, road, sidewalk, alley, easement, right-of-way, curb,
+public) **or** is tagged explicitly (`"scope":"public"` / `"public":true`).
+Interior rooms and your own outdoor areas (yard, driveway, porch…) are always
+on-property. A per-area `"public":false` / `"scope":"property"` tag forces an area
+on-property if JARVIS guessed wrong (e.g. if you consider your easement yours).
+With no floor plan, the generic 9.80.0 directive still applies.
+
+Note: this treats the **Easement** as off-property by default (it's a boundary
+strip); add `"public": false` to that area if you consider it within your lines.
+
 ## [9.80.0] — JARVIS watches only inside the property line
 
 By default JARVIS now confines its camera attention to **your property** — the

@@ -238,22 +238,37 @@ def _never_shed(entity_id: str, name: str) -> bool:
 # ── current power picture (reuses appliance_monitor's meter discovery) ───────
 
 def _read_whole_home_watts(hass, states=None) -> tuple[Optional[float], str]:
-    """Current whole-home draw in watts, plus the source entity. Reuses the
-    appliance monitor's meter-discovery heuristics. (None, '') if not found."""
-    if states is not None:
-        eid = _find_whole_home_meter(states)
-    else:
-        try:
-            from . import appliance_monitor
-            tracker = appliance_monitor._discover_whole_home_meter(hass)
-            # tracker exposes the entity; re-read its live value for freshness
-            eid = getattr(tracker, "entity_id", None) if tracker else None
-        except Exception:
-            eid = None
+    """Current whole-home power in watts (SIGNED — positive is grid import /
+    consumption, negative is export), plus the source entity. (None, eid|'') when
+    unreadable.
 
+    An explicit ``energy_power_sensor`` config entity wins over auto-discovery, so
+    JARVIS stops guessing the meter (issue #476 — auto-discovery could latch onto a
+    Powerwall *max-discharge-capability* entity and raise constant false "over
+    peak" alerts). When one is configured it is used exclusively: no silent revert
+    to the mis-detected sensor. Only when unset do the appliance-monitor /
+    heuristic discovery paths run, preserving existing installs. kW is normalised
+    to W; the value keeps its sign so export can be told from consumption."""
+    configured = _cfg("energy_power_sensor", None)
+    eid = None
+    if configured:
+        eid = str(configured).strip()
+        if not eid.startswith("sensor."):
+            return None, eid  # honour a misconfigured override (show no reading)
     if not eid:
-        # fallback: scan for a plausible whole-home meter directly
-        eid = _fallback_meter(hass, states)
+        if states is not None:
+            eid = _find_whole_home_meter(states)
+        else:
+            try:
+                from . import appliance_monitor
+                tracker = appliance_monitor._discover_whole_home_meter(hass)
+                # tracker exposes the entity; re-read its live value for freshness
+                eid = getattr(tracker, "entity_id", None) if tracker else None
+            except Exception:
+                eid = None
+        if not eid:
+            # fallback: scan for a plausible whole-home meter directly
+            eid = _fallback_meter(hass, states)
     if not eid:
         return None, ""
 
@@ -265,9 +280,43 @@ def _read_whole_home_watts(hass, states=None) -> tuple[Optional[float], str]:
         unit = (st.attributes.get("unit_of_measurement") or "").lower()
         if unit == "kw":
             val *= 1000.0
+        elif unit not in ("w", ""):
+            return None, eid  # not a power reading we understand
         return val, eid
     except (ValueError, TypeError):
         return None, eid
+
+
+def power_sensor_candidates(hass, states=None) -> list:
+    """Plausible whole-home power sensors for the panel's selector — sensors with
+    device_class 'power' or a W/kW unit. Each: {entity, name, watts(signed)}.
+    Sorted by name, capped. Never raises. (v9.82.0)"""
+    out: list = []
+    try:
+        if states is not None:
+            items = list(states.items())
+        else:
+            items = [(s.entity_id, s) for s in hass.states.async_all("sensor")]
+        for key, st in items:
+            eid = getattr(st, "entity_id", key)
+            if not str(eid).startswith("sensor."):
+                continue
+            attrs = getattr(st, "attributes", {}) or {}
+            dc = attrs.get("device_class", "")
+            unit = (attrs.get("unit_of_measurement") or "").lower()
+            if dc != "power" and unit not in ("w", "kw"):
+                continue
+            try:
+                w = float(st.state) * (1000.0 if unit == "kw" else 1.0)
+            except (ValueError, TypeError):
+                w = None
+            out.append({"entity": eid,
+                        "name": attrs.get("friendly_name") or eid,
+                        "watts": round(w) if w is not None else None})
+        out.sort(key=lambda c: str(c.get("name") or "").lower())
+    except Exception:
+        pass
+    return out[:80]
 
 
 def _find_whole_home_meter(states) -> Optional[str]:
@@ -384,40 +433,56 @@ def _running_appliances(hass, states=None) -> list[dict]:
 # ── public: status + advice ──────────────────────────────────────────────────
 
 def power_status(hass, states=None) -> dict:
-    """The current energy picture for the panel/agent. Never raises."""
-    watts, meter = _read_whole_home_watts(hass, states)
+    """The current energy picture for the panel/agent. Never raises.
+
+    Peak is judged on grid IMPORT, not the raw signed reading: a signed
+    grid-power sensor goes negative while exporting, and export must never trip an
+    excessive-consumption alert (issue #476). ``watts`` is the import value (what
+    downstream peak/efficiency logic consumes); ``signed_watts`` keeps the raw
+    reading so export is visible."""
+    signed, meter = _read_whole_home_watts(hass, states)
     peak = _peak_threshold()
     running = _running_appliances(hass, states)
-    over = watts is not None and watts >= peak
+    import_watts = max(0.0, signed) if signed is not None else None
+    exporting = signed is not None and signed < 0
+    over = import_watts is not None and import_watts >= peak
+    configured = _cfg("energy_power_sensor", None)
 
     advice = []
-    if watts is None:
-        advice.append("No whole-home power meter found — set one up (an Electric "
-                      "Consumption [W] sensor) to enable energy management.")
+    if signed is None:
+        advice.append("No whole-home power meter found — pick one in Settings → "
+                      "Safety & Energy → Energy Management (an Electric Consumption "
+                      "[W] or grid-power sensor) to enable energy management.")
     elif over:
         big = [a for a in running if a["shed_ok"]]
         if len(big) >= 2:
             names = " + ".join(a["name"] for a in big[:3] if a["name"])
-            advice.append(f"Drawing {watts/1000:.1f} kW (over the "
+            advice.append(f"Drawing {import_watts/1000:.1f} kW (over the "
                           f"{peak/1000:.1f} kW peak) — {names or 'multiple loads'} "
                           f"running at once. Staggering them would cut the peak.")
         else:
-            advice.append(f"Drawing {watts/1000:.1f} kW, above the "
+            advice.append(f"Drawing {import_watts/1000:.1f} kW, above the "
                           f"{peak/1000:.1f} kW peak.")
+    elif exporting:
+        advice.append(f"Exporting {abs(signed)/1000:.1f} kW to the grid — no "
+                      f"consumption concern.")
     else:
-        if watts is not None:
-            advice.append(f"Drawing {watts/1000:.1f} kW — within the "
-                          f"{peak/1000:.1f} kW comfort range.")
+        advice.append(f"Drawing {import_watts/1000:.1f} kW — within the "
+                      f"{peak/1000:.1f} kW comfort range.")
 
     return {
-        "watts": round(watts) if watts is not None else None,
-        "kw": round(watts / 1000, 2) if watts is not None else None,
+        "watts": round(import_watts) if import_watts is not None else None,
+        "signed_watts": round(signed) if signed is not None else None,
+        "kw": round(import_watts / 1000, 2) if import_watts is not None else None,
         "meter": meter,
+        "configured_meter": str(configured).strip() if configured else "",
+        "exporting": exporting,
         "peak_watts": round(peak),
         "over_peak": over,
         "agency": effective_agency(),
         "configured_agency": _configured_agency(),
         "running": running,
+        "candidates": power_sensor_candidates(hass, states),
         "advice": advice,
     }
 

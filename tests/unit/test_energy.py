@@ -214,3 +214,82 @@ def test_energy_tool_registered(load):
     names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
     assert "energy_status" in names
     assert "energy_status" in agent._TOOL_MAP
+
+
+# ── #476: configurable whole-home power sensor + signed import/export ─────────
+def test_configured_power_sensor_overrides_discovery(energy, monkeypatch):
+    # An explicit override must win over auto-discovery (which could latch onto a
+    # Powerwall max-discharge entity and cry "over peak").
+    monkeypatch.setattr(energy, "_cfg",
+                        _cfg_map(energy, {"energy_power_sensor": "sensor.whole_home_power"}))
+    states = {
+        "sensor.whole_home_power": _State("2800", unit="W", entity_id="sensor.whole_home_power"),
+        "sensor.powerwall_max_discharge": _State(
+            "9000", unit="W", entity_id="sensor.powerwall_max_discharge",
+            device_class="power", friendly_name="Powerwall max discharge capability"),
+    }
+    val, eid = energy._read_whole_home_watts(None, states)
+    assert eid == "sensor.whole_home_power"
+    assert val == 2800.0
+
+
+def test_configured_sensor_kw_normalised(energy, monkeypatch):
+    monkeypatch.setattr(energy, "_cfg", _cfg_map(energy, {"energy_power_sensor": "sensor.grid"}))
+    val, eid = energy._read_whole_home_watts(None, {"sensor.grid": _State("2.8", unit="kW", entity_id="sensor.grid")})
+    assert val == 2800.0 and eid == "sensor.grid"
+
+
+def test_misconfigured_override_shows_no_reading(energy, monkeypatch):
+    # A non-sensor override is honoured (no reading) rather than silently reverting
+    # to the mis-detected auto sensor.
+    monkeypatch.setattr(energy, "_cfg", _cfg_map(energy, {"energy_power_sensor": "not_a_sensor"}))
+    val, eid = energy._read_whole_home_watts(None, {})
+    assert val is None and eid == "not_a_sensor"
+
+
+def test_report_scenario_2800w_under_8kw_is_not_over_peak(energy, monkeypatch):
+    # The exact issue: 2.8 kW on the correct sensor must NOT alert against an 8 kW peak.
+    monkeypatch.setattr(energy, "_cfg", _cfg_map(
+        energy, {"energy_power_sensor": "sensor.grid", "energy_peak_watts": 8000}))
+    monkeypatch.setattr(energy, "_running_appliances", lambda h, s=None: [])
+    st = energy.power_status(None, {"sensor.grid": _State("2800", unit="W", entity_id="sensor.grid")})
+    assert st["over_peak"] is False
+    assert st["watts"] == 2800
+    assert st["exporting"] is False
+    assert st["configured_meter"] == "sensor.grid"
+
+
+def test_export_never_triggers_over_peak(energy, monkeypatch):
+    monkeypatch.setattr(energy, "_cfg", _cfg_map(
+        energy, {"energy_power_sensor": "sensor.grid", "energy_peak_watts": 8000}))
+    monkeypatch.setattr(energy, "_running_appliances", lambda h, s=None: [])
+    st = energy.power_status(None, {"sensor.grid": _State("-3000", unit="W", entity_id="sensor.grid")})
+    assert st["over_peak"] is False
+    assert st["exporting"] is True
+    assert st["watts"] == 0                 # import clamped to 0
+    assert st["signed_watts"] == -3000
+
+
+def test_import_over_peak_still_alerts(energy, monkeypatch):
+    monkeypatch.setattr(energy, "_cfg", _cfg_map(
+        energy, {"energy_power_sensor": "sensor.grid", "energy_peak_watts": 8000}))
+    monkeypatch.setattr(energy, "_running_appliances", lambda h, s=None: [])
+    st = energy.power_status(None, {"sensor.grid": _State("9000", unit="W", entity_id="sensor.grid")})
+    assert st["over_peak"] is True
+    assert st["watts"] == 9000
+
+
+def test_power_sensor_candidates_lists_power_only(energy):
+    states = {
+        "sensor.grid": _State("2800", unit="W", entity_id="sensor.grid",
+                              device_class="power", friendly_name="Grid Power"),
+        "sensor.solar": _State("1.5", unit="kW", entity_id="sensor.solar", friendly_name="Solar"),
+        "sensor.temp": _State("70", unit="°F", entity_id="sensor.temp",
+                              device_class="temperature", friendly_name="Temp"),
+    }
+    cands = energy.power_sensor_candidates(None, states)
+    ents = [c["entity"] for c in cands]
+    assert "sensor.grid" in ents and "sensor.solar" in ents
+    assert "sensor.temp" not in ents
+    grid = next(c for c in cands if c["entity"] == "sensor.grid")
+    assert grid["watts"] == 2800

@@ -5501,7 +5501,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             <button class="toggle-btn ${(d.config?.continued_conversation_speaker_reopen !== false) ? 'on' : 'off'}" data-cfg-key="continued_conversation_speaker_reopen" data-cfg-val="${(d.config?.continued_conversation_speaker_reopen !== false) ? 'false' : 'true'}">${(d.config?.continued_conversation_speaker_reopen !== false) ? 'ON' : 'OFF'}</button>
           </div>
           <div class="cfg-row">
-            <label>Use Home Assistant default voice</label>
+            <label>Use Home Assistant's TTS voice<span class="cfg-hint">briefings &amp; announcements use the voice selected in your HA Assist pipeline instead of JARVIS's built-in Piper voice &mdash; change voices in HA &rarr; Settings &rarr; Voice assistants, no config editing needed</span></label>
             <button class="toggle-btn ${(d.config?.tts_use_ha_voice) ? 'on' : 'off'}" data-cfg-key="tts_use_ha_voice" data-cfg-val="${(d.config?.tts_use_ha_voice) ? 'false' : 'true'}">${(d.config?.tts_use_ha_voice) ? 'ON' : 'OFF'}</button>
           </div>
           <div class="cfg-row">
@@ -8747,7 +8747,61 @@ ${this._renderExcludedEntities(d)}
           `<div class="energy-run-row"><span class="energy-run-name">${this._esc(r.name || r.entity)}</span><span class="energy-run-w ${r.shed_ok ? "" : "energy-locked"}">${r.watts} W${r.shed_ok ? "" : " · protected"}</span></div>`
         ).join("")
       : "";
-    body.innerHTML = advice + runHtml;
+
+    // Whole-home power sensor selector + peak threshold (#476). Pick the meter
+    // explicitly so JARVIS doesn't auto-latch onto the wrong sensor (e.g. a
+    // Powerwall max-discharge entity) and cry "over peak". Live reading shown so
+    // the choice is verifiable; export is labelled and never counts as import.
+    const cands = e.candidates || [];
+    const cur = e.configured_meter || "";
+    const opts = [`<option value=""${cur ? "" : " selected"}>(auto-detect)</option>`]
+      .concat(cands.map(c => {
+        const w = c.watts == null ? "" : ` — ${(c.watts / 1000).toFixed(2)} kW`;
+        const sel = (c.entity === cur) ? " selected" : "";
+        return `<option value="${this._esc(c.entity)}"${sel}>${this._esc(c.name || c.entity)}${this._esc(w)}</option>`;
+      }));
+    // if a configured meter isn't among the candidates (unavailable), keep it visible
+    if (cur && !cands.some(c => c.entity === cur)) {
+      opts.push(`<option value="${this._esc(cur)}" selected>${this._esc(cur)} — unavailable</option>`);
+    }
+    const peakKw = (e.peak_watts != null) ? (e.peak_watts / 1000) : "";
+    let reading = "";
+    if (e.kw != null) {
+      const src = e.configured_meter || e.meter || "auto";
+      reading = e.exporting
+        ? `<div class="energy-meter-live"><span class="diag-ok">Exporting ${(Math.abs(e.signed_watts) / 1000).toFixed(2)} kW</span> · ${this._esc(src)}</div>`
+        : `<div class="energy-meter-live">Import ${e.kw} kW · ${this._esc(src)}</div>`;
+    }
+    const cfgHtml =
+      `<div class="energy-cfg">
+         <label class="energy-cfg-label">Whole-home power sensor</label>
+         <select class="cfg-field" id="energy-meter-select">${opts.join("")}</select>
+         ${reading}
+         <label class="energy-cfg-label" style="margin-top:8px">Peak threshold (kW)</label>
+         <input class="cfg-field cfg-num" id="energy-peak-input" type="number" min="0" step="0.5" value="${peakKw}" placeholder="8" />
+       </div>`;
+
+    body.innerHTML = cfgHtml + advice + runHtml;
+
+    // Wire the dynamically-rendered controls (re-rendered on every fetch).
+    const sel = this.shadowRoot?.getElementById("energy-meter-select");
+    sel?.addEventListener("change", async () => {
+      try {
+        await this._hass.callWS({ type: "jarvis/update_config", key: "energy_power_sensor", value: sel.value || "" });
+        this._toast(sel.value ? "✓ power sensor set" : "✓ power sensor → auto-detect", "ok");
+        await this._fetchEnergy();
+      } catch (err) { this._toast(`✗ ${err?.message || err}`, "err"); }
+    });
+    const peakInput = this.shadowRoot?.getElementById("energy-peak-input");
+    peakInput?.addEventListener("change", async () => {
+      const kw = parseFloat(peakInput.value);
+      if (isNaN(kw) || kw < 0) { this._toast("✗ enter a peak in kW", "err"); return; }
+      try {
+        await this._hass.callWS({ type: "jarvis/update_config", key: "energy_peak_watts", value: Math.round(kw * 1000) });
+        this._toast(`✓ peak → ${kw} kW`, "ok");
+        await this._fetchEnergy();
+      } catch (err) { this._toast(`✗ ${err?.message || err}`, "err"); }
+    });
   }
 
   _wireEnergy() {
@@ -12879,6 +12933,9 @@ ${this._renderExcludedEntities(d)}
   .mode-chip:hover { border-color: var(--cyan); color: var(--text); }
   .mode-chip-on { background: rgba(0,242,254,0.12); border-color: var(--cyan); color: var(--cyan); font-weight: 600; }
   .mode-active-tag { color: var(--cyan); font-weight: 600; }
+  .energy-cfg { margin: 6px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .energy-cfg-label { display: block; font-size: 9px; color: var(--text-dim); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+  .energy-meter-live { font-size: 10.5px; color: var(--text); font-family: var(--font-mono); margin-top: 4px; }
   .energy-agency { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
   .energy-agency-label { font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; }
   .energy-advice { font-size: 11px; color: var(--text); line-height: 1.5; padding: 7px 9px; border: 1px solid var(--line); border-left: 2px solid var(--cyan); border-radius: 5px; background: rgba(0,242,254,0.03); margin-bottom: 6px; }
