@@ -1,3 +1,31 @@
+## [9.82.0] — Configurable whole-home power sensor (#476) + discoverable HA-voice toggle (#477)
+
+**#476 — pick your own whole-home power sensor; stop false "over peak" alerts.**
+Energy management auto-discovered the whole-home meter, and on some homes it
+latched onto the wrong entity — e.g. a Powerwall *max-discharge-capability*
+sensor reading ~9 kW — so JARVIS alerted constantly that the home was over an
+8 kW peak while it was actually drawing ~2.8 kW. Now:
+- **Settings → Safety & Energy → Energy Management** has a **Whole-home power
+  sensor** selector (a dropdown of your power sensors, or *auto-detect*) and a
+  **Peak threshold (kW)** field, with the live reading shown so your choice is
+  verifiable. Set via the panel — no `config.json` editing.
+- An explicit `energy_power_sensor` is used **exclusively** (no silent revert to
+  the mis-detected sensor). `energy_peak_watts` stays configurable.
+- Peak is now judged on **grid import**: a signed grid-power sensor reads
+  negative while exporting, and **export never trips an over-consumption alert**
+  (clamped to 0 for the peak test). The raw `signed_watts` and an `exporting`
+  flag are surfaced, and kW units are normalised to W. Existing installs with no
+  override keep auto-discovery.
+
+**#477 — the "use Home Assistant's TTS voice" setting is already there; made it
+discoverable.** `tts_use_ha_voice` already exists and is wired end-to-end, with a
+toggle at **Settings → Voice**. It was easy to miss (the reporter found it only by
+editing `config.json`), so the toggle is relabelled **"Use Home Assistant's TTS
+voice"** with a one-line explanation of what it does and where to change the voice
+(HA → Settings → Voice assistants). Default is unchanged (off = JARVIS's built-in
+voice); flipping the repo-wide default is left as a separate decision since it
+changes behavior for every install.
+
 ## [9.81.0] — Property lines come from the floor plan, not a guess
 
 9.80.0 told the model "only watch the property" but left it to infer the boundary
