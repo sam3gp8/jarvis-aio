@@ -967,6 +967,7 @@ async def ws_get_panel_data(
                 "intrusion_vision_confirm": bool(_runtime_opt(hass, entry, "intrusion_vision_confirm", True)),
                 "intrusion_vision_veto": bool(_runtime_opt(hass, entry, "intrusion_vision_veto", True)),
                 "intrusion_requires_confinement": bool(_runtime_opt(hass, entry, "intrusion_requires_confinement", False)),
+                "intrusion_breach_only": bool(_runtime_opt(hass, entry, "intrusion_breach_only", True)),
                 # Goals: kernel Plan authoritative over goal step state (H4b, 9.40.0)
                 "goals_kernel_authoritative": bool(_runtime_opt(hass, entry, "goals_kernel_authoritative", True)),
                 # Scheduled briefings (v6.78.0)
@@ -1593,6 +1594,7 @@ PANEL_WRITABLE_KEYS = {
     "intrusion_vision_veto",      # bool: a clear visual "no person" vetoes low-confidence intrusion alerts (default on; off = ever-vigilant)
     "intrusion_inward_depth",     # int: rooms deep from breach motion must reach to confirm
     "intrusion_requires_confinement", # bool: gate intrusion on Lockdown/alarm-armed instead of auto away/sleep (#111)
+    "intrusion_breach_only",      # bool: interior motion never alarms (residents/pets); only a breach (open exterior entry) or a camera-confirmed person opens an intrusion (default on; v9.85.0)
     "goals_kernel_authoritative", # bool: kernel journal is authoritative for goal step state (H4b, default on; off = store-authoritative parity)
     # Scheduled briefings (v6.78.0)
     "briefing_morning_enabled",   # bool: deliver a morning briefing

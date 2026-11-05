@@ -1,3 +1,27 @@
+## [9.85.0] — Intrusion: interior motion is residents/pets, not an intruder
+
+False intrusion alarms from people and pets moving around the house are the
+nuisance this fixes. New default (`intrusion_breach_only`, kill-switchable):
+**interior motion never, on its own, opens an intrusion.** An investigation is
+only considered on a real **breach** — an exterior door/window/garage open — or a
+**person positively confirmed on a camera**. Motion is treated as residents/pets.
+
+- Away/armed: previously bare motion with any corroboration (even an armed panel
+  alone) could seed an alert; now it requires a breach or a camera-confirmed
+  person. The residents-tracked-home veto still applies (a resident tracked home
+  is never investigated), and a recognised resident on camera still stands any
+  alert down.
+- Asleep: the night path no longer fires on bare interior motion (the biggest
+  nuisance source) — only a breach or a camera-confirmed person while asleep.
+- This does **not** blind a break-in: forcing a door/window IS a breach, and
+  someone entering through an already-open window is caught by the
+  camera-confirmed-person path. Once a genuine breach/person is the trigger, the
+  existing inward-route tracking and vision veto are unchanged.
+
+**Settings → Safety → "Intrusion: breach only"** (default ON). Turn it off to
+restore the legacy behavior where bare motion while away/armed could seed an
+alert.
+
 ## [9.84.0] — Arrival greetings: welcome a resident by name at the door
 
 Opt-in (default **off**). When a resident comes through a door you've chosen,

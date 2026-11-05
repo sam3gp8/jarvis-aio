@@ -5280,6 +5280,15 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             </button>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Intrusion: breach only</span>
+            <span class="toggle-desc">Treat interior motion as residents/pets &mdash; an intrusion is only investigated on a real breach (an exterior door/window/garage opening) or a person confirmed on a camera. Cuts motion false alarms. Turn off to also seed from bare motion while away/armed.</span>
+            <button class="toggle-btn ${(d.config?.intrusion_breach_only !== false) ? 'on' : 'off'}"
+              data-cfg-key="intrusion_breach_only"
+              data-cfg-val="${(d.config?.intrusion_breach_only !== false) ? 'false' : 'true'}">
+              ${(d.config?.intrusion_breach_only !== false) ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Observer</span>
             <span class="toggle-desc">AI event awareness (uses API)</span>
             <button class="toggle-btn ${(d.config?.observer_enabled) ? 'on' : 'off'}"

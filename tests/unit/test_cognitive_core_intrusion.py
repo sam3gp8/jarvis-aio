@@ -62,9 +62,11 @@ async def test_bare_motion_away_without_corroboration_is_suppressed(safety, fake
 
 
 async def test_corroboration_can_be_disabled(cognitive_core, fake_hass):
-    # Users who want the old behaviour can opt back in.
+    # Users who want the old behaviour can opt back in. (Legacy motion-seeded path:
+    # pin intrusion_breach_only off, since the v9.85.0 default needs a breach/person.)
     safety = cognitive_core.SafetyManager(
-        fake_hass, {"honorific": "sir", "intrusion_require_corroboration": False})
+        fake_hass, {"honorific": "sir", "intrusion_require_corroboration": False,
+                    "intrusion_breach_only": False})
     fake_hass.states.set("person.sam", "not_home")
     _motion(fake_hass)
     actions = await safety.tick(sleeping=False, anyone_home=False)
@@ -81,10 +83,57 @@ async def test_person_home_suppresses_intrusion(safety, fake_hass):
 
 
 async def test_armed_away_alarm_enables_intrusion_without_trackers(safety, fake_hass):
+    # Legacy path (intrusion_breach_only off): armed_away + motion seeds without
+    # an open entry. The v9.85.0 default requires a breach/person (see
+    # test_breach_only_armed_motion_without_breach_is_silent below).
+    safety.config["intrusion_breach_only"] = False
     fake_hass.states.set("alarm_control_panel.home", "armed_away")
     _motion(fake_hass)
     actions = await _tick(safety, fake_hass, anyone_home=False)
     assert len(_intrusions(actions)) == 1
+
+
+# ── breach-only default (v9.85.0): motion is residents/pets; only a breach or a
+#    camera-confirmed person opens an intrusion ────────────────────────────────
+async def test_breach_only_bare_motion_away_is_silent(safety, fake_hass):
+    # Away + interior motion, nothing open, no person on camera → residents/pets,
+    # never an alarm (the nuisance-false-alarm fix).
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("device_tracker.sam_phone", "not_home")
+    _motion(fake_hass)
+    actions = await _tick(safety, fake_hass, anyone_home=False)
+    assert _intrusions(actions) == []
+
+
+async def test_breach_only_armed_motion_without_breach_is_silent(safety, fake_hass):
+    # armed_away + motion but nothing opened and no person on camera → silent under
+    # the new default (motion alone no longer seeds, even while armed).
+    fake_hass.states.set("alarm_control_panel.home", "armed_away")
+    _motion(fake_hass)
+    actions = await _tick(safety, fake_hass, anyone_home=False)
+    assert _intrusions(actions) == []
+
+
+async def test_breach_only_open_entry_seeds_alert(safety, fake_hass):
+    # A real breach — an exterior door open while away — still seeds one alert.
+    fake_hass.states.set("person.sam", "not_home")
+    fake_hass.states.set("binary_sensor.front_door", "on", device_class="door")
+    actions = await _tick(safety, fake_hass, anyone_home=False)
+    assert len(_intrusions(actions)) == 1
+
+
+async def test_breach_only_person_on_camera_seeds_without_motion(cognitive_core, fake_hass, monkeypatch):
+    # No open door and no motion, but a person is positively on an indoor camera
+    # while away → that alone opens an investigation.
+    safety = cognitive_core.SafetyManager(fake_hass, {"honorific": "sir"})
+    monkeypatch.setattr(safety, "_residents_away", lambda: True)
+    monkeypatch.setattr(safety, "_resident_on_camera", lambda: False)
+    monkeypatch.setattr(safety, "_open_entry", lambda: None)
+    monkeypatch.setattr(safety, "_person_camera_entity",
+                        lambda indoor_only=True: "camera.living_room")
+    safety._last_intrusion_alert = 0.0
+    action = await safety._check_intrusion(anyone_home=False, sleeping=False)
+    assert action is not None and str(action.get("type", "")).startswith("intrusion")
 
 
 async def test_no_motion_no_intrusion_even_when_away(safety, fake_hass):
