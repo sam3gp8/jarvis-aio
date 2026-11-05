@@ -884,6 +884,11 @@ async def ws_get_panel_data(
                 "adaptive_suggestion_threshold": bool(_runtime_opt(hass, entry, "adaptive_suggestion_threshold", False)),
                 "adaptive_cognition_threshold": bool(_runtime_opt(hass, entry, "adaptive_cognition_threshold", False)),
                 "tts_use_ha_voice": bool(_runtime_opt(hass, entry, "tts_use_ha_voice", False)),
+                "arrival_greeting_enabled": bool(_runtime_opt(hass, entry, "arrival_greeting_enabled", False)),
+                "arrival_greeting_doors": _get_runtime_json(hass, entry, "arrival_greeting_doors", []),
+                "arrival_greeting_start": str(_runtime_opt(hass, entry, "arrival_greeting_start", "") or ""),
+                "arrival_greeting_end": str(_runtime_opt(hass, entry, "arrival_greeting_end", "") or ""),
+                "arrival_greeting_cooldown_min": _runtime_opt(hass, entry, "arrival_greeting_cooldown_min", 30),
                 "pattern_learn_motion": bool(_runtime_opt(hass, entry, "pattern_learn_motion", False)),
                 "suggest_garage_confirmation": bool(_runtime_opt(hass, entry, "suggest_garage_confirmation", False)),
                 "operational_mode_auto": bool(_runtime_opt(hass, entry, "operational_mode_auto", True)),
@@ -1634,6 +1639,11 @@ PANEL_WRITABLE_KEYS = {
     "adaptive_suggestion_threshold", # bool: tune the suggestion confidence bar from how welcome recent suggestions were
     "adaptive_cognition_threshold",  # bool: tune the cognition/anticipation salience bar from how welcome recent alerts were
     "tts_use_ha_voice",              # bool: use Home Assistant's configured TTS voice instead of the JARVIS Piper voice
+    "arrival_greeting_enabled",      # bool: greet a resident by name on arrival through a chosen door (opt-in; v9.84.0)
+    "arrival_greeting_doors",        # list: binary_sensor door entity_ids that trigger an arrival greeting
+    "arrival_greeting_start",        # str: "HH:MM" start of the greeting window (blank = no start bound)
+    "arrival_greeting_end",          # str: "HH:MM" end of the greeting window (blank = no end bound)
+    "arrival_greeting_cooldown_min", # int: minutes before the same resident is greeted again
     "pattern_learn_motion",          # bool: learn motion/occupancy triggers for "when X, do Y" suggestions (rate-limited)
     "suggest_garage_confirmation",   # bool: opt-in to safety-sensitive confirmation-sequence suggestions (e.g. close the garage once the car is confirmed inside)
     "appliance_profile",            # JSON list of declared appliances (name/type/entity/watts)

@@ -1161,8 +1161,11 @@ def _camera_coverage_rooms(hass: HomeAssistant, entity_id: str) -> list:
 # the property, so property-only scope is grounded in the floor plan the owner
 # actually drew (e.g. a named "Street" / "Easement" area) rather than guessed from
 # the image. (v9.81.0)
+# NB: "easement" is deliberately NOT here — an easement is the owner's own land
+# (others merely hold a right over it), so it counts as on-property by default. A
+# household that wants theirs excluded can tag that area {"scope":"public"}.
 _PUBLIC_AREA_PATTERNS = (
-    "street", "road", "sidewalk", "pavement", "alley", "easement",
+    "street", "road", "sidewalk", "pavement", "alley",
     "right of way", "right-of-way", "curb", "public",
 )
 

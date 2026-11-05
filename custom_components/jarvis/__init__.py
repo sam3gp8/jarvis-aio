@@ -610,6 +610,97 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.debug("JARVIS package motion trigger setup failed: %s", exc)
 
+    # ── Arrival greeting (opt-in, default OFF) — v9.84.0 ───────────────────────
+    # Greet a resident by name when they come through a door the household chose,
+    # within chosen hours. "Who arrived" is resolved by recognition or presence
+    # (arrival_greeting.identify_arrival); when no resident can be named, JARVIS
+    # stays silent — it never greets a stranger or guesses. A per-person cooldown
+    # lives in arrival_greeting; a short per-door debounce here stops a bouncing
+    # contact double-firing. The door list / hours / cooldown are read live, so
+    # changes apply without a restart (the set of watched sensors is fixed at
+    # setup — a newly-added non-door-class entity needs a reload to be watched).
+    _greet_door_cd: dict[str, float] = {}
+    GREET_DOOR_DEBOUNCE = 8.0
+
+    def _greet_doors_cfg():
+        from . import jarvis_config as _jc
+        doors = _jc.get("arrival_greeting_doors", []) or []
+        if isinstance(doors, str):
+            import json as _json
+            try:
+                doors = _json.loads(doors)
+            except Exception:
+                doors = [d.strip() for d in doors.replace("\n", ",").split(",") if d.strip()]
+        return doors if isinstance(doors, list) else []
+
+    async def _arrival_door_opened(event) -> None:
+        try:
+            from . import arrival_greeting, jarvis_config
+            if not bool(jarvis_config.get("arrival_greeting_enabled", False)):
+                return
+            new = event.data.get("new_state")
+            old = event.data.get("old_state")
+            if not new or str(new.state) != "on":
+                return
+            if old is not None and str(old.state) == "on":
+                return                               # off→on edge only
+            eid = event.data.get("entity_id")
+            if eid not in _greet_doors_cfg():
+                return
+            import time as _t
+            now_m = _t.monotonic()
+            if now_m - _greet_door_cd.get(eid, 0.0) < GREET_DOOR_DEBOUNCE:
+                return
+            _greet_door_cd[eid] = now_m
+            from datetime import datetime as _dt
+            _n = _dt.now()
+            if not arrival_greeting.within_hours(
+                    _n.hour * 60 + _n.minute,
+                    jarvis_config.get("arrival_greeting_start", ""),
+                    jarvis_config.get("arrival_greeting_end", "")):
+                return
+            name = arrival_greeting.identify_arrival(hass)
+            if not name:
+                return                               # stay silent — never guess
+            cd = jarvis_config.get("arrival_greeting_cooldown_min",
+                                   arrival_greeting.DEFAULT_COOLDOWN_MIN)
+            if not arrival_greeting.allow_greeting(name, cd):
+                return
+            try:
+                from . import briefing
+                tg = briefing._time_greeting()
+            except Exception:
+                tg = ""
+            text = arrival_greeting.greeting_text(name, tg)
+            if not text:
+                return
+            tts = _get_tts(hass, entry, context="greeting")
+            spk = _get_speakers(hass, entry)
+            from .tts_helper import async_announce
+            await async_announce(hass, text, tts, spk, context="greeting")
+            try:
+                from .websocket import jarvis_log
+                jarvis_log("GREETING", f"welcomed {name} ({eid})")
+            except Exception:
+                pass
+        except Exception as exc:
+            _LOGGER.debug("JARVIS arrival greeting error: %s", exc)
+
+    try:
+        _door_classes = ("door", "garage_door", "garage", "gate", "opening")
+        _door_ids = [st.entity_id for st in hass.states.async_all("binary_sensor")
+                     if st.attributes.get("device_class") in _door_classes]
+        for _d in _greet_doors_cfg():            # include explicitly-chosen non-door-class sensors
+            if _d and _d not in _door_ids:
+                _door_ids.append(_d)
+        if _door_ids:
+            camera_unsubs.append(
+                async_track_state_change_event(hass, _door_ids, _arrival_door_opened))
+            _LOGGER.info("JARVIS: arrival-greeting listener on %d door sensor(s) (opt-in, "
+                         "default off)", len(_door_ids))
+    except Exception as exc:
+        _LOGGER.debug("JARVIS arrival greeting listener setup failed: %s", exc)
+
     # Hourly gentle service-health sweep (v6.70.3): re-runs the core-dependency
     # checks on its own so the panel stays current without the user opening it.
     # It's reachability-only and never alarms — a synthetic miss yields IDLE, and
