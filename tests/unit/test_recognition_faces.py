@@ -379,3 +379,153 @@ def test_unknown_cache_never_feeds_resident_present(recog, fake_hass):
     # not stand intrusion down — resident_present reads only the trusted cache.
     mod.remember_unknown_face("camera.hall", url="/x.jpg")
     assert mod.resident_present(fake_hass) is None
+
+
+# ── source provenance: show which backend named a face (v9.86.0) ────────────────
+
+def test_remember_recognition_stores_source(recog):
+    mod, _ = recog
+    mod.remember_recognition("front_door", "Sam", 92.0, source="frigate")
+    assert mod._RECOGNITION_CACHE["camera.front_door"]["source"] == "frigate"
+
+
+def test_recent_faces_surfaces_backend_source(recog, fake_hass):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    mod._RECOGNITION_CACHE["camera.front_door"] = {
+        "name": "Sam", "confidence": 93.0, "ts": _now(), "unknown_count": 0,
+        "source": "doubletake"}
+    rows = mod.recent_faces(fake_hass)
+    assert rows[0]["source"] == "doubletake"
+
+
+def test_recent_faces_source_defaults_to_recent_cache(recog, fake_hass):
+    # A cache entry written before source-tracking (no "source" key) still reads
+    # as the generic backend, never a crash or an empty source.
+    mod, fr = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.front_door", "Sam", 93.0, age_seconds=5)
+    rows = mod.recent_faces(fake_hass)
+    assert rows[0]["source"] == "recent_cache"
+
+
+# ── a real backend overrides a weak/absent LLM guess (v9.86.0) ──────────────────
+
+def test_backend_recognition_overrides_llm_guess_on_same_camera(recog, fake_hass):
+    # A trusted recognition on a camera suppresses a DIFFERENT-name LLM guess on
+    # that same camera entirely (the owner's "frigate/doubletake override").
+    mod, fr = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.front_door", "Sam", 93.0, age_seconds=5)
+    mod._LLM_GUESS_CACHE["camera.front_door"] = {
+        "name": "Bob", "confidence": 40.0, "ts": _now()}
+    rows = [r for r in mod.recent_faces(fake_hass)
+            if r["camera_entity"] == "camera.front_door"]
+    assert [r["name"] for r in rows] == ["Sam"]   # the weak "Bob" guess is dropped
+
+
+def test_llm_guess_still_shows_on_camera_without_backend(recog, fake_hass):
+    # A guess on a camera with NO trusted recognition is kept — the backend only
+    # overrides where it actually recognised someone.
+    mod, fr = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.front_door", "Sam", 93.0, age_seconds=5)
+    mod._LLM_GUESS_CACHE["camera.garage"] = {
+        "name": "Bob", "confidence": 55.0, "ts": _now()}
+    garage = [r for r in mod.recent_faces(fake_hass)
+              if r["camera_entity"] == "camera.garage"]
+    assert len(garage) == 1
+    assert garage[0]["name"] == "Bob"
+    assert garage[0]["is_low_confidence"] is True
+
+
+# ── Phase 3 training: auto-enroll references from backend recognitions (v9.86.0) ─
+
+def test_auto_enroll_sync_writes_ref_and_marker(recog):
+    mod, _ = recog
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8\xff\xe0JPEG") is True
+    assert mod.has_face_reference("Sam") is True
+    assert mod.is_auto_reference("Sam") is True
+    assert "sam" in mod.list_auto_references()
+
+
+def test_auto_enroll_never_overwrites_existing_reference(recog):
+    mod, _ = recog
+    # A manual reference already exists → auto-train must not touch it, and the
+    # reference is not marked "auto".
+    assert mod.set_face_reference("Sam", b"\xff\xd8manual") is True
+    assert mod.is_auto_reference("Sam") is False
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8auto") is False
+    assert mod.is_auto_reference("Sam") is False
+
+
+def test_manual_upload_clears_auto_marker(recog):
+    mod, _ = recog
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8auto") is True
+    assert mod.is_auto_reference("Sam") is True
+    # A later MANUAL upload makes the reference sticky (clears the auto marker).
+    assert mod.set_face_reference("Sam", b"\xff\xd8manual") is True
+    assert mod.is_auto_reference("Sam") is False
+    assert "sam" not in mod.list_auto_references()
+
+
+def test_remove_reference_clears_auto_marker(recog):
+    mod, _ = recog
+    mod._auto_enroll_reference_sync("Sam", b"\xff\xd8auto")
+    assert mod.remove_face_reference("Sam") is True
+    assert mod.is_auto_reference("Sam") is False
+    assert mod.list_auto_references() == []
+
+
+async def test_maybe_auto_enroll_gated_off_by_default(recog, fake_hass, load, monkeypatch):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    jc = load("jarvis_config")
+    monkeypatch.setattr(jc, "get", lambda k, d=None: d)   # autotrain default off
+    await mod._maybe_auto_enroll_reference(fake_hass, "Sam", 95.0, b"\xff\xd8data")
+    assert mod.has_face_reference("Sam") is False
+
+
+async def test_maybe_auto_enroll_enrolls_confident_resident(recog, fake_hass, load, monkeypatch):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    jc = load("jarvis_config")
+    monkeypatch.setattr(jc, "get",
+                        lambda k, d=None: True if k == "llm_face_autotrain" else d)
+    await mod._maybe_auto_enroll_reference(fake_hass, "Sam", 95.0, b"\xff\xd8data")
+    assert mod.is_auto_reference("Sam") is True
+
+
+async def test_maybe_auto_enroll_skips_low_confidence(recog, fake_hass, load, monkeypatch):
+    # Below the 80% reference bar → no enrollment, even though 70% is above the
+    # 60% intrusion stand-down threshold. A reference photo needs a higher bar.
+    mod, fr = recog
+    fr.add_resident("Sam")
+    jc = load("jarvis_config")
+    monkeypatch.setattr(jc, "get",
+                        lambda k, d=None: True if k == "llm_face_autotrain" else d)
+    await mod._maybe_auto_enroll_reference(fake_hass, "Sam", 70.0, b"\xff\xd8data")
+    assert mod.has_face_reference("Sam") is False
+
+
+async def test_maybe_auto_enroll_skips_non_resident(recog, fake_hass, load, monkeypatch):
+    mod, fr = recog
+    fr.add_resident("Sam")           # roster has Sam, not Quentin
+    jc = load("jarvis_config")
+    monkeypatch.setattr(jc, "get",
+                        lambda k, d=None: True if k == "llm_face_autotrain" else d)
+    await mod._maybe_auto_enroll_reference(fake_hass, "Quentin", 95.0, b"\xff\xd8data")
+    assert mod.has_face_reference("Quentin") is False
+
+
+async def test_auto_reference_never_feeds_resident_present(recog, fake_hass, load, monkeypatch):
+    # SAFETY: an auto-enrolled reference must not stand intrusion down.
+    # resident_present reads only the trusted recognition cache — never references.
+    mod, fr = recog
+    fr.add_resident("Sam")
+    jc = load("jarvis_config")
+    monkeypatch.setattr(jc, "get",
+                        lambda k, d=None: True if k == "llm_face_autotrain" else d)
+    await mod._maybe_auto_enroll_reference(fake_hass, "Sam", 95.0, b"\xff\xd8data")
+    assert mod.is_auto_reference("Sam") is True
+    assert mod.resident_present(fake_hass) is None

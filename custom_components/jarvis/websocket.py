@@ -960,6 +960,7 @@ async def ws_get_panel_data(
                 "calendar_tight_gap_min": _runtime_opt(hass, entry, "calendar_tight_gap_min", 15),
                 "recognition_source":   str(_runtime_opt(hass, entry, "recognition_source", "both") or "both"),
                 "llm_face_recognition": bool(_runtime_opt(hass, entry, "llm_face_recognition", False)),
+                "llm_face_autotrain":   bool(_runtime_opt(hass, entry, "llm_face_autotrain", False)),
                 "output_language":      str(_runtime_opt(hass, entry, "output_language", "") or ""),
                 "voice_confirm_enabled": bool(_runtime_opt(hass, entry, "voice_confirm_enabled", False)),
                 "voice_confirm_mode":   str(_runtime_opt(hass, entry, "voice_confirm_mode", "auto") or "auto"),
@@ -1569,6 +1570,7 @@ PANEL_WRITABLE_KEYS = {
     "biometric_entities",        # dict: explicit kind→entity_id overrides
     "recognition_source",        # str: both | doubletake | frigate (v6.64.1)
     "llm_face_recognition",      # bool: best-effort resident recognition via the local vision LLM, opt-in (#140 Phase 3)
+    "llm_face_autotrain",        # bool: auto-enroll LLM reference photos from confident Frigate/Double Take recognitions, opt-in (#140 Phase 3 training, v9.86.0)
     "output_language",           # str: ISO code (e.g. "de") or ""/"auto" to follow HA; steers JARVIS's spoken/written output (#148)
     "voice_confirm_enabled",      # bool: voice-confirm sensitive actions (v6.67.0)
     "voice_confirm_mode",         # str: native | gated | auto
@@ -3289,14 +3291,20 @@ async def ws_faces(
             await hass.async_add_executor_job(face_roster._load)
         recent = recognition.recent_faces(hass, int(msg.get("limit", 20)))
         refs = await hass.async_add_executor_job(recognition.list_face_references)
+        auto_refs = await hass.async_add_executor_job(recognition.list_auto_references)
         entry = _get_entry(hass)
         connection.send_result(msg["id"], {
             "recent": recent,
             "residents": face_roster.residents(),
             # Normalized names that have an enrolled reference photo (Phase 3).
             "references": refs,
+            # Of those, the ones auto-enrolled from a backend recognition
+            # (Phase 3 training) rather than uploaded by hand.
+            "auto_references": auto_refs,
             "llm_face_recognition": bool(
                 _runtime_opt(hass, entry, "llm_face_recognition", False)),
+            "llm_face_autotrain": bool(
+                _runtime_opt(hass, entry, "llm_face_autotrain", False)),
             "recognition_source": str(
                 _runtime_opt(hass, entry, "recognition_source", "both") or "both"),
         })
