@@ -176,7 +176,12 @@ async def test_notify_all_falls_back_when_no_devices(cc, fake_hass):
 # ── v6.39.0: outdoor hardening — the false-alarm guards ──────────────────────
 
 async def test_outdoor_motion_never_seeds_investigation(safety, fake_hass, clock):
-    _away(fake_hass)                                   # away + door open
+    _away(fake_hass)
+    # Breach-only (v9.85.0): an open exterior door would itself seed, so close it —
+    # this test is specifically that OUTDOOR motion alone never seeds, with no
+    # breach and no person on camera. (Holds under the legacy path too: no
+    # corroboration with the door shut.)
+    fake_hass.states.set("binary_sensor.front_door", "off", device_class="door")
     _motion(fake_hass, "binary_sensor.patio_motion")   # outdoor-only motion
     assert await _intr(safety, fake_hass) == []
     assert safety._investigation is None

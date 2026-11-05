@@ -107,6 +107,10 @@ async def test_live_no_corroboration_records_closed_and_stays_silent(safety, fak
                                                                      intr, monkeypatch):
     # Away + motion but neither an armed alarm nor an open entry → no alert, and
     # the parity recorder sees legacy_open=False agreeing with the kernel gate.
+    # This exercises the legacy motion-seeded gate, so pin intrusion_breach_only
+    # off (the v9.85.0 default short-circuits before the gate when there's no
+    # breach/person, which is covered in test_cognitive_core_intrusion.py).
+    safety.config["intrusion_breach_only"] = False
     monkeypatch.setattr(safety, "_residents_away", lambda: True)
     monkeypatch.setattr(safety, "_resident_on_camera", lambda: False)
     monkeypatch.setattr(safety, "_qualifying_motion",

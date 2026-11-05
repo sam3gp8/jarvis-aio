@@ -885,16 +885,41 @@ class SafetyManager:
             return None
 
         motion = self._qualifying_motion(sleeping)
-        if not motion:
-            return None
-        eid, where = motion[0]
+        # Breach-only (default; kill-switch intrusion_breach_only). Interior motion
+        # is residents/pets and never, on its own, opens an intrusion — only a real
+        # BREACH (an exterior door/window/garage open) OR a person positively on an
+        # indoor camera does. This is what stops the nuisance false alarms from
+        # pets/residents moving around. Set intrusion_breach_only=False to restore
+        # the legacy motion-seeded behavior. Once a genuine breach/person IS the
+        # trigger, the existing investigation + vision veto are unchanged — tracking
+        # movement after a real breach is sound, so this does NOT blind a break-in.
+        if self.config.get("intrusion_breach_only", True):
+            _breach = self._open_entry()
+            _person_cam = self._person_camera_entity(indoor_only=True)
+            if not (_breach or _person_cam):
+                return None
+            # Anchor on the motion zone when there IS qualifying indoor motion, so
+            # the investigation's route tracking is unchanged from the legacy path;
+            # only when there's no motion do we anchor on the breach entity, then on
+            # the camera showing the person.
+            if motion:
+                eid, where = motion[0]
+            elif _breach:
+                eid, where = _breach, (self._friendly(_breach) or "an entry point")
+            else:
+                eid, where = _person_cam, (self._friendly(_person_cam) or "inside the house")
+        else:
+            if not motion:
+                return None
+            eid, where = motion[0]
         honorific = self.config.get("honorific", "sir")
 
         if away:
             armed = False
             entry = None
             _require_corr = self.config.get("intrusion_require_corroboration", True)
-            if _require_corr:
+            _breach_only = self.config.get("intrusion_breach_only", True)
+            if _require_corr or _breach_only:
                 armed = self._alarm_armed()
                 entry = self._open_entry()
             # MCU Phase R (R3b) — the kernel intrusion entry-gate is authoritative.
@@ -903,10 +928,19 @@ class SafetyManager:
             # resident on camera at home (under a degraded confinement hold) from
             # being investigated as an intruder. Fail-safe to the legacy decision
             # on any kernel fault; kill-switch INTRUSION_GATE_ENFORCE.
-            _legacy_open = bool((not _require_corr) or armed or entry)
+            if _breach_only:
+                # Breach-or-person is the trigger (established above). Feed it to the
+                # gate so the residents-tracked-home veto still applies, while the
+                # armed-alone / motion-alone shortcuts no longer open an alert.
+                _seed = bool(entry) or (self._person_camera_entity(indoor_only=True) is not None)
+                _gate_open_entry = _seed
+                _legacy_open = _seed
+            else:
+                _gate_open_entry = bool(entry)
+                _legacy_open = bool((not _require_corr) or armed or entry)
             if not self._intrusion_entry_gate(
                     away=away, require_corroboration=_require_corr,
-                    alarm_armed=armed, open_entry=bool(entry),
+                    alarm_armed=armed, open_entry=_gate_open_entry,
                     sleeping=sleeping, legacy_open=_legacy_open):
                 return None
             breach_name = self._friendly(entry) if entry else None
@@ -1059,8 +1093,14 @@ class SafetyManager:
 
         if sleeping:
             self._last_intrusion_alert = now
-            msg = (f"{honorific.title()}, motion detected at {where} "
-                   f"while the household is asleep. Investigating.")
+            # Under breach-only the seed is a real breach/person, not bare motion,
+            # so phrase it as a possible entry rather than "motion detected".
+            if self.config.get("intrusion_breach_only", True):
+                msg = (f"{honorific.title()}, a possible entry was detected at "
+                       f"{where} while the household is asleep. Investigating.")
+            else:
+                msg = (f"{honorific.title()}, motion detected at {where} "
+                       f"while the household is asleep. Investigating.")
             self._log_standdown_reason(where)
             return {
                 "type": "intrusion_sleep", "urgency": "high",
