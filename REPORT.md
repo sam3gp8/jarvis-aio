@@ -1,44 +1,40 @@
-# JARVIS traction report — 2026-11-05
+# JARVIS traction report — 2026-11-06
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-11-04 vs the 7 before
+## 7 days to 2026-11-05 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 826 | 344 | +140% |
-| Unique visitors (sum of daily) | 283 | 155 | +83% |
-| Clones | 1656 | 785 | +111% |
-| Unique cloners (sum of daily) | 444 | 234 | +90% |
+| Views | 680 | 533 | +28% |
+| Unique visitors (sum of daily) | 257 | 209 | +23% |
+| Clones | 1532 | 845 | +81% |
+| Unique cloners (sum of daily) | 423 | 233 | +82% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 34 | +2 | +9 |
-| Forks | 10 | +3 | +7 |
+| Stars | 34 | +1 | +9 |
+| Forks | 11 | +4 | +7 |
 | Watchers | 1 | +0 | +0 |
-| HA analytics installs | 154 | +35 | — |
+| HA analytics installs | 153 | +30 | — |
 | Release asset downloads | 0 | +0 | +0 |
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1731** views, **12** replies.
-
-New posts in the last 7 days:
-- #12 @sam3gp8 (2026-10-29): @biancapascal thanks for the log, that explains it! device=None means the message was typed (in the JARVIS chat or the Assist text box). JARVIS answers typed messages in text only. It speaks only whe…
-- #14 @sam3gp8 (2026-10-29): @neena022gupta this was fixed in 9.30.2 . Update JARVIS in HACS and restart, then follow the steps in my reply to williammorran above (post #5 ). If it still doesn’t work, post the exact error JARVIS…
+_Forum thread not reachable today._
 
 ## Top referrers (rolling 14 days)
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 81 | 59 |
-| github.com | 47 | 25 |
-| Google | 43 | 28 |
-| aocr.org | 9 | 9 |
+| community.home-assistant.io | 90 | 64 |
+| github.com | 52 | 28 |
+| Google | 44 | 29 |
+| aocr.org | 10 | 10 |
 | Bing | 1 | 1 |
 | DuckDuckGo | 1 | 1 |
 
@@ -46,21 +42,22 @@ New posts in the last 7 days:
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 544 | 281 |
-| `/sam3gp8/jarvis-aio/issues` | 117 | 50 |
-| `/sam3gp8/jarvis-aio/pulls` | 62 | 12 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 30 | 26 |
+| `/sam3gp8/jarvis-aio` | 570 | 293 |
+| `/sam3gp8/jarvis-aio/issues` | 121 | 51 |
+| `/sam3gp8/jarvis-aio/pulls` | 67 | 14 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 29 | 25 |
 | `/sam3gp8/jarvis-aio/pull/468` | 22 | 2 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 21 | 17 |
-| `/sam3gp8/jarvis-aio/releases` | 16 | 15 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 20 | 16 |
+| `/sam3gp8/jarvis-aio/releases` | 18 | 16 |
 | `/sam3gp8/jarvis-aio/tree/main` | 13 | 9 |
 | `/sam3gp8/jarvis-aio/discussions` | 12 | 7 |
-| `/sam3gp8/jarvis-aio/issues/334` | 9 | 9 |
+| `/sam3gp8/jarvis-aio/issues/334` | 10 | 10 |
 
 ## Daily views & clones (last 30 days)
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-11-05 | 60 | 37 | 125 | 25 |
 | 2026-11-04 | 71 | 33 | 140 | 45 |
 | 2026-11-03 | 96 | 31 | 158 | 57 |
 | 2026-11-02 | 98 | 29 | 176 | 61 |
@@ -89,4 +86,5 @@ New posts in the last 7 days:
 | 2026-10-10 | 85 | 26 | 912 | 245 |
 | 2026-10-09 | 155 | 30 | 1561 | 291 |
 | 2026-10-08 | 132 | 25 | 593 | 149 |
-| 2026-10-07 | 169 | 22 | 293 | 82 |
+
+> Sources that failed today: forum
