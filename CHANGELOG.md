@@ -1,3 +1,23 @@
+## [9.93.0] — Fixes: Settings toggle overlap + greet only on a real return
+
+Two fixes reported from the live panel:
+
+- **Settings toggle overlap.** The 9.91.0 HUD upgrade turned every settings
+  toggle into a sliding-knob pill — but the **Hazard Monitor feeds** and
+  **Briefing "Include"** toggles carry their own label *inside* the button
+  (`EARTHQUAKES ON`, `WEATHER`, …), so the knob landed on top of the words. Those
+  labeled chips (`.haz-feeds .toggle-btn`) are now compact, centered colored
+  chips again — no knob — so the text stays legible. Scoped to `.settings-page`;
+  the ON/OFF pill toggles elsewhere are unchanged.
+- **Arrival greeting only on a genuine return.** JARVIS no longer says "welcome
+  home" to a resident who was home all along when a watched door merely opens. A
+  greeting now requires a recorded **departure** — the resident's
+  `person`/`device_tracker` went `not_home`/away — which is consumed when they're
+  greeted, so the next greeting needs a fresh leave→return, combined with the
+  existing per-person cooldown. A new presence listener records resident
+  departures; the ledger is process-local (after a reload, one more leave→return
+  is needed before the first greeting — deliberately conservative).
+
 ## [9.92.0] — Token telemetry: attribute camera/vision spend to the vision tier (Tranche 1)
 
 Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting.

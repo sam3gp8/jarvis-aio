@@ -662,10 +662,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             name = arrival_greeting.identify_arrival(hass)
             if not name:
                 return                               # stay silent — never guess
+            if not arrival_greeting.has_departed(name):
+                return                               # only greet a genuine return — they must have left first
             cd = jarvis_config.get("arrival_greeting_cooldown_min",
                                    arrival_greeting.DEFAULT_COOLDOWN_MIN)
             if not arrival_greeting.allow_greeting(name, cd):
                 return
+            arrival_greeting.clear_departure(name)   # consume: one welcome per leave→return
             try:
                 from . import briefing
                 tg = briefing._time_greeting()
@@ -686,6 +689,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as exc:
             _LOGGER.debug("JARVIS arrival greeting error: %s", exc)
 
+    def _presence_departed(event) -> None:
+        # Record a resident leaving the property (person/device_tracker → away) so
+        # the greeting only fires on a genuine leave→return. The leaving edge only;
+        # non-residents are ignored (only names on the face roster are tracked).
+        try:
+            from . import arrival_greeting
+            new = event.data.get("new_state")
+            if not new or str(new.state).lower() not in ("not_home", "away"):
+                return
+            old = event.data.get("old_state")
+            if old is not None and str(old.state).lower() in ("not_home", "away"):
+                return                               # already away → leaving edge only
+            attrs = getattr(new, "attributes", {}) or {}
+            nm = attrs.get("friendly_name") \
+                or str(event.data.get("entity_id", "")).split(".", 1)[-1]
+            if arrival_greeting._is_resident(nm):
+                arrival_greeting.note_departure(nm)
+        except Exception:
+            pass
+
     try:
         _door_classes = ("door", "garage_door", "garage", "gate", "opening")
         _door_ids = [st.entity_id for st in hass.states.async_all("binary_sensor")
@@ -698,6 +721,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 async_track_state_change_event(hass, _door_ids, _arrival_door_opened))
             _LOGGER.info("JARVIS: arrival-greeting listener on %d door sensor(s) (opt-in, "
                          "default off)", len(_door_ids))
+        # Track resident departures (person + device_tracker) so a greeting only
+        # fires for someone who actually left — see arrival_greeting._departed.
+        _presence_ids = [st.entity_id
+                         for dom in ("person", "device_tracker")
+                         for st in hass.states.async_all(dom)]
+        if _presence_ids:
+            camera_unsubs.append(
+                async_track_state_change_event(hass, _presence_ids, _presence_departed))
     except Exception as exc:
         _LOGGER.debug("JARVIS arrival greeting listener setup failed: %s", exc)
 
