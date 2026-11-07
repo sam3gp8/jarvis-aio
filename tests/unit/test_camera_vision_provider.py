@@ -61,6 +61,48 @@ def test_make_client_caches_provider(cam, monkeypatch):
     assert calls["n"] == 2
 
 
+def test_make_client_tags_vision_tier(cam, monkeypatch):
+    """Camera vision clients are tagged tier='vision' so token telemetry's
+    by_tier split attributes camera spend to the vision tier (MCU Tranche 1 —
+    token cost accounting), instead of landing as 'unknown'."""
+    cam._PROVIDER_CACHE.clear()
+
+    def fake_create(provider, api_key, model, base_url):
+        return types.SimpleNamespace(provider=provider, model=model)
+
+    import importlib
+    lp = importlib.import_module(cam.__name__.rsplit(".", 1)[0] + ".llm_provider")
+    monkeypatch.setattr(lp, "create_provider", fake_create)
+    hs = importlib.import_module(cam.__name__.rsplit(".", 1)[0] + ".ha_secrets")
+    monkeypatch.setattr(hs, "get_provider_key_sync", lambda provider: "k")
+
+    hass = _Hass()
+    client = cam._make_client(hass, "groq", "some/vision-model", fallback="FB")
+    assert getattr(client, "tier", None) == "vision"
+
+
+def test_make_client_vision_tag_failure_is_nonfatal(cam, monkeypatch):
+    """A client that refuses the .tier attribute must not break provider
+    creation — the telemetry tag is strictly best-effort."""
+    cam._PROVIDER_CACHE.clear()
+
+    class _NoAttr:
+        __slots__ = ()                       # cannot set .tier → AttributeError
+
+    def fake_create(provider, api_key, model, base_url):
+        return _NoAttr()
+
+    import importlib
+    lp = importlib.import_module(cam.__name__.rsplit(".", 1)[0] + ".llm_provider")
+    monkeypatch.setattr(lp, "create_provider", fake_create)
+    hs = importlib.import_module(cam.__name__.rsplit(".", 1)[0] + ".ha_secrets")
+    monkeypatch.setattr(hs, "get_provider_key_sync", lambda provider: "k")
+
+    hass = _Hass()
+    client = cam._make_client(hass, "groq", "m", fallback="FB")
+    assert isinstance(client, _NoAttr)        # returned despite the tag failing
+
+
 def test_make_client_returns_fallback_without_key(cam):
     cam._PROVIDER_CACHE.clear()
 

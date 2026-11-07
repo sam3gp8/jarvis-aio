@@ -1,3 +1,23 @@
+## [9.92.0] — Token telemetry: attribute camera/vision spend to the vision tier (Tranche 1)
+
+Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting.
+9.89.0 tagged the classifier / reasoning / review / conversation providers, but
+**camera vision calls** — typically the most expensive per call — were still
+untagged, so every vision call landed in the telemetry's `unknown` tier. Now:
+
+- `camera._make_client` tags each vision provider client it builds with
+  `tier = "vision"`, so the live `UsageRecord`s carry it and the per-tier
+  rollup (`by_tier`) counts camera/vision spend as **`vision`** instead of
+  `unknown`. The on-demand `analyze_camera` agent tool routes through the same
+  factory, so it's covered too.
+- Best-effort and non-fatal: a provider factory never fails on a telemetry tag
+  (a stubbed client that refuses the attribute is returned unchanged).
+
+No behaviour change to any call path — telemetry stays observe-only, and an
+untagged provider still reads honestly as `unknown`. Still open in Tranche 1:
+per-request correlation IDs on usage records and a durable (cross-restart)
+telemetry store.
+
 ## [9.91.0] — Settings HUD visual upgrade: uniform cards, toggles & time inputs
 
 The Settings tab is restyled into one coherent HUD so the cards, toggles and
