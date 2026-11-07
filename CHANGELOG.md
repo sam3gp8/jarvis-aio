@@ -30,9 +30,11 @@ packaging fix. Verified each claim against the source before changing it.
   table (local / degraded / external / unavailable per feature). Added a
   **safety-boundary disclaimer**: JARVIS is awareness + notification over Home
   Assistant, not a certified life-safety or monitored-alarm system.
-- **`manifest.json`** — declares `homeassistant: 2024.10.0`, matching the version
-  the README has always required, so Home Assistant enforces the floor the docs
-  state.
+- **Minimum HA version** — no change needed. The README's "2024.10+" requirement
+  is already declared where a HACS custom integration declares it — `hacs.json`
+  (`homeassistant: 2024.10.0`). The manifest `homeassistant` key is core-only and
+  hassfest rejects it for a custom component, so the audit's "the manifest doesn't
+  declare it" is a non-issue, not a gap.
 
 ## [9.86.0] — Faces tab: Frigate / Double Take provenance, and training the best-effort matcher
 
