@@ -65,6 +65,16 @@ GRAPH_SHADOW = True
 # returns the same rows either way.
 TEMPORAL_SHADOW = True
 
+# SHADOW (Phase W prerequisite — information-flow / privacy): all_facts() also
+# runs the fact set through kernel.privacy — the FIRST live consult of that
+# primitive — and logs how many facts the non-disclosure-across-subjects rule
+# would withhold from a *different* resident (personal facts about one subject do
+# not flow to another without consent). Observe-only: nothing is redacted or
+# withheld from any real caller and all_facts() returns the same rows either way;
+# the parity/enforce rungs (which need the live requester identity) come later.
+# Flip PRIVACY_SHADOW to False to silence it.
+PRIVACY_SHADOW = True
+
 # ENFORCE (Phase T, Deep World Model) — ON (owner-enabled, 8.158.0). The curated-
 # knowledge prompt block is graph-authoritative: the recall-seeded facts are
 # expanded one hop through the knowledge graph (facts about directly-related
@@ -178,6 +188,41 @@ def _emit_temporal_shadow(facts: list, now: float) -> None:
                 "temporal(shadow): %d fact(s) — %d fresh / %d aging / "
                 "%d expired / %d durable (%d still valid)",
                 st.count, st.fresh, st.aging, st.expired, st.durable, st.valid)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_privacy_shadow(facts: list) -> None:
+    """Log the information-flow (privacy) view of a fact set — the FIRST live
+    consult of ``kernel.privacy`` (Phase W prerequisite, shadow). Each fact is
+    mapped to a ``privacy.DataItem`` (``subject`` = whom it's about; classification
+    HOUSEHOLD for the shared ``household`` subject, PERSONAL for a person-specific
+    one) and run through the policy against a hypothetical *different* resident, to
+    show how many personal facts the non-disclosure-across-subjects rule would
+    withhold. Observe-only: nothing is redacted or withheld from any real caller
+    and the knowledge store is unchanged whether this runs or not. Never raises."""
+    try:
+        from .kernel import privacy as PV
+        items = []
+        for f in (facts or []):
+            if not isinstance(f, dict):
+                continue
+            subj = str(f.get("subject") or DEFAULT_SUBJECT).strip().lower()
+            personal = bool(subj) and subj != DEFAULT_SUBJECT
+            items.append(PV.DataItem(
+                classification=(PV.PERSONAL if personal else PV.HOUSEHOLD),
+                subject=(subj if personal else "")))
+        if not items:
+            return
+        # A hypothetical different resident (not a subject, not consented): the
+        # policy lets household facts flow and withholds personal ones about
+        # someone else — the load-bearing cross-subject rule, exercised live.
+        disclosable = PV.redact(items, audience="__nonsubject_audience__")
+        withheld = len(items) - len(disclosable)
+        _LOGGER.debug(
+            "privacy(shadow): %d fact(s) — %d would be withheld from a different "
+            "resident by the cross-subject non-disclosure rule (observe-only)",
+            len(items), withheld)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -560,6 +605,8 @@ def all_facts(subject: Optional[str] = None, now: Optional[float] = None,
             _emit_graph_shadow(facts)        # Phase T: observe-only
         if TEMPORAL_SHADOW:
             _emit_temporal_shadow(facts, now)  # Epistemic Fabric: observe-only
+        if PRIVACY_SHADOW:
+            _emit_privacy_shadow(facts)        # Phase W prerequisite: observe-only
         return facts
     except Exception as exc:
         _LOGGER.warning("knowledge: all_facts failed: %s", exc)

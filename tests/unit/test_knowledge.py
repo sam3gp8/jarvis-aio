@@ -261,6 +261,49 @@ def test_uncertainty_shadow_defensive(knowledge, caplog):
     assert line and "1 guessed" in line[-1]
 
 
+# ── privacy shadow (Phase W prerequisite — information-flow policy) ───────────
+# all_facts() also runs the facts through kernel.privacy (first live consult) and
+# logs how many the cross-subject non-disclosure rule would withhold from a
+# different resident. Observe-only: the returned rows are unchanged.
+
+def test_all_facts_privacy_shadow_logs_withheld_count(knowledge, caplog):
+    import logging
+    knowledge.remember("coffee", "oat milk", subject="Sam", kind="fact", now=1000.0)         # personal
+    knowledge.remember("trash day", "Tuesday", subject="household", kind="fact", now=1000.0)  # household
+    with caplog.at_level(logging.DEBUG):
+        facts = knowledge.all_facts(now=1000.0)
+    assert len(facts) == 2                                   # rows unchanged (observe-only)
+    line = [r.message for r in caplog.records if "privacy(shadow)" in r.message]
+    assert line and "1 would be withheld" in line[-1]        # the personal fact about Sam
+
+
+def test_privacy_shadow_is_behaviour_preserving(knowledge):
+    knowledge.remember("coffee", "oat milk", subject="Sam", kind="fact", now=1000.0)
+    facts = knowledge.all_facts(now=1000.0)
+    knowledge.PRIVACY_SHADOW = False
+    try:
+        assert knowledge.all_facts(now=1000.0) == facts      # same rows either way
+    finally:
+        knowledge.PRIVACY_SHADOW = True
+
+
+def test_privacy_shadow_kill_switch(knowledge, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(knowledge, "PRIVACY_SHADOW", False)
+    knowledge.remember("k", "v", subject="Sam", kind="fact", now=1000.0)
+    with caplog.at_level(logging.DEBUG):
+        knowledge.all_facts(now=1000.0)
+    assert not [r for r in caplog.records if "privacy(shadow)" in r.message]
+
+
+def test_emit_privacy_shadow_is_defensive(knowledge):
+    # Mixed good/bad rows must never raise from the log-only shadow path.
+    knowledge._emit_privacy_shadow(
+        [{"subject": "Sam"}, {"subject": "household"}, "not-a-dict", None])
+    knowledge._emit_privacy_shadow([])
+    knowledge._emit_privacy_shadow(None)
+
+
 # ── temporal shadow (Epistemic Fabric — freshness band of curated facts) ──────
 
 def test_all_facts_temporal_shadow_logs_band_distribution(knowledge, caplog):

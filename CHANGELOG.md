@@ -1,3 +1,27 @@
+## [9.90.0] — Privacy as a live gate: first shadow consult (Tranche 1)
+
+Next increment of MCU roadmap **Tranche 1 (foundation trust)** — the
+information-flow / privacy piece. `kernel.privacy` has existed as a pure,
+fail-closed policy (PUBLIC / HOUSEHOLD / PERSONAL / SENSITIVE, with the
+load-bearing rule that one person's PERSONAL/SENSITIVE data never flows to a
+*different* person without consent), but nothing live consulted it — it was a
+staged-ahead primitive. Now it has its first live caller, in **shadow**:
+
+- `knowledge.all_facts()` runs its recalled facts through `privacy.redact`
+  against a hypothetical *different* resident and logs, at debug, how many
+  facts the cross-subject non-disclosure rule **would** withhold. This is
+  observe-only — nothing is actually withheld, no recall behaviour changes —
+  and it mirrors the repo's established shadow-emitter pattern
+  (`_emit_provenance_shadow` / `_emit_uncertainty_shadow` / … / the new
+  `_emit_privacy_shadow`), kill-switched by a module flag (`PRIVACY_SHADOW`).
+- The kernel adoption ledger moves `privacy` from *pure* to **◐ shadow**
+  (owner: `knowledge`), and the primitive's docstring drops the stale "nothing
+  live consumes it yet" note for an accurate description of the shadow consult.
+
+No behaviour change to any recall path — the policy only watches and counts.
+Parity (gating a real caller by the live requester identity) and enforce come
+later, owner-gated, as the audit requires before Phase W.
+
 ## [9.89.0] — Token telemetry: attribute usage to a cognitive tier (Tranche 1)
 
 First increment of MCU roadmap **Tranche 1 (foundation trust)** — the token
