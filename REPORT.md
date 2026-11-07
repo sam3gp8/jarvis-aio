@@ -1,39 +1,41 @@
-# JARVIS traction report — 2026-11-06
+# JARVIS traction report — 2026-11-07
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
 include CI checkouts, so treat views and referrers as the audience signal.
 
-## 7 days to 2026-11-05 vs the 7 before
+## 7 days to 2026-11-06 vs the 7 before
 
 | Metric | Last 7d | Prior 7d | Change |
 |---|---:|---:|---:|
-| Views | 680 | 533 | +28% |
-| Unique visitors (sum of daily) | 257 | 209 | +23% |
-| Clones | 1532 | 845 | +81% |
-| Unique cloners (sum of daily) | 423 | 233 | +82% |
+| Views | 614 | 650 | -6% |
+| Unique visitors (sum of daily) | 233 | 239 | -3% |
+| Clones | 1257 | 1120 | +12% |
+| Unique cloners (sum of daily) | 374 | 287 | +30% |
 
 ## Totals
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 34 | +1 | +9 |
-| Forks | 11 | +4 | +7 |
+| Stars | 35 | +2 | +10 |
+| Forks | 11 | +3 | +7 |
 | Watchers | 1 | +0 | +0 |
-| HA analytics installs | 153 | +30 | — |
+| HA analytics installs | 154 | +27 | — |
 | Release asset downloads | 0 | +0 | +0 |
 
 ## HA forum thread
 
-_Forum thread not reachable today._
+[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **1833** views (+384 this week), **12** replies (+0 this week).
+
+_No new posts in the last 7 days._
 
 ## Top referrers (rolling 14 days)
 
 | Source | Views | Uniques |
 |---|---:|---:|
-| community.home-assistant.io | 90 | 64 |
-| github.com | 52 | 28 |
-| Google | 44 | 29 |
+| community.home-assistant.io | 85 | 62 |
+| github.com | 60 | 31 |
+| Google | 50 | 33 |
 | aocr.org | 10 | 10 |
 | Bing | 1 | 1 |
 | DuckDuckGo | 1 | 1 |
@@ -42,13 +44,13 @@ _Forum thread not reachable today._
 
 | Path | Views | Uniques |
 |---|---:|---:|
-| `/sam3gp8/jarvis-aio` | 570 | 293 |
-| `/sam3gp8/jarvis-aio/issues` | 121 | 51 |
-| `/sam3gp8/jarvis-aio/pulls` | 67 | 14 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 29 | 25 |
+| `/sam3gp8/jarvis-aio` | 587 | 295 |
+| `/sam3gp8/jarvis-aio/issues` | 123 | 51 |
+| `/sam3gp8/jarvis-aio/pulls` | 68 | 14 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/areas.png` | 32 | 27 |
+| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 24 | 18 |
 | `/sam3gp8/jarvis-aio/pull/468` | 22 | 2 |
-| `/sam3gp8/jarvis-aio/blob/main/docs/media/residence-3d.png` | 20 | 16 |
-| `/sam3gp8/jarvis-aio/releases` | 18 | 16 |
+| `/sam3gp8/jarvis-aio/releases` | 19 | 17 |
 | `/sam3gp8/jarvis-aio/tree/main` | 13 | 9 |
 | `/sam3gp8/jarvis-aio/discussions` | 12 | 7 |
 | `/sam3gp8/jarvis-aio/issues/334` | 10 | 10 |
@@ -57,6 +59,7 @@ _Forum thread not reachable today._
 
 | Date | Views | Uniq | Clones | Uniq |
 |---|---:|---:|---:|---:|
+| 2026-11-06 | 72 | 20 | 71 | 38 |
 | 2026-11-05 | 60 | 37 | 125 | 25 |
 | 2026-11-04 | 71 | 33 | 140 | 45 |
 | 2026-11-03 | 96 | 31 | 158 | 57 |
@@ -85,6 +88,3 @@ _Forum thread not reachable today._
 | 2026-10-11 | 64 | 31 | 1016 | 281 |
 | 2026-10-10 | 85 | 26 | 912 | 245 |
 | 2026-10-09 | 155 | 30 | 1561 | 291 |
-| 2026-10-08 | 132 | 25 | 593 | 149 |
-
-> Sources that failed today: forum
