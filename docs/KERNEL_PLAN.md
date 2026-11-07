@@ -588,8 +588,9 @@ and what a cost panel renders instead of a guess.
 | --- | --- | --- | --- | --- |
 | TC1 | `kernel/token_telemetry.py`: `UsageRecord` + `PriceBook` + `summarize`/`by_tier`/`by_model` | pure | ✅ Shipped | 8.95.0 |
 | TC2 | `llm_provider` emits a `UsageRecord` per call from the provider's own usage fields (observe-only, kill-switched) | shadow | ✅ Shipped | 8.102.0 |
-| TC3 | telemetry totals compared to the current estimates | parity | ⏳ Planned | — |
-| TC4 | the cost panel + Phase Y read telemetry instead of estimates | enforce | ⏳ Planned | — |
+| TC3 | telemetry totals compared to the current estimates | parity | ⏭️ N/A by design — the panel showed a literal `—`, so there is no legacy estimate to parity against; advanced shadow → enforce directly | — |
+| TC4 | the cost panel reads measured telemetry instead of a placeholder | enforce | ✅ Shipped (panel; on by default, kill-switch `token_telemetry_enforce`) | 9.1.0 |
+| TC4b | Phase Y reads telemetry to tune model spend | enforce | ⏳ Planned (needs Phase Y) | — |
 
 ### Phase J — Cognitive OS (unified cognitive cycle) 🚧
 

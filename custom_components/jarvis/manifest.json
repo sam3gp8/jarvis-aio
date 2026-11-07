@@ -23,6 +23,7 @@
     "panel_custom"
   ],
   "documentation": "https://github.com/sam3gp8/jarvis-aio",
+  "homeassistant": "2024.10.0",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/sam3gp8/jarvis-aio/issues",
@@ -33,5 +34,5 @@
     "anthropic>=0.39.0",
     "pypdf>=4.0.0"
   ],
-  "version": "9.86.0"
+  "version": "9.87.0"
 }

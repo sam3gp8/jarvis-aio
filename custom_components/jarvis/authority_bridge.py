@@ -1,14 +1,24 @@
-"""Log-only bridge: live authorization gate ↔ kernel.authority (hardening H1).
+"""Bridge: live authorization gate ↔ kernel.authority (hardening H1 → Phase G/G4).
 
-The actuator path already runs every protected action through `policy.confirm_gate`
-(the live, authoritative gate). This bridge computes what the Phase 4 authority
-**engine** would have decided for the same action and records whether the two
-agree — **log-only, never changing behaviour** — so enforcement can be flipped
-from parity to deny only once the engine matches the gate on real traffic.
+The actuator path runs every protected action through `policy.confirm_gate` (the
+live, authoritative gate). This module layers two things over that gate:
 
-The running tally lives in `hass.data[DOMAIN]["_authority_parity"]` and is
-exposed via `parity_summary()` for diagnostics. Entirely best-effort: any failure
-here is swallowed and the actuator path is untouched.
+1. **Parity recording (log-only).** `record_control_parity` computes what the
+   kernel authority **engine** would decide for the same action and records
+   whether the two agree — never changing behaviour. This is the evidence the
+   enforce flip below was earned against.
+
+2. **Authority ENFORCE (live — MCU Phase G/G4/G4b).** `enforced_decision` returns
+   ``legacy_ok AND engine == ALLOW`` behind a **max-restriction belt**: the engine
+   can only *tighten* the legacy gate (turn an allow into a hold-for-confirmation),
+   never loosen it, and a kernel fault leaves the legacy outcome unchanged
+   (fail-safe). It is **ON by default** (`AUTHORITY_ENFORCE` + `AUTHORITY_ENFORCE_ALL`);
+   set `AUTHORITY_ENFORCE_ALL=False` to revert to the bounded capability allowlist,
+   or `AUTHORITY_ENFORCE=False` to revert to pure parity — either on the next load.
+
+The running tally lives in `hass.data[DOMAIN]["_authority_parity"]` and is exposed
+via `parity_summary()` for diagnostics. Best-effort: a parity/record failure is
+swallowed and the actuator path is untouched.
 """
 from __future__ import annotations
 
