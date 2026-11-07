@@ -1,3 +1,27 @@
+## [9.91.0] — Settings HUD visual upgrade: uniform cards, toggles & time inputs
+
+The Settings tab is restyled into one coherent HUD so the cards, toggles and
+time inputs stop looking "all over the place":
+
+- **Uniform card chassis** — every settings panel gets the same dark glass
+  chassis with a cyan top-accent, a consistent heading + side badge, and matching
+  row chrome. Cards, rows and inputs line up on one grid instead of each card
+  doing its own thing.
+- **One toggle shape everywhere** — all settings toggles become the same tactile
+  pill switch (green = on, grey = off; safety-gated toggles glow amber when
+  armed). The previously mismatched compact toggles fold into the same shape.
+- **Time inputs made uniform** — **Quiet Hours** now uses the same native
+  `start → end` time pickers as **Arrival Greeting** (previously it was a pair of
+  free-text `HH:MM` boxes), so the two read identically.
+- **Sticky sub-nav with wayfinding** — the section tabs become a sticky dock with
+  a per-section icon and a live **card-count badge**, plus a **"Filter settings
+  cards…"** search box that matches across every section at once. Dependent
+  `↳` sub-settings render as indented tree branches.
+
+Frontend-only (`jarvis-panel.js`); scoped entirely to `.settings-page`, so no
+other tab changes. `node --check` + the jsdom panel smoke test pass, and the
+redesign was render-verified in headless Chromium.
+
 ## [9.90.0] — Privacy as a live gate: first shadow consult (Tranche 1)
 
 Next increment of MCU roadmap **Tranche 1 (foundation trust)** — the
