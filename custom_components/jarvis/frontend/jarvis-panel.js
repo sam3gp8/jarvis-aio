@@ -13677,6 +13677,19 @@ ${this._renderExcludedEntities(d)}
   .settings-page .status-row .k { color: rgba(145,185,205,0.82); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
   .settings-page .status-row .v { color: #00f2fe; font-weight: 600; }
 
+  /* Labeled toggle chips (hazard feeds, briefing includes) put their own text
+     label INSIDE the button ("EARTHQUAKES ON", "WEATHER"), so the sliding-knob
+     pill from the HUD upgrade would sit on top of the words. Keep these as
+     compact, centered colored chips — no knob — so the label stays legible.
+     (Fix for the 9.91.0 Settings HUD toggle overlap.) */
+  .settings-page .haz-feeds .toggle-btn,
+  .settings-page .haz-feeds .toggle-btn.on,
+  .settings-page .haz-feeds .toggle-btn.off {
+    min-width: 0; height: auto; padding: 5px 10px;
+    justify-content: center; font-size: 9px; letter-spacing: 0.04em;
+  }
+  .settings-page .haz-feeds .toggle-btn::before { content: none; }
+
 </style>
     `;
   }

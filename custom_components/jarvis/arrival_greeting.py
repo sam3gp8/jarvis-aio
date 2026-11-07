@@ -9,6 +9,15 @@ When no resident can be named, JARVIS stays SILENT — it never greets a strange
 or guesses who it is. A per-person cooldown stops a busy door from repeating the
 greeting.
 
+"Welcome home" must mean they actually *came* home: a resident is only greeted
+when they have a recorded **departure** (their ``person``/``device_tracker`` went
+``not_home``/away) that hasn't been consumed yet — so someone who was home all
+along is never greeted when a watched door merely opens. The departure is cleared
+when they're greeted, so the next greeting needs a fresh leave→return. This gates
+*in combination with* the per-person cooldown. The ledger is process-local, so a
+restart requires one more leave→return before the first greeting (conservative —
+better to miss one than to greet someone who never left).
+
 Everything here is pure and defensive (never raises); the Home Assistant wiring —
 the door state-change listener and the spoken announcement — lives in
 ``__init__.py`` alongside the other event listeners.
@@ -25,6 +34,13 @@ DEFAULT_COOLDOWN_MIN = 30
 # door that opens repeatedly (or several watched doors) can't re-greet the same
 # person within the cooldown. Process-local; cleared on reload.
 _last_greeted: dict[str, float] = {}
+
+# resident name (lower-cased) -> monotonic seconds when they were last seen to
+# LEAVE the property (person/device_tracker went not_home/away). A greeting is
+# only allowed for someone with an unconsumed departure here, so "welcome home"
+# never fires for a resident who was home all along. Process-local; cleared on
+# reload. Fed by the presence listener in __init__.py; consumed on greeting.
+_departed: dict[str, float] = {}
 
 
 def _parse_hhmm(s) -> Optional[int]:
@@ -146,6 +162,43 @@ def allow_greeting(name: str, cooldown_min: int, now: float = None) -> bool:
         return False
 
 
+def note_departure(name: str, now: float = None) -> None:
+    """Record that resident ``name`` has left the property (their tracker went
+    ``not_home``/away). Called from the presence listener. Idempotent while they
+    stay away. Never raises."""
+    try:
+        key = str(name or "").strip().lower()
+        if not key:
+            return
+        _departed[key] = now if now is not None else _time.monotonic()
+    except Exception:
+        pass
+
+
+def has_departed(name: str) -> bool:
+    """True when resident ``name`` has an unconsumed departure on record — i.e.
+    they left the property and haven't been greeted home since. The 'they left
+    first' half of the greeting gate. Never raises."""
+    try:
+        return str(name or "").strip().lower() in _departed
+    except Exception:
+        return False
+
+
+def clear_departure(name: str) -> None:
+    """Consume ``name``'s departure (after greeting them home), so the next
+    greeting requires a fresh leave→return. Never raises."""
+    try:
+        _departed.pop(str(name or "").strip().lower(), None)
+    except Exception:
+        pass
+
+
 def reset_cooldowns() -> None:
     """Clear the per-person cooldown table (used on unload and in tests)."""
     _last_greeted.clear()
+
+
+def reset_departures() -> None:
+    """Clear the departure ledger (used on unload and in tests)."""
+    _departed.clear()

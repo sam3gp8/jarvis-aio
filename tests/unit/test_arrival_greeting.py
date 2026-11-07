@@ -13,8 +13,10 @@ def ag(load):
     sys.modules.pop("jc.arrival_greeting", None)
     mod = load("arrival_greeting")
     mod.reset_cooldowns()
+    mod.reset_departures()
     yield mod
     mod.reset_cooldowns()
+    mod.reset_departures()
     sys.modules.pop("jc.arrival_greeting", None)
 
 
@@ -125,3 +127,36 @@ def test_identify_none_when_nothing(ag, monkeypatch):
     _stub_recognition(monkeypatch, None)
     _stub_roster(monkeypatch, ["Sam"])
     assert ag.identify_arrival(_Hass({})) is None
+
+
+# ── departure ledger: only greet a genuine leave→return ──────────────────────
+def test_departure_gate_requires_leaving_first(ag):
+    assert ag.has_departed("Sam") is False        # home all along → never greeted
+    ag.note_departure("Sam", now=100.0)
+    assert ag.has_departed("Sam") is True          # left the property → greetable
+    ag.clear_departure("Sam")                      # greeted → consume
+    assert ag.has_departed("Sam") is False         # next greeting needs a fresh leave→return
+
+
+def test_departure_is_case_insensitive(ag):
+    ag.note_departure("SAM")
+    assert ag.has_departed("sam") is True
+    assert ag.has_departed("  Sam ") is True
+
+
+def test_departure_is_per_person(ag):
+    ag.note_departure("Sam")
+    assert ag.has_departed("Alex") is False         # independent per person
+
+
+def test_departure_blank_name_is_noop(ag):
+    ag.note_departure("")
+    ag.note_departure(None)
+    assert ag.has_departed("") is False
+    ag.clear_departure("never-left")                # harmless no-op
+
+
+def test_reset_departures_clears(ag):
+    ag.note_departure("Sam")
+    ag.reset_departures()
+    assert ag.has_departed("Sam") is False
