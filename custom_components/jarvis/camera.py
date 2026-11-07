@@ -184,6 +184,15 @@ def _make_client(hass: HomeAssistant, provider: str, model: str, fallback,
             return cached
         from .llm_provider import create_provider
         client = create_provider(provider, api_key, model, base_url)
+        try:
+            # Attribute this client's measured token usage to the vision tier, so
+            # the cost telemetry's by_tier split counts camera/vision spend as
+            # "vision" rather than "unknown" (MCU Tranche 1 — token cost
+            # accounting). Best-effort: a provider factory must never fail on a
+            # telemetry tag (a stubbed client in tests may not accept the attr).
+            client.tier = "vision"
+        except Exception:  # pragma: no cover - telemetry tag is best-effort
+            pass
         _PROVIDER_CACHE[key] = client
         return client
     except Exception as exc:
