@@ -12,9 +12,13 @@ requires consent + a matching purpose.
 
 Pure: no Home Assistant import, no I/O, no clock, no storage — items and the
 requested flow are injected, and :func:`can_disclose` / :func:`redact` are total,
-deterministic, **fail-closed** derivations (an unknown classification denies). A
-live binder (the social model + any cross-person surfacing) consults it at the
-shadow rung; nothing live consumes it yet.
+deterministic, **fail-closed** derivations (an unknown classification denies).
+
+Live consult (shadow): ``knowledge.all_facts`` runs its recalled facts through
+:func:`redact` against a hypothetical different resident and logs how many the
+cross-subject non-disclosure rule would withhold — observe-only, nothing is
+actually withheld. Parity/enforce (gating a real caller by the live requester
+identity, plus the social model's cross-person surfacing) come later, owner-gated.
 """
 from __future__ import annotations
 
