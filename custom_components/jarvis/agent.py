@@ -3337,9 +3337,17 @@ async def _create_provider_with_fallback(
     from .llm_provider import create_provider, create_tier_provider
 
     try:
-        return await hass.async_add_executor_job(
+        _primary = await hass.async_add_executor_job(
             create_provider, provider_name, api_key, model, base_url,
         )
+        try:
+            if _primary is not None:
+                # The main interactive agent — tag it so its token usage is
+                # attributed to the conversation tier, not "unknown" (Tranche 1).
+                _primary.tier = "conversation"
+        except Exception:  # best-effort tag; never fail provider creation
+            pass
+        return _primary
     except Exception as exc:
         _LOGGER.warning(
             "Primary provider '%s' failed: %s — trying reasoning tier fallback",

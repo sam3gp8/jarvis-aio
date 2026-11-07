@@ -1,3 +1,26 @@
+## [9.89.0] — Token telemetry: attribute usage to a cognitive tier (Tranche 1)
+
+First increment of MCU roadmap **Tranche 1 (foundation trust)** — the token
+cost-accounting piece. The telemetry primitive already carried a `tier` field,
+but the live recorder never set it, so every measured call landed as `unknown`
+and the per-tier rollup was useless. Now:
+
+- `llm_provider._record_usage_shadow` threads a **tier** into each `UsageRecord`,
+  taken from the provider's new `.tier` attribute. Providers are tagged where
+  they're built: `create_tier_provider` sets the observer tiers (classifier /
+  reasoning / review / conversation), and the main interactive agent is tagged
+  `conversation`. An untagged provider stays honestly `unknown` (never
+  mislabelled); a bogus tier is normalised to `unknown`.
+- New `llm_provider.telemetry_breakdown()` and a **`token_telemetry`** section in
+  the diagnostics dump surface session totals plus a **per-tier and per-model**
+  split — so "how much is each cognitive tier spending" is now answerable.
+  Fail-safe (empty when the enforce kill-switch is off or there are no calls),
+  session-scoped, and cost-estimated (a lower-bound snapshot, not a bill).
+
+No behaviour change to any call path — telemetry stays observe-only. Still open
+in this tranche: correlation IDs, a durable (non-session) record store, and
+vision/camera-reasoning tier tagging.
+
 ## [9.88.0] — Arrival greeting: pick doors from a dropdown instead of typing IDs
 
 **Settings → Voice → Arrival greeting → Doors** was a free-text box where you
