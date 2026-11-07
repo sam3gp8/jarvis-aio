@@ -4203,7 +4203,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     return `<option value=""${selected ? '' : ' selected'}>\u2014 auto-detect \u2014</option>` + opts;
   }
 
-  _doorEntityOptions(selected) {
+  _doorEntityOptions(selected, placeholder = '— auto-detect —') {
     const states = this._hass?.states || {};
     const cands = [];
     // Openings map to an open/closed source: any cover or lock, plus contact-type
@@ -4226,7 +4226,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       const fn = this._entName(eid);
       return `<option value="${this._esc(eid)}"${eid === selected ? ' selected' : ''}>${this._esc(fn)}</option>`;
     }).join('');
-    return `<option value=""${selected ? '' : ' selected'}>— auto-detect —</option>` + opts;
+    return `<option value=""${selected ? '' : ' selected'}>${this._esc(placeholder)}</option>` + opts;
   }
 
   _renderDoorMapping(d) {
@@ -4383,6 +4383,26 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     await this._saveConfig('pattern_include_entities', JSON.stringify(incl));
     if (this._liveData && this._liveData.config) this._liveData.config.pattern_include_entities = incl;
     await this._fetchAndRender();   // re-fetch from backend + full re-render (matches toggles)
+  }
+
+  // Arrival-greeting doors: a selected list of door entity IDs, saved as a JSON
+  // list (same round-trip as pattern_include_entities). The panel offers these as
+  // a dropdown of door/entry/lock/cover entities + removable chips (#60).
+  _greetDoorsList() {
+    let ds = (this._data().config && this._data().config.arrival_greeting_doors) || [];
+    if (!Array.isArray(ds)) { try { ds = JSON.parse(ds) || []; } catch (_) { ds = []; } }
+    return ds;
+  }
+  async _greetDoorsSave(ds) {
+    await this._saveConfig('arrival_greeting_doors', JSON.stringify(ds));
+    if (this._liveData && this._liveData.config) this._liveData.config.arrival_greeting_doors = ds;
+    await this._fetchAndRender();
+  }
+  _greetDoorChips() {
+    const ds = this._greetDoorsList();
+    return ds.length
+      ? ds.map((e, i) => `<span class="pl-chip">${this._esc(this._entName(e))}<button class="greet-door-del" data-i="${i}" title="Remove">×</button></span>`).join('')
+      : '<span class="pl-empty">No doors selected — the greeting stays off until you add one.</span>';
   }
   _exclArr(v) {
     if (!v) return [];
@@ -5545,8 +5565,14 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             <button class="toggle-btn ${(d.config?.arrival_greeting_enabled) ? 'on' : 'off'}" data-cfg-key="arrival_greeting_enabled" data-cfg-val="${(d.config?.arrival_greeting_enabled) ? 'false' : 'true'}">${(d.config?.arrival_greeting_enabled) ? 'ON' : 'OFF'}</button>
           </div>
           <div class="cfg-row">
-            <label>&nbsp;&nbsp;↳ Doors <span class="cfg-hint">door entity IDs to watch, one per line or comma-separated (e.g. binary_sensor.front_door)</span></label>
-            <textarea class="cfg-field cfg-text" id="greet-doors" rows="2" placeholder="binary_sensor.front_door">${this._esc((d.config?.arrival_greeting_doors || []).join('\n'))}</textarea>
+            <label>&nbsp;&nbsp;↳ Doors <span class="cfg-hint">pick the door / entry sensors (locks and covers also listed) to watch; add as many as you like</span></label>
+            <div class="greet-doors-field" style="flex:1;min-width:0;">
+              <div class="pl-add">
+                <select class="op-field pl-input" id="greet-door-select">${this._doorEntityOptions('', '— pick a door to add —')}</select>
+                <button class="ctrl" id="greet-door-add">+ Add</button>
+              </div>
+              <div class="pl-chips" id="greet-door-chips">${this._greetDoorChips()}</div>
+            </div>
           </div>
           <div class="cfg-row">
             <label>&nbsp;&nbsp;↳ Greeting hours <span class="cfg-hint">only greet between these times; leave both blank for any time</span></label>
@@ -7494,19 +7520,24 @@ ${this._renderExcludedEntities(d)}
       });
     });
 
-    // Arrival-greeting doors: free-text entity IDs → saved as a JSON list so it
-    // round-trips (the toggle / hours / cooldown use the generic data-cfg-key path).
-    const greetDoors = this.shadowRoot.getElementById("greet-doors");
-    greetDoors?.addEventListener("change", async () => {
-      if (!this._hass) return;
-      const ids = greetDoors.value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
-      try {
-        await this._hass.callWS({ type: "jarvis/update_config", key: "arrival_greeting_doors", value: JSON.stringify(ids) });
-        this._toast(`✓ greeting doors (${ids.length})`, "ok");
-      } catch (err) {
-        this._toast(`✗ greeting doors — ${err?.message || err}`, "err");
-      }
+    // Arrival-greeting doors: a dropdown of door / entry / lock / cover entities
+    // + removable chips, saved as a JSON list (#60). The toggle / hours / cooldown
+    // use the generic data-cfg-key path.
+    const _greetDoorAdd = this.shadowRoot.getElementById("greet-door-add");
+    if (_greetDoorAdd) _greetDoorAdd.addEventListener("click", () => {
+      const sel = this.shadowRoot.getElementById("greet-door-select");
+      const eid = sel && sel.value.trim();
+      if (!eid) return;
+      const arr = this._greetDoorsList();
+      if (arr.includes(eid)) { this._toast(`${eid} is already added`, "ok"); return; }
+      arr.push(eid);
+      this._greetDoorsSave(arr);
     });
+    this.shadowRoot.querySelectorAll(".greet-door-del").forEach(b => b.addEventListener("click", () => {
+      const arr = this._greetDoorsList();
+      arr.splice(parseInt(b.getAttribute("data-i")), 1);
+      this._greetDoorsSave(arr);
+    }));
 
     // Floor plan editor controls (floor tabs, add/save/reset/units/map/image, drag)
     this._wireFloorPlanControls();
