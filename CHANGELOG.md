@@ -1,3 +1,12 @@
+## [9.88.0] — Arrival greeting: pick doors from a dropdown instead of typing IDs
+
+**Settings → Voice → Arrival greeting → Doors** was a free-text box where you
+typed entity IDs one per line. It's now a **dropdown of your actual door / entry
+sensors** (locks and covers are listed too, same set the door-mapping picker
+uses) with a **+ Add** button and removable chips — pick as many doors as you
+like, no typing or guessing entity IDs. The stored value is unchanged (a JSON
+list of entity IDs), so existing configs carry over untouched. Frontend-only.
+
 ## [9.87.0] — Truth-in-labeling: docs and the manifest match the running code
 
 No behaviour change to the cognitive paths — this reconciles stale descriptions
