@@ -230,6 +230,19 @@ async def async_get_config_entry_diagnostics(hass, entry) -> dict:
     except Exception as exc:
         diag["authority_parity_error"] = str(exc)[:200]
 
+    # Token-usage breakdown — session totals plus a per-tier and per-model split
+    # of the measured LLM usage (TC4 + Tranche 1 tier attribution), so "how much
+    # is each cognitive tier spending" is answerable from the dump. Session-scoped
+    # and cost-estimated; empty when telemetry enforce is off or there are no
+    # calls yet. Fail-safe helper, never raises.
+    try:
+        from .. import llm_provider as _llm
+        tb = _llm.telemetry_breakdown()
+        if tb:
+            diag["token_telemetry"] = tb
+    except Exception as exc:
+        diag["token_telemetry_error"] = str(exc)[:200]
+
     # Audio-routing snapshot — resolve each configured satellite→speaker pairing
     # and which TTS engines are selected, so "no audible reply" issues are
     # diagnosable directly (the pairings themselves are already in the config

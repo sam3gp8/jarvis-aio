@@ -208,3 +208,67 @@ def test_record_usage_openai_cached_details_shape(llm):
     assert r.cached_tokens == 200
     assert r.input_tokens == 1000         # 1200 − 200 cached
     assert r.output_tokens == 300
+
+
+# ── tier attribution (MCU Tranche 1 — token tier accounting) ─────────────────
+def test_record_usage_threads_tier(llm):
+    llm._record_usage_shadow(_Resp(_Usage(1000, 500)), "groq", "gpt-oss-120b",
+                             tier="reasoning")
+    assert llm.usage_records()[-1].tier == "reasoning"
+
+
+def test_record_usage_defaults_tier_unknown(llm):
+    # no tier passed → honestly "unknown", never a wrong label
+    llm._record_usage_shadow(_Resp(_Usage(1000, 500)), "groq", "gpt-oss-120b")
+    assert llm.usage_records()[-1].tier == "unknown"
+
+
+def test_record_usage_bogus_tier_normalized_unknown(llm):
+    llm._record_usage_shadow(_Resp(_Usage(10, 10)), "groq", "x", tier="not-a-tier")
+    assert llm.usage_records()[-1].tier == "unknown"
+
+
+def test_by_tier_groups_recorded_usage(llm, tt):
+    llm._record_usage_shadow(_Resp(_Usage(100_000, 0)), "groq", "gpt-5-mini", tier="reasoning")
+    llm._record_usage_shadow(_Resp(_Usage(200_000, 0)), "groq", "gpt-5-mini", tier="classifier")
+    grouped = tt.by_tier(llm.usage_records())
+    assert grouped["reasoning"].input_tokens == 100_000
+    assert grouped["classifier"].input_tokens == 200_000
+
+
+def test_provider_tier_defaults_unknown(llm):
+    # every provider exposes a tier (class default) so an untagged one is honestly
+    # unattributed rather than mislabelled.
+    assert llm.LLMProvider.tier == "unknown"
+
+
+def test_create_tier_provider_tags_its_tier(llm, monkeypatch):
+    # a provider built for a tier carries it, so chat() attributes its usage.
+    # (create_provider needs provider SDKs; stub it to test only the tagging.)
+    fake = types.SimpleNamespace(tier="unknown")
+    monkeypatch.setattr(llm, "create_provider", lambda **kw: fake)
+    p = llm.create_tier_provider(
+        {"reasoning_provider": "groq", "reasoning_model": "x"}, "reasoning")
+    assert p is fake and p.tier == "reasoning"
+
+
+# ── telemetry_breakdown — the per-tier/per-model dump (diagnostics) ───────────
+def test_telemetry_breakdown_splits_by_tier_and_model(llm):
+    llm._record_usage_shadow(_Resp(_Usage(100_000, 0)), "groq", "gpt-5-mini", tier="reasoning")
+    llm._record_usage_shadow(_Resp(_Usage(50_000, 0)), "groq", "gpt-5-mini", tier="classifier")
+    b = llm.telemetry_breakdown()
+    assert b["records"] == 2
+    assert b["total"]["input_tokens"] == 150_000
+    assert b["by_tier"]["reasoning"]["input_tokens"] == 100_000
+    assert b["by_tier"]["classifier"]["input_tokens"] == 50_000
+    assert "gpt-5-mini" in b["by_model"]
+
+
+def test_telemetry_breakdown_empty_when_no_records(llm):
+    assert llm.telemetry_breakdown() == {}
+
+
+def test_telemetry_breakdown_empty_when_enforce_off(llm, monkeypatch):
+    llm._record_usage_shadow(_Resp(_Usage(100_000, 0)), "groq", "gpt-5-mini", tier="reasoning")
+    monkeypatch.setattr(llm, "TOKEN_TELEMETRY_ENFORCE", False)
+    assert llm.telemetry_breakdown() == {}

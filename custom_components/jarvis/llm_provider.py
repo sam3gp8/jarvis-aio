@@ -117,7 +117,47 @@ def telemetry_est_cost() -> str:
         return "—"
 
 
-def _record_usage_shadow(resp: Any, provider_name: str, model: str) -> None:
+def telemetry_breakdown() -> dict:
+    """Session token-usage breakdown for diagnostics: overall totals plus a
+    per-tier and per-model split of the measured ``UsageRecord``s (TC4). This is
+    what answers "how many tokens does each cognitive tier consume" now that live
+    records carry a tier (Tranche 1).
+
+    Fail-safe and JSON-safe: returns a plain dict of plain numbers, or ``{}`` when
+    the enforce kill-switch is off, there are no records, or anything faults.
+    Costs are estimates from the operator-overridable price book (an unpriced
+    model contributes $0), and the ring is session-scoped (cleared on restart),
+    so the figures are a lower-bound snapshot, not a billing record. Never raises.
+    """
+    try:
+        if not telemetry_enforce_enabled():
+            return {}
+        records = usage_records()
+        if not records:
+            return {}
+        from .kernel import token_telemetry as _tt
+
+        def _tot(t) -> dict:
+            return {
+                "calls": t.calls,
+                "input_tokens": t.input_tokens,
+                "output_tokens": t.output_tokens,
+                "cached_tokens": t.cached_tokens,
+                "estimated_cost_usd": round(t.estimated_cost_usd, 6),
+            }
+
+        return {
+            "records": len(records),
+            "total": _tot(_tt.summarize(records)),
+            "by_tier": {k: _tot(v) for k, v in _tt.by_tier(records).items()},
+            "by_model": {k: _tot(v) for k, v in _tt.by_model(records).items()},
+        }
+    except Exception:  # noqa: BLE001 - diagnostics read, never fatal
+        return {}
+
+
+def _record_usage_shadow(resp: Any, provider_name: str, model: str,
+                         tier: str = "") -> None:
     """Record a kernel ``token_telemetry.UsageRecord`` from a provider response.
 
     Reads the actual input / output / cached token counts off the provider's
@@ -129,6 +169,11 @@ def _record_usage_shadow(resp: Any, provider_name: str, model: str) -> None:
     the status panel summarizes (TC4). Still observe-only on the call path: it
     never changes a response. Kill-switched via :data:`TOKEN_TELEMETRY_SHADOW`;
     never raises into the caller.
+
+    ``tier`` attributes the call to a cognitive tier (classifier / reasoning /
+    review / conversation / vision) so ``by_tier`` is meaningful; the caller
+    passes its provider's ``.tier``. An empty/unknown tier is normalized to
+    ``unknown`` by ``record_usage`` (MCU Tranche 1 — token tier accounting).
     """
     if not TOKEN_TELEMETRY_SHADOW:
         return
@@ -164,6 +209,7 @@ def _record_usage_shadow(resp: Any, provider_name: str, model: str) -> None:
         rec = _tt.record_usage(
             provider=str(provider_name or ""),
             model=str(model or ""),
+            tier=str(tier or ""),
             input_tokens=inp,
             output_tokens=out,
             cached_tokens=cached,
@@ -219,6 +265,12 @@ class LLMProvider(ABC):
     """Abstract base for all LLM backends."""
 
     name: str = "abstract"
+    # Which cognitive tier this provider serves, for token-telemetry attribution
+    # (classifier / reasoning / review / conversation / vision). Set by the
+    # factories that know the role (create_tier_provider, the main-agent builder);
+    # defaults to "unknown" so an untagged provider is honestly unattributed rather
+    # than mislabelled (MCU Tranche 1 — token tier accounting).
+    tier: str = "unknown"
 
     def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
         self.api_key = api_key
@@ -328,7 +380,8 @@ class GroqProvider(LLMProvider):
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments or "{}"),
                 })
-        _record_usage_shadow(resp, self.name, model_override or self.model)
+        _record_usage_shadow(resp, self.name, model_override or self.model,
+                             tier=getattr(self, "tier", ""))
         return {
             "text": (choice.message.content or "").strip(),
             "tool_calls": tool_calls,
@@ -441,7 +494,8 @@ class OpenAIProvider(LLMProvider):
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments or "{}"),
                 })
-        _record_usage_shadow(resp, self.name, model_override or self.model)
+        _record_usage_shadow(resp, self.name, model_override or self.model,
+                             tier=getattr(self, "tier", ""))
         return {
             "text": (choice.message.content or "").strip(),
             "tool_calls": tool_calls,
@@ -835,7 +889,8 @@ class GeminiProvider(LLMProvider):
                     "name": getattr(step, "name", ""),
                     "args": getattr(step, "arguments", {}) or {},
                 })
-        _record_usage_shadow(resp, self.name, model_override or self.model)
+        _record_usage_shadow(resp, self.name, model_override or self.model,
+                             tier=getattr(self, "tier", ""))
         return {
             "text": (getattr(resp, "output_text", "") or "").strip(),
             "tool_calls": tool_calls,
@@ -1093,7 +1148,8 @@ class AnthropicProvider(LLMProvider):
                     "name": block.name,
                     "args": block.input,
                 })
-        _record_usage_shadow(resp, self.name, model_override or self.model)
+        _record_usage_shadow(resp, self.name, model_override or self.model,
+                             tier=getattr(self, "tier", ""))
         return {
             "text": "".join(text_parts).strip(),
             "tool_calls": tool_calls,
@@ -1335,12 +1391,18 @@ def create_tier_provider(
 
     _LOGGER.debug("Creating %s tier provider: %s / %s", tier, provider_name, model)
 
-    return create_provider(
+    p = create_provider(
         provider_name=provider_name,
         api_key=api_key,
         model=model,
         base_url=base_url,
     )
+    try:
+        if p is not None:
+            p.tier = tier   # best-effort: attribute this tier's token usage (Tranche 1)
+    except Exception:  # a provider factory must never fail on a telemetry tag
+        pass
+    return p
 
 
 def _classify_conn_error(exc) -> str:
