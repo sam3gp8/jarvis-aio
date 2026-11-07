@@ -8,12 +8,21 @@ instead of re-implementing it:
           →  [caller performs the HA service call]  →  emit_event (JarvisEvent)
           →  outcome (ActuatorOutcome, via the caller's verify step)
 
-This module is pure glue over the ``kernel`` primitives — no new behaviour. It
-is **best-effort**: every function degrades to a null result and never raises
-into a caller's authoritative path, so wiring a path onto the envelope can never
-break that path. Authority stays **log-only**: the envelope *describes and
-records* an actuation; it does not perform the service call (the caller does) or
-gate it. Promoting any of this to enforcement is a separate, owner-gated step.
+The envelope itself is pure glue over the ``kernel`` primitives — **best-effort**
+(every function degrades to a null result and never raises into a caller's
+authoritative path, so wiring a path onto it can never break that path) and
+**non-gating**: it *describes and records* an actuation; it does not perform the
+service call (the caller does) or authorize it. Authorization enforcement lives
+in `policy.confirm_gate` + `authority_bridge`, not here.
+
+Beyond the envelope, this module also hosts JARVIS's **agency self-limits**, and
+several of those are now LIVE gates (not shadow): the autonomous-action budget
+(G1), the per-path loop detector (G2), and the cross-path thrash reactor (H)
+actually suppress a runaway *discretionary-autonomous* actuation. All three are
+bounded to that population (never a user command or a safety-critical action),
+**fail open**, and are one-line kill-switchable (``AGENCY_BUDGET_ENFORCE`` /
+``LOOP_DETECT_ENFORCE`` / ``STREAM_THRASH_ENFORCE``). The envelope-wide lenses
+below (E/E4) still only observe.
 """
 from __future__ import annotations
 
@@ -32,8 +41,9 @@ _LOGGER = logging.getLogger(__name__)
 # budget counts autonomous actions against a self-imposed hourly ceiling. Here
 # they run in SHADOW — every actuation is fed in and a loop / exhausted-budget
 # verdict is logged, but the verdict is NEVER acted on: no action is suppressed
-# or deferred. Promoting this to ENFORCE (actually blocking an actuation) gates
-# live actuation and is an owner-gated step, deliberately not taken.
+# or deferred. These envelope-wide lenses stay shadow-only on purpose; the
+# dedicated, tightly-scoped gates below (G1 budget / G2 loop / H cross-path
+# thrash) are what actually ENFORCE, on the discretionary-autonomous population.
 _loop_detector = None
 _agency_budget = None
 _stream_detector = None   # cross-path loop detector, fed by the event-bus reactor

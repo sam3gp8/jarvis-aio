@@ -10,11 +10,15 @@ spend, and what a cost panel renders instead of a guess.
 
 This lands **pure**: a :class:`UsageRecord`, a :class:`PriceBook` that turns
 token counts into an estimated USD cost, and pure aggregation
-(:func:`summarize`, :func:`by_tier`, :func:`by_model`). Nothing live records
-usage yet — the router / ``llm_provider`` emits a record per call in shadow,
-parity against the current estimates, enforce when the panel and Phase Y read it.
-No Home Assistant import, so it is deterministic and unit-testable, and nothing
-here ever raises into a provider call path.
+(:func:`summarize`, :func:`by_tier`, :func:`by_model`). It is wired live:
+``llm_provider`` emits a record per call from the provider's own usage fields
+(TC2 shadow, 8.102.0), and the status panel renders the **actual measured**
+session spend from these records instead of a placeholder (TC4 enforce, 9.1.0 —
+on by default, kill-switchable via ``TOKEN_TELEMETRY_ENFORCE`` / the
+``token_telemetry_enforce`` config key). The remaining consumer is Phase Y
+(self-optimization) reading telemetry to tune model spend. No Home Assistant
+import, so it is deterministic and unit-testable, and nothing here ever raises
+into a provider call path.
 
 Cost convention: ``input_tokens`` is the count billed at the *input* rate and is
 taken to be **non-overlapping** with ``cached_tokens`` (which is billed at the

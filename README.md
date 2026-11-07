@@ -101,7 +101,7 @@ Not at first. By default JARVIS offers, and you decide. Only after you've accept
 
 **How close is this to the JARVIS from the movies?**
 An honest answer, by part:
-- **The mind is the real work — but it isn't finished.** JARVIS isn't if-this-then-that; it runs an agentic loop over a decision kernel (world model → situations → authority → plan → verify). That architecture genuinely exists, but it isn't yet the whole operating system: by the project's own tracked metric, only about **two-fifths of behaviour-bearing paths are kernel-authoritative today** (the goal is ~80%; the live figure is tracked in [`KERNEL_COVERAGE.md`](KERNEL_COVERAGE.md)), and most paths are still legacy-led. And the ceiling is real — it's an LLM reasoning over *your home's* state, not something that invents new physics.
+- **The mind is the real work — but it isn't finished.** JARVIS isn't if-this-then-that; it runs an agentic loop over a decision kernel (world model → situations → authority → plan → verify). That architecture genuinely exists, but it isn't yet the whole operating system. By the project's own tracked metric, **68.8% of the kernel cells that *can* be wired are** — the headline, measured only over the paths a contract can actually apply to (the ~80% goal). Of those, about **56% are fully authoritative** and the rest are credited for running in shadow or parity; counted across the *full* grid, including the many cells that are N/A by design, it's roughly **two-fifths**. Most paths are still legacy-led — and note that *reference* adoption (a module importing a kernel primitive, tracked in [`KERNEL_ADOPTION.md`](KERNEL_ADOPTION.md)) reads higher than true behavioural coverage, which is what [`KERNEL_COVERAGE.md`](KERNEL_COVERAGE.md) measures with its exact denominators. And the ceiling is real — it's an LLM reasoning over *your home's* state, not something that invents new physics.
 - **The body is deliberately bounded.** JARVIS senses and acts entirely through Home Assistant, by design. It has "eyes" (cameras), "senses" (sensors) and "hands" (anything HA can control) — but no robotics and no ubiquity, and that's the point of being an integration rather than a platform.
 - **The persona is there; the reflexes aren't.** It has a voice, a personality, and banter. What's missing is sub-second, interrupt-me-mid-sentence fluidity — the response latency of today's LLMs. That's the genuine frontier, and it's partly an engineering problem the design chips at (tiered routing so the big model isn't in every loop, local-first, anticipating so it acts before you finish asking) and partly a safety boundary kept on purpose (consequential actions hold for a human — see *"Will it take actions on its own?"* above).
 
@@ -156,6 +156,8 @@ tools the agent invokes on its own; most also have a panel control.
 - **Security-posture audit** (`security_audit`) — ask "is my setup secure?" and JARVIS reports what's exposed or unguarded: remote access served over plain `http://`, sensitive actions (unlock / disarm / open a garage/gate/door) that voice can trigger *without* confirmation, security entities reachable by the agent, and long-lived access tokens. Read-only — it scans nothing on the network and changes nothing; findings come back ordered most-serious first.
 - **Driving mode** — when your phone is connected to the car (Android Auto), route selected proactive alerts (departure/leave-now reminders, briefings, security & hazard alerts) to the car screen instead of speaking them to an empty house, and optionally silence home speakers while driving. Auto-detects the companion app's Android Auto sensor; off until enabled.
 
+> **Safety boundary — please read.** JARVIS's intrusion, hazard, freeze and sensor handling is best-effort *awareness and notification* layered over Home Assistant. It is **not** a certified life-safety or monitored-alarm system and must not replace one: keep your certified smoke, CO and water-leak detectors, and a professionally monitored security/alarm system if you rely on one. JARVIS raises a *critical sensor-event notification* when a smoke/CO/leak sensor fires; it does not yet model those as a fully verified hazard lifecycle, and its monitoring can be degraded by a sensor, network or provider failure.
+
 **Modes, memory, goals & suggestions**
 - Set operational modes, including custom ones (`set_mode`), and tune how much JARVIS acts on its own (`manage_autonomy`).
 - Remember facts you tell it (`remember`); open and track standing goals (`create_goal`, `update_goal`, `manage_goals`) and schedule follow-ups (`schedule_followup`, `manage_followups`).
@@ -164,9 +166,27 @@ tools the agent invokes on its own; most also have a panel control.
 - Mute a noisy entity from awareness, or force it back in (`ignore_entity`, `unignore_entity`); read opt-in wearable/wellbeing context (`wellbeing_context`).
 
 **Resilience & privacy**
-- The **Local Mind** replicates the full decision procedure offline, so JARVIS stays sharp with no internet at all.
+- The **Local Mind** keeps JARVIS useful with no internet — common intents, home-state queries, device/scene/mode control, and event decisions + phrasing all run locally. It is **not** a full offline brain: complex conversation, general reasoning, multi-step planning, camera scene-analysis and web research still escalate to the providers you configure and are degraded or unavailable when those are down. See the [offline capability contract](#offline-capability-contract).
 - All LLM credentials live in Home Assistant's `secrets.yaml`, never in plaintext panel config; any existing plaintext keys are relocated automatically and safely (verify-before-strip) on upgrade.
 - A single config resolver makes the panel the one source of truth for which model every part of JARVIS runs; provider credentials remain exclusively in Home Assistant's `secrets.yaml`.
+
+### Offline capability contract
+
+What still works when your model/cloud providers are unreachable. The home itself
+(Home Assistant) is local, so device control never depends on the cloud; JARVIS's
+*reasoning* does, to the degree each feature escalates to a provider.
+
+| Capability | Offline status |
+| --- | --- |
+| Device / scene / script / mode control, entity & area queries, home-state summary | **Local** — this is Home Assistant itself; no external model needed |
+| Common voice/text intents (turn X on/off, set, query) | **Local** — the Local Mind's intent + entity resolution |
+| Event decisions & notification phrasing (what matters, how to say it) | **Local** — the Local Mind |
+| Intrusion / hazard / freeze / lockdown monitoring | **Local** — runs on HA sensor state; camera *confirmation* of an event needs the vision provider |
+| Face recognition | **Local** when Frigate / Double Take run on your network; the best-effort LLM face *guess* is external |
+| Text-to-speech / speech-to-text | depends on the engine — Piper / Whisper and the HA voice pipeline are **local**; a cloud voice is external |
+| Complex conversation, general reasoning, multi-step planning | **Degraded / unavailable** — escalates to the configured LLM provider |
+| Camera scene analysis & narration | **External-dependent** — Frigate *detection* is local, the scene *reasoning* is not |
+| Web research, weather, hazard feeds | **External** — require network access |
 
 ## Requirements
 

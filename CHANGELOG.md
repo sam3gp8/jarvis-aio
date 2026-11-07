@@ -1,3 +1,41 @@
+## [9.87.0] — Truth-in-labeling: docs and the manifest match the running code
+
+No behaviour change to the cognitive paths — this reconciles stale descriptions
+with what the code actually does (MCU roadmap Tranche 0), plus one honest
+packaging fix. Verified each claim against the source before changing it.
+
+- **`authority_bridge.py`** — the module docstring called itself "log-only, never
+  changing behaviour." It now also hosts the live **authority ENFORCE** path
+  (`enforced_decision`, Phase G/G4/G4b, on by default, max-restriction belt,
+  fail-safe, kill-switchable). Docstring rewritten to describe both roles.
+- **`actuation.py`** — clarified that while the actuation *envelope* is non-gating
+  log-only glue (authorization lives in `policy.confirm_gate` + `authority_bridge`),
+  the module's **agency self-limits are live gates**: the autonomous-action budget
+  (G1), per-path loop detector (G2) and cross-path thrash reactor (H) actually
+  suppress a runaway discretionary-autonomous actuation (bounded to that
+  population, fail-open, kill-switchable). The E/E4 envelope-wide lenses still only
+  observe.
+- **`kernel/token_telemetry.py`** — dropped the stale "nothing live records usage
+  yet"; `llm_provider` records a `UsageRecord` per call (TC2) and the status panel
+  renders measured spend (TC4 enforce, 9.1.0, kill-switchable). Phase Y remains the
+  open consumer.
+- **`docs/KERNEL_PLAN.md`** — token-telemetry table: TC3 marked N/A-by-design (no
+  legacy estimate to parity against), TC4 marked ✅ Shipped (panel, 9.1.0) with the
+  Phase Y consumer split out as still planned.
+- **README** — the "two-fifths" kernel line now explains its denominators: 68.8%
+  of the *applicable* (wireable) cells is the headline, ~56% of those fully
+  authoritative, ~two-fifths across the full grid, with *reference adoption* called
+  out as a separate, higher number. The **Local Mind** claim is corrected (it is
+  not a full offline brain) and backed by a new **offline capability contract**
+  table (local / degraded / external / unavailable per feature). Added a
+  **safety-boundary disclaimer**: JARVIS is awareness + notification over Home
+  Assistant, not a certified life-safety or monitored-alarm system.
+- **Minimum HA version** — no change needed. The README's "2024.10+" requirement
+  is already declared where a HACS custom integration declares it — `hacs.json`
+  (`homeassistant: 2024.10.0`). The manifest `homeassistant` key is core-only and
+  hassfest rejects it for a custom component, so the audit's "the manifest doesn't
+  declare it" is a non-issue, not a gap.
+
 ## [9.86.0] — Faces tab: Frigate / Double Take provenance, and training the best-effort matcher
 
 The Faces tab now shows where each identity comes from and lets a real face
