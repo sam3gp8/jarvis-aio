@@ -1364,6 +1364,7 @@ class JarvisPanel extends HTMLElement {
     this._activityData = null;   // populated by _fetchActivityLog()
     this._currentTab = "dashboard"; // "dashboard" or "settings"
     this._settingsSection = "general"; // active sub-section within Settings
+    this._settingsFilterQuery = ""; // live "filter settings cards" search box
     // Chat tab (issue #322) — type-to-JARVIS, session-local history. Messages
     // are {role:'user'|'jarvis'|'error', text}. Not persisted across reloads.
     this._chatMessages = [];
@@ -6443,8 +6444,14 @@ ${this._renderExcludedEntities(d)}
         <div class="head"><span>Quiet Hours</span><span class="side">${esc(c.observer_quiet_start || '22:00')}–${esc(c.observer_quiet_end || '07:00')}</span></div>
         <div class="mem-sub">Between these times JARVIS stays quiet — proactive announcements, briefings and the Observer back off.</div>
         <div class="home-cfg">
-          <div class="cfg-row"><label>Quiet start <span class="mode-bind-sub">HH:MM</span></label><input class="cfg-field cfg-text" type="text" inputmode="numeric" data-cfg-key="observer_quiet_start" value="${esc(c.observer_quiet_start || '22:00')}" placeholder="22:00"></div>
-          <div class="cfg-row"><label>Quiet end <span class="mode-bind-sub">HH:MM</span></label><input class="cfg-field cfg-text" type="text" inputmode="numeric" data-cfg-key="observer_quiet_end" value="${esc(c.observer_quiet_end || '07:00')}" placeholder="07:00"></div>
+          <div class="cfg-row">
+            <label>Quiet window <span class="cfg-hint">start → end</span></label>
+            <span style="display:flex;gap:6px;align-items:center;">
+              <input class="cfg-field" type="time" data-cfg-key="observer_quiet_start" value="${esc(c.observer_quiet_start || '22:00')}">
+              <span style="color:var(--text-dim);font-size:10px;">to</span>
+              <input class="cfg-field" type="time" data-cfg-key="observer_quiet_end" value="${esc(c.observer_quiet_end || '07:00')}">
+            </span>
+          </div>
         </div>
       </div>
 
@@ -6506,12 +6513,72 @@ ${this._renderExcludedEntities(d)}
       "Floor Plan Editor": "home", "Wellbeing Context": "home",
       "JARVIS Character & Research": "home", "Document Library": "home",
     };
+    // Inline stroke icons per sub-section (stroke:currentColor so they inherit
+    // the button's active/hover colour). floorplan/governance have no grid cards
+    // of their own — their content is a full-width extra-panel — but still get an
+    // icon + count.
+    const ICONS = {
+      general: '<svg class="subnav-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.77 1.05 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+      voice: '<svg class="subnav-ico" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>',
+      learning: '<svg class="subnav-ico" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/></svg>',
+      safety: '<svg class="subnav-ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+      cameras: '<svg class="subnav-ico" viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+      home: '<svg class="subnav-ico" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+      floorplan: '<svg class="subnav-ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
+      governance: '<svg class="subnav-ico" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>',
+    };
+
+    const counts = {};
     Array.from(grid.children).forEach(card => {
       if (!card.classList || !card.classList.contains("panel")) return;
       const h = card.querySelector(".head span");
       const title = h ? h.textContent.trim() : "";
-      card.dataset.section = MAP[title] || "general";
+      const sec = MAP[title] || "general";
+      card.dataset.section = sec;
+      counts[sec] = (counts[sec] || 0) + 1;
     });
+    // Full-width panels that live OUTSIDE the grid also count toward their badge.
+    root.querySelectorAll(".settings-page .settings-extra-panel[data-section]").forEach(p => {
+      const sec = p.getAttribute("data-section");
+      if (sec) counts[sec] = (counts[sec] || 0) + 1;
+    });
+
+    // Style dependent '↳' rows as indented tree branches.
+    root.querySelectorAll(".settings-page .cfg-row > label").forEach(lbl => {
+      if (lbl.textContent.includes("↳")) {
+        lbl.closest(".cfg-row")?.classList.add("cfg-subrow");
+      }
+    });
+
+    // Decorate sub-nav buttons with icon + card-count badge (idempotent per render).
+    root.querySelectorAll(".settings-subnav-btn").forEach(btn => {
+      const sec = btn.getAttribute("data-settings-section");
+      if (sec && ICONS[sec] && !btn.querySelector(".subnav-ico")) {
+        btn.insertAdjacentHTML("afterbegin", ICONS[sec]);
+      }
+      if (sec && counts[sec] && !btn.querySelector(".subnav-count")) {
+        const badge = document.createElement("span");
+        badge.className = "subnav-count";
+        badge.textContent = counts[sec];
+        btn.appendChild(badge);
+      }
+    });
+
+    // Inject a live "filter settings cards" search box into the sub-nav dock.
+    const subnav = root.querySelector(".settings-subnav");
+    if (subnav && !subnav.querySelector("#settings-card-filter")) {
+      const input = document.createElement("input");
+      input.id = "settings-card-filter";
+      input.className = "settings-filter-input";
+      input.type = "search";
+      input.placeholder = "Filter settings cards…";
+      input.value = this._settingsFilterQuery || "";
+      input.addEventListener("input", (e) => {
+        this._settingsFilterQuery = e.currentTarget.value;
+        this._applySettingsSections();
+      });
+      subnav.appendChild(input);
+    }
   }
 
   _applySettingsSections() {
@@ -6519,21 +6586,28 @@ ${this._renderExcludedEntities(d)}
     const grid = root && root.querySelector(".settings-grid");
     if (!grid) return;
     const active = this._settingsSection || "general";
+    const query = (this._settingsFilterQuery || "").trim().toLowerCase();
+
+    // With a filter query active, matching cards show across every section and
+    // the sub-nav highlight clears; otherwise it's plain section switching.
     root.querySelectorAll(".settings-subnav-btn").forEach(b => {
-      b.classList.toggle("active", b.getAttribute("data-settings-section") === active);
+      b.classList.toggle("active", !query && b.getAttribute("data-settings-section") === active);
     });
     Array.from(grid.children).forEach(card => {
       if (!card.classList || !card.classList.contains("panel")) return;
       // Read the section stamped at render time (localization-proof), not the
       // possibly-translated heading text.
       const section = card.dataset.section || "general";
-      card.style.display = section === active ? "" : "none";
+      const match = query ? card.textContent.toLowerCase().includes(query) : section === active;
+      card.style.display = match ? "" : "none";
     });
     // Full-width panels that live OUTSIDE the grid (Floor Plan Editor,
     // Doorbell Training) carry their own data-section. Without this they render
     // under every sub-tab, since the loop above only touches grid children.
     root.querySelectorAll(".settings-page .settings-extra-panel[data-section]").forEach(p => {
-      p.style.display = (p.getAttribute("data-section") === active) ? "" : "none";
+      const section = p.getAttribute("data-section");
+      const match = query ? p.textContent.toLowerCase().includes(query) : section === active;
+      p.style.display = match ? "" : "none";
     });
   }
 
@@ -12120,7 +12194,7 @@ ${this._renderExcludedEntities(d)}
        miscalculates column balancing on desktop/WebKit and drops cards. Grid
        removes hidden items from flow cleanly, so sub-nav switching is reliable. */
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
     gap: 16px;
     align-items: start;
   }
@@ -13368,6 +13442,240 @@ ${this._renderExcludedEntities(d)}
     font-family: inherit; padding: 0;
   }
   .chat-clear:hover { color: var(--red); }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * SETTINGS HUD VISUAL UPGRADE — uniform card chassis, pill toggles, aligned
+   * inputs, sticky icon sub-nav with card counts + live filter. All rules are
+   * scoped to .settings-page so no other tab is affected. (.settings-grid's
+   * track sizing lives above so the max-width:900px single-column override
+   * still wins on small screens.)
+   * ═════════════════════════════════════════════════════════════════════ */
+  .settings-page { display: flex; flex-direction: column; gap: 18px; padding-bottom: 32px; }
+
+  /* Sticky sub-navigation dock */
+  .settings-subnav {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 10px 12px;
+    background: linear-gradient(180deg, rgba(6,15,24,0.96) 0%, rgba(4,10,16,0.93) 100%);
+    border: 1px solid rgba(0,242,254,0.24); border-radius: 6px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.65), inset 0 1px 0 rgba(0,242,254,0.14);
+  }
+  .settings-subnav-btn {
+    position: relative; display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 12px; background: rgba(10,22,34,0.7);
+    border: 1px solid rgba(0,242,254,0.14); border-radius: 4px;
+    color: var(--text-dim, #6e91a3);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.16s ease;
+  }
+  .settings-subnav-btn svg.subnav-ico {
+    width: 13px; height: 13px; stroke: currentColor; fill: none;
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8;
+  }
+  .settings-subnav-btn:hover {
+    color: #dffaff; border-color: rgba(0,242,254,0.45);
+    background: rgba(0,242,254,0.08); transform: translateY(-1px);
+  }
+  .settings-subnav-btn.active {
+    color: #00f2fe;
+    background: linear-gradient(180deg, rgba(0,242,254,0.18) 0%, rgba(0,242,254,0.05) 100%);
+    border-color: rgba(0,242,254,0.8);
+    box-shadow: 0 0 16px rgba(0,242,254,0.22), inset 0 -2px 0 #00f2fe;
+  }
+  .settings-subnav-btn .subnav-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 16px; padding: 0 5px; border-radius: 9px;
+    font-size: 9px; background: rgba(0,242,254,0.12);
+    color: rgba(165,235,255,0.85); border: 1px solid rgba(0,242,254,0.22);
+  }
+  .settings-subnav-btn.active .subnav-count {
+    background: rgba(0,242,254,0.26); color: #fff; border-color: rgba(0,242,254,0.65);
+  }
+  .settings-filter-input {
+    margin-left: auto; min-width: 210px; padding: 6px 11px;
+    background: rgba(3,8,14,0.9); border: 1px solid rgba(0,242,254,0.26);
+    border-radius: 4px; color: #dffaff;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px;
+    outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .settings-filter-input:focus { border-color: #00f2fe; box-shadow: 0 0 12px rgba(0,242,254,0.28); }
+
+  /* Card chassis */
+  .settings-page .panel {
+    position: relative;
+    background: linear-gradient(165deg, rgba(12,25,38,0.88) 0%, rgba(6,13,21,0.95) 100%);
+    border: 1px solid rgba(0,242,254,0.18); border-radius: 6px; padding: 16px 18px;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.5), inset 0 1px 0 rgba(0,242,254,0.08);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease; overflow: hidden;
+  }
+  .settings-page .panel::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, rgba(0,242,254,0.8), rgba(0,245,160,0.35) 55%, transparent 100%);
+    opacity: 0.8; pointer-events: none;
+  }
+  .settings-page .panel:hover {
+    border-color: rgba(0,242,254,0.38);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.62), 0 0 18px rgba(0,242,254,0.08);
+  }
+  .settings-page .panel > .head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid rgba(0,242,254,0.15);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #e6fbff;
+  }
+  .settings-page .panel > .head .side {
+    padding: 2px 8px; border-radius: 3px;
+    background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.28);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 9.5px; font-weight: 500; letter-spacing: 0.12em; color: #00f2fe;
+  }
+  .settings-page .mem-sub,
+  .settings-page .appliance-intro,
+  .settings-page .dbt-intro,
+  .settings-page .home-cfg-hint {
+    font-size: 11.5px; line-height: 1.5; color: rgba(168,206,224,0.82);
+    background: rgba(0,20,34,0.45); border-left: 2px solid rgba(0,242,254,0.42);
+    padding: 7px 10px; border-radius: 0 4px 4px 0; margin-bottom: 12px;
+  }
+
+  /* Tactile pill switch (.toggle-btn) — one shape for every settings toggle */
+  .settings-page .toggle-btn {
+    position: relative; display: inline-flex; align-items: center; justify-content: flex-end;
+    min-width: 64px; height: 26px; padding: 0 9px 0 28px; border-radius: 13px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.22,1,0.36,1); flex-shrink: 0;
+  }
+  .settings-page .toggle-btn::before {
+    content: ""; position: absolute; top: 3px; left: 4px; width: 18px; height: 18px;
+    border-radius: 50%; background: #5b7989; box-shadow: 0 1px 4px rgba(0,0,0,0.65);
+    transition: transform 0.2s cubic-bezier(0.22,1,0.36,1), background 0.2s ease, box-shadow 0.2s ease;
+  }
+  .settings-page .toggle-btn.off {
+    background: rgba(8,18,28,0.92); border: 1px solid rgba(90,130,150,0.35);
+    color: #6d8d9e; justify-content: flex-end;
+  }
+  .settings-page .toggle-btn.on {
+    background: linear-gradient(90deg, rgba(0,245,160,0.25) 0%, rgba(0,242,254,0.28) 100%);
+    border: 1px solid rgba(0,245,160,0.78); color: #d6fff0;
+    justify-content: flex-start; padding: 0 28px 0 9px; box-shadow: 0 0 12px rgba(0,245,160,0.22);
+  }
+  .settings-page .toggle-btn.on::before { transform: translateX(36px); background: #00f5a0; box-shadow: 0 0 8px #00f5a0; }
+  /* Safety-gated switches ([data-confirm]) glow amber when armed */
+  .settings-page .toggle-btn[data-confirm].on {
+    background: linear-gradient(90deg, rgba(255,157,46,0.3) 0%, rgba(255,110,30,0.22) 100%);
+    border-color: #ff9d2e; color: #ffe3be; box-shadow: 0 0 12px rgba(255,157,46,0.32);
+  }
+  .settings-page .toggle-btn[data-confirm].on::before { background: #ff9d2e; box-shadow: 0 0 8px #ff9d2e; }
+
+  /* Rows: label (+ description) on the left, control on the right */
+  .settings-page .toggle-list,
+  .settings-page .home-cfg,
+  .settings-page .rule-list,
+  .settings-page .pairing-list { display: flex; flex-direction: column; gap: 6px; }
+  .settings-page .toggle-row,
+  .settings-page .cfg-row,
+  .settings-page .rule-row,
+  .settings-page .pairing-row,
+  .settings-page .diag-row {
+    display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 14px;
+    padding: 9px 11px; background: rgba(6,15,24,0.56);
+    border: 1px solid rgba(0,242,254,0.08); border-radius: 5px;
+    transition: background 0.14s ease, border-color 0.14s ease;
+  }
+  .settings-page .toggle-row:hover,
+  .settings-page .cfg-row:hover,
+  .settings-page .rule-row:hover,
+  .settings-page .pairing-row:hover,
+  .settings-page .diag-row:hover {
+    background: rgba(0,242,254,0.05); border-color: rgba(0,242,254,0.24);
+  }
+  .settings-page .toggle-row .toggle-label,
+  .settings-page .cfg-row > label,
+  .settings-page .rule-row .rule-name,
+  .settings-page .pairing-row .pairing-label {
+    font-size: 12.5px; font-weight: 500; color: #e4f7ff; grid-column: 1;
+  }
+  .settings-page .toggle-row .toggle-desc,
+  .settings-page .cfg-row > label .cfg-hint,
+  .settings-page .cfg-row > label .cfg-sub,
+  .settings-page .cfg-row > label .mode-bind-sub,
+  .settings-page .rule-row .rule-desc {
+    display: block; font-size: 11px; font-weight: 400; line-height: 1.4;
+    color: rgba(140,180,200,0.78); grid-column: 1; margin-top: 2px;
+  }
+  .settings-page .toggle-row > .toggle-btn,
+  .settings-page .toggle-row > .cfg-field,
+  .settings-page .toggle-row > .notify-select,
+  .settings-page .rule-row > .toggle-btn { grid-column: 2; grid-row: 1 / span 2; }
+  /* Sub-row tree indentation for ↳ dependent settings */
+  .settings-page .cfg-row.cfg-subrow {
+    margin-left: 16px; border-left: 2px solid rgba(0,242,254,0.42);
+    background: rgba(3,10,18,0.68); padding-left: 10px; border-radius: 0 4px 4px 0;
+  }
+
+  /* Inputs, selects & textareas */
+  .settings-page .cfg-field,
+  .settings-page .notify-select,
+  .settings-page .op-field {
+    padding: 6px 10px; background: rgba(3,9,15,0.92);
+    border: 1px solid rgba(0,242,254,0.26); border-radius: 4px; color: #daf8ff;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11.5px;
+    outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .settings-page .cfg-field:focus,
+  .settings-page .notify-select:focus,
+  .settings-page .op-field:focus { border-color: #00f2fe; box-shadow: 0 0 10px rgba(0,242,254,0.26); }
+  .settings-page .cfg-num { width: 78px; text-align: right; }
+
+  /* AI Models rack */
+  .settings-page .model-list { display: flex; flex-direction: column; gap: 8px; }
+  .settings-page .model-row {
+    display: grid; grid-template-columns: 110px 135px 1fr; gap: 8px; align-items: center;
+    padding: 10px 12px;
+    background: linear-gradient(90deg, rgba(0,242,254,0.06) 0%, rgba(6,15,24,0.65) 100%);
+    border: 1px solid rgba(0,242,254,0.16); border-left: 3px solid #00f2fe; border-radius: 5px;
+  }
+  .settings-page .model-label {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #00f2fe;
+  }
+  .settings-page .model-row .model-hint,
+  .settings-page .model-row .model-thinking-row { grid-column: 1 / -1; }
+  .settings-page .model-thinking-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding-top: 6px; margin-top: 4px; border-top: 1px dashed rgba(0,242,254,0.15);
+    font-size: 11px; color: #9ec6d8;
+  }
+
+  /* Area & entity chips */
+  .settings-page .area-chips,
+  .settings-page .pl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .settings-page .area-chip,
+  .settings-page .pl-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 14px;
+    background: rgba(8,20,32,0.85); border: 1px solid rgba(0,242,254,0.22); color: #9ec6d8;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 10.5px;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .settings-page .area-chip.on {
+    background: rgba(0,242,254,0.18); border-color: #00f2fe; color: #e8fdff;
+    box-shadow: 0 0 10px rgba(0,242,254,0.2);
+  }
+
+  /* Observer / Memory telemetry grid */
+  .settings-page .status-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 7px; }
+  .settings-page .status-row {
+    display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
+    background: rgba(5,13,21,0.72); border: 1px solid rgba(0,242,254,0.12); border-radius: 4px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px;
+  }
+  .settings-page .status-row .k { color: rgba(145,185,205,0.82); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .settings-page .status-row .v { color: #00f2fe; font-weight: 600; }
 
 </style>
     `;
