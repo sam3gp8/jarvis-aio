@@ -1,3 +1,23 @@
+## [9.95.0] — DB storage: flush learned source + external location (issue #491 b/c)
+
+The two follow-ups from #491, building on the 9.94.0 retention work. Both controls
+live in Settings → Learning → Excluded Entities, next to Data retention.
+
+- **(b) Flush learned source after (days).** A learned routine lives on in
+  `person_patterns` / `suggestions` (never pruned), so the raw `state_changes` /
+  `commands` that fed it can be flushed sooner than chat / activity history. The
+  new control prunes the pattern store on its own, shorter window; `0` = use the
+  general retention. Keep it ≥ ~30 days so the miner (30-day backfill, needs a
+  week of recurrences) isn't starved.
+- **(c) Database location.** Point JARVIS at another volume or network share
+  (absolute path) and its `.db` files are hosted there instead of
+  `<config>/jarvis`, keeping the large, append-heavy databases off the HA config
+  disk. On first use existing databases are **copied** to the new location (your
+  learning carries over), and the path is **verified writable first** — a missing
+  or read-only share falls back to the default rather than breaking startup. Only
+  the databases move; `config.json` and other small files stay put, so reading
+  the setting never depends on the share. Applies after a restart.
+
 ## [9.94.0] — Bound DB growth: configurable data retention (issue #491)
 
 Addresses issue #491 (uncontrolled DB growth). The observation stores were

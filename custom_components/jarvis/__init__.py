@@ -133,6 +133,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # available. Seed their module-level defaults once HA tells us its config dir.
     from . import jarvis_config as _path_jc
     _path_jc.set_config_path(paths.config_path("jarvis", "config.json", hass=hass))
+
+    # External DB location (issue #491c): relocate the .db files to a configured
+    # volume / network share. The setting lives in config.json (loaded just above,
+    # from the default dir), so reading it never depends on the share. Off the loop
+    # we create/verify the target, migrate existing databases into it once, and
+    # point all later DB opens there; any problem falls back to <config>/jarvis.
+    _db_store = str(_path_jc.get("db_storage_path", "") or "").strip()
+    if _db_store:
+        _default_jarvis = paths.config_path("jarvis", hass=hass)
+
+        def _relocate_dbs():
+            target = paths.set_jarvis_storage_dir(_db_store)
+            if target is None or str(target) == str(_default_jarvis):
+                return target
+            try:
+                import shutil
+                if not any(target.glob("*.db")) and _default_jarvis.exists():
+                    for f in _default_jarvis.glob("*.db*"):   # .db + -wal / -shm
+                        dst = target / f.name
+                        if f.is_file() and not dst.exists():
+                            shutil.copy2(str(f), str(dst))
+            except Exception:
+                pass
+            return target
+
+        _relocated = await hass.async_add_executor_job(_relocate_dbs)
+        if _relocated is not None and str(_relocated) != str(_default_jarvis):
+            _LOGGER.info("JARVIS: databases hosted at external path %s (issue #491)",
+                         _relocated)
+        elif _relocated is None:
+            _LOGGER.warning("JARVIS: db_storage_path %r is unusable (missing / not "
+                            "writable) — using the default <config>/jarvis", _db_store)
+
     from . import database as _path_db
     from . import ha_secrets as _path_hs
     from . import reminders as _path_reminders
@@ -818,22 +851,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def _db_retention_tick(_now) -> None:
         try:
             from . import jarvis_config, cognitive_core
-            try:
-                days = int(jarvis_config.get("db_retention_days",
-                                             DEFAULT_DB_RETENTION_DAYS))
-            except (TypeError, ValueError):
-                days = DEFAULT_DB_RETENTION_DAYS
-            if days <= 0:
-                return                           # retention disabled — keep everything
+
+            def _cfg_int(key, dflt):
+                try:
+                    return int(jarvis_config.get(key, dflt))
+                except (TypeError, ValueError):
+                    return dflt
+
+            days = _cfg_int("db_retention_days", DEFAULT_DB_RETENTION_DAYS)
+            # Issue #491b — "keep the rule, flush the source": once a routine has
+            # been learned it lives in person_patterns / suggestions (never pruned),
+            # so the raw observation rows that fed it can go sooner than the general
+            # logs. A positive db_source_retention_days overrides the general window
+            # for the pattern store only. Keep it >= ~a month so the miner (which
+            # backfills 30 days and needs a week of recurrences) isn't starved.
+            src_days = _cfg_int("db_source_retention_days", 0)
+            pattern_days = src_days if src_days > 0 else days
             total = 0
-            logger = getattr(getattr(cognitive_core, "_CORE", None),
-                             "state_logger", None)
-            if logger is not None:
-                total += await hass.async_add_executor_job(logger.prune_old, days) or 0
-            total += await hass.async_add_executor_job(purge_old_records, days) or 0
+            if pattern_days > 0:                 # 0 on both = retention disabled
+                logger = getattr(getattr(cognitive_core, "_CORE", None),
+                                 "state_logger", None)
+                if logger is not None:
+                    total += await hass.async_add_executor_job(
+                        logger.prune_old, pattern_days) or 0
+            if days > 0:
+                total += await hass.async_add_executor_job(purge_old_records, days) or 0
             if total:
                 _LOGGER.info("JARVIS: DB retention sweep removed %d old row(s) "
-                             "(keeping %d day(s))", total, days)
+                             "(logs %d day(s), learning source %d day(s))",
+                             total, days, pattern_days)
         except Exception as exc:
             _LOGGER.debug("JARVIS DB retention tick error: %s", exc)
 

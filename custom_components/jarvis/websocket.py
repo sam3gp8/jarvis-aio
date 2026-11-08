@@ -1512,6 +1512,8 @@ PANEL_WRITABLE_KEYS = {
     "memory_threading_hours",
     "memory_threading_max",
     "db_retention_days",             # int days: cap raw-observation retention to bound DB growth (0 = keep forever) — issue #491
+    "db_source_retention_days",      # int days: flush raw learning source (state_changes/commands) sooner than the rest, 0 = use db_retention_days — issue #491b
+    "db_storage_path",               # str: host the .db files on an external volume / share instead of <config>/jarvis — issue #491c
     "continued_conversation_enabled",
     "continued_conversation_speaker_reopen",   # bool: JARVIS times the follow-up mic reopen to the reply speaker finishing
     "continued_conversation_multi_satellite",  # bool: follow-up follows the person to another room's satellite when the start room empties
