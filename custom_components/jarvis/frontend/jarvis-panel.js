@@ -4460,6 +4460,14 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           <label>Data retention (days) <span class="cfg-hint">cap how long raw observations (state changes, commands, chat, activity) are kept so the DB can't grow without limit — 0 keeps everything. Default 90; learning only uses the last week or two.</span></label>
           <input class="cfg-field cfg-num" type="number" min="0" max="3650" step="1" data-cfg-key="db_retention_days" value="${cfg.db_retention_days ?? ''}" placeholder="90">
         </div>
+        <div class="cfg-row">
+          <label>Flush learned source after (days) <span class="cfg-hint">learned routines live on once learned, so the raw state-changes that fed them can go sooner than chat/activity. 0 = use the retention above. Keep ≥ 30 so the miner isn't starved.</span></label>
+          <input class="cfg-field cfg-num" type="number" min="0" max="3650" step="1" data-cfg-key="db_source_retention_days" value="${cfg.db_source_retention_days ?? ''}" placeholder="0">
+        </div>
+        <div class="cfg-row">
+          <label>Database location <span class="cfg-hint">host the JARVIS .db files on another volume or network share (absolute path). Blank = default &lt;config&gt;/jarvis. Existing DBs are copied over on first use; applies after a restart.</span></label>
+          <input class="cfg-field" type="text" data-cfg-key="db_storage_path" value="${this._esc(cfg.db_storage_path || '')}" placeholder="/mnt/share/jarvis">
+        </div>
       </div>
 `;
   }
