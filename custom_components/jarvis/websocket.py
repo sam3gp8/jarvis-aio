@@ -1511,6 +1511,7 @@ PANEL_WRITABLE_KEYS = {
     "memory_threading_enabled",
     "memory_threading_hours",
     "memory_threading_max",
+    "db_retention_days",             # int days: cap raw-observation retention to bound DB growth (0 = keep forever) — issue #491
     "continued_conversation_enabled",
     "continued_conversation_speaker_reopen",   # bool: JARVIS times the follow-up mic reopen to the reply speaker finishing
     "continued_conversation_multi_satellite",  # bool: follow-up follows the person to another room's satellite when the start room empties

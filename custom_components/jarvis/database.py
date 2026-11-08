@@ -174,20 +174,29 @@ def save_sentinel_event(entity_id: str, event_type: str, detail: str = "") -> No
 
 
 def purge_old_records(days: int = 30) -> int:
-    """Delete entries older than `days`. Returns rows deleted."""
+    """Delete conversation / sentinel / activity rows older than `days`, then
+    VACUUM to reclaim the freed disk (a plain DELETE leaves the file the same
+    size). `days` <= 0 is a no-op (keep forever). Returns total rows deleted."""
+    try:
+        if int(days) <= 0:
+            return 0                              # retain everything
+    except (TypeError, ValueError):
+        return 0
     try:
         cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)).isoformat()
+        deleted = 0
         with _connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM conversations WHERE timestamp < ?", (cutoff,)
-            )
-            conn.execute(
-                "DELETE FROM sentinel_events WHERE timestamp < ?", (cutoff,)
-            )
-            conn.execute(
-                "DELETE FROM activity_log WHERE timestamp < ?", (cutoff,)
-            )
-            return cur.rowcount
+            for tbl in ("conversations", "sentinel_events", "activity_log"):
+                cur = conn.execute(f"DELETE FROM {tbl} WHERE timestamp < ?", (cutoff,))
+                deleted += cur.rowcount or 0
+        if deleted:
+            try:
+                with sqlite3.connect(str(DB_PATH), isolation_level=None,
+                                     factory=ClosingConnection) as vac:
+                    vac.execute("VACUUM")
+            except Exception:
+                pass
+        return deleted
     except Exception as exc:
         _LOGGER.warning("JARVIS DB purge error: %s", exc)
         return 0

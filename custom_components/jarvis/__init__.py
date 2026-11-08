@@ -806,6 +806,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if sched.add("knowledge_purge", KNOWLEDGE_PURGE_INTERVAL, _knowledge_purge_tick):
         _LOGGER.info("JARVIS: daily knowledge purge active")
 
+    # Daily DB-retention sweep (issue #491 — uncontrolled DB growth): bound the
+    # append-only observation stores — patterns.db (state_changes / commands) and
+    # jarvis.db (conversations / sentinel_events / activity_log) — to the
+    # configured window and VACUUM to reclaim disk, so they can't fill the volume.
+    # Pattern learning only looks back a week or two, so the default keeps far more
+    # than it needs. `db_retention_days` = 0 keeps everything (opt out).
+    DB_RETENTION_INTERVAL = timedelta(hours=24)
+    DEFAULT_DB_RETENTION_DAYS = 90
+
+    async def _db_retention_tick(_now) -> None:
+        try:
+            from . import jarvis_config, cognitive_core
+            try:
+                days = int(jarvis_config.get("db_retention_days",
+                                             DEFAULT_DB_RETENTION_DAYS))
+            except (TypeError, ValueError):
+                days = DEFAULT_DB_RETENTION_DAYS
+            if days <= 0:
+                return                           # retention disabled — keep everything
+            total = 0
+            logger = getattr(getattr(cognitive_core, "_CORE", None),
+                             "state_logger", None)
+            if logger is not None:
+                total += await hass.async_add_executor_job(logger.prune_old, days) or 0
+            total += await hass.async_add_executor_job(purge_old_records, days) or 0
+            if total:
+                _LOGGER.info("JARVIS: DB retention sweep removed %d old row(s) "
+                             "(keeping %d day(s))", total, days)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS DB retention tick error: %s", exc)
+
+    if sched.add("db_retention", DB_RETENTION_INTERVAL, _db_retention_tick):
+        _LOGGER.info("JARVIS: daily DB-retention sweep active (default %d days)",
+                     DEFAULT_DB_RETENTION_DAYS)
+
     # ── Scheduled briefings (v6.78.0) ─────────────────────────────────────────
     # JARVIS delivers its own morning and evening briefing at configured clock
     # times. Off by default; enable per-briefing in Settings. Each run reuses the
@@ -1519,6 +1554,19 @@ def _register_services(
         days = call.data.get("days", 30)
         deleted = await hass.async_add_executor_job(purge_old_records, days)
         _LOGGER.info("JARVIS DB purge: %d records deleted (>%d days)", deleted, days)
+        # Also prune the pattern store (state_changes/commands) — the biggest
+        # append-only table — so a manual purge reclaims it too, not just jarvis.db.
+        try:
+            from . import cognitive_core
+            logger = getattr(getattr(cognitive_core, "_CORE", None),
+                             "state_logger", None)
+            if logger is not None:
+                p_deleted = await hass.async_add_executor_job(logger.prune_old, days)
+                if p_deleted:
+                    _LOGGER.info("JARVIS DB purge: %d pattern row(s) removed (>%d days)",
+                                 p_deleted, days)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS DB purge: pattern purge error: %s", exc)
         try:
             from . import knowledge
             k_deleted = await hass.async_add_executor_job(knowledge.purge_expired)
