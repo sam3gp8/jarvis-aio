@@ -1,3 +1,26 @@
+## [9.94.0] — Bound DB growth: configurable data retention (issue #491)
+
+Addresses issue #491 (uncontrolled DB growth). The observation stores were
+append-only with no automatic pruning — the pattern DB (`state_changes` /
+`commands`) in particular grew forever, and the existing `jarvis.db` purge was
+only ever run by hand. Now:
+
+- **Configurable retention.** A new **Data retention (days)** control (Settings →
+  Learning → Excluded Entities) caps how long raw observations are kept —
+  `state_changes` / `commands` (patterns.db) and `conversations` /
+  `sentinel_events` / `activity_log` (jarvis.db). **Default 90 days**; `0` keeps
+  everything (opt out). Pattern learning only looks back a week or two, so the
+  default never starves it.
+- **Daily sweep + VACUUM.** A once-a-day maintenance tick prunes past the window
+  and runs `VACUUM`, which actually **reclaims the disk** (a plain `DELETE`
+  leaves the file the same size). `config/db_retention_days` drives it.
+- **Manual purge covers everything now.** The `jarvis.database_purge` service
+  also prunes the pattern store (the biggest table), so you can reclaim space
+  immediately instead of waiting for the daily sweep.
+
+Still open from #491 and planned as follow-ups: (b) keep a learned rule but flush
+its source rows, and (c) host the DB on an external volume / network share.
+
 ## [9.93.0] — Fixes: Settings toggle overlap + greet only on a real return
 
 Two fixes reported from the live panel:

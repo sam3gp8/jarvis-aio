@@ -2976,6 +2976,44 @@ class StateLogger:
         except Exception:
             pass
 
+    def prune_old(self, days: int) -> int:
+        """Delete raw observation rows (``state_changes``, ``commands``) older than
+        ``days`` and VACUUM to reclaim disk, bounding patterns.db growth
+        (issue #491 — uncontrolled DB growth). The pattern miner only looks back a
+        week or two, so this never starves learning. ``days`` <= 0 is a no-op
+        (keep forever). Returns rows deleted; never raises into the caller."""
+        import sqlite3
+        try:
+            d = int(days)
+        except (TypeError, ValueError):
+            return 0
+        if d <= 0:
+            return 0                              # 0/negative = retain everything
+        cutoff = (datetime.now() - timedelta(days=d)).isoformat()
+        deleted = 0
+        try:
+            with sqlite3.connect(self._db_path, factory=ClosingConnection) as conn:
+                for tbl in ("state_changes", "commands"):
+                    try:
+                        cur = conn.execute(
+                            f"DELETE FROM {tbl} WHERE timestamp < ?", (cutoff,))
+                        deleted += cur.rowcount or 0
+                    except Exception:
+                        continue                 # table may not exist yet
+                conn.commit()
+            if deleted:
+                # VACUUM reclaims the freed pages (a plain DELETE leaves the file
+                # the same size); it must run outside a transaction.
+                try:
+                    with sqlite3.connect(self._db_path, isolation_level=None,
+                                         factory=ClosingConnection) as vac:
+                        vac.execute("VACUUM")
+                except Exception:
+                    pass
+        except Exception:
+            return 0
+        return deleted
+
     def distinct_logged_entities(self) -> set:
         """Entities already present in the pattern store — skipped on backfill so
         importing history can't double-count what live logging already covers."""

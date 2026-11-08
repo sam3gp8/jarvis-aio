@@ -4456,6 +4456,10 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           <div class="pl-add"><input id="excl-lab-input" list="excl-lab-list" class="op-field pl-input" placeholder="type a label\u2026" autocomplete="off"><datalist id="excl-lab-list">${this._labelDatalist()}</datalist><button class="ctrl" id="excl-lab-add">+ Add</button></div>
           <div class="pl-chips" id="excl-lab-chips">${chipRow(labs, 'excl-lab-del')}</div>
         </div>
+        <div class="cfg-row" style="margin-top:10px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+          <label>Data retention (days) <span class="cfg-hint">cap how long raw observations (state changes, commands, chat, activity) are kept so the DB can't grow without limit — 0 keeps everything. Default 90; learning only uses the last week or two.</span></label>
+          <input class="cfg-field cfg-num" type="number" min="0" max="3650" step="1" data-cfg-key="db_retention_days" value="${cfg.db_retention_days ?? ''}" placeholder="90">
+        </div>
       </div>
 `;
   }
