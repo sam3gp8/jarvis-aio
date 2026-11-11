@@ -42,11 +42,67 @@ KNOWN_CONTEXTS = {
 
 # ─── TTS entity discovery ────────────────────────────────────────────────────
 
+def _get_preferred_pipeline(hass: HomeAssistant):
+    """The user's PREFERRED Assist pipeline object, or None.
+
+    Best-effort and HA-version tolerant: ``async_get_pipeline`` returns the
+    preferred pipeline when no id is given, but its arity has differed across
+    releases, so both call shapes are tried. Any failure yields None.
+    """
+    try:
+        from homeassistant.components import assist_pipeline
+    except Exception:
+        return None
+    getp = getattr(assist_pipeline, "async_get_pipeline", None)
+    if getp is None:
+        return None
+    for args in ((hass,), (hass, None)):
+        try:
+            pipeline = getp(*args)
+        except TypeError:
+            continue          # wrong arity for this HA version — try the other
+        except Exception:
+            return None
+        if pipeline is not None:
+            return pipeline
+    return None
+
+
+def preferred_pipeline_tts_entity(hass: HomeAssistant) -> str | None:
+    """The ``tts.*`` entity of the user's preferred Assist pipeline, when it is a
+    real, currently-available entity — else None.
+
+    This is the engine the user explicitly chose to speak with in Home
+    Assistant, so JARVIS's auto-pick honors it before falling back to a local
+    default. Without this, a site with an OpenAI (or any cloud) TTS pipeline
+    still got Piper on every JARVIS-routed reply/announcement, because the
+    auto-pick was hardcoded to prefer Piper (issue #496). Only a value that
+    looks like a tts entity AND resolves to a live state qualifies, so a legacy
+    platform-name engine or a disabled entity falls through to the default.
+    """
+    pipeline = _get_preferred_pipeline(hass)
+    eng = getattr(pipeline, "tts_engine", None) if pipeline is not None else None
+    if isinstance(eng, str) and eng.startswith("tts.") and hass.states.get(eng):
+        return eng
+    return None
+
+
 def find_best_tts_entity(hass: HomeAssistant) -> str | None:
     """
-    Auto-discover the best free/local TTS entity.
-    Priority: piper > edge_tts > any tts.*
+    Auto-discover the TTS entity JARVIS should speak through by default.
+
+    Priority:
+      0. the user's PREFERRED Assist pipeline engine, when it's a live tts.*
+         entity — that's the voice they actually chose (issue #496);
+      1. piper > edge_tts > any tts.*  (a sensible free/local default).
+
+    A user who wants JARVIS pinned to a specific engine regardless of their
+    pipeline still sets ``tts_engine`` explicitly; this auto-pick only runs when
+    that is left on "auto".
     """
+    pref = preferred_pipeline_tts_entity(hass)
+    if pref:
+        return pref
     states = hass.states.async_all("tts")
     for state in states:
         if "piper" in state.entity_id.lower():

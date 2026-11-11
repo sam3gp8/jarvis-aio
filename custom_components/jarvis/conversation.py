@@ -746,25 +746,41 @@ class JarvisAgent(conversation.ConversationEntity):
         # unexpected error becomes a spoken + logged message with a real trace,
         # instead of HA's opaque "Unexpected error during intent recognition"
         # that leaves nothing in JARVIS's own diagnostics.
+        # Tag every LLM call THIS turn drives with one correlation id, so token
+        # telemetry can attribute the turn's full spend across the tiers it
+        # touches (MCU Tranche 1 — token cost accounting). Observe-only: the id
+        # is pure telemetry metadata and changes no behaviour. Best-effort — if
+        # the provider module can't be reached, fall back to a no-op scope.
+        import contextlib as _ctxlib
         try:
-            return await self._handle_message_impl(user_input, chat_log)
+            from . import llm_provider as _llm
+            import uuid as _uuid
+            _conv = (getattr(user_input, "conversation_id", None)
+                     or getattr(user_input, "device_id", None) or "conv")
+            _scope = _llm.correlation_scope(f"{_conv}:{_uuid.uuid4().hex[:8]}")
         except Exception:
-            import traceback as _tb
-            last = _tb.format_exc().strip().splitlines()[-1][:200]
+            _scope = _ctxlib.nullcontext()
+
+        with _scope:
             try:
-                from .websocket import jarvis_log
-                jarvis_log("ERROR", f"conversation handler crashed: {last}")
+                return await self._handle_message_impl(user_input, chat_log)
             except Exception:
-                pass
-            _LOGGER.exception("JARVIS conversation handler crashed")
-            ir = intent.IntentResponse(language=user_input.language)
-            ir.async_set_speech(
-                "I ran into an internal error handling that request.")
-            return conversation.ConversationResult(
-                response=ir,
-                conversation_id=getattr(user_input, "conversation_id", None)
-                or "default",
-            )
+                import traceback as _tb
+                last = _tb.format_exc().strip().splitlines()[-1][:200]
+                try:
+                    from .websocket import jarvis_log
+                    jarvis_log("ERROR", f"conversation handler crashed: {last}")
+                except Exception:
+                    pass
+                _LOGGER.exception("JARVIS conversation handler crashed")
+                ir = intent.IntentResponse(language=user_input.language)
+                ir.async_set_speech(
+                    "I ran into an internal error handling that request.")
+                return conversation.ConversationResult(
+                    response=ir,
+                    conversation_id=getattr(user_input, "conversation_id", None)
+                    or "default",
+                )
 
     async def _handle_message_impl(
         self,

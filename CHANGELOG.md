@@ -1,3 +1,74 @@
+## [9.98.0] — Token telemetry: per-request correlation IDs (Tranche 1)
+
+> This release also carries the **v9.97.0** fix for issue #496 — TTS auto-pick
+> now follows your preferred Assist pipeline engine (both increments landed on
+> the same branch, so they ship together). Its full entry is immediately below.
+
+Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting.
+9.89.0 and 9.92.0 attributed each measured LLM call to a *tier* (classifier /
+reasoning / review / conversation / vision); this closes one of the two items
+left open in that work — **per-request correlation IDs** — so telemetry can
+answer not just "how much does each tier cost" but "what did *this one request*
+cost across all the tiers it touched".
+
+- **A correlation scope in `llm_provider`.** `correlation_scope(id)` tags every
+  `UsageRecord` emitted inside it with one id; it's a `contextvar`, so the id
+  flows across `await` within the request's task (and is copied into any task
+  spawned mid-request) without threading an argument through every provider call
+  site. `_record_usage_shadow` stamps the live id onto each record.
+- **Wired at the conversation turn.** Each conversation turn runs under its own
+  correlation id (`<conversation_id>:<short>`), so all the LLM calls a single
+  turn drives — the agent plus any tool sub-calls — cluster under one id. (The
+  observer / proactive cognitive cycles are the next boundaries to adopt it.)
+- **Surfaced in diagnostics.** The `token_telemetry` dump gains `correlations`
+  (how many distinct correlated requests) and `top_correlations` (the costliest
+  few, empty-id calls excluded, bounded to 10 so the dump can't grow with
+  traffic). The kernel primitive gains a pure `by_correlation()` grouping
+  alongside `by_tier` / `by_model`.
+
+Observe-only and fail-safe throughout: the correlation id is pure telemetry
+metadata — it never changes a response or a decision, a missing provider module
+degrades to a no-op scope, and the session ring stays bounded + cleared on
+restart. Still open in Tranche 1: a durable (cross-restart) telemetry store, and
+the privacy-gate parity step (owner-gated).
+
+## [9.97.0] — TTS auto-pick follows your preferred Assist pipeline (issue #496)
+
+Fixes #496: on a site whose preferred Assist pipeline speaks through OpenAI TTS
+(or any cloud/non-Piper engine), every JARVIS-routed reply, announcement and
+`jarvis.speak` still came out in the **Piper** voice — or went silent when Piper
+was disabled. `jarvis.test_routing` confirmed it: *TTS auto-pick: tts.piper*,
+regardless of the pipeline.
+
+Root cause: when `tts_engine` is left on **auto** (the default), the engine
+auto-pick (`find_best_tts_entity`) was hardcoded to prefer `tts.piper` and never
+looked at the pipeline. Voice/language resolution *already* followed the
+preferred pipeline, so only the **engine** selection was wrong — which is why
+replies played, but in the wrong voice.
+
+- **Auto-pick now honors the preferred pipeline's engine first.** When
+  `tts_engine` is `auto`, JARVIS speaks through the `tts.*` entity of your
+  **preferred Assist pipeline** (the engine/voice you actually chose in HA),
+  falling back to the old local default (piper → edge → any) only when there's
+  no usable pipeline engine. This flows through every speech path — chat
+  replies, satellite pairings, announcements, `jarvis.speak`, briefings — and
+  through `jarvis.test_routing`, so the diagnostic now reports the real engine.
+- **Only a live `tts.*` entity qualifies.** A disabled/missing engine or a
+  legacy platform-name pipeline falls through to the default instead of picking
+  a dead entity, so "Piper disabled → silence" is fixed too.
+- **An explicit engine pin still wins.** Set `tts_engine` to a specific entity
+  (e.g. `tts.piper`) and JARVIS uses exactly that, pipeline notwithstanding —
+  the auto-pick only runs on `auto`.
+
+Note: the `proactive_tts_entity` override only ever applied to the *proactive
+audio* path, which is why setting it didn't change `test_routing` (that reads
+`tts_engine`). With this fix you no longer need the override for the common case
+— `auto` follows your pipeline everywhere.
+
+(The HTTP 400 "Invalid 'input': empty string" / ESP_FAIL seen alongside is a
+separate symptom of an empty reply reaching the pipeline's TTS stage, not the
+engine-selection bug; JARVIS's own announce path already no-ops on empty text.)
+
 ## [9.96.0] — Nighttime cover securing: honor exclusions, don't trap sleepers (issue #495)
 
 Issue #495 flagged the autonomous nighttime lockdown as a safety bug, and the
