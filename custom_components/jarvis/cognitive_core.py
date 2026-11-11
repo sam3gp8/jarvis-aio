@@ -57,6 +57,20 @@ ALARM_ARMED_STATES = {
 # away modes, and keep inferring away through a hold.)
 _HOME_ARM_MODES = {"armed_home", "armed_night", "armed_custom_bypass"}
 LOCKDOWN_DOOR_COVER_CLASSES = {"door", "garage", "garage_door"}
+# ── Nighttime lockdown cover policy (issue #495) ────────────────────────────
+# Securing a house that is ASLEEP AND OCCUPIED is not the same as arming one
+# that is empty. Rolling a motorized shutter/blind/shade down over a patio door
+# or a bedroom window while people sleep behind it can block a fire-egress
+# route — a genuine life-safety hazard. So, by default, autonomous nighttime
+# closing is limited to the "perimeter opening" classes you would lock at night
+# (doors / garage / gate) and never touches window shutters, blinds, shades,
+# curtains or awnings. Operators who want the legacy "close every open cover"
+# behaviour opt in with nighttime_lockdown_covers="all"; "off" disables
+# autonomous cover-closing entirely. Operator entity exclusions (the LOTO
+# contract) are ALWAYS honored on top of whichever mode is chosen.
+NIGHTTIME_COVER_SECURE_CLASSES = {"door", "garage", "garage_door", "gate"}
+NIGHTTIME_COVER_MODE_DEFAULT = "secure"       # secure | all | off
+COVER_FEATURE_CLOSE = 2                        # homeassistant CoverEntityFeature.CLOSE bit
 LOCKDOWN_BREACH_COOLDOWN = 120  # seconds between repeat breach announcements
 LOCKDOWN_SECURE_VERIFY_DELAY = 25  # seconds to wait before confirming a close actually took (slow covers)
 LOCKDOWN_STATE_PATH = config_path_str("jarvis", "lockdown_state.json")  # survives reboots/reloads
@@ -1490,15 +1504,30 @@ class SafetyManager:
         return None
 
     async def _nighttime_lockdown(self) -> list[dict]:
-        """Check and secure all locks and doors during sleep."""
+        """Check and secure locks and doors during sleep.
+
+        Operator exclusions are honored ABSOLUTELY here (issue #495): an entity
+        the user placed on the exclusion list is never actuated, not even by the
+        safety seam, because nighttime lockdown is a convenience/butler action,
+        not an active-threat response. Cover closing follows the configured
+        ``nighttime_lockdown_covers`` policy — "secure" (default) closes only
+        perimeter openings (doors/garage/gate) and never egress shutters over
+        sleeping residents, "all" restores legacy "close every open cover", and
+        "off" disables autonomous cover-closing — and only acts on covers that
+        advertise a CLOSE service, mirroring the intrusion path's rigor.
+        """
+        from .entity_filter import is_excluded
         actions = []
         honorific = self.config.get("honorific", "sir")
 
-        # Check locks
+        # Check locks — skip any the operator has excluded (LOTO is absolute).
         unlocked = []
         for state in self.hass.states.async_all("lock"):
             if state.state == "unlocked":
                 eid = state.entity_id
+                if is_excluded(self.hass, eid):
+                    _LOGGER.debug("Cognitive lockdown: %s excluded — not locking", eid)
+                    continue
                 fname = state.attributes.get("friendly_name", eid)
                 # Auto-lock — through the SAFETY seam (H8), which can never be
                 # blocked and fails open to a direct call.
@@ -1514,12 +1543,40 @@ class SafetyManager:
                 except Exception as exc:
                     _LOGGER.warning("Cognitive lockdown: failed to lock %s: %s", eid, exc)
 
-        # Check covers/garage
+        # Check covers/garage — honor exclusions, obey the cover policy, and only
+        # close covers that actually advertise a CLOSE service.
         open_covers = []
-        for state in self.hass.states.async_all("cover"):
-            if state.state == "open":
+        cover_mode = str(
+            self.config.get("nighttime_lockdown_covers", NIGHTTIME_COVER_MODE_DEFAULT)
+            or NIGHTTIME_COVER_MODE_DEFAULT
+        ).strip().lower()
+        if cover_mode not in ("secure", "all", "off"):
+            cover_mode = NIGHTTIME_COVER_MODE_DEFAULT
+        if cover_mode != "off":
+            for state in self.hass.states.async_all("cover"):
+                if state.state != "open":
+                    continue
                 eid = state.entity_id
-                fname = state.attributes.get("friendly_name", eid)
+                if is_excluded(self.hass, eid):
+                    _LOGGER.debug("Cognitive lockdown: %s excluded — not closing", eid)
+                    continue
+                attrs = state.attributes or {}
+                dc = attrs.get("device_class")
+                # "secure" (default): only perimeter-opening classes; never roll
+                # a shutter/blind/shade down over a sleeping, occupied room.
+                # "all": legacy behaviour, any class.
+                if cover_mode == "secure" and dc not in NIGHTTIME_COVER_SECURE_CLASSES:
+                    continue
+                # Skip covers that report features but don't advertise CLOSE —
+                # trying anyway is a no-op that then nags "still open".
+                sf = attrs.get("supported_features")
+                if sf is not None:
+                    try:
+                        if not (int(sf) & COVER_FEATURE_CLOSE):
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                fname = attrs.get("friendly_name", eid)
                 try:
                     from . import actuation
                     ok = await actuation.execute_safety_actuator(

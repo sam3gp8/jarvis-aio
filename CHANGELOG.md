@@ -1,3 +1,46 @@
+## [9.96.0] — Nighttime cover securing: honor exclusions, don't trap sleepers (issue #495)
+
+Issue #495 flagged the autonomous nighttime lockdown as a safety bug, and the
+core of it is real — so this fixes the real part while keeping JARVIS a butler
+that still secures the house at night, rather than neutering it with a blanket
+"never actuate" blacklist.
+
+What was wrong: when the house was asleep, JARVIS closed **every** open cover of
+**any** kind — including motorized window shutters, blinds and shades that double
+as a fire-egress route — and it did so **even for entities the operator had
+explicitly excluded**, because the safety seam fails open and never consulted the
+exclusion list. Rolling a shutter down over a patio door or bedroom window while
+someone sleeps behind it is a genuine egress/entrapment hazard, and overriding an
+operator exclusion breaks the integration's first rule: exclusions are absolute.
+
+What changed:
+
+- **Operator exclusions are now honored absolutely** on the nighttime securing
+  path — for **both** locks and covers. An excluded entity (by id, domain or
+  label) is filtered out *before* the safety seam, so the fail-open backstop is
+  never even reached for it. (The active-intrusion path is unchanged; this is the
+  convenience "tuck the house in" path, where the operator's exclusion wins.)
+- **A new policy bounds what JARVIS may close on its own at night** — Settings →
+  General → **Nighttime cover securing**:
+  - **Doors, garage & gate only** *(default)* — secures perimeter openings and
+    never auto-closes window shutters / blinds / shades / curtains / awnings.
+  - **Every open cover** — the previous behaviour, for those who want it.
+  - **Never close covers** — locks still auto-lock; covers are left alone.
+- **Only covers that advertise a CLOSE service are actuated** (and unclassified
+  covers are left alone under the default), mirroring the rigor the intrusion
+  `LockdownManager` already applied, so JARVIS no longer pokes status-only
+  openers and then nags that they're "still open".
+
+Note: this **changes the default** — motorized window coverings are no longer
+auto-closed at night unless you choose "Every open cover". Locking is unchanged.
+
+What was **declined** (with reasons on the issue): a default domain blacklist on
+`cover`/`lock`/`alarm_control_panel` would neuter the butler's core purpose, and
+making safety responses globally subject to the autonomy master toggles would
+break the deliberate independence of life-safety reactions (pipe-freeze,
+intrusion). The exclusion list + the per-site "off" option already give the
+operator complete, surgical control over the hazardous behaviour.
+
 ## [9.95.0] — DB storage: flush learned source + external location (issue #491 b/c)
 
 The two follow-ups from #491, building on the 9.94.0 retention work. Both controls
