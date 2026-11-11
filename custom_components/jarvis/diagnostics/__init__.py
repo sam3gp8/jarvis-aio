@@ -243,6 +243,17 @@ async def async_get_config_entry_diagnostics(hass, entry) -> dict:
     except Exception as exc:
         diag["token_telemetry_error"] = str(exc)[:200]
 
+    # Durable (cross-restart) cost ledger — lifetime + per-tier/-model + recent
+    # days folded from past sessions (MCU Tranche 1), so spend is visible beyond
+    # the current session. Fail-safe helper, empty when nothing has persisted yet.
+    try:
+        from .. import token_store as _token_store
+        pb = _token_store.persisted_breakdown(hass)
+        if pb:
+            diag["token_telemetry_persisted"] = pb
+    except Exception as exc:
+        diag["token_telemetry_persisted_error"] = str(exc)[:200]
+
     # Audio-routing snapshot — resolve each configured satellite→speaker pairing
     # and which TTS engines are selected, so "no audible reply" issues are
     # diagnosable directly (the pairings themselves are already in the config

@@ -299,6 +299,21 @@ class UsageTotals:
             "estimated_cost_usd": round(self.estimated_cost_usd, 6),
         }
 
+    @classmethod
+    def from_dict(cls, d: Mapping) -> "UsageTotals":
+        """Rebuild a roll-up from its ``to_dict`` form (``total_tokens`` is derived,
+        so it is ignored). Coerces to non-negative numbers; a malformed entry
+        becomes the zero total rather than raising, so a corrupt durable store can
+        never break a read."""
+        d = d if isinstance(d, Mapping) else {}
+        return cls(
+            calls=_nonneg_int(d.get("calls", 0)),
+            input_tokens=_nonneg_int(d.get("input_tokens", 0)),
+            output_tokens=_nonneg_int(d.get("output_tokens", 0)),
+            cached_tokens=_nonneg_int(d.get("cached_tokens", 0)),
+            estimated_cost_usd=_nonneg_float(d.get("estimated_cost_usd", 0.0)),
+        )
+
 
 def summarize(records: Iterable[UsageRecord]) -> UsageTotals:
     """Totals across all records. Pure and total."""
@@ -339,6 +354,43 @@ def by_tier(records: Iterable[UsageRecord]) -> Dict[str, UsageTotals]:
 def by_model(records: Iterable[UsageRecord]) -> Dict[str, UsageTotals]:
     """Usage totals grouped by model id."""
     return _group(records, "model")
+
+
+def _utc_day(ts: float) -> str:
+    """The UTC calendar day (``YYYY-MM-DD``) a record's timestamp falls in.
+
+    UTC (not local) so the grouping is deterministic and testable regardless of
+    the host timezone — a durable cost store reads the same on any machine."""
+    try:
+        return time.strftime("%Y-%m-%d", time.gmtime(_nonneg_float(ts)))
+    except Exception:  # pragma: no cover - gmtime is total over non-neg floats
+        return ""
+
+
+def by_day(records: Iterable[UsageRecord]) -> Dict[str, UsageTotals]:
+    """Usage totals grouped by UTC calendar day — the axis a durable, cross-restart
+    cost store accumulates on (MCU Tranche 1 — token cost accounting). Pure."""
+    buckets: Dict[str, List[UsageRecord]] = {}
+    for r in records:
+        if not isinstance(r, UsageRecord):
+            continue
+        buckets.setdefault(_utc_day(r.ts), []).append(r)
+    return {k: summarize(v) for k, v in buckets.items()}
+
+
+def merge_totals(a: "UsageTotals", b: "UsageTotals") -> "UsageTotals":
+    """Field-wise sum of two roll-ups, so a persisted lifetime total can accrue a
+    new session's totals across restarts. Pure; tolerates a non-``UsageTotals``
+    operand by treating it as the zero total."""
+    za = a if isinstance(a, UsageTotals) else UsageTotals()
+    zb = b if isinstance(b, UsageTotals) else UsageTotals()
+    return UsageTotals(
+        calls=za.calls + zb.calls,
+        input_tokens=za.input_tokens + zb.input_tokens,
+        output_tokens=za.output_tokens + zb.output_tokens,
+        cached_tokens=za.cached_tokens + zb.cached_tokens,
+        estimated_cost_usd=za.estimated_cost_usd + zb.estimated_cost_usd,
+    )
 
 
 def by_correlation(records: Iterable[UsageRecord]) -> Dict[str, UsageTotals]:

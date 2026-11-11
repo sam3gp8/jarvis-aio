@@ -1,3 +1,33 @@
+## [9.99.0] — Token telemetry: durable cross-restart cost ledger (Tranche 1)
+
+Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting and
+closes the **last of the two items** that work left open. Measured LLM spend was
+session-scoped — the usage ring (`llm_provider`) cleared on every restart, so the
+panel/diagnostics only ever knew "this session". Now it persists:
+
+- **A small on-disk ledger** at `<config>/jarvis/token_telemetry.json` folds the
+  measured `UsageRecord`s into **lifetime** totals plus **per-tier**, **per-model**
+  and **per-UTC-day** roll-ups, so cost accounting survives reboots and a cost
+  panel can answer "spend this week", not just "this session".
+- **Flushed off the hot path** — a second, drain-once pending buffer feeds a
+  scheduler tick (every 5 min) and a final flush on unload, so each record is
+  persisted exactly once and a provider call never does disk I/O. Written
+  atomically (temp + `os.replace`), mirroring the authority-parity store.
+- **Bounded + aged out** — the per-day map ages on the same `db_retention_days`
+  window as the other stores (issue #491) and is hard-capped regardless, so the
+  file can't grow without limit.
+- **Surfaced** in the diagnostics dump as `token_telemetry_persisted` (lifetime +
+  per-tier/-model + the recent days), beside the existing session breakdown. New
+  pure kernel helpers `by_day()` / `merge_totals()` / `UsageTotals.from_dict()`.
+
+Observe-only and fail-safe throughout: it reads records the providers already
+measured, never changes a call, and never raises into the tick or unload that
+drive it. Kill-switch: `llm_provider.TOKEN_TELEMETRY_PERSIST` / the
+`token_telemetry_persist` config key (off → the buffer still drains and discards,
+so nothing is written and the buffer stays bounded). With this, the token
+cost-accounting leg of Tranche 1 is complete; the privacy-gate parity step and
+identity→authz remain, both owner-gated.
+
 ## [9.98.0] — Token telemetry: per-request correlation IDs (Tranche 1)
 
 > This release also carries the **v9.97.0** fix for issue #496 — TTS auto-pick
