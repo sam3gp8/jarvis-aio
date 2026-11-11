@@ -19,6 +19,8 @@ uniform interface and doesn't need changes.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import logging
 import re
@@ -27,6 +29,47 @@ from collections import deque
 from typing import Any, Optional
 
 _LOGGER = logging.getLogger(__name__)
+
+# Per-request correlation id (MCU Tranche 1 — token cost accounting). Every LLM
+# call made in service of ONE request/cognitive cycle (a conversation turn, an
+# observer event) shares an id, so telemetry can answer "what did that one thing
+# cost across the classifier / reasoning / vision / conversation tiers it
+# touched". It is a contextvar so it flows across `await` within the request's
+# asyncio task — and is copied into any task spawned mid-request — without
+# threading an argument through every provider call site. Observe-only: the id
+# is pure telemetry metadata and never changes a response or a decision.
+_CORRELATION_ID: "contextvars.ContextVar[str]" = contextvars.ContextVar(
+    "jarvis_llm_correlation_id", default="")
+
+
+def current_correlation_id() -> str:
+    """The correlation id in effect for the current request, or ``""``."""
+    try:
+        return _CORRELATION_ID.get() or ""
+    except Exception:  # pragma: no cover - defensive; a bare contextvar get can't fail
+        return ""
+
+
+@contextlib.contextmanager
+def correlation_scope(correlation_id: str):
+    """Tag every ``UsageRecord`` emitted inside this scope with ``correlation_id``.
+
+    Wrap a request boundary (a conversation turn, a cognitive cycle) with this so
+    all the LLM calls it drives share one id. Nested scopes restore the outer id
+    on exit, and an empty/blank id is a harmless no-op tag. Observe-only and
+    never raises into the wrapped body — a contextvar set/reset cannot fail, but
+    the reset is still guarded so a telemetry concern can never break a request.
+    """
+    token = None
+    try:
+        token = _CORRELATION_ID.set(str(correlation_id or ""))
+        yield
+    finally:
+        if token is not None:
+            try:
+                _CORRELATION_ID.reset(token)
+            except Exception:  # pragma: no cover - defensive
+                pass
 
 # Phase TC2 (shadow): emit a kernel token-telemetry UsageRecord per provider
 # call, observe-only. A module constant gates it; off disables it entirely.
@@ -119,9 +162,12 @@ def telemetry_est_cost() -> str:
 
 def telemetry_breakdown() -> dict:
     """Session token-usage breakdown for diagnostics: overall totals plus a
-    per-tier and per-model split of the measured ``UsageRecord``s (TC4). This is
-    what answers "how many tokens does each cognitive tier consume" now that live
-    records carry a tier (Tranche 1).
+    per-tier, per-model and per-request (correlation) split of the measured
+    ``UsageRecord``s (TC4). The tier split answers "how many tokens does each
+    cognitive tier consume"; the correlation split answers "what did one request
+    cost across all the tiers it touched" — ``correlations`` counts the distinct
+    correlated requests and ``top_correlations`` lists the costliest few
+    (Tranche 1 — token cost accounting).
 
     Fail-safe and JSON-safe: returns a plain dict of plain numbers, or ``{}`` when
     the enforce kill-switch is off, there are no records, or anything faults.
@@ -146,11 +192,23 @@ def telemetry_breakdown() -> dict:
                 "estimated_cost_usd": round(t.estimated_cost_usd, 6),
             }
 
+        # by_correlation can hold one bucket per request, so surface only the
+        # costliest few (and never the empty-id bucket) to keep the diagnostics
+        # dump bounded. The full grouping stays available via the pure primitive.
+        corr = _tt.by_correlation(records)
+        top_corr = sorted(
+            ((k, v) for k, v in corr.items() if k),
+            key=lambda kv: (kv[1].estimated_cost_usd, kv[1].total_tokens),
+            reverse=True,
+        )[:10]
+
         return {
             "records": len(records),
             "total": _tot(_tt.summarize(records)),
             "by_tier": {k: _tot(v) for k, v in _tt.by_tier(records).items()},
             "by_model": {k: _tot(v) for k, v in _tt.by_model(records).items()},
+            "correlations": sum(1 for k in corr if k),
+            "top_correlations": {k: _tot(v) for k, v in top_corr},
         }
     except Exception:  # noqa: BLE001 - diagnostics read, never fatal
         return {}
@@ -213,6 +271,7 @@ def _record_usage_shadow(resp: Any, provider_name: str, model: str,
             input_tokens=inp,
             output_tokens=out,
             cached_tokens=cached,
+            correlation_id=current_correlation_id(),
             prices=_price_book(),
         )
         _USAGE_RECORDS.append(rec)

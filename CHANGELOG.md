@@ -1,3 +1,33 @@
+## [9.98.0] — Token telemetry: per-request correlation IDs (Tranche 1)
+
+Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting.
+9.89.0 and 9.92.0 attributed each measured LLM call to a *tier* (classifier /
+reasoning / review / conversation / vision); this closes one of the two items
+left open in that work — **per-request correlation IDs** — so telemetry can
+answer not just "how much does each tier cost" but "what did *this one request*
+cost across all the tiers it touched".
+
+- **A correlation scope in `llm_provider`.** `correlation_scope(id)` tags every
+  `UsageRecord` emitted inside it with one id; it's a `contextvar`, so the id
+  flows across `await` within the request's task (and is copied into any task
+  spawned mid-request) without threading an argument through every provider call
+  site. `_record_usage_shadow` stamps the live id onto each record.
+- **Wired at the conversation turn.** Each conversation turn runs under its own
+  correlation id (`<conversation_id>:<short>`), so all the LLM calls a single
+  turn drives — the agent plus any tool sub-calls — cluster under one id. (The
+  observer / proactive cognitive cycles are the next boundaries to adopt it.)
+- **Surfaced in diagnostics.** The `token_telemetry` dump gains `correlations`
+  (how many distinct correlated requests) and `top_correlations` (the costliest
+  few, empty-id calls excluded, bounded to 10 so the dump can't grow with
+  traffic). The kernel primitive gains a pure `by_correlation()` grouping
+  alongside `by_tier` / `by_model`.
+
+Observe-only and fail-safe throughout: the correlation id is pure telemetry
+metadata — it never changes a response or a decision, a missing provider module
+degrades to a no-op scope, and the session ring stays bounded + cleared on
+restart. Still open in Tranche 1: a durable (cross-restart) telemetry store, and
+the privacy-gate parity step (owner-gated).
+
 ## [9.97.0] — TTS auto-pick follows your preferred Assist pipeline (issue #496)
 
 Fixes #496: on a site whose preferred Assist pipeline speaks through OpenAI TTS

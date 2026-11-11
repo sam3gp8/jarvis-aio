@@ -339,3 +339,14 @@ def by_tier(records: Iterable[UsageRecord]) -> Dict[str, UsageTotals]:
 def by_model(records: Iterable[UsageRecord]) -> Dict[str, UsageTotals]:
     """Usage totals grouped by model id."""
     return _group(records, "model")
+
+
+def by_correlation(records: Iterable[UsageRecord]) -> Dict[str, UsageTotals]:
+    """Usage totals grouped by correlation id — the per-request/per-cycle cluster.
+
+    Every model call made in service of one request (a conversation turn, a
+    cognitive cycle) shares a correlation id, so this answers "what did that one
+    thing cost across all the tiers it touched". Records with no correlation id
+    (``""``) group under the empty key, same as any other grouping here. Pure and
+    total (MCU Tranche 1 — token cost accounting)."""
+    return _group(records, "correlation_id")
