@@ -1,3 +1,40 @@
+## [9.97.0] — TTS auto-pick follows your preferred Assist pipeline (issue #496)
+
+Fixes #496: on a site whose preferred Assist pipeline speaks through OpenAI TTS
+(or any cloud/non-Piper engine), every JARVIS-routed reply, announcement and
+`jarvis.speak` still came out in the **Piper** voice — or went silent when Piper
+was disabled. `jarvis.test_routing` confirmed it: *TTS auto-pick: tts.piper*,
+regardless of the pipeline.
+
+Root cause: when `tts_engine` is left on **auto** (the default), the engine
+auto-pick (`find_best_tts_entity`) was hardcoded to prefer `tts.piper` and never
+looked at the pipeline. Voice/language resolution *already* followed the
+preferred pipeline, so only the **engine** selection was wrong — which is why
+replies played, but in the wrong voice.
+
+- **Auto-pick now honors the preferred pipeline's engine first.** When
+  `tts_engine` is `auto`, JARVIS speaks through the `tts.*` entity of your
+  **preferred Assist pipeline** (the engine/voice you actually chose in HA),
+  falling back to the old local default (piper → edge → any) only when there's
+  no usable pipeline engine. This flows through every speech path — chat
+  replies, satellite pairings, announcements, `jarvis.speak`, briefings — and
+  through `jarvis.test_routing`, so the diagnostic now reports the real engine.
+- **Only a live `tts.*` entity qualifies.** A disabled/missing engine or a
+  legacy platform-name pipeline falls through to the default instead of picking
+  a dead entity, so "Piper disabled → silence" is fixed too.
+- **An explicit engine pin still wins.** Set `tts_engine` to a specific entity
+  (e.g. `tts.piper`) and JARVIS uses exactly that, pipeline notwithstanding —
+  the auto-pick only runs on `auto`.
+
+Note: the `proactive_tts_entity` override only ever applied to the *proactive
+audio* path, which is why setting it didn't change `test_routing` (that reads
+`tts_engine`). With this fix you no longer need the override for the common case
+— `auto` follows your pipeline everywhere.
+
+(The HTTP 400 "Invalid 'input': empty string" / ESP_FAIL seen alongside is a
+separate symptom of an empty reply reaching the pipeline's TTS stage, not the
+engine-selection bug; JARVIS's own announce path already no-ops on empty text.)
+
 ## [9.96.0] — Nighttime cover securing: honor exclusions, don't trap sleepers (issue #495)
 
 Issue #495 flagged the autonomous nighttime lockdown as a safety bug, and the
