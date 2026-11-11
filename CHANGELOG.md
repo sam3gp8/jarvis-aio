@@ -1,5 +1,9 @@
 ## [9.98.0] — Token telemetry: per-request correlation IDs (Tranche 1)
 
+> This release also carries the **v9.97.0** fix for issue #496 — TTS auto-pick
+> now follows your preferred Assist pipeline engine (both increments landed on
+> the same branch, so they ship together). Its full entry is immediately below.
+
 Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting.
 9.89.0 and 9.92.0 attributed each measured LLM call to a *tier* (classifier /
 reasoning / review / conversation / vision); this closes one of the two items
