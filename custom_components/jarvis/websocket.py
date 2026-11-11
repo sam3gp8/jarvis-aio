@@ -969,6 +969,8 @@ async def ws_get_panel_data(
                 "intrusion_vision_veto": bool(_runtime_opt(hass, entry, "intrusion_vision_veto", True)),
                 "intrusion_requires_confinement": bool(_runtime_opt(hass, entry, "intrusion_requires_confinement", False)),
                 "intrusion_breach_only": bool(_runtime_opt(hass, entry, "intrusion_breach_only", True)),
+                # Nighttime cover securing policy (issue #495): secure | all | off
+                "nighttime_lockdown_covers": str(_runtime_opt(hass, entry, "nighttime_lockdown_covers", "secure") or "secure"),
                 # Goals: kernel Plan authoritative over goal step state (H4b, 9.40.0)
                 "goals_kernel_authoritative": bool(_runtime_opt(hass, entry, "goals_kernel_authoritative", True)),
                 # Scheduled briefings (v6.78.0)
@@ -1486,6 +1488,7 @@ PANEL_WRITABLE_KEYS = {
     "announce_notify_only",      # bool: mute speakers — proactive announcements go to notifications only (#181)
     "sentinel_enabled",
     "observer_enabled",
+    "nighttime_lockdown_covers",   # str: "secure" (default, doors/garage/gate only) | "all" (legacy, every open cover) | "off" — bounds autonomous nighttime cover-closing so egress shutters aren't rolled down over sleeping residents (issue #495)
     "pattern_learn_doors",         # learn door/window activity for routines
     "pattern_learn_presence",      # learn presence/arrivals for routines
     "pattern_learn_buttons",       # learn button/remote presses ("press -> scene")

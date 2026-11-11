@@ -5341,6 +5341,11 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             </button>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Nighttime cover securing</span>
+            <span class="toggle-desc">What JARVIS may close on its own at night once the house is asleep. <b>Doors, garage &amp; gate only</b> (default) secures perimeter openings but never rolls a motorized shutter/blind/shade down over a window or patio door you might need as a fire exit. <b>Every open cover</b> restores the old behaviour. <b>Never close covers</b> leaves them alone (locks still auto-lock). Excluded entities are never touched in any mode.</span>
+            <select class="cfg-field" data-cfg-key="nighttime_lockdown_covers">${this._optsLabeled([['secure','Doors, garage &amp; gate only (default)'],['all','Every open cover (legacy)'],['off','Never close covers']], d.config?.nighttime_lockdown_covers || 'secure')}</select>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Cognition</span>
             <span class="toggle-desc">Local triage — sees all telemetry, gates cloud</span>
             <button class="toggle-btn ${(d.config?.cognition_enabled) ? 'on' : 'off'}"
