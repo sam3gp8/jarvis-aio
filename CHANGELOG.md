@@ -1,3 +1,31 @@
+## [9.103.0] — Identity → authz: ENFORCE — the gate acts on who is asking (Tranche 1)
+
+Completes MCU roadmap **Tranche 1 (foundation trust)**: the identity→authz leg
+moves **parity → enforce** (owner-authorized). 9.101.0 *logged* that resolving who
+is asking would change the engine's verdict on real traffic; this makes that
+resolution **bite** — but, by construction, only ever to **tighten**.
+
+- **The enforce belt now folds in the live principal.** When authority enforce is
+  on and the caller resolved no requester (the common live case), `enforced_decision`
+  resolves who is present (`identity.quick_identify`) and, **only for a known
+  requester**, re-runs the policy with that identity + its confidence, ANDing the
+  verdict into the same max-restriction belt. The one effect on an action the
+  identity-blind gate would allow: a **sensitive** action is held for confirmation
+  when who is present is a **low-confidence guess** (`confidence < 0.5`).
+- **Tighten-only, fail-safe, by construction.** The identity-aware decision is
+  computed from the *same* request as the identity-blind baseline — differing only
+  in identity + confidence — and can only turn an ALLOW into a hold, never the
+  reverse. An **unidentified** requester (identity stays `None`), a confident one,
+  a SAFE capability, or **any** identity/kernel fault all leave the identity-blind
+  outcome unchanged; a held action is never loosened. Kill-switch:
+  `authority_bridge.IDENTITY_AUTHZ_ENFORCE` (revert to parity/log-only).
+- No adoption-ledger change: `authority` is already **● enforce** and this adds no
+  new kernel-primitive consumer — the identity rung layers on the existing belt.
+
+Net effect: identical behaviour in the common case (a confident or absent reading
+of who is present), with a new guarantee that a *sensitive* actuation won't fire
+silently on a shaky guess about who asked for it.
+
 ## [9.102.0] — Privacy gate: ENFORCE — cross-subject facts are withheld (Tranche 1)
 
 Advances the information-flow / privacy leg from **parity → enforce**

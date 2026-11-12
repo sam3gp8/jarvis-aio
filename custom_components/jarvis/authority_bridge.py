@@ -21,8 +21,18 @@ live, authoritative gate). This module layers two things over that gate:
    bite. `_emit_identity_authz_parity` resolves the live principal
    (`identity.quick_identify`) and logs what the decision WOULD be with that
    identity + confidence — a divergence from the identity-blind baseline is a real
-   finding the enforce rung would act on. Observe-only; the recorded/enforced
-   decision is unchanged. Kill-switch: ``IDENTITY_AUTHZ_PARITY``.
+   finding the enforce rung acts on. Observe-only; the recorded decision is
+   unchanged. Kill-switch: ``IDENTITY_AUTHZ_PARITY``.
+
+4. **identity → authz ENFORCE (live — MCU Tranche 1).** When authority enforce is
+   on and the caller resolved no requester, `enforced_decision` resolves the live
+   principal and, only for a KNOWN requester, re-runs the policy with that identity
+   + confidence and folds the verdict into the SAME max-restriction belt: a
+   known-but-low-confidence requester can turn a sensitive ALLOW into a
+   hold-for-confirmation. It can only ever *tighten* — an unidentified requester
+   (identity stays ``None``) or any identity/kernel fault leaves the identity-blind
+   outcome unchanged (tighten-only / fail-safe). Kill-switch:
+   ``IDENTITY_AUTHZ_ENFORCE`` (reverts to parity-only on the next load).
 
 The running tally lives in `hass.data[DOMAIN]["_authority_parity"]` and is exposed
 via `parity_summary()` for diagnostics. Best-effort: a parity/record failure is
@@ -190,6 +200,52 @@ def _emit_identity_authz_parity(hass, cap, baseline, *, area_id=None):
         pass
 
 
+# identity -> authz ENFORCE (MCU Tranche 1 — foundation trust). The parity rung
+# above proved, log-only, that resolving WHO is asking changes the engine's verdict
+# on real traffic. This rung makes that resolution bite — but only ever to TIGHTEN.
+# When authority enforce is on and the caller passed no identity (the common case),
+# enforced_decision resolves the live principal and, for a KNOWN requester, re-runs
+# the policy with that identity + its confidence and ANDs the result into the same
+# max-restriction belt. The only effect on an action the identity-blind gate would
+# ALLOW is to hold a SENSITIVE one for confirmation when the requester is a
+# low-confidence guess; an unidentified requester (identity stays None) or any
+# fault leaves the identity-blind outcome unchanged. Reversible: flip
+# IDENTITY_AUTHZ_ENFORCE to False to revert to parity-only (log-only) on next load.
+IDENTITY_AUTHZ_ENFORCE = True
+
+
+def _identity_aware_decision(hass, cap, *, situation=None, scope=None,
+                             intent=None, token=None, context=None):
+    """The policy's verdict on ``cap`` WITH the live principal resolved, for the
+    enforce belt — or ``None`` to leave the identity-blind outcome untouched.
+
+    Returns ``None`` (no tightening) when the rung is off, when no requester is
+    identified (``ident.known`` is false — an unidentified requester must never
+    change the decision), or on any fault (fail-safe: an identity/kernel error can
+    never block a legitimate action). Otherwise re-runs :func:`authorize` with the
+    SAME request the identity-blind baseline used, differing only in identity +
+    confidence, so the belt compares like with like and can only tighten (a
+    known-but-low-confidence requester turns a sensitive ALLOW into CONFIRM).
+    Kill-switch: :data:`IDENTITY_AUTHZ_ENFORCE`."""
+    if not IDENTITY_AUTHZ_ENFORCE:
+        return None
+    try:
+        from . import identity as _identity
+        from .kernel import AuthorityRequest, authorize
+        ident = _identity.quick_identify(hass)
+        if not (ident and ident.known):
+            return None                      # unidentified → identity-blind stands
+        who = _identity.normalize(ident.person)
+        if not who:
+            return None
+        conf = float(getattr(ident, "confidence", 0.0) or 0.0)
+        return authorize(AuthorityRequest(
+            capability=cap, identity=who, confidence=conf, situation=situation,
+            scope=scope, intent=intent, token=token, context=dict(context or {})))
+    except Exception:   # pragma: no cover - fail-safe, never disrupts actuation
+        return None
+
+
 def record_control_parity(hass, domain: str, service: str, *, allowed: bool,
                           identity=None, confidence: float = 1.0,
                           situation=None, scope=None, intent=None,
@@ -266,7 +322,25 @@ def enforced_decision(hass, domain: str, service: str, *, legacy_ok: bool,
     except Exception:   # pragma: no cover - defensive, fail-safe
         return legacy_ok, decision
     effective_ok = bool(legacy_ok) and engine_allows
-    if legacy_ok and not effective_ok:
+    # identity -> authz ENFORCE (Tranche 1): when the caller resolved no requester,
+    # also tighten by the live principal. Only runs when the identity-blind gate
+    # would ALLOW (effective_ok) — a held action can't be tightened further — and
+    # only ever turns that ALLOW into a hold (tighten-only / fail-safe; see
+    # _identity_aware_decision). The identity-blind parity record above is unchanged.
+    held_by_identity = False
+    if effective_ok and identity is None:
+        aware = _identity_aware_decision(
+            hass, cap, situation=situation, scope=scope, intent=intent,
+            token=token, context=context)
+        if aware is not None and aware.decision != A.ALLOW:
+            effective_ok = False
+            held_by_identity = True
+            _LOGGER.warning(
+                "identity->authz ENFORCE: %s held for confirmation — the resolved "
+                "requester makes the engine %s: %s (the identity-blind gate would "
+                "have allowed it)", cap, aware.decision,
+                getattr(aware, "reason", ""))
+    if legacy_ok and not effective_ok and not held_by_identity:
         _LOGGER.warning(
             "authority ENFORCE: %s held for confirmation by the kernel engine "
             "(decision=%s, reason=%s) — the legacy gate would have allowed it",
