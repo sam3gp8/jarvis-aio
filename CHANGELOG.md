@@ -1,3 +1,32 @@
+## [9.101.0] — Identity → authz: the authority gate learns who is asking (Tranche 1)
+
+Starts the last leg of MCU roadmap **Tranche 1 (foundation trust)** — tying the
+**identity** primitive into **authorization** decisions. `kernel.authority`
+already accepts an `identity` and a `confidence` and its policy uses them (a
+security-sensitive capability needs an *identified* requester; a sensitive action
+confirms when who is present is a shaky guess) — but the live gate always built
+its request with `identity=None`, so those rules never bit. This wires the real
+requester in, in **parity** (observe-only):
+
+- **`authority_bridge` now resolves the live principal and logs the divergence.**
+  When the gate records a decision without a supplied identity (the common case),
+  it resolves who is present (`identity.quick_identify`) and recomputes the
+  decision **with** that identity + its confidence. When the two differ — e.g. a
+  security capability moving from *"denied — no identified requester"* to
+  *"confirm — identified"*, or a sensitive action moving to *confirm* because the
+  presence guess is low-confidence — it logs a **warning**; when they agree, a
+  debug line. The recorded/enforced decision is **unchanged**.
+- **Observe-only and fail-safe.** The identity-aware decision is computed purely
+  for the log; the authoritative outcome stays exactly what it was, a resolver
+  fault is swallowed, and it never touches the actuator path. Making the
+  identity-aware decision authoritative is a later, **owner-gated enforce** rung.
+  Kill-switch: `authority_bridge.IDENTITY_AUTHZ_PARITY`.
+
+No behaviour change to any actuation — the gate's decision is identical; it now
+also records what it *would* decide if it acted on who is actually there. (The
+privacy **enforce** rung and this identity→authz **enforce** rung both remain
+owner-gated.)
+
 ## [9.100.0] — Privacy gate: parity against the live requester (Tranche 1)
 
 Advances MCU roadmap **Tranche 1 (foundation trust)** — the information-flow /

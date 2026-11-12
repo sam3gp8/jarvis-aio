@@ -16,6 +16,14 @@ live, authoritative gate). This module layers two things over that gate:
    set `AUTHORITY_ENFORCE_ALL=False` to revert to the bounded capability allowlist,
    or `AUTHORITY_ENFORCE=False` to revert to pure parity — either on the next load.
 
+3. **identity → authz parity (log-only — MCU Tranche 1).** The live gate builds its
+   request with ``identity=None``, so the policy's identity/confidence rules never
+   bite. `_emit_identity_authz_parity` resolves the live principal
+   (`identity.quick_identify`) and logs what the decision WOULD be with that
+   identity + confidence — a divergence from the identity-blind baseline is a real
+   finding the enforce rung would act on. Observe-only; the recorded/enforced
+   decision is unchanged. Kill-switch: ``IDENTITY_AUTHZ_PARITY``.
+
 The running tally lives in `hass.data[DOMAIN]["_authority_parity"]` and is exposed
 via `parity_summary()` for diagnostics. Best-effort: a parity/record failure is
 swallowed and the actuator path is untouched.
@@ -133,6 +141,55 @@ def _parity(hass):
     return p
 
 
+# identity -> authz PARITY (MCU Tranche 1 — foundation trust). The live authority
+# gate builds its AuthorityRequest with identity=None (callers don't resolve who
+# is asking), so the policy's identity/confidence rules never bite: a SECURITY
+# capability is held purely by the legacy gate, and a sensitive action never
+# confirms just because WHO is present is a shaky guess. This consult resolves the
+# live principal (identity.quick_identify) and recomputes the decision WITH that
+# identity + its confidence, logging any divergence from the identity-blind
+# baseline. Observe-only: the enforced outcome is unchanged; making the
+# identity-aware decision authoritative is a later, owner-gated enforce rung.
+# Kill-switch: IDENTITY_AUTHZ_PARITY.
+IDENTITY_AUTHZ_PARITY = True
+
+
+def _emit_identity_authz_parity(hass, cap, baseline, *, area_id=None):
+    """Log what the authority decision WOULD be if it knew who is asking.
+
+    Resolves the live principal and recomputes ``cap``'s decision with that
+    identity + confidence, comparing to the identity-blind ``baseline`` the live
+    gate actually used. A divergence (e.g. a SECURITY cap moving from "denied — no
+    identified requester" to "confirm — identified", or a sensitive action moving
+    to CONFIRM because who is present is a low-confidence guess) is a real finding
+    the enforce rung would act on. Observe-only; never raises into the actuator
+    path. Kill-switch: :data:`IDENTITY_AUTHZ_PARITY`."""
+    if not IDENTITY_AUTHZ_PARITY or baseline is None:
+        return
+    try:
+        from . import identity as _identity
+        from .kernel import AuthorityRequest, authorize
+        ident = _identity.quick_identify(hass, area_id=area_id)
+        who = _identity.normalize(ident.person) if (ident and ident.known) else None
+        conf = float(getattr(ident, "confidence", 0.0) or 0.0) if who else 1.0
+        aware = authorize(AuthorityRequest(
+            capability=cap, identity=who, confidence=conf))
+        if aware.decision != baseline.decision:
+            _LOGGER.warning(
+                "identity->authz(parity): %s — identity-blind=%s, but with the "
+                "resolved requester %s (conf %.2f) the engine would be %s: %s "
+                "(observe-only)",
+                cap, baseline.decision, who or "<unidentified>", conf,
+                aware.decision, aware.reason)
+        else:
+            _LOGGER.debug(
+                "identity->authz(parity): %s — %s with or without the resolved "
+                "requester %s (conf %.2f) (observe-only)",
+                cap, baseline.decision, who or "<unidentified>", conf)
+    except Exception:   # pragma: no cover - observe-only, never disrupts actuation
+        pass
+
+
 def record_control_parity(hass, domain: str, service: str, *, allowed: bool,
                           identity=None, confidence: float = 1.0,
                           situation=None, scope=None, intent=None,
@@ -163,6 +220,12 @@ def record_control_parity(hass, domain: str, service: str, *, allowed: bool,
             _LOGGER.debug(
                 "authority parity mismatch: %s engine=%s actual=%s (%s)",
                 cap, decision.decision, actual, decision.reason)
+        # identity -> authz parity (Tranche 1): when the caller resolved no
+        # requester (the common case today), log what the decision would be if it
+        # knew who is asking. Observe-only; the recorded/enforced decision above is
+        # unchanged.
+        if identity is None:
+            _emit_identity_authz_parity(hass, cap, decision)
         return decision
     except Exception as exc:  # never affect the actuator path
         _LOGGER.debug("authority parity record failed: %s", exc)
