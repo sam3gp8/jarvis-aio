@@ -90,6 +90,16 @@ TOKEN_TELEMETRY_ENFORCE = True
 # panel's uptime / announcements-today figures). Bounded so a long-running home
 # can't grow it without limit; the panel summarizes a snapshot of it.
 _USAGE_RECORDS: "deque" = deque(maxlen=2000)
+
+# Durable (cross-restart) telemetry (MCU Tranche 1 — token cost accounting).
+# The ring above is session-scoped and feeds the live panel. This second buffer
+# holds records NOT YET folded into the on-disk per-day / lifetime roll-ups; the
+# persistence flush (a scheduler tick + on unload) drains it, so each record is
+# persisted exactly once and the durable spend survives a restart. Bounded so a
+# flush that never runs can't grow it without limit. Kill-switch:
+# TOKEN_TELEMETRY_PERSIST / the `token_telemetry_persist` config key.
+TOKEN_TELEMETRY_PERSIST = True
+_PENDING_PERSIST: "deque" = deque(maxlen=20000)
 _PRICES = None  # lazily built default_price_book(), reused across calls
 
 
@@ -122,6 +132,32 @@ def telemetry_enforce_enabled() -> bool:
     except Exception:  # noqa: BLE001
         pass
     return True
+
+
+def telemetry_persist_enabled() -> bool:
+    """Whether drained records are written to the durable store (kill-switched).
+
+    Checked at flush time (not on the hot call path): if off, the flush still
+    drains the pending buffer and discards it, so the buffer stays bounded and no
+    file is written."""
+    if not TOKEN_TELEMETRY_PERSIST:
+        return False
+    try:
+        from . import jarvis_config
+        if jarvis_config.get("token_telemetry_persist", True) is False:
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def drain_pending_records() -> tuple:
+    """Return the records awaiting persistence and clear the buffer, so each is
+    folded into the durable store exactly once. A tuple copy, so a reader never
+    trips over a concurrent append from a provider call."""
+    out = tuple(_PENDING_PERSIST)
+    _PENDING_PERSIST.clear()
+    return out
 
 
 def telemetry_est_cost() -> str:
@@ -275,6 +311,11 @@ def _record_usage_shadow(resp: Any, provider_name: str, model: str,
             prices=_price_book(),
         )
         _USAGE_RECORDS.append(rec)
+        # Also queue it for the durable store (drained + folded by the flush).
+        # Module-flag check only here to keep the call path cheap; the config
+        # kill-switch is honored at flush time.
+        if TOKEN_TELEMETRY_PERSIST:
+            _PENDING_PERSIST.append(rec)
         _LOGGER.debug("token telemetry: %s", rec.to_dict())
     except Exception:  # pragma: no cover - observe-only, must never disrupt a call
         pass

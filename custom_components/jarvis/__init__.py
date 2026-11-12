@@ -343,6 +343,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     sched.add("agency-capture", 300, _agency_capture)
     await _agency_capture()   # seed an initial snapshot so a quick restart resumes
 
+    # ── Durable token-telemetry store (MCU Tranche 1 — token cost accounting) ──
+    # The session usage ring (llm_provider) resets on restart, so measured LLM
+    # spend was only ever known for the current session. Fold its records into a
+    # small on-disk lifetime + per-day cost ledger on a tick (and on unload) so
+    # the accounting survives reboots. Observe-only and best-effort — a failure
+    # never touches a call path. Kill-switch: llm_provider.TOKEN_TELEMETRY_PERSIST
+    # / the token_telemetry_persist config key.
+    async def _flush_token_telemetry(now=None):
+        try:
+            from . import llm_provider as _llm, token_store as _token_store
+            if not _llm.telemetry_persist_enabled():
+                _llm.drain_pending_records()      # keep the buffer bounded when off
+                return
+            records = _llm.drain_pending_records()
+            if records:
+                await hass.async_add_executor_job(_token_store.flush, hass, records)
+        except Exception as exc:
+            _LOGGER.debug("token telemetry flush tick error: %s", exc)
+
+    sched.add("token-telemetry-flush", 300, _flush_token_telemetry)
+
     # ── Auto-analyze camera events GOING FORWARD (doorbell / person) ─────────
     # The listeners above only CACHE Nest/Frigate events — historically nothing
     # was analyzed unless a user automation called jarvis.analyze_on_event. These
@@ -1185,6 +1206,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         from . import authority_bridge as _authority_bridge
         await hass.async_add_executor_job(_authority_bridge.save_parity, hass)
+    except Exception:
+        pass
+
+    # Fold any unpersisted token-usage records into the durable cost ledger one
+    # last time (MCU Tranche 1), so a clean unload/reload doesn't drop the
+    # session's tail. Best-effort — never blocks or fails the unload.
+    try:
+        from . import llm_provider as _llm, token_store as _token_store
+        if _llm.telemetry_persist_enabled():
+            _records = _llm.drain_pending_records()
+            if _records:
+                await hass.async_add_executor_job(_token_store.flush, hass, _records)
+        else:
+            _llm.drain_pending_records()
     except Exception:
         pass
 

@@ -114,7 +114,7 @@ SafetyManager, own a safety verdict stays behind its own per-flip go/no-go.
 | `space_time` | ● enforce | `cognitive_core`, `proactive_audio` |
 | `surfaces` | · pure | — *(staged ahead)* |
 | `temporal` | ◐ shadow | `agent`, `knowledge` |
-| `token_telemetry` | ● enforce | `llm_provider` |
+| `token_telemetry` | ● enforce | `llm_provider`, `token_store` |
 | `uncertainty` | ● enforce | `identity`, `knowledge` |
 | `working_memory` | ● enforce | `cognitive_core`, `output_gate` |
 | `world_model` | ● enforce | `actuation`, `agent`, `cognitive_core`, `continuity`, `home_state`, `presence`, `proactive_briefing` |
