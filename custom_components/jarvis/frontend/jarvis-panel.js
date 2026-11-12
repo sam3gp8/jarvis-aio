@@ -2526,6 +2526,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
   _modelRoles() {
     return [
       { role: 'llm',        label: 'Main Agent', provKey: 'llm_provider',        modelKey: 'model' },
+      { role: 'fast',       label: 'Fast Chat',  provKey: 'fast_provider',        modelKey: 'fast_model' },
       { role: 'classifier', label: 'Classifier', provKey: 'classifier_provider', modelKey: 'classifier_model' },
       { role: 'reasoning',  label: 'Reasoning',  provKey: 'reasoning_provider',  modelKey: 'reasoning_model' },
       { role: 'review',     label: 'Review',     provKey: 'review_provider',     modelKey: 'review_model' },
@@ -2588,6 +2589,28 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
       </div>`;
   }
 
+  // Fast-chat tier (latency): enable + the complexity threshold below which a
+  // simple conversational turn uses this small model instead of the Main Agent.
+  // The provider/model selectors come from the standard model-role row; these
+  // are the fast-chat-specific extras. Off until a fast model is chosen above.
+  _fastChatRows(cfg) {
+    const on = !!(cfg && cfg.fast_chat_enabled);
+    const thr = (cfg && cfg.fast_chat_max_complexity != null) ? cfg.fast_chat_max_complexity : 70;
+    return `
+      <div class="model-hint model-thinking-row">
+        <span>Fast chat (simple turns)</span>
+        <button class="toggle-btn ${on ? 'on' : 'off'}" data-cfg-key="fast_chat_enabled" data-cfg-val="${on ? 'false' : 'true'}">${on ? 'ON' : 'OFF'}</button>
+      </div>
+      <div class="model-hint model-thinking-row">
+        <span>Use when complexity &lt;</span>
+        <span class="model-thinking-tokens">
+          <input class="cfg-field cfg-num" type="number" min="0" max="100" step="5"
+                 data-cfg-key="fast_chat_max_complexity" value="${thr}"
+                 title="Turns scoring below this (0–100) use the fast model; at or above it the Main Agent handles them. Direct-reasoning turns always use the Main Agent. Default 70.">
+        </span>
+      </div>`;
+  }
+
   _renderModelRoles(d) {
     const ALL_PROVIDERS = ['groq', 'openai', 'gemini', 'ollama', 'anthropic', 'custom'];
     const cfg = d.config || {};
@@ -2628,6 +2651,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           ${r.role === 'review' ? this._reviewToggleRow(cfg) : ''}
           ${this._thinkingToggleRow(cfg, r.role)}
           ${r.role === 'vision' ? this._visionThrottleRow(cfg) : ''}
+          ${r.role === 'fast' ? this._fastChatRows(cfg) : ''}
         </div>`;
     }).join('');
   }
@@ -5690,28 +5714,6 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
           <input class="cfg-field cfg-num" type="number" min="512" max="131072" step="512"
             data-cfg-key="ollama_num_ctx" value="${d.config?.ollama_num_ctx ?? ''}" placeholder="8192"
             title="Context window for local Ollama models. Larger = more context, but more VRAM and slower. Default 8192."/>
-        </div>
-        <div class="llm-url-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
-          <span class="llm-url-label">FAST CHAT</span>
-          <button class="toggle-btn ${(d.config?.fast_chat_enabled) ? 'on' : 'off'}"
-            data-cfg-key="fast_chat_enabled"
-            data-cfg-val="${(d.config?.fast_chat_enabled) ? 'false' : 'true'}"
-            title="Route simple conversational turns to a small, fast local model; complex turns still use the Main Agent model above.">
-            ${(d.config?.fast_chat_enabled) ? 'ON' : 'OFF'}
-          </button>
-        </div>
-        <div class="llm-url-row">
-          <span class="llm-url-label">FAST MODEL</span>
-          <input class="cfg-field llm-url-input" type="text"
-            data-cfg-key="fast_model" value="${this._esc(d.config?.fast_model || '')}"
-            placeholder="e.g. gemma3n:e4b"
-            title="The small, fast model for simple conversational turns — usually a local Ollama tag served from the same endpoint as the Main Agent."/>
-        </div>
-        <div class="llm-url-row">
-          <span class="llm-url-label">FAST &le; complexity</span>
-          <input class="cfg-field cfg-num" type="number" min="0" max="100" step="5"
-            data-cfg-key="fast_chat_max_complexity" value="${d.config?.fast_chat_max_complexity ?? 70}" placeholder="70"
-            title="Turns scoring below this complexity (0–100) use the fast model; at or above it the Main Agent handles them. Default 70."/>
         </div>
       </div>
 
