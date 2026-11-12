@@ -922,9 +922,12 @@ class JarvisAgent(conversation.ConversationEntity):
                 self.hass, device_id=getattr(user_input, "device_id", None))
             subjects = [identity.subject_for(ident), "household"]
             # Semantic-aware when embeddings are on (meaning, not just keywords);
-            # falls back to keyword recall internally otherwise.
+            # falls back to keyword recall internally otherwise. `requester` is the
+            # resolved speaker — the live audience the privacy policy is checked
+            # against (parity, observe-only; Tranche 1 foundation-trust).
             kn_block = await knowledge.prompt_block_async(
-                self.hass, user_input.text, subjects=subjects)
+                self.hass, user_input.text, subjects=subjects,
+                requester=subjects[0])
             if kn_block:
                 persona = persona + "\n\n" + kn_block
         except Exception as exc:
