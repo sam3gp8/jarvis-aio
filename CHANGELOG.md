@@ -1,3 +1,24 @@
+## [9.106.0] — Fast-chat config: provider + live model dropdowns (not locked to Ollama)
+
+Follow-up to 9.105.0 on owner feedback: the fast-chat tier shipped with a
+free-text model field hard-wired to the Main Agent's provider. This makes it a
+first-class **model role** instead, so it gets the same UI every other role
+(Main Agent, Classifier, Vision, Camera Rsn…) already has.
+
+- **Fast Chat is now a model role** in the panel's AI Models card, right below
+  Main Agent: a **provider dropdown** (Groq / OpenAI / Gemini / Ollama / Anthropic
+  / Custom — no longer locked to Ollama) and a **model dropdown** whose options are
+  fetched live from the chosen provider, plus a **✎ Custom…** entry to type a model
+  id by hand. Picking the **Custom** provider uses the Custom URL already on the
+  card, so a non-Ollama OpenAI-compatible endpoint works for the fast tier too.
+  The ON/OFF toggle and the complexity threshold sit inline with the role.
+- **Keep-warm is backend-aware.** The pinger now only warms the fast model when it
+  lives on the **same** backend as the Main Agent client (blank provider = inherit
+  main); a fast model on a different provider is served elsewhere and isn't warmed
+  through the wrong client (and a cloud model has no cold-start to warm anyway).
+- No change to the routing policy (`fast_chat.py`) or the config keys — only how
+  they're chosen in the UI, and the warm gate.
+
 ## [9.105.0] — Fast-chat tier: a small model for simple turns, the big model for complex
 
 Second latency increment, and a model-routing feature. JARVIS's regex

@@ -379,22 +379,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Also keep the fast-chat tier's small model resident, so a simple
             # turn routed to it is instant too (not just the big Main Agent model).
             extra = []
+            client = _current_client()
             try:
                 from . import jarvis_config as _jc
                 cfg = {"fast_chat_enabled": _jc.get("fast_chat_enabled", False),
-                       "fast_model": _jc.get("fast_model", "")}
+                       "fast_model": _jc.get("fast_model", ""),
+                       "fast_provider": _jc.get("fast_provider", "")}
                 rc = (hass.data.get(DOMAIN, {}).get(entry.entry_id, {}) or {}).get(
                     "runtime_config", {})
                 if isinstance(rc, dict):
-                    for k in ("fast_chat_enabled", "fast_model"):
+                    for k in ("fast_chat_enabled", "fast_model", "fast_provider"):
                         if rc.get(k) not in (None, ""):
                             cfg[k] = rc[k]
                 fm = _fast.fast_model_name(cfg)
-                if fm:
+                # Only warm the fast model when it lives on the SAME backend as the
+                # Main Agent client (blank provider = inherit main). A fast model on
+                # a different provider is served elsewhere and can't be warmed via
+                # this client — and a cloud model has no cold-start to warm anyway.
+                fp = str(cfg.get("fast_provider") or "").strip()
+                main_name = str(getattr(client, "name", "") or "")
+                if fm and (not fp or fp == main_name):
                     extra = [fm]
             except Exception:
                 extra = []
-            await _warm.async_warm(hass, _current_client(), extra_models=extra)
+            await _warm.async_warm(hass, client, extra_models=extra)
         except Exception as exc:
             _LOGGER.debug("ollama warm tick error: %s", exc)
 
