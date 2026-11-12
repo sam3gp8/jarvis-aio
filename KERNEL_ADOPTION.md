@@ -104,7 +104,7 @@ SafetyManager, own a safety verdict stays behind its own per-flip go/no-go.
 | `persistence` | · pure | — |
 | `plan` | ◑ parity | `actuation`, `agent`, `goals` |
 | `priority` | · pure | — *(staged ahead)* |
-| `privacy` | ◑ parity | `knowledge` |
+| `privacy` | ● enforce | `knowledge` |
 | `provenance` | ◐ shadow | `continuity`, `knowledge`, `presence`, `recognition` |
 | `resilience` | ◐ shadow | `connectivity` |
 | `router` | ◑ parity | `reasoning_loop` |

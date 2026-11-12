@@ -637,15 +637,15 @@ _DECLARED: dict[str, dict] = {
     # needs a matching purpose), and an unknown classification denies. No HA import,
     # no I/O, no clock, no storage. SHADOW: knowledge.all_facts runs its facts
     # through privacy.redact against a hypothetical different resident. PARITY: the
-    # recall-for-reply block (knowledge.prompt_block_async) now also runs the facts
-    # it is ABOUT TO DISCLOSE through privacy.redact against the LIVE requester
-    # identity (resolved by identity.resolve in conversation) and logs how many the
-    # cross-subject non-disclosure rule would withhold from THAT person — a real
-    # finding when > 0, observe-only (no fact is actually withheld, the block is
-    # unchanged). Ladder: pure → shadow → parity → enforce (SOCIAL_MODEL_ENFORCE
-    # gates W on top of it), owner-gated; enforce (actually redacting) is the next,
-    # separate, owner-gated rung.
-    "privacy":      {"stage": "parity",  "owners": ["knowledge"]},
+    # recall-for-reply block logged what it would withhold from the LIVE requester.
+    # ENFORCE (owner-authorized): knowledge.prompt_block_async now actually WITHHOLDS
+    # the facts the cross-subject non-disclosure rule denies the resolved requester
+    # before they reach the model's context — a fail-safe belt over the existing
+    # subject-scoping (normally removes nothing; only ever drops a PERSONAL/SENSITIVE
+    # fact about a DIFFERENT subject; any fault returns the recall unchanged so a
+    # privacy fault can never blank a reply). Kill-switch: knowledge.PRIVACY_ENFORCE.
+    # Ladder: pure → shadow → parity → enforce (SOCIAL_MODEL_ENFORCE gates W on top).
+    "privacy":      {"stage": "enforce", "owners": ["knowledge"]},
     # social: PURE (Phase W, Social & Relationship Intelligence). Per-person
     # preference models that personalize within strict consent/privacy limits —
     # built ON kernel.privacy: a Preference is a labelled datum and personalize_for

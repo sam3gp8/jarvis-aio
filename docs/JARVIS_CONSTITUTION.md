@@ -105,7 +105,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `persistence` | · pure |
 | `plan` | ◑ parity |
 | `priority` | · pure |
-| `privacy` | ◑ parity |
+| `privacy` | ● enforce |
 | `provenance` | ◐ shadow |
 | `resilience` | ◐ shadow |
 | `router` | ◑ parity |
