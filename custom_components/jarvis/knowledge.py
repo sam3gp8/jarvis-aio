@@ -75,6 +75,18 @@ TEMPORAL_SHADOW = True
 # Flip PRIVACY_SHADOW to False to silence it.
 PRIVACY_SHADOW = True
 
+# PARITY (Phase W prerequisite — information-flow / privacy): the recall-for-reply
+# block (prompt_block / prompt_block_async) also runs the facts it is ABOUT TO
+# DISCLOSE through kernel.privacy against the LIVE requester identity — the step
+# up from the shadow above, which used a hypothetical audience. It logs how many
+# of those facts the cross-subject non-disclosure rule would withhold from THIS
+# requester. Normally 0 (recall already scopes to [requester, household]); a
+# non-zero count is a real finding — a fact about someone else reached this
+# person's context, which the enforce rung would redact. Observe-only: the block
+# the model sees is unchanged whether this runs or not; enforce is a later,
+# owner-gated decision. Flip PRIVACY_PARITY to False to silence it.
+PRIVACY_PARITY = True
+
 # ENFORCE (Phase T, Deep World Model) — ON (owner-enabled, 8.158.0). The curated-
 # knowledge prompt block is graph-authoritative: the recall-seeded facts are
 # expanded one hop through the knowledge graph (facts about directly-related
@@ -223,6 +235,55 @@ def _emit_privacy_shadow(facts: list) -> None:
             "privacy(shadow): %d fact(s) — %d would be withheld from a different "
             "resident by the cross-subject non-disclosure rule (observe-only)",
             len(items), withheld)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
+def _emit_privacy_parity(facts: list, requester: Optional[str]) -> None:
+    """Parity consult of ``kernel.privacy`` against the LIVE requester identity —
+    the step up from :func:`_emit_privacy_shadow`, which used a hypothetical
+    audience (Phase W prerequisite). Runs the non-disclosure-across-subjects
+    policy over the facts ABOUT TO BE DISCLOSED to ``requester`` and logs how many
+    the policy would withhold from them. Normally 0 — recall already scopes to
+    ``[requester, household]`` — so a non-zero count is a real finding: a fact
+    about someone else reached this person's recall context, which the enforce
+    rung would redact. Observe-only: the returned block is unchanged whether this
+    runs or not. Never raises. Kill-switch: :data:`PRIVACY_PARITY`."""
+    if not PRIVACY_PARITY:
+        return
+    try:
+        req = str(requester or "").strip().lower()
+        if not req:
+            return
+        from .kernel import privacy as PV
+        items = []
+        for f in (facts or []):
+            if not isinstance(f, dict):
+                continue
+            subj = str(f.get("subject") or DEFAULT_SUBJECT).strip().lower()
+            personal = bool(subj) and subj != DEFAULT_SUBJECT
+            items.append(PV.DataItem(
+                classification=(PV.PERSONAL if personal else PV.HOUSEHOLD),
+                subject=(subj if personal else "")))
+        if not items:
+            return
+        disclosable = PV.redact(items, audience=req)
+        withheld = len(items) - len(disclosable)
+        if withheld > 0:
+            # A fact about a DIFFERENT subject slipped into this requester's
+            # recall — the live path would disclose it; the enforce rung would
+            # not. Surface it (observe-only) so the divergence is visible before
+            # enforce is turned on.
+            _LOGGER.warning(
+                "privacy(parity): %d of %d recalled fact(s) would be WITHHELD "
+                "from requester '%s' by the cross-subject non-disclosure rule — a "
+                "cross-subject fact reached this context; enforce would redact it "
+                "(observe-only)", withheld, len(items), req)
+        else:
+            _LOGGER.debug(
+                "privacy(parity): all %d recalled fact(s) disclosable to requester "
+                "'%s' — policy agrees with the recall scoping (observe-only)",
+                len(items), req)
     except Exception:   # pragma: no cover - defensive
         pass
 
@@ -705,11 +766,16 @@ def _format_block(facts: list[dict]) -> str:
 
 async def prompt_block_async(hass, query: str = "", *, subject: Optional[str] = None,
                              limit: int = 12, now: Optional[float] = None,
-                             subjects: Optional[list] = None) -> str:
+                             subjects: Optional[list] = None,
+                             requester: Optional[str] = None) -> str:
     """Semantic-aware "what you know" block: when embeddings are on and a query is
     given, facts are ranked by meaning (recall_semantic, which falls back to
     keyword recall on its own); otherwise this matches the sync prompt_block.
-    Returns "" when empty so callers can concatenate unconditionally. ASYNC."""
+    Returns "" when empty so callers can concatenate unconditionally. ASYNC.
+
+    ``requester`` is the live audience identity this block is being built for; when
+    given, the facts about to be disclosed are run through the kernel privacy
+    policy against that requester (parity, observe-only)."""
     if query:
         facts = await recall_semantic(hass, query, subject=subject, k=limit,
                                       now=now, subjects=subjects)
@@ -734,6 +800,9 @@ async def prompt_block_async(hass, query: str = "", *, subject: Optional[str] = 
             _log_graph_parity(facts, expanded)
         except Exception:   # pragma: no cover - defensive
             pass
+    # Privacy parity (Phase W prerequisite): audit the facts about to be disclosed
+    # against the live requester identity. Observe-only — the block is unchanged.
+    _emit_privacy_parity(facts, requester)
     return _format_block(facts)
 
 

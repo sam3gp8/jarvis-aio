@@ -1,3 +1,30 @@
+## [9.100.0] — Privacy gate: parity against the live requester (Tranche 1)
+
+Advances MCU roadmap **Tranche 1 (foundation trust)** — the information-flow /
+privacy leg — from **shadow → parity**. `kernel.privacy` encodes the load-bearing
+rule *a personal fact about person A never flows to a different person B without
+A's consent*; 9.90.0 gave it its first live consult, but only against a
+**hypothetical** different resident. This step runs it against the **real** one.
+
+- **The recall-for-reply block now audits what it's about to disclose against the
+  live requester.** When JARVIS builds a reply, it resolves who is speaking
+  (`identity.resolve`) and recalls that person's facts; `prompt_block_async` now
+  runs those facts through `privacy.redact` **against that resolved requester**
+  and logs how many the cross-subject rule would withhold from them. Normally 0 —
+  recall already scopes to `[requester, household]` — so a **non-zero count is a
+  real finding**: a fact about someone else reached this person's context, which
+  the enforce rung would redact. That divergence now logs a warning instead of
+  going unseen.
+- **Observe-only.** The block the model sees is byte-for-byte unchanged whether
+  the consult runs or not — this measures the live path against the kernel
+  policy, it does not yet gate it. Actually redacting (enforce) remains a
+  separate, owner-gated decision. Kill-switch: `knowledge.PRIVACY_PARITY`.
+- Adoption ledger moves `privacy` from **◐ shadow → ◑ parity** (owner:
+  `knowledge`); `KERNEL_ADOPTION.md` and the constitution ledger regenerated.
+
+No behaviour change to any recall or reply path — the policy only watches and
+counts, now against the person actually asking.
+
 ## [9.99.0] — Token telemetry: durable cross-restart cost ledger (Tranche 1)
 
 Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting and
