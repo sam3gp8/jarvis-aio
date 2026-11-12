@@ -1,3 +1,31 @@
+## [9.105.0] — Fast-chat tier: a small model for simple turns, the big model for complex
+
+Second latency increment, and a model-routing feature. JARVIS's regex
+`local_engine` already handles ~95% of requests at zero cost and escalates only
+what it can't template — but every escalation went to the single big Main Agent
+model, so "tell me a joke" paid the same as "analyse my energy use and draft a
+plan". This adds an optional **fast-chat tier** that splits that escalation.
+
+- **Routing by the complexity score `local_engine` already computes.** A turn that
+  escalates but scores **below** the threshold (default 70, the same cutoff the
+  local engine uses) is conversational-but-un-templatable → it goes to a small,
+  fast model (e.g. Gemma 3n e4b). Anything at/above the threshold — and
+  direct-reasoning turns (`complexity = -1`) — still go to the big Main Agent model
+  (e.g. Qwen3), unchanged. New pure module `fast_chat.py` holds the policy;
+  `conversation.py` swaps the provider/model it hands to `run_agent`.
+- **Both models kept warm.** The keep-warm pinger (9.104.0) now also pins the
+  fast-chat model resident, so a turn routed to the small model is instant too —
+  not just the big one. `OllamaProvider.warm(model=…)` warms any model at the real
+  `num_ctx`.
+- **Configurable from the panel** (AI Models section): a FAST CHAT on/off toggle,
+  a FAST MODEL tag (blank provider = same endpoint as the Main Agent), and a
+  FAST ≤ complexity threshold. Off until a fast model is named.
+- **LLM call-latency logging** (9.104.0) already labels each call by `provider/model`,
+  so the logs show which tier served each turn and how long it took.
+
+Net effect: everyday chat is answered by the small fast model (instant), while
+genuinely complex requests still get the big model's depth — and both stay warm.
+
 ## [9.104.0] — Latency: keep the local Ollama model warm (no more cold first turn)
 
 First increment of the JARVIS latency work. Owner report: the **first** voice

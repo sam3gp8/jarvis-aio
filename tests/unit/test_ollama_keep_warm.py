@@ -120,6 +120,40 @@ async def test_async_warm_skips_cloud(ow):
     assert out == {"skipped": "not-ollama"}
 
 
+# ── async_warm also warms the fast-chat tier's extra model ───────────────────
+
+class _RecordingProvider:
+    """Ollama-like provider recording every model it was asked to warm."""
+    name = "ollama"
+
+    def __init__(self):
+        self.warmed = []
+
+    def warm(self, model=None):
+        self.warmed.append(model)                 # None = this provider's own model
+        return {"ok": True, "model": model or "main", "ms": 1}
+
+
+async def test_async_warm_warms_extra_models(ow):
+    prov = _RecordingProvider()
+    await ow.async_warm(_FakeHass(), prov, extra_models=["gemma3n:e4b"])
+    # the main model (None → own model) plus the fast model
+    assert prov.warmed == [None, "gemma3n:e4b"]
+
+
+async def test_async_warm_dedups_and_skips_blank_extras(ow):
+    prov = _RecordingProvider()
+    await ow.async_warm(_FakeHass(), prov, extra_models=["", "  ", None])
+    assert prov.warmed == [None]                   # only the main warm ran
+
+
+async def test_async_warm_no_extras_when_main_skipped(ow, monkeypatch):
+    # provider isn't Ollama → main warm is skipped → extras must not be chased
+    prov = _StubProvider("openai")
+    out = await ow.async_warm(_FakeHass(), prov, extra_models=["gemma3n:e4b"])
+    assert out == {"skipped": "not-ollama"}
+
+
 # ── OllamaProvider.warm() ────────────────────────────────────────────────────
 
 def _ollama_provider(load, recorder, **client_kw):

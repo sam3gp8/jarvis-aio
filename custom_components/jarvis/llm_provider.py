@@ -890,9 +890,11 @@ class OllamaProvider(OpenAIProvider):
                               len(recovered))
         return result
 
-    def warm(self) -> dict:
-        """Load & pin THIS model (+ its exact num_ctx) in Ollama's VRAM so the
-        first real turn isn't a cold load (MCU latency work).
+    def warm(self, model: Optional[str] = None) -> dict:
+        """Load & pin a model (+ its exact num_ctx) in Ollama's VRAM so the first
+        real turn isn't a cold load (MCU latency work). Defaults to this provider's
+        own model; pass ``model`` to warm a second resident model, such as the
+        fast-chat tier's small model, on the same server.
 
         Sends a 1-token no-op completion with an indefinite keep_alive and a
         generous timeout — a cold 26B load can take minutes. Crucially it reuses
@@ -902,6 +904,7 @@ class OllamaProvider(OpenAIProvider):
         returns a small diagnostics dict and never raises. Called off-loop by the
         keep-warm scheduler (see ollama_warm.py)."""
         import time as _time
+        target = (model or self.model)
         body = self._extra_body(thinking=False)
         body["keep_alive"] = OLLAMA_WARM_KEEP_ALIVE          # pin indefinitely
         t0 = _time.perf_counter()
@@ -912,15 +915,15 @@ class OllamaProvider(OpenAIProvider):
             except Exception:
                 pass
             client.chat.completions.create(
-                model=self.model,
+                model=target,
                 messages=[{"role": "user", "content": "ok"}],
                 max_tokens=1, temperature=0.0, extra_body=body,
             )
             return {"ok": True, "ms": int((_time.perf_counter() - t0) * 1000),
-                    "model": self.model}
+                    "model": target}
         except Exception as exc:
             return {"ok": False, "ms": int((_time.perf_counter() - t0) * 1000),
-                    "model": self.model, "error": str(exc)[:200]}
+                    "model": target, "error": str(exc)[:200]}
 
 
 # ─── Gemini (Google GenAI Interactions API) ──────────────────────────────────

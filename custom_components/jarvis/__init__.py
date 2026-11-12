@@ -375,8 +375,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ollama_warm.OLLAMA_WARM_ENABLED / the ollama_keep_warm config key.
     async def _ollama_warm_tick(now=None):
         try:
-            from . import ollama_warm as _warm
-            await _warm.async_warm(hass, _current_client())
+            from . import ollama_warm as _warm, fast_chat as _fast
+            # Also keep the fast-chat tier's small model resident, so a simple
+            # turn routed to it is instant too (not just the big Main Agent model).
+            extra = []
+            try:
+                from . import jarvis_config as _jc
+                cfg = {"fast_chat_enabled": _jc.get("fast_chat_enabled", False),
+                       "fast_model": _jc.get("fast_model", "")}
+                rc = (hass.data.get(DOMAIN, {}).get(entry.entry_id, {}) or {}).get(
+                    "runtime_config", {})
+                if isinstance(rc, dict):
+                    for k in ("fast_chat_enabled", "fast_model"):
+                        if rc.get(k) not in (None, ""):
+                            cfg[k] = rc[k]
+                fm = _fast.fast_model_name(cfg)
+                if fm:
+                    extra = [fm]
+            except Exception:
+                extra = []
+            await _warm.async_warm(hass, _current_client(), extra_models=extra)
         except Exception as exc:
             _LOGGER.debug("ollama warm tick error: %s", exc)
 

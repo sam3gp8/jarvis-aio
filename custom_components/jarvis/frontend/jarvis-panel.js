@@ -5691,6 +5691,28 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             data-cfg-key="ollama_num_ctx" value="${d.config?.ollama_num_ctx ?? ''}" placeholder="8192"
             title="Context window for local Ollama models. Larger = more context, but more VRAM and slower. Default 8192."/>
         </div>
+        <div class="llm-url-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
+          <span class="llm-url-label">FAST CHAT</span>
+          <button class="toggle-btn ${(d.config?.fast_chat_enabled) ? 'on' : 'off'}"
+            data-cfg-key="fast_chat_enabled"
+            data-cfg-val="${(d.config?.fast_chat_enabled) ? 'false' : 'true'}"
+            title="Route simple conversational turns to a small, fast local model; complex turns still use the Main Agent model above.">
+            ${(d.config?.fast_chat_enabled) ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        <div class="llm-url-row">
+          <span class="llm-url-label">FAST MODEL</span>
+          <input class="cfg-field llm-url-input" type="text"
+            data-cfg-key="fast_model" value="${this._esc(d.config?.fast_model || '')}"
+            placeholder="e.g. gemma3n:e4b"
+            title="The small, fast model for simple conversational turns — usually a local Ollama tag served from the same endpoint as the Main Agent."/>
+        </div>
+        <div class="llm-url-row">
+          <span class="llm-url-label">FAST &le; complexity</span>
+          <input class="cfg-field cfg-num" type="number" min="0" max="100" step="5"
+            data-cfg-key="fast_chat_max_complexity" value="${d.config?.fast_chat_max_complexity ?? 70}" placeholder="70"
+            title="Turns scoring below this complexity (0–100) use the fast model; at or above it the Main Agent handles them. Default 70."/>
+        </div>
       </div>
 
       <!-- NOTIFICATIONS -->

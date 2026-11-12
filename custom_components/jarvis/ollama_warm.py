@@ -46,30 +46,26 @@ def _config_enabled() -> bool:
         return True
 
 
-def warm_sync(client) -> dict:
-    """Blocking warm of the live client — run this in an executor, never on the
-    loop. No-ops (returns a ``skipped`` reason) when warming is disabled or the
-    active provider isn't Ollama; otherwise delegates to the provider's own
-    ``warm()`` and returns its diagnostics dict. Never raises."""
+def warm_sync(client, model=None) -> dict:
+    """Blocking warm of one model on the live client — run this in an executor,
+    never on the loop. ``model`` defaults to the client's own model; pass one to
+    warm a second resident model (e.g. the fast-chat tier's small model). No-ops
+    (returns a ``skipped`` reason) when warming is disabled or the active provider
+    isn't Ollama; otherwise delegates to the provider's own ``warm()`` and returns
+    its diagnostics dict. Never raises."""
     if not _config_enabled():
         return {"skipped": "disabled"}
     warm = getattr(client, "warm", None)
     if getattr(client, "name", None) != "ollama" or not callable(warm):
         return {"skipped": "not-ollama"}
     try:
-        return warm() or {"skipped": "no-result"}
+        res = warm(model) if model is not None else warm()
+        return res or {"skipped": "no-result"}
     except Exception as exc:   # provider.warm() shouldn't raise, but a tick must survive
         return {"ok": False, "error": str(exc)[:200]}
 
 
-async def async_warm(hass, client) -> dict:
-    """Warm the model off-loop and log the outcome. Safe for any client/provider
-    and any failure; returns the diagnostics dict for callers/tests."""
-    try:
-        res = await hass.async_add_executor_job(warm_sync, client)
-    except Exception as exc:
-        _LOGGER.debug("ollama warm: executor error: %s", exc)
-        return {"ok": False, "error": str(exc)[:200]}
+def _log_warm(res: dict) -> None:
     if res.get("skipped"):
         _LOGGER.debug("ollama warm: skipped (%s)", res["skipped"])
     elif res.get("ok"):
@@ -78,4 +74,30 @@ async def async_warm(hass, client) -> dict:
     else:
         _LOGGER.warning("ollama warm: failed for %s: %s",
                         res.get("model", "?"), res.get("error", "?"))
+
+
+async def async_warm(hass, client, extra_models=None) -> dict:
+    """Warm the Main Agent model off-loop and log the outcome, then warm each of
+    ``extra_models`` (e.g. the fast-chat small model) so every model a turn might
+    hit is already resident. Safe for any client/provider and any failure; returns
+    the Main Agent model's diagnostics dict for callers/tests."""
+    try:
+        res = await hass.async_add_executor_job(warm_sync, client)
+    except Exception as exc:
+        _LOGGER.debug("ollama warm: executor error: %s", exc)
+        return {"ok": False, "error": str(exc)[:200]}
+    _log_warm(res)
+    # Only chase extra models when the main warm actually ran (Ollama + enabled);
+    # a skip reason means there's nothing to warm here.
+    if not res.get("skipped"):
+        seen = {res.get("model")}
+        for m in (extra_models or []):
+            m = (str(m).strip() if m is not None else "")
+            if not m or m in seen:
+                continue
+            seen.add(m)
+            try:
+                _log_warm(await hass.async_add_executor_job(warm_sync, client, m))
+            except Exception as exc:
+                _LOGGER.debug("ollama warm: extra model '%s' error: %s", m, exc)
     return res
