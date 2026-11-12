@@ -1,3 +1,14 @@
+## [9.99.1] — "Recent" conversation history returns the newest turns, not the oldest
+
+`database.get_recent_messages` sorted `ORDER BY timestamp ASC LIMIT ?`, so once
+the time window held more rows than `limit` it returned the **oldest** turns in
+the window instead of the most recent ones. Callers — seeding a fresh
+conversation with cross-session context (`memory_thread.load_recent`), the
+conversation summary, and the panel's recent-briefings list — got stale history.
+Both query branches (all devices and per-device) now take the newest `limit`
+rows and re-sort them oldest-first, so the documented return order is unchanged.
+Covered by `tests/unit/test_database_recent_messages.py`.
+
 ## [9.99.0] — Token telemetry: durable cross-restart cost ledger (Tranche 1)
 
 Continues MCU roadmap **Tranche 1 (foundation trust)** token cost-accounting and

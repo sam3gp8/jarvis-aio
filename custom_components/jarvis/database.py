@@ -131,14 +131,14 @@ def get_recent_messages(
         with _connect() as conn:
             if device_id:
                 rows = conn.execute(
-                    "SELECT * FROM conversations WHERE timestamp > ? AND device_id = ? "
-                    "ORDER BY timestamp ASC LIMIT ?",
+                    "SELECT * FROM (SELECT * FROM conversations WHERE timestamp > ? AND device_id = ? "
+                    "ORDER BY timestamp DESC LIMIT ?) ORDER BY timestamp ASC",
                     (since, device_id, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM conversations WHERE timestamp > ? "
-                    "ORDER BY timestamp ASC LIMIT ?",
+                    "SELECT * FROM (SELECT * FROM conversations WHERE timestamp > ? "
+                    "ORDER BY timestamp DESC LIMIT ?) ORDER BY timestamp ASC",
                     (since, limit),
                 ).fetchall()
         return [dict(r) for r in rows]
