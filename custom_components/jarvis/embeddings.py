@@ -75,7 +75,13 @@ def _ollama_base() -> Optional[str]:
     blank-URL install embeds against the running Ollama instead of silently
     disabling semantic search. If nothing is listening there, embed/search fail
     safe to keyword search, so the fallback never breaks a working setup."""
-    base = _cfg("embed_base_url", "") or _cfg("llm_base_url", "")
+    # Match the LLM layer's own precedence (const.resolve_provider_base_url for
+    # ollama: ollama_base_url → llm_base_url), with an embed-specific override
+    # first. Reading ollama_base_url here is the whole point of "the same config
+    # the LLM layer uses" — without it, an install that set only ollama_base_url
+    # (the common case) embeds against the wrong default host while chat works.
+    base = (_cfg("embed_base_url", "") or _cfg("ollama_base_url", "")
+            or _cfg("llm_base_url", ""))
     base = str(base or "").strip().rstrip("/")
     if not base:
         from .const import DEFAULT_OLLAMA_BASE_URL

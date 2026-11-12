@@ -105,6 +105,30 @@ def test_ollama_base_strips_v1_suffix(emb, monkeypatch):
     assert emb._ollama_base() == "http://gpu.local:11434"
 
 
+def test_ollama_base_uses_ollama_base_url(emb, monkeypatch):
+    # The real-world case: the Ollama endpoint is in ollama_base_url (the field
+    # the LLM provider reads for ollama) while llm_base_url is blank. Embeddings
+    # must honour it, not fall back to the default host.
+    cfg = {"ollama_base_url": "http://18d045d7-ollama-notimeout:11434/v1",
+           "llm_base_url": ""}
+    monkeypatch.setattr(emb, "_cfg", lambda k, d: cfg.get(k, d))
+    assert emb._ollama_base() == "http://18d045d7-ollama-notimeout:11434"
+
+
+def test_embed_base_url_wins_over_ollama_base_url(emb, monkeypatch):
+    cfg = {"embed_base_url": "http://embed.local:11434",
+           "ollama_base_url": "http://main.local:11434"}
+    monkeypatch.setattr(emb, "_cfg", lambda k, d: cfg.get(k, d))
+    assert emb._ollama_base() == "http://embed.local:11434"
+
+
+def test_ollama_base_url_wins_over_llm_base_url(emb, monkeypatch):
+    cfg = {"ollama_base_url": "http://ollama.local:11434",
+           "llm_base_url": "http://legacy.local:11434"}
+    monkeypatch.setattr(emb, "_cfg", lambda k, d: cfg.get(k, d))
+    assert emb._ollama_base() == "http://ollama.local:11434"
+
+
 def test_ollama_base_defaults_when_blank(emb, monkeypatch):
     # No configured URL → the standard local Ollama address (same default the LLM
     # provider factory applies), never None — so is_enabled() keys on the opt-in.
