@@ -94,8 +94,10 @@ async def test_prompt_block_async_runs_parity_without_changing_block(knowledge, 
         block_without = await knowledge.prompt_block_async(hass, now=2000.0)
     # the parity consult fired for the requester-aware call …
     assert any("privacy(parity)" in r.message for r in caplog.records)
-    # … and did not change the block (observe-only): same text either way
-    assert block_with == block_without
+    # … and under enforce the requester-aware block withholds bob's fact, while
+    # the no-requester call (no enforce) still includes it.
+    assert "apollo" not in block_with
+    assert "apollo" in block_without
 
 
 async def test_prompt_block_async_no_requester_skips_parity(knowledge, caplog):
@@ -104,3 +106,62 @@ async def test_prompt_block_async_no_requester_skips_parity(knowledge, caplog):
     with caplog.at_level(logging.DEBUG):
         await knowledge.prompt_block_async(hass, now=2000.0)   # no requester
     assert not any("privacy(parity)" in r.message for r in caplog.records)
+
+
+# ── ENFORCE: _privacy_enforce_filter actually withholds cross-subject facts ──
+
+def _subjects(facts):
+    return [f.get("subject") for f in facts if isinstance(f, dict)]
+
+
+def test_enforce_drops_cross_subject_fact(knowledge):
+    facts = [_fact("alice"), _fact("bob"), _fact("household")]
+    out = knowledge._privacy_enforce_filter(facts, "alice")
+    assert _subjects(out) == ["alice", "household"]      # bob withheld
+
+
+def test_enforce_keeps_own_and_household(knowledge):
+    facts = [_fact("alice"), _fact("household", key="k2")]
+    out = knowledge._privacy_enforce_filter(facts, "alice")
+    assert out == facts                                  # nothing removed
+
+
+def test_enforce_kill_switch_keeps_everything(knowledge, monkeypatch):
+    monkeypatch.setattr(knowledge, "PRIVACY_ENFORCE", False)
+    facts = [_fact("alice"), _fact("bob")]
+    assert knowledge._privacy_enforce_filter(facts, "alice") == facts
+
+
+def test_enforce_blank_requester_unchanged(knowledge):
+    facts = [_fact("alice"), _fact("bob")]
+    assert knowledge._privacy_enforce_filter(facts, "") == facts
+    assert knowledge._privacy_enforce_filter(facts, None) == facts
+
+
+def test_enforce_preserves_non_dict_rows(knowledge):
+    facts = [_fact("alice"), "weird", 7, _fact("bob")]
+    out = knowledge._privacy_enforce_filter(facts, "alice")
+    assert "weird" in out and 7 in out and _fact("bob") not in out
+
+
+def test_enforce_empty_facts_noop(knowledge):
+    assert knowledge._privacy_enforce_filter([], "alice") == []
+    assert knowledge._privacy_enforce_filter(None, "alice") is None
+
+
+async def test_prompt_block_async_enforce_withholds_cross_subject(knowledge):
+    # Integration: a fact about bob in the store must NOT reach alice's block.
+    hass = FakeHass()
+    knowledge.remember("project", "apollo", subject="bob")
+    knowledge.remember("colour", "blue", subject="alice")
+    block = await knowledge.prompt_block_async(hass, now=2000.0, requester="alice")
+    assert "blue" in block           # alice's own fact is disclosed
+    assert "apollo" not in block     # bob's fact is withheld from alice
+
+
+async def test_prompt_block_async_enforce_off_discloses(knowledge, monkeypatch):
+    monkeypatch.setattr(knowledge, "PRIVACY_ENFORCE", False)
+    hass = FakeHass()
+    knowledge.remember("project", "apollo", subject="bob")
+    block = await knowledge.prompt_block_async(hass, now=2000.0, requester="alice")
+    assert "apollo" in block         # kill-switch off → parity-only, nothing withheld

@@ -87,6 +87,19 @@ PRIVACY_SHADOW = True
 # owner-gated decision. Flip PRIVACY_PARITY to False to silence it.
 PRIVACY_PARITY = True
 
+# ENFORCE (Phase W prerequisite — information-flow / privacy, owner-authorized):
+# the recall-for-reply block now ACTUALLY WITHHOLDS the facts the cross-subject
+# non-disclosure rule would deny the live requester, instead of only logging them
+# (the parity above). This is a BELT over the existing subject-scoping (recall
+# already asks for [requester, household]), so normally it removes nothing; it
+# catches the rare case where a fact about a different person reached this
+# person's recall and keeps it out of the model's context. FAIL-SAFE: it only
+# ever REMOVES a cross-subject personal/sensitive fact — the requester's own
+# facts and household facts always pass — and on ANY fault it returns the recall
+# unchanged, so a privacy fault can never blank a reply. Kill-switch: flip
+# PRIVACY_ENFORCE to False to revert to parity (log-only) on the next load.
+PRIVACY_ENFORCE = True
+
 # ENFORCE (Phase T, Deep World Model) — ON (owner-enabled, 8.158.0). The curated-
 # knowledge prompt block is graph-authoritative: the recall-seeded facts are
 # expanded one hop through the knowledge graph (facts about directly-related
@@ -286,6 +299,49 @@ def _emit_privacy_parity(facts: list, requester: Optional[str]) -> None:
                 len(items), req)
     except Exception:   # pragma: no cover - defensive
         pass
+
+
+def _privacy_enforce_filter(facts: list, requester: Optional[str]) -> list:
+    """Drop the facts the cross-subject non-disclosure rule would withhold from
+    ``requester`` — the privacy ENFORCE rung (owner-authorized). Returns the
+    disclosable subset to put in the model's context.
+
+    A BELT over the existing subject-scoping: recall already asks for
+    ``[requester, household]``, so normally nothing is removed; this keeps a
+    stray cross-subject fact out if one ever reaches the recall. FAIL-SAFE — a
+    blank/absent requester, enforce off, or ANY fault returns ``facts`` unchanged
+    (a privacy fault can never blank a reply), and only a PERSONAL/SENSITIVE fact
+    about a DIFFERENT subject is ever removed (the requester's own facts and
+    household facts always pass). Kill-switch: :data:`PRIVACY_ENFORCE`."""
+    if not PRIVACY_ENFORCE:
+        return facts
+    req = str(requester or "").strip().lower()
+    if not req or not facts:
+        return facts
+    try:
+        from .kernel import privacy as PV
+        out = []
+        withheld = 0
+        for f in facts:
+            if not isinstance(f, dict):
+                out.append(f)                 # never drop a row we can't classify
+                continue
+            subj = str(f.get("subject") or DEFAULT_SUBJECT).strip().lower()
+            personal = bool(subj) and subj != DEFAULT_SUBJECT
+            item = PV.DataItem(
+                classification=(PV.PERSONAL if personal else PV.HOUSEHOLD),
+                subject=(subj if personal else ""))
+            if PV.can_disclose(item, audience=req):
+                out.append(f)
+            else:
+                withheld += 1
+        if withheld:
+            _LOGGER.info(
+                "privacy(enforce): withheld %d cross-subject fact(s) from the "
+                "recall context for requester '%s'", withheld, req)
+        return out
+    except Exception:   # pragma: no cover - defensive: never blank a reply
+        return facts
 
 
 def _log_graph_parity(seed_facts: list, expanded: list) -> None:
@@ -800,9 +856,13 @@ async def prompt_block_async(hass, query: str = "", *, subject: Optional[str] = 
             _log_graph_parity(facts, expanded)
         except Exception:   # pragma: no cover - defensive
             pass
-    # Privacy parity (Phase W prerequisite): audit the facts about to be disclosed
-    # against the live requester identity. Observe-only — the block is unchanged.
+    # Privacy (Phase W prerequisite): audit the facts about to be disclosed
+    # against the live requester (parity, observe-only), then — enforce — actually
+    # withhold any the cross-subject rule would deny them. The filter is a
+    # fail-safe belt over the existing subject-scoping: normally it removes
+    # nothing and it can never blank the block.
     _emit_privacy_parity(facts, requester)
+    facts = _privacy_enforce_filter(facts, requester)
     return _format_block(facts)
 
 

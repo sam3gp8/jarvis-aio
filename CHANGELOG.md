@@ -1,3 +1,28 @@
+## [9.102.0] — Privacy gate: ENFORCE — cross-subject facts are withheld (Tranche 1)
+
+Advances the information-flow / privacy leg from **parity → enforce**
+(owner-authorized). 9.100.0 *logged* when a fact about one resident would reach a
+different resident's reply context; this now **actually withholds it**.
+
+- **The recall-for-reply block redacts cross-subject facts.** When JARVIS builds
+  a reply for a resolved requester, `knowledge.prompt_block_async` runs the facts
+  it is about to disclose through `kernel.privacy.can_disclose` against that
+  requester and **drops** any the cross-subject non-disclosure rule denies — so
+  one person's PERSONAL/SENSITIVE facts never reach another person's context.
+- **A fail-safe belt, not a new gate.** Recall already scopes to
+  `[requester, household]`, so in normal operation this removes **nothing** — it
+  catches the rare case where a stray cross-subject fact reached the recall. It
+  only ever removes a personal/sensitive fact about a *different* subject; the
+  requester's own facts and household facts always pass; and on **any** fault it
+  returns the recall unchanged, so a privacy fault can never blank a reply.
+  Kill-switch: `knowledge.PRIVACY_ENFORCE` (revert to parity/log-only).
+- Adoption ledger moves `privacy` from **◑ parity → ● enforce** (owner:
+  `knowledge`); `KERNEL_ADOPTION.md` + the constitution ledger regenerated.
+
+Net effect: identical replies in the common case, with a guarantee that a
+resident's private facts can't surface in someone else's conversation even if a
+recall scoping bug ever let one through.
+
 ## [9.101.0] — Identity → authz: the authority gate learns who is asking (Tranche 1)
 
 Starts the last leg of MCU roadmap **Tranche 1 (foundation trust)** — tying the
