@@ -1,3 +1,39 @@
+## [9.104.0] — Latency: keep the local Ollama model warm (no more cold first turn)
+
+First increment of the JARVIS latency work. Owner report: the **first** voice
+turn after an idle gap takes minutes, then every later turn is fast — while the
+same Gemma 4 26B is near-instant in a hand-run CLI/Alpaca session. That is the
+Ollama **cold-start** signature, and two things made it bite:
+
+- `keep_alive` only holds a model **after** a request, so the first request of an
+  idle period still paid the full GPU load; and
+- JARVIS runs the model at a larger `num_ctx` (8192) than a CLI session, and
+  Ollama keys a *resident* instance by its options — so JARVIS's instance is a
+  **separate copy** the other client never keeps warm.
+
+(Note: `keep_alive = "30m"` and one-shot routing for local models were already in
+place — so this was never a missing keep_alive; it was the absence of a proactive,
+context-matched warm.)
+
+### What changed
+- **New keep-warm pinger (`ollama_warm.py`).** When the active provider is Ollama,
+  JARVIS warms the model **once at startup** and then on a **periodic tick**
+  (every 4 min) — a 1-token no-op completion sent with an **indefinite**
+  `keep_alive` (`-1`) at the **same `num_ctx` real turns use**, so the exact
+  resident instance a turn will hit is already in VRAM when you speak. Local-only
+  (the tick no-ops for cloud providers), off-loop, and fully best-effort — a warm
+  failure never touches a request path. Kill-switch:
+  `ollama_warm.OLLAMA_WARM_ENABLED` or the `ollama_keep_warm` config key (default
+  on).
+- **LLM call-latency logging.** Every completed chat round-trip now logs its
+  wall-clock time (WARNING above 8 s, DEBUG otherwise) for the OpenAI-compatible
+  (incl. Ollama) and Groq paths — so a slow turn's cost is attributable to the
+  model call vs. the rest of the pipeline on the next diagnostic.
+
+Net effect: the first turn after an idle period should be as fast as the rest,
+because the model is kept resident instead of being cold-loaded on your request.
+Holds the model in the HA server's GPU VRAM continuously (owner-approved).
+
 ## [9.103.0] — Identity → authz: ENFORCE — the gate acts on who is asking (Tranche 1)
 
 Completes MCU roadmap **Tranche 1 (foundation trust)**: the identity→authz leg

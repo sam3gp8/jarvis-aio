@@ -364,6 +364,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     sched.add("token-telemetry-flush", 300, _flush_token_telemetry)
 
+    # ── Keep the local Ollama model warm (MCU latency work) ──────────────────
+    # A cold Ollama load (e.g. Gemma 4 26B into the GPU) makes the FIRST turn
+    # after an idle gap take minutes, then every later turn is fast. keep_alive
+    # only holds a model AFTER a request, and JARVIS's num_ctx loads a separate
+    # resident instance from a hand-run CLI session — so nothing keeps JARVIS's
+    # own instance warm. Pin it: warm once now and on a periodic tick so the
+    # model is already resident when the user speaks. Local-only (the tick no-ops
+    # for cloud providers), off-loop, best-effort. Kill-switch:
+    # ollama_warm.OLLAMA_WARM_ENABLED / the ollama_keep_warm config key.
+    async def _ollama_warm_tick(now=None):
+        try:
+            from . import ollama_warm as _warm
+            await _warm.async_warm(hass, _current_client())
+        except Exception as exc:
+            _LOGGER.debug("ollama warm tick error: %s", exc)
+
+    try:
+        from . import ollama_warm as _warm_mod
+        sched.add("ollama-warm", _warm_mod.OLLAMA_WARM_INTERVAL_S, _ollama_warm_tick)
+        hass.async_create_task(_ollama_warm_tick())   # warm immediately at startup
+    except Exception as exc:
+        _LOGGER.debug("JARVIS: ollama keep-warm not scheduled: %s", exc)
+
     # ── Auto-analyze camera events GOING FORWARD (doorbell / person) ─────────
     # The listeners above only CACHE Nest/Frigate events — historically nothing
     # was analyzed unless a user automation called jarvis.analyze_on_event. These

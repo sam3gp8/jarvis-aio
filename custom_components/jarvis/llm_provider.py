@@ -361,6 +361,29 @@ def _gemini_http_options(base_url: Optional[str]) -> dict:
     return opts
 
 
+# ── LLM call latency instrumentation (MCU latency work) ──────────────────────
+# Every completed chat round-trip logs its wall-clock time, so a slow turn's
+# cost is attributable to the model call vs. the rest of the pipeline. A local
+# cold-load (e.g. Gemma 4 26B into the GPU) shows up here as a multi-second (or
+# multi-minute) call — logged at WARNING above the threshold, DEBUG otherwise.
+LLM_SLOW_CALL_WARN_S = 8.0
+
+
+def _log_call_latency(provider: str, model: str, elapsed_s: float,
+                      had_tools: bool = False) -> None:
+    """One line of timing for a finished LLM round-trip. Best-effort — never
+    raises into the call path."""
+    try:
+        ms = int(elapsed_s * 1000)
+        if elapsed_s >= LLM_SLOW_CALL_WARN_S:
+            _LOGGER.warning("LLM call latency: %s/%s took %d ms%s", provider, model,
+                            ms, " (with tools)" if had_tools else "")
+        else:
+            _LOGGER.debug("LLM call latency: %s/%s took %d ms", provider, model, ms)
+    except Exception:
+        pass
+
+
 class LLMProvider(ABC):
     """Abstract base for all LLM backends."""
 
@@ -468,6 +491,8 @@ class GroqProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        import time as _time
+        _t0 = _time.perf_counter()
         resp = self._client.chat.completions.create(**kwargs)
         choice = resp.choices[0]
         tool_calls = []
@@ -480,6 +505,8 @@ class GroqProvider(LLMProvider):
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments or "{}"),
                 })
+        _log_call_latency(self.name, model_override or self.model,
+                          _time.perf_counter() - _t0, bool(tools))
         _record_usage_shadow(resp, self.name, model_override or self.model,
                              tier=getattr(self, "tier", ""))
         return {
@@ -551,6 +578,8 @@ class OpenAIProvider(LLMProvider):
         extra = self._extra_body(thinking)
         if extra:
             kwargs["extra_body"] = extra
+        import time as _time
+        _t0 = _time.perf_counter()
         for _attempt in range(3):
             try:
                 resp = self._client.chat.completions.create(**kwargs)
@@ -594,6 +623,8 @@ class OpenAIProvider(LLMProvider):
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments or "{}"),
                 })
+        _log_call_latency(self.name, model_override or self.model,
+                          _time.perf_counter() - _t0, bool(tools))
         _record_usage_shadow(resp, self.name, model_override or self.model,
                              tier=getattr(self, "tier", ""))
         return {
@@ -741,6 +772,13 @@ def _warn_ollama_toolparse_once(model: str) -> None:
 # room, and a too-small window silently truncates); and allow a generous
 # timeout since the first token can lag while a cold model loads.
 OLLAMA_KEEP_ALIVE = "30m"
+# Keep-warm pin (MCU latency work): the periodic warmer (ollama_warm.py) sends
+# this keep_alive so a tiny no-op completion loads JARVIS's exact model and holds
+# it in VRAM indefinitely (-1), making the user's first real turn warm instead of
+# a multi-minute cold load. A cold 26B load can outlast the normal request budget,
+# so the warm call gets a generous timeout of its own.
+OLLAMA_WARM_KEEP_ALIVE = -1
+OLLAMA_WARM_TIMEOUT = 600.0
 OLLAMA_NUM_CTX = 8192
 OLLAMA_TIMEOUT = 120.0  # seconds
 
@@ -851,6 +889,38 @@ class OllamaProvider(OpenAIProvider):
                 _LOGGER.debug("recovered %d Gemma-native tool call(s) from content",
                               len(recovered))
         return result
+
+    def warm(self) -> dict:
+        """Load & pin THIS model (+ its exact num_ctx) in Ollama's VRAM so the
+        first real turn isn't a cold load (MCU latency work).
+
+        Sends a 1-token no-op completion with an indefinite keep_alive and a
+        generous timeout — a cold 26B load can take minutes. Crucially it reuses
+        ``_extra_body`` so the warmed instance carries the SAME num_ctx real turns
+        use: Ollama keys a resident model by its options, so warming at the right
+        context is what makes the actual turn hit a warm model. Best-effort —
+        returns a small diagnostics dict and never raises. Called off-loop by the
+        keep-warm scheduler (see ollama_warm.py)."""
+        import time as _time
+        body = self._extra_body(thinking=False)
+        body["keep_alive"] = OLLAMA_WARM_KEEP_ALIVE          # pin indefinitely
+        t0 = _time.perf_counter()
+        try:
+            client = self._client
+            try:
+                client = client.with_options(timeout=OLLAMA_WARM_TIMEOUT)
+            except Exception:
+                pass
+            client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "ok"}],
+                max_tokens=1, temperature=0.0, extra_body=body,
+            )
+            return {"ok": True, "ms": int((_time.perf_counter() - t0) * 1000),
+                    "model": self.model}
+        except Exception as exc:
+            return {"ok": False, "ms": int((_time.perf_counter() - t0) * 1000),
+                    "model": self.model, "error": str(exc)[:200]}
 
 
 # ─── Gemini (Google GenAI Interactions API) ──────────────────────────────────
