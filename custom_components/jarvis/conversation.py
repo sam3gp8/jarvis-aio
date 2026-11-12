@@ -1060,20 +1060,45 @@ class JarvisAgent(conversation.ConversationEntity):
                             f"connectivity returns."
                         )
                 else:
-                    jarvis_log("AGENT",
-                               f"direct reasoning (local triage off): {user_input.text[:60]}"
-                               if _direct else
-                               f"LLM needed (complexity={complexity}): {user_input.text[:60]}")
                     # Complex request — use the configured LLM agent.
                     from .agent import run_agent
                     from . import ha_secrets as _hs
                     from . import jarvis_config as _jc
+                    # Default: the big Main Agent model handles the escalation.
                     provider_name = self._rt_opt("llm_provider", "groq")
+                    model_val = self._rt_opt(CONF_MODEL, DEFAULT_MODEL)
+                    # Fast-chat tier (latency work): a simple conversational turn
+                    # the regex engine couldn't template — one that escalates yet
+                    # scores below the threshold — goes to the small/fast model
+                    # instead of the big Main Agent. Anything complex (or direct-
+                    # reasoning, complexity=-1) is unchanged. Best-effort: a fault
+                    # here just leaves the Main Agent model in place.
+                    _tier = None
+                    try:
+                        from . import fast_chat as _fast
+                        _tier = _fast.fast_tier_target({
+                            "fast_chat_enabled": self._rt_opt("fast_chat_enabled", False),
+                            "fast_model":        self._rt_opt("fast_model", ""),
+                            "fast_provider":     self._rt_opt("fast_provider", ""),
+                            "fast_chat_max_complexity": self._rt_opt(
+                                "fast_chat_max_complexity", 70),
+                            "llm_provider":      provider_name,
+                        }, complexity)
+                    except Exception:
+                        _tier = None
+                    if _tier:
+                        provider_name = _tier["provider"]
+                        model_val = _tier["model"]
+                    jarvis_log("AGENT",
+                               f"direct reasoning (local triage off): {user_input.text[:60]}"
+                               if _direct else
+                               (f"fast-chat → {model_val} (complexity={complexity}): {user_input.text[:60]}"
+                                if _tier else
+                                f"LLM needed (complexity={complexity}): {user_input.text[:60]}"))
                     # Credentials live only in secrets.yaml, keyed per provider,
                     # so resolving via a shared field can't send the wrong
                     # provider's key to a different provider's API.
                     api_key_val = await _hs.async_get_provider_key(self.hass, provider_name)
-                    model_val = self._rt_opt(CONF_MODEL, DEFAULT_MODEL)
                     from .const import resolve_provider_base_url
                     base_url_val = resolve_provider_base_url({
                         "custom_base_url": self._rt_opt("custom_base_url", ""),

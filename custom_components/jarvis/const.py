@@ -57,6 +57,15 @@ CONF_REASONING_PROVIDER       = "reasoning_provider"
 CONF_REASONING_MODEL          = "reasoning_model"
 CONF_REVIEW_PROVIDER          = "review_provider"
 CONF_REVIEW_MODEL             = "review_model"
+# Fast-chat tier (latency work): a small, fast local model answers simple
+# conversational turns that the regex engine couldn't template, while genuinely
+# complex turns still escalate to the big Main Agent model. Routed by the same
+# score_complexity local_engine already computes — a turn that escalates but
+# scores below the threshold is "conversational but un-templatable".
+CONF_FAST_CHAT_ENABLED        = "fast_chat_enabled"
+CONF_FAST_PROVIDER            = "fast_provider"      # blank → same as Main Agent
+CONF_FAST_MODEL               = "fast_model"
+CONF_FAST_MAX_COMPLEXITY      = "fast_chat_max_complexity"
 
 # Every cloud/self-hosted provider gets its own credential field, so keys for
 # multiple providers can coexist (e.g. Groq for the Main Agent, Gemini for the
@@ -136,6 +145,12 @@ DEFAULT_REASONING_PROVIDER    = "groq"
 DEFAULT_REASONING_MODEL       = "openai/gpt-oss-120b"
 DEFAULT_REVIEW_PROVIDER       = "groq"
 DEFAULT_REVIEW_MODEL          = "openai/gpt-oss-120b"
+
+# Fast-chat tier defaults (latency work). Off until a fast model is named; the
+# threshold is the same 70 local_engine uses as its local/LLM cutoff, so a turn
+# that escalates yet scores below it is a simple conversational turn.
+DEFAULT_FAST_CHAT_ENABLED     = False
+DEFAULT_FAST_MAX_COMPLEXITY   = 70
 
 # Urgency levels
 URGENCY_LOW      = "low"
