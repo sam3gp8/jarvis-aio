@@ -1,3 +1,28 @@
+## [9.108.0] — Fix: Frigate face sub_labels are read on update/end (recognition was never firing)
+
+Bug fix. The `frigate/events` MQTT handler returned early on anything but a
+`type: "new"` event (`if event_type != "new" ...: return`), and the Frigate
+sub_label identity extraction sat *after* that gate — so it only ever ran on
+`new` events. But Frigate assigns a face **during tracking**, so the sub_label is
+**null on `new`** and is populated on the later `update`/`end` events. The result:
+JARVIS never saw a recognised face on the events channel, so known residents were
+never recognised, the Faces panel stayed empty of them, and — because the opt-in
+LLM auto-training enrols reference photos only from *confident* recognitions —
+there was nothing to train, so the experimental LLM guesses had no reference set.
+
+Fix: the sub_label identity block now runs on **any** person event that carries a
+sub_label (new/update/end), before the person-detection notability gate (which
+stays `new`-only). It is de-duplicated per `(event_id, name)` so the repeated
+update ticks for one tracked object fire a single recognition — re-firing only if
+the name changes (e.g. `unknown` → `Sam` once the model gets a clearer frame).
+A bare-string sub_label now also recovers a score from `sub_label_score` when
+Frigate provides one, so a confident recognition reads as confident for
+auto-training.
+
+(The separate `frigate/tracked_object_update` channel, added in 9.x for Frigate
+0.16+, is unchanged; this repairs the sub_label-on-events path that older Frigate
+servers rely on.)
+
 ## [9.107.0] — Fix: embeddings honour `ollama_base_url` (semantic search no longer "down")
 
 Bug fix. `embeddings._ollama_base()` resolved the Ollama host from
