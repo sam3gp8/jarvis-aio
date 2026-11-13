@@ -109,6 +109,18 @@ _INTENT_PATTERNS = [
     # Switches
     (r"turn\s+on\s+(?:the\s+)?(.+?)(?:\s+switch)?$",   "turn_on",  "switch"),
     (r"turn\s+off\s+(?:the\s+)?(.+?)(?:\s+switch)?$",  "turn_off", "switch"),
+    # German on/off verbs (issue #511). German puts the separable particle at the
+    # END — "schalte das Licht ein/aus", "mach die Lampe an/aus" — or uses the
+    # infinitive "<Gerät> einschalten/ausschalten". Entity resolution already
+    # worked in German; only the action verb was unrecognised, so these sentences
+    # fell through to a bogus state query ("… is currently off") instead of
+    # actuating. domain_hint=None lets the resolver match a light, switch, etc.
+    (r"(?:schalte?|mache?)\s+(?:(?:das|die|der|den|dem)\s+)?(.+?)\s+(?:ein|an)$",
+     "turn_on", None),
+    (r"(?:schalte?|mache?)\s+(?:(?:das|die|der|den|dem)\s+)?(.+?)\s+aus$",
+     "turn_off", None),
+    (r"(.+?)\s+einschalten$", "turn_on", None),
+    (r"(.+?)\s+ausschalten$", "turn_off", None),
     # Locks (unlock before lock; lock's (?<!un) stops it matching inside "unlock")
     (r"unlock\s+(?:the\s+)?(.+?)(?:\s+door)?$", "unlock", "lock"),
     (r"(?<!un)lock\s+(?:the\s+)?(.+?)(?:\s+door)?$",   "lock",   "lock"),
@@ -1195,6 +1207,22 @@ def _looks_like_entity_name(text: str) -> bool:
         "explain", "describe", "give", "show me how", "help",
     )
     if words[0] in _QUESTION_STARTS:
+        return False
+    # A leading action verb (any supported language) makes this a COMMAND, not a
+    # bare device name — so an unrecognised command (e.g. a German verb this
+    # engine doesn't pattern-match) escalates to the LLM instead of being misread
+    # as a state query on the device embedded in it (issue #511).
+    _COMMAND_VERBS = (
+        # German imperatives
+        "schalte", "schalt", "mach", "mache", "dimme", "dimm",
+        "öffne", "offne", "schließe", "schliesse", "schliess",
+        "verriegele", "verriegle", "entriegele", "entriegle",
+        "starte", "aktiviere", "spiele", "pausiere",
+        # English (these normally match a command pattern already; defensive)
+        "turn", "switch", "dim", "brighten", "open", "close", "lock",
+        "unlock", "set", "play", "pause", "activate", "run", "mute", "unmute",
+    )
+    if words[0] in _COMMAND_VERBS:
         return False
     # Phrases about JARVIS itself ("your X", "you Y") aren't device names.
     if "your" in words or "you" in words:

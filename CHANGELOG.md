@@ -1,3 +1,33 @@
+## [9.110.0] — Fix: German on/off commands on the local fast path (#511)
+
+Bug fix. The local intent engine's command patterns were English-only, so a
+German switch command — `Schalte Bodenleuchte ein`, `mach die Lampe aus`,
+`Bodenleuchte einschalten` — matched no pattern. Entity resolution already
+worked in German (it found `Bodenleuchte Flur`), so the sentence fell through to
+the speculative *bare-entity-name* state lookup, which fuzzy-matched the embedded
+device and answered with its **state** ("Bodenleuchte Flur is currently off,
+Sir.") — the light never switched. English (`Turn on Bodenleuchte`) worked,
+which is why only the German verb looked broken.
+
+Two-part fix:
+
+- **German on/off verbs are recognised locally** (zero-API, same fast path as
+  English): the separable forms `schalte/mach … ein/an` → on and `… aus` → off,
+  and the infinitives `… einschalten` / `… ausschalten`. The device is resolved
+  across domains, so a light or a switch both work.
+- **An unrecognised command no longer masquerades as a state query.** The
+  bare-entity-name fallback now rejects any phrase that *starts with an action
+  verb* (German or English), so a command this engine doesn't pattern-match
+  escalates to the LLM — the honest fallback — instead of reporting the device's
+  state. A genuine bare device name ("kitchen lights") is unaffected.
+
+Known, separate: the local engine's own replies are still phrased in English even
+when `output_language` is set to another language, because the fast path is
+zero-API and does not route its canned responses through a translation model
+(which would add a per-reply model call and latency). Localising the local
+response catalog is tracked as follow-up work; the LLM path already answers in the
+configured language.
+
 ## [9.109.0] — Fix: intrusion confirmed by movement with no breach (breach-only now gates confirmation, not just seeding)
 
 Bug fix. The owner runs **breach-only** mode (`intrusion_breach_only`, default on)
