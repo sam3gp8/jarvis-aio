@@ -128,13 +128,41 @@ async def test_genuine_away_vision_inconclusive_still_confirms(safety, monkeypat
     import time
     now = time.time()
     _wire_investigation(safety, monkeypatch, degraded=False)
-    safety._investigation = _investigation(now)
-    # Genuine away + vision inconclusive → fail toward safety (trust the camera),
-    # so a broken vision path never suppresses a real alert.
+    # A REAL breach seeded this investigation, so the fail-open (trust-the-camera)
+    # on inconclusive vision under genuine away still applies — a broken vision
+    # path must never suppress a real alert that a breach corroborates.
+    safety._investigation = {**_investigation(now), "breach_name": "Front Door"}
     action = await safety._investigate_step(now, away=True, sleeping=False)
     assert action is not None
     assert action["type"] == "intrusion_confirmed"
     assert safety._investigation["escalated"] is True
+
+
+async def test_no_breach_inconclusive_vision_holds_under_breach_only(safety, monkeypatch):
+    import time
+    now = time.time()
+    _wire_investigation(safety, monkeypatch, degraded=False)
+    # No breach (opened by a camera person-flag), genuine away, vision inconclusive.
+    # Under breach-only (the default), the "trust the camera" fail-open is exactly
+    # the false alarm the protocol prevents — hold instead of confirming.
+    safety._investigation = _investigation(now)       # breach_name/area both None
+    action = await safety._investigate_step(now, away=True, sleeping=False)
+    assert action is None
+    assert safety._investigation is not None           # still watching
+    assert safety._investigation["escalated"] is False
+
+
+async def test_no_breach_confirms_when_breach_only_off(safety, cognitive_core, fake_hass, monkeypatch):
+    import time
+    now = time.time()
+    # Legacy behavior is still available: turn breach-only OFF and the no-breach
+    # inconclusive-vision fail-open returns.
+    safety.config = {**safety.config, "intrusion_breach_only": False}
+    _wire_investigation(safety, monkeypatch, degraded=False)
+    safety._investigation = _investigation(now)
+    action = await safety._investigate_step(now, away=True, sleeping=False)
+    assert action is not None
+    assert action["type"] == "intrusion_confirmed"
 
 
 async def test_kill_switch_off_restores_fail_open(safety, cognitive_core, monkeypatch):
@@ -142,8 +170,9 @@ async def test_kill_switch_off_restores_fail_open(safety, cognitive_core, monkey
     now = time.time()
     monkeypatch.setattr(cognitive_core, "INTRUSION_DEGRADED_CONFIRM_HARDEN", False)
     _wire_investigation(safety, monkeypatch, degraded=True)
-    safety._investigation = _investigation(now)
-    # Kill-switch off → prior always-fail-open behavior even under a degraded hold.
+    # A real breach seeded this one, so the degraded-harden kill-switch's fail-open
+    # is exercised (breach-only doesn't suppress a breach-anchored investigation).
+    safety._investigation = {**_investigation(now), "breach_name": "Front Door"}
     action = await safety._investigate_step(now, away=True, sleeping=False)
     assert action is not None
     assert action["type"] == "intrusion_confirmed"

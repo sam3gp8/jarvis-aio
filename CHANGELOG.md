@@ -1,3 +1,31 @@
+## [9.109.0] — Fix: intrusion confirmed by movement with no breach (breach-only now gates confirmation, not just seeding)
+
+Bug fix. The owner runs **breach-only** mode (`intrusion_breach_only`, default on)
+specifically to stop false alarms: a real intrusion must involve an actual breach
+(an exterior door/window/garage opening), not a pet, a resident, or a camera
+false-positive. But breach-only only ever gated **seeding** of an investigation —
+once an investigation was open (which a camera person-flag can do, since
+`_person_camera_entity` keys off a `binary_sensor.<cam>_person` that Frigate can
+trip on a shadow or a resident), the **confirmation** step in `_investigate_step`
+could still escalate to a critical intrusion on movement alone, with no breach:
+
+- the no-breach `else` branch confirmed on `spread and sustained` motion;
+- the degraded-panel `else` branch did the same;
+- and the genuine-away *vision-inconclusive* path "trusted the camera" and
+  confirmed outright — firing on exactly the Frigate person false-positive the
+  protocol exists to suppress.
+
+So "intrusions confirmed by movement without breaches" — the reported symptom.
+
+Fix: in breach-only mode, when an investigation is **not anchored on a breach**
+(`breach_name`/`breach_area` both empty), motion — however sustained or
+spread — no longer confirms, and the inconclusive-vision "trust the camera"
+fallback holds and keeps watching instead of alarming. What still confirms with
+no breach: a person JARVIS **positively sees** on camera (`vision is True`), which
+is a real sighting, not a bare motion/flag. A breach-anchored investigation is
+unchanged (the fail-open on inconclusive vision for a real breach is preserved),
+and turning `intrusion_breach_only` off restores the prior fail-open behavior.
+
 ## [9.108.0] — Fix: Frigate face sub_labels are read on update/end (recognition was never firing)
 
 Bug fix. The `frigate/events` MQTT handler returned early on anything but a
