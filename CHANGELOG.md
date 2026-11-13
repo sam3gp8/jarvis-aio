@@ -1,3 +1,34 @@
+## [9.111.0] — Local replies follow output_language, zero-API (#511 follow-up)
+
+Feature. The local intent engine (`local_engine.try_local`) handles 95%+ of
+requests with no model call, but its confirmations and query answers were
+hard-coded English regardless of the household `output_language` — so a German
+home heard "Bodenleuchte Flur is currently off, Sir." even after the command
+itself was understood (9.110.0). The LLM path already answered in the configured
+language via `language.language_directive`; the fast path did not.
+
+New `local_i18n` module — a **static, per-language catalogue** of the engine's
+templates and vocabulary (lead-ins, HA state words, pluralised nouns, bulk verbs,
+greeting openers, localized date/time). The local engine now renders every reply
+through it in the resolved `output_language`:
+
+- command acknowledgments (`_resp`), query answers (`_query_resp`), home status,
+  contextual queries (who's home, what's open, lights, energy, weather, area
+  devices), bulk actions, scene/goodnight, offline and appliance notices, and
+  the speculative bare-name state query;
+- entity friendly-names, the honorific, numbers and units pass through untouched
+  — only JARVIS's own words are translated.
+
+This stays **zero-API and adds no latency** — it's a lookup, deliberately *not* a
+translation model call per reply (which would cut against the latency work).
+**English is the canonical fallback**: any missing language or key falls back to
+the English template, so English homes are byte-for-byte unchanged and a
+partially-translated language never shows a blank. **German** is fully populated;
+other supported languages fall back to English until a (native-reviewed)
+catalogue is added — no unverified machine translation is shipped. Resolution
+honours the same precedence as the LLM path (`language.configured_language`:
+per-request → `output_language` → `ui_language` → HA system language).
+
 ## [9.110.0] — Fix: German on/off commands on the local fast path (#511)
 
 Bug fix. The local intent engine's command patterns were English-only, so a

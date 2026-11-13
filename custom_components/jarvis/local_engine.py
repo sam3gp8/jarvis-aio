@@ -691,107 +691,105 @@ async def _execute_action(hass, action, entity_id, args):
 
 # ── Response generation ──────────────────────────────────────────────────────
 
-def _resp(action, fname, success, args=None, h="sir"):
+def _resp(action, fname, success, args=None, h="sir", lang="en"):
+    from . import local_i18n
     if not success:
         # JARVIS reports failure calmly and precisely, no hand-wringing.
-        return (f"I wasn't able to {action.replace('_', ' ')} {fname}, {h} — "
-                f"there may be a connectivity issue.")
+        return local_i18n.t("resp_fail", lang,
+                            action=action.replace('_', ' '), name=fname, h=h)
 
     # Understated lead-ins, MCU style. Varied so confirmations never sound
     # canned. Each is something JARVIS would actually say.
-    ack = _pick(["Done", "Right away", "As you wish", "Consider it done", "At once"])
-    sec = _pick(["Secured", "Done", "Locked up"])
+    ack = _pick(local_i18n.leadins("ack", lang))
+    sec = _pick(local_i18n.leadins("sec", lang))
 
     bp = (args or {}).get('brightness_pct', '?')
     temp = (args or {}).get('temperature', '?')
     vol = (args or {}).get('volume_level', '?')
 
-    r = {
-        "turn_on":        f"{ack}, {h}. {fname} is on.",
-        "turn_off":       f"{ack}, {h}. {fname} is off.",
-        "toggle":         f"{ack}, {h}. {fname} toggled.",
-        "lock":           f"{sec}, {h}. {fname} is locked.",
-        "unlock":         f"{ack}, {h}. {fname} is unlocked.",
-        "open":           f"Opening {fname} now, {h}.",
-        "close":          f"Closing {fname} now, {h}.",
-        "dim":            f"{ack}, {h}. {fname} at {bp}%.",
-        "brighten":       f"{ack}, {h}. {fname} at full brightness.",
-        "set_temp":       f"{ack}, {h}. Temperature set to {temp}°.",
-        "set_temp_named": f"{ack}, {h}. {fname} set to {temp}°.",
-        "media_pause":    f"Paused, {h}.",
-        "media_play":     f"Playing now, {h}.",
-        "media_next":     f"Next track, {h}.",
-        "volume_up":      f"Volume up, {h}.",
-        "volume_down":    f"Volume down, {h}.",
-        "volume_set":     f"Volume at {vol}%, {h}.",
-        "mute":           f"Muted, {h}.",
-        "unmute":         f"Unmuted, {h}.",
+    _KNOWN = {
+        "turn_on", "turn_off", "toggle", "lock", "unlock", "open", "close",
+        "dim", "brighten", "set_temp", "set_temp_named", "media_pause",
+        "media_play", "media_next", "volume_up", "volume_down", "volume_set",
+        "mute", "unmute",
     }
-    return r.get(action, f"{ack}, {h}. {action} applied to {fname}.")
+    key = action if action in _KNOWN else "resp_fallback"
+    return local_i18n.t(key, lang, ack=ack, sec=sec, h=h, name=fname,
+                        bp=bp, temp=temp, vol=vol, action=action)
 
 
-def _query_resp(hass, action, entity_id, fname, h="sir"):
+def _query_resp(hass, action, entity_id, fname, h="sir", lang="en"):
+    from . import local_i18n
     if action == "query_time":
         from homeassistant.util import dt as dt_util
-        return f"It's currently {dt_util.now().strftime('%I:%M %p')}, {h}."
+        return local_i18n.t("query_time", lang,
+                            time=local_i18n.format_time(dt_util.now(), lang), h=h)
     if action == "query_date":
         from homeassistant.util import dt as dt_util
-        return f"Today is {dt_util.now().strftime('%A, %B %d, %Y')}, {h}."
+        return local_i18n.t("query_date", lang,
+                            date=local_i18n.format_date(dt_util.now(), lang), h=h)
     if action == "greeting":
         from homeassistant.util import dt as dt_util
-        hour = dt_util.now().hour
-        g = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
-        tail = _pick([f"{g}, {h}.",
-                      f"{g}, {h}. What can I do for you?",
-                      f"{g}, {h}. At your disposal."])
-        return tail
+        g = local_i18n.greet_word(dt_util.now().hour, lang)
+        return _pick([local_i18n.t("greet_plain", lang, g=g, h=h),
+                      local_i18n.t("greet_help", lang, g=g, h=h),
+                      local_i18n.t("greet_disposal", lang, g=g, h=h)])
     if action == "thanks":
-        return _pick([f"Of course, {h}.",
-                      f"My pleasure, {h}.",
-                      f"Anytime, {h}."])
+        return _pick([local_i18n.t("thanks_1", lang, h=h),
+                      local_i18n.t("thanks_2", lang, h=h),
+                      local_i18n.t("thanks_3", lang, h=h)])
     if action == "query_temp":
         state = hass.states.get(entity_id)
         if state:
             unit = state.attributes.get("unit_of_measurement", "°")
-            return f"The temperature in {fname} is currently {state.state}{unit}, {h}."
-        return f"I'm unable to read the temperature for {fname} at the moment, {h}."
+            return local_i18n.t("query_temp", lang, name=fname,
+                                state=state.state, unit=unit, h=h)
+        return local_i18n.t("query_temp_fail", lang, name=fname, h=h)
     if action == "query_state":
         state = hass.states.get(entity_id)
         if state:
-            return f"{fname} is currently {state.state}, {h}."
-        return f"I'm unable to determine the status of {fname} at the moment, {h}."
+            return local_i18n.t("query_state", lang, name=fname,
+                                state=local_i18n.state_word(state.state, lang), h=h)
+        return local_i18n.t("query_state_fail", lang, name=fname, h=h)
     if action == "status":
-        return _home_status(hass, h)
+        return _home_status(hass, h, lang)
     return ""
 
 
-def _home_status(hass, h="sir"):
+def _home_status(hass, h="sir", lang="en"):
+    from . import local_i18n
     lights_on = sum(1 for s in hass.states.async_all("light") if s.state == "on")
     locks_ul = sum(1 for s in hass.states.async_all("lock") if s.state == "unlocked")
     doors_open = sum(1 for s in hass.states.async_all("binary_sensor")
                      if s.attributes.get("device_class") == "door" and s.state == "on")
     people = sum(1 for s in hass.states.async_all("person") if s.state == "home")
-    parts = [f"All systems nominal, {h}."]
-    parts.append(f"{lights_on} light{'s' if lights_on != 1 else ''} on.")
-    parts.append("All locks secured." if not locks_ul else
-                 f"{locks_ul} lock{'s' if locks_ul != 1 else ''} unlocked.")
+    parts = [local_i18n.t("status_header", lang, h=h)]
+    parts.append(local_i18n.t("status_lights", lang, n=lights_on,
+                              noun=local_i18n.noun("light", lights_on, lang)))
+    parts.append(local_i18n.t("status_locks_ok", lang) if not locks_ul else
+                 local_i18n.t("status_locks_unlocked", lang, n=locks_ul,
+                              noun=local_i18n.noun("lock", locks_ul, lang)))
     if doors_open:
-        parts.append(f"{doors_open} door{'s' if doors_open != 1 else ''} open.")
-    parts.append(f"{people} person{'s' if people != 1 else ''} home.")
+        parts.append(local_i18n.t("status_doors", lang, n=doors_open,
+                                  noun=local_i18n.noun("door", doors_open, lang)))
+    parts.append(local_i18n.t("status_people", lang, n=people,
+                              noun=local_i18n.noun("person", people, lang)))
     return " ".join(parts)
 
 
 # ── Contextual queries ──────────────────────────────────────────────────────
 
-def _ctx_query(hass, qtype, h="sir", area_match=""):
+def _ctx_query(hass, qtype, h="sir", area_match="", lang="en"):
+    from . import local_i18n
     if qtype == "who_home":
         ppl = [s.attributes.get("friendly_name", s.entity_id)
                for s in hass.states.async_all("person") if s.state == "home"]
         if not ppl:
-            return f"No one appears to be home at the moment, {h}."
+            return local_i18n.t("who_none", lang, h=h)
         if len(ppl) == 1:
-            return f"{ppl[0]} is currently home, {h}."
-        return f"{', '.join(ppl[:-1])} and {ppl[-1]} are currently home, {h}."
+            return local_i18n.t("who_one", lang, name=ppl[0], h=h)
+        return local_i18n.t("who_many", lang,
+                            names=", ".join(ppl[:-1]), last=ppl[-1], h=h)
 
     if qtype == "what_open":
         items = []
@@ -804,39 +802,44 @@ def _ctx_query(hass, qtype, h="sir", area_match=""):
                 items.append(s.attributes.get("friendly_name", s.entity_id))
         for s in hass.states.async_all("lock"):
             if s.state == "unlocked":
-                items.append(s.attributes.get("friendly_name", s.entity_id) + " (unlocked)")
+                items.append(s.attributes.get("friendly_name", s.entity_id)
+                             + local_i18n.t("open_unlocked_suffix", lang))
         if not items:
-            return f"Everything is closed and secured, {h}."
-        return f"Currently open or unlocked: {', '.join(items)}."
+            return local_i18n.t("open_none", lang, h=h)
+        return local_i18n.t("open_list", lang, items=", ".join(items))
 
     if qtype == "lights_on":
         on = [s.attributes.get("friendly_name", s.entity_id)
               for s in hass.states.async_all("light") if s.state == "on"]
         if not on:
-            return f"All lights are off, {h}."
+            return local_i18n.t("lights_none", lang, h=h)
         c = len(on)
         listing = ", ".join(on[:5])
-        return f"{c} light{'s' if c != 1 else ''} on: {listing}{'...' if c > 5 else ''}."
+        return local_i18n.t("lights_list", lang, c=c,
+                            noun=local_i18n.noun("light", c, lang),
+                            listing=listing, ellipsis=("..." if c > 5 else ""))
 
     if qtype == "energy":
         for s in hass.states.async_all("sensor"):
             if s.attributes.get("device_class") == "power" and "total" in s.entity_id.lower():
                 unit = s.attributes.get("unit_of_measurement", "W")
-                return f"Current power consumption is {s.state} {unit}, {h}."
-        return f"I don't have a total power sensor configured, {h}."
+                return local_i18n.t("energy", lang, state=s.state, unit=unit, h=h)
+        return local_i18n.t("energy_none", lang, h=h)
 
     if qtype == "weather":
         for s in hass.states.async_all("weather"):
             temp = s.attributes.get("temperature", "—")
             humidity = s.attributes.get("humidity", "—")
             condition = s.state.replace("_", " ")
-            return f"Currently {condition} outside, {h}. Temperature is {temp}° with {humidity}% humidity."
+            return local_i18n.t("weather", lang, condition=condition,
+                                temp=temp, humidity=humidity, h=h)
         for s in hass.states.async_all("sensor"):
             if ("outdoor" in s.entity_id.lower() or "outside" in s.entity_id.lower()):
                 if s.attributes.get("device_class") == "temperature":
                     unit = s.attributes.get("unit_of_measurement", "°")
-                    return f"The outdoor temperature is {s.state}{unit}, {h}."
-        return f"I don't have weather data available at the moment, {h}."
+                    return local_i18n.t("weather_outdoor", lang,
+                                        state=s.state, unit=unit, h=h)
+        return local_i18n.t("weather_none", lang, h=h)
 
     if qtype == "area_devices" and area_match:
         try:
@@ -851,7 +854,7 @@ def _ctx_query(hass, qtype, h="sir", area_match=""):
                     target = area
                     break
             if not target:
-                return f"I couldn't find an area matching '{area_match}', {h}."
+                return local_i18n.t("area_none", lang, area=area_match, h=h)
             devs = []
             for entry in ent_reg.entities.values():
                 in_area = entry.area_id == target.id
@@ -861,12 +864,16 @@ def _ctx_query(hass, qtype, h="sir", area_match=""):
                 if in_area:
                     state = hass.states.get(entry.entity_id)
                     if state:
-                        devs.append(f"{state.attributes.get('friendly_name', entry.entity_id)} ({state.state})")
+                        devs.append(f"{state.attributes.get('friendly_name', entry.entity_id)} "
+                                    f"({local_i18n.state_word(state.state, lang)})")
             if not devs:
-                return f"No devices found in {target.name}, {h}."
+                return local_i18n.t("area_empty", lang, name=target.name, h=h)
             listing = ", ".join(devs[:10])
-            more = f" and {len(devs) - 10} more" if len(devs) > 10 else ""
-            return f"{target.name} has {len(devs)} device{'s' if len(devs) != 1 else ''}: {listing}{more}."
+            more = (local_i18n.t("area_more", lang, n=len(devs) - 10)
+                    if len(devs) > 10 else "")
+            return local_i18n.t("area_list", lang, name=target.name, n=len(devs),
+                                noun=local_i18n.noun("device", len(devs), lang),
+                                listing=listing, more=more)
         except Exception:
             pass
     return None
@@ -874,7 +881,18 @@ def _ctx_query(hass, qtype, h="sir", area_match=""):
 
 # ── Main entry point ─────────────────────────────────────────────────────────
 
-async def try_local(hass, text, honorific="sir", force=False):
+def _output_lang(hass):
+    """The household output language as a primary subtag ('de'), 'en' default.
+    Steers the zero-API local replies the same way the LLM path is steered by
+    language.language_directive. Never raises."""
+    try:
+        from . import language
+        return language.configured_language(hass)
+    except Exception:
+        return "en"
+
+
+async def try_local(hass, text, honorific="sir", force=False, lang=None):
     """
     PRIMARY handler. Returns LocalResult if handled, None for LLM fallback.
 
@@ -884,7 +902,13 @@ async def try_local(hass, text, honorific="sir", force=False):
     to the cloud LLM is not an option. Conversational/creative requests that
     have no local handler still return None — the caller supplies an honest
     offline response.
+
+    ``lang`` overrides the resolved household output language (#511): replies are
+    rendered in it via local_i18n with zero API cost. None → resolve from config.
     """
+    from . import local_i18n
+    if lang is None:
+        lang = _output_lang(hass)
     normalized = _normalize(text)
     complexity = score_complexity(text)
 
@@ -898,7 +922,7 @@ async def try_local(hass, text, honorific="sir", force=False):
         match = re.search(pattern, normalized)
         if match:
             area_m = match.group(1) if match.lastindex else ""
-            resp = _ctx_query(hass, qtype, honorific, area_m)
+            resp = _ctx_query(hass, qtype, honorific, area_m, lang)
             if resp:
                 _LOGGER.info("Local contextual: %s", qtype)
                 return LocalResult(text=resp, success=True)
@@ -920,7 +944,9 @@ async def try_local(hass, text, honorific="sir", force=False):
                 for eid, fn in ents:
                     if await _execute_action(hass, "turn_off", eid, {}):
                         total += 1
-            return LocalResult(text=f"Done, {honorific}. {total} device{'s' if total != 1 else ''} turned off.", success=True)
+            return LocalResult(text=local_i18n.t(
+                "bulk_alloff", lang, h=honorific, total=total,
+                noun=local_i18n.noun("device", total, lang)), success=True)
         entities = _find_entities_in_area(hass, area_name, domain) if area_name else [
             (s.entity_id, s.attributes.get("friendly_name", s.entity_id))
             for s in hass.states.async_all(domain)]
@@ -930,9 +956,11 @@ async def try_local(hass, text, honorific="sir", force=False):
         for eid, fn in entities:
             if await _execute_action(hass, action, eid, {}):
                 ok += 1
-        area_str = f" in {area_name}" if area_name else ""
-        verb = action.replace("_", " ")
-        return LocalResult(text=f"Done, {honorific}. {ok} {domain}{'s' if ok != 1 else ''}{area_str} {verb}.", success=ok > 0)
+        area_str = local_i18n.t("area_in", lang, area=area_name) if area_name else ""
+        return LocalResult(text=local_i18n.t(
+            "bulk_generic", lang, h=honorific, ok=ok,
+            noun=local_i18n.noun(domain, ok, lang), area=area_str,
+            verb=local_i18n.bulk_verb(action, lang)), success=ok > 0)
 
     # Scene/script (check before single-entity to catch "activate X")
     for pattern, action, _ in _INTENT_PATTERNS:
@@ -953,9 +981,11 @@ async def try_local(hass, text, honorific="sir", force=False):
                 if not ok:
                     raise RuntimeError("activation did not complete")
                 _update_ctx(entity=eid, domain=dtype)
-                return LocalResult(text=f"Activating {fname} now, {honorific}.", success=True)
+                return LocalResult(text=local_i18n.t("scene_activating", lang,
+                                                     name=fname, h=honorific), success=True)
             except Exception as exc:
-                return LocalResult(text=f"I wasn't able to activate {fname}, {honorific}. {exc}", success=False)
+                return LocalResult(text=local_i18n.t("scene_fail", lang, name=fname,
+                                                     h=honorific, exc=exc), success=False)
 
     # Goodnight shortcut
     if re.search(r"^good\s*night(?:\s+jarvis)?$", normalized):
@@ -966,7 +996,8 @@ async def try_local(hass, text, honorific="sir", force=False):
                 if not await _seam_execute(hass, dtype, "turn_on", {"entity_id": eid},
                                            blocking=True, action="activate"):
                     raise RuntimeError("activation did not complete")
-                return LocalResult(text=f"Goodnight, {honorific}. {fname} activated. Rest well.", success=True)
+                return LocalResult(text=local_i18n.t("goodnight_scene", lang,
+                                                     name=fname, h=honorific), success=True)
             except Exception as exc:
                 _LOGGER.warning("JARVIS: goodnight scene/script '%s' failed to run: %s", eid, exc)
         off_count = 0
@@ -984,7 +1015,9 @@ async def try_local(hass, text, honorific="sir", force=False):
                                            {"entity_id": s.entity_id},
                                            blocking=False, action="lock"):
                     _LOGGER.warning("JARVIS: goodnight could not lock %s", s.entity_id)
-        return LocalResult(text=f"Goodnight, {honorific}. {off_count} lights off, all locks secured. Rest well.", success=True)
+        return LocalResult(text=local_i18n.t(
+            "goodnight_summary", lang, h=honorific, n=off_count,
+            noun=local_i18n.noun("light", off_count, lang)), success=True)
 
     # Single-entity patterns
     _last_failed_name = None  # Track for end-of-loop error
@@ -999,7 +1032,7 @@ async def try_local(hass, text, honorific="sir", force=False):
             continue
         _LOGGER.info("Local intent: action=%s", action)
         if action in ("query_time", "query_date", "greeting", "thanks", "status"):
-            return LocalResult(text=_query_resp(hass, action, "", "", honorific), success=True)
+            return LocalResult(text=_query_resp(hass, action, "", "", honorific, lang), success=True)
         groups = match.groups()
         # Value/area actions: the capture is a number and/or an optional area, not
         # an entity name. Resolve the target from the captured area (if any) or a
@@ -1038,7 +1071,7 @@ async def try_local(hass, text, honorific="sir", force=False):
             st = hass.states.get(target)
             fname = st.attributes.get("friendly_name", target) if st else target
             _update_ctx(entity=target, domain=target.split(".")[0], action=action)
-            return LocalResult(text=_resp(action, fname, success, vargs, honorific),
+            return LocalResult(text=_resp(action, fname, success, vargs, honorific, lang),
                                success=success)
         name_frag = groups[0] if groups else ""
         extra_arg = groups[1] if len(groups) > 1 else None
@@ -1069,7 +1102,7 @@ async def try_local(hass, text, honorific="sir", force=False):
             try: args["volume_level"] = int(groups[0])
             except (ValueError, IndexError): pass
         if action.startswith("query_"):
-            resp = _query_resp(hass, action, entity_id, fname, honorific)
+            resp = _query_resp(hass, action, entity_id, fname, honorific, lang)
             if resp:
                 return LocalResult(text=resp, success=True)
             continue
@@ -1079,7 +1112,7 @@ async def try_local(hass, text, honorific="sir", force=False):
             return None   # protected action → the agent runs the confirmation gate
         success = await _execute_action(hass, action, entity_id, args)
         _update_ctx(entity=entity_id, domain=entity_id.split(".")[0], action=action)
-        return LocalResult(text=_resp(action, fname, success, args, honorific), success=success)
+        return LocalResult(text=_resp(action, fname, success, args, honorific, lang), success=success)
 
     # v5.7.08: If patterns matched but entity resolution failed, ALWAYS
     # fall through to the agentic LLM. The agent has search_entities which
@@ -1091,11 +1124,8 @@ async def try_local(hass, text, honorific="sir", force=False):
     if _last_failed_name:
         if force:
             return LocalResult(
-                text=(
-                    f"I couldn't find a device matching '{_last_failed_name}', "
-                    f"{honorific}, and I'm offline so I can't do a deeper search "
-                    f"right now. Try the exact device name."
-                ),
+                text=local_i18n.t("offline_notfound", lang,
+                                  name=_last_failed_name, h=honorific),
                 success=False,
             )
         _LOGGER.info(
@@ -1123,46 +1153,29 @@ async def try_local(hass, text, honorific="sir", force=False):
                 ]
                 if tracking:
                     return LocalResult(
-                        text=(
-                            f"Already on it, {honorific}. I'm monitoring "
-                            f"{', '.join(tracking)}. I'll announce when "
-                            f"the cycle completes."
-                        ),
+                        text=local_i18n.t("appliance_tracking", lang,
+                                          h=honorific, items=", ".join(tracking)),
                         success=True,
                     )
                 return LocalResult(
-                    text=(
-                        f"I'm monitoring for appliance cycles, {honorific}, "
-                        f"but I haven't found any power sensors matching "
-                        f"your appliances yet. Make sure the power monitoring "
-                        f"sensor has 'washer', 'dryer', or 'dishwasher' "
-                        f"in its name."
-                    ),
+                    text=local_i18n.t("appliance_nosensors", lang, h=honorific),
                     success=True,
                 )
             else:
                 return LocalResult(
-                    text=(
-                        f"The appliance monitor isn't running at the moment, "
-                        f"{honorific}. It starts automatically with the "
-                        f"observer. Check if the observer is enabled."
-                    ),
+                    text=local_i18n.t("appliance_notrunning", lang, h=honorific),
                     success=True,
                 )
         except Exception:
             return LocalResult(
-                text=(
-                    f"I'll keep an eye on it, {honorific}. If I have a "
-                    f"power sensor for that appliance, I'll announce when "
-                    f"the cycle finishes."
-                ),
+                text=local_i18n.t("appliance_generic", lang, h=honorific),
                 success=True,
             )
 
     # Follow-up ("also turn off the kitchen")
     if _ctx_fresh() and re.search(r"^(?:also|and|now)\s+", normalized):
         stripped = re.sub(r"^(?:also|and|now)\s+", "", normalized)
-        result = await try_local(hass, stripped, honorific, force=force)
+        result = await try_local(hass, stripped, honorific, force=force, lang=lang)
         if result and result.handled:
             return result
 
@@ -1178,7 +1191,10 @@ async def try_local(hass, text, honorific="sir", force=False):
             entity_id, fname = resolved
             state = hass.states.get(entity_id)
             if state:
-                return LocalResult(text=f"{fname} is currently {state.state}, {honorific}.", success=True)
+                return LocalResult(text=local_i18n.t(
+                    "query_state", lang, name=fname,
+                    state=local_i18n.state_word(state.state, lang),
+                    h=honorific), success=True)
 
     _LOGGER.debug("Local: no match for '%s' (complexity=%d) — LLM", text[:60], complexity)
     return None
