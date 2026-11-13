@@ -1230,6 +1230,19 @@ class SafetyManager:
         spread = len(inv["zones"]) >= spread_needed
         sustained = bool(active) and (now - inv["start"]) >= INTRUSION_SUSTAINED_SECS
 
+        # Breach-only (the owner's protocol, default on): a real intrusion must
+        # involve an actual BREACH (an exterior door/window/garage opening). When
+        # this investigation was NOT anchored on a breach — it was opened by a
+        # camera person-flag, which Frigate can false-positive on a resident, a
+        # pet or a shadow — motion alone, however sustained, must NOT confirm a
+        # critical intrusion. Only a person JARVIS positively sees on camera
+        # (the `vision is True` branch below) still escalates. This is exactly the
+        # "intrusion confirmed by movement, no breach" false alarm the protocol is
+        # meant to prevent. Kill-switch: intrusion_breach_only.
+        _breach_only = bool(self.config.get("intrusion_breach_only", True))
+        _had_breach = bool(inv.get("breach_name") or inv.get("breach_area"))
+        _motion_may_confirm = (not _breach_only) or _had_breach
+
         # Directional inward progression (v6.74.0): a real intruder enters at the
         # breach and moves INWARD to progressively deeper rooms. Motion that
         # merely lingers at/near the entry (an AC unit in the open window, a
@@ -1311,15 +1324,24 @@ class SafetyManager:
                     reason = ("someone is moving inward through the house from "
                               "the point of entry")
                 else:
-                    confirmed = spread and sustained
+                    confirmed = spread and sustained and _motion_may_confirm
                     reason = ("sustained movement through the house while no one "
                               "is home")
             else:
                 # Vision inconclusive/unavailable under GENUINE away (tracked-away
-                # / armed-away / a user-requested lockdown) → fall back to prior
-                # behavior (trust the camera) so a broken vision path never
-                # suppresses a real alert. Fail toward safety.
-                confirmed, reason = True, "a person is on camera"
+                # / armed-away / a user-requested lockdown) → normally fall back to
+                # trusting the camera so a broken vision path never suppresses a
+                # real alert. But in breach-only mode with NO breach, this "trust
+                # the camera" confirm fires on a Frigate person false-positive with
+                # no corroborating entry — the very false alarm the protocol is
+                # meant to stop — so hold instead. A later positive vision
+                # person-confirm still escalates.
+                if _breach_only and not _had_breach:
+                    confirmed = False
+                    reason = ("a camera flagged a person but vision is "
+                              "inconclusive and there is no breach — watching")
+                else:
+                    confirmed, reason = True, "a person is on camera"
         elif inv.get("breach_area"):
             # Entry point known: require motion to have travelled INWARD from the
             # breach (a genuine intrusion route), not merely lingered near it.
@@ -1327,9 +1349,13 @@ class SafetyManager:
             reason = ("someone is moving inward through the house from the "
                       "point of entry")
         else:
-            # No location on the breach — be conservative: sustained multi-room
-            # movement, not a momentary blip.
-            confirmed = spread and sustained
+            # No location on the breach. In breach-only mode a real intrusion must
+            # involve an actual breach, so motion alone — however sustained — must
+            # NOT confirm (the pet / resident / camera false-positive the owner
+            # runs breach-only to suppress). A person positively seen by JARVIS's
+            # own vision still confirms via the branch above. Without breach-only,
+            # keep the legacy conservative sustained-movement heuristic.
+            confirmed = spread and sustained and _motion_may_confirm
             reason = "sustained movement through the house while no one is home"
 
         # User called it off as a false alarm → stand down, don't escalate.
