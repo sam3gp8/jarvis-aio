@@ -75,6 +75,52 @@ def test_confidence_threshold_boundary(rec):
     assert conf >= rec.CONFIDENCE_THRESHOLD    # 61% clears a 60 threshold
 
 
+# ── sub_label dedup: Frigate repeats the face on every tracking update ────────
+# Frigate assigns the face during tracking, so the sub_label lands on "update"/
+# "end" events and repeats on each update tick for the same tracked object. The
+# handler must fire a recognition once per (event, name), re-firing only when the
+# recognised name changes for that object.
+
+@pytest.fixture(autouse=True)
+def _clear_subid(rec):
+    rec._FRIGATE_SUBID_FIRED.clear()
+    yield
+    rec._FRIGATE_SUBID_FIRED.clear()
+
+
+def test_subid_first_sighting_fires(rec):
+    assert rec._subid_should_fire("evt-1", "Sam") is True
+
+
+def test_subid_repeat_same_name_suppressed(rec):
+    assert rec._subid_should_fire("evt-1", "Sam") is True
+    assert rec._subid_should_fire("evt-1", "Sam") is False   # same update tick again
+    assert rec._subid_should_fire("evt-1", "Sam") is False
+
+
+def test_subid_name_change_refires(rec):
+    assert rec._subid_should_fire("evt-1", "unknown") is True
+    assert rec._subid_should_fire("evt-1", "Sam") is True     # model got a clearer frame
+    assert rec._subid_should_fire("evt-1", "Sam") is False
+
+
+def test_subid_distinct_events_independent(rec):
+    assert rec._subid_should_fire("evt-1", "Sam") is True
+    assert rec._subid_should_fire("evt-2", "Sam") is True     # different tracked object
+
+
+def test_subid_blank_event_id_always_fires(rec):
+    assert rec._subid_should_fire("", "Sam") is True
+    assert rec._subid_should_fire("", "Sam") is True
+
+
+def test_subid_cap_bounds_memory(rec):
+    for i in range(rec._FRIGATE_SUBID_MAX + 5):
+        rec._subid_should_fire(f"evt-{i}", "Sam")
+    # it cleared at the cap rather than growing without bound
+    assert len(rec._FRIGATE_SUBID_FIRED) <= rec._FRIGATE_SUBID_MAX
+
+
 def test_recognition_source_default_is_both(rec):
     # with no config set, the module defaults to 'both' sources active
     import sys, types

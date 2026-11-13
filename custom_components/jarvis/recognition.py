@@ -375,6 +375,29 @@ def _parse_sub_label(sub) -> tuple[str, float]:
     return "", 0.0
 
 
+# Dedup for Frigate sub_label identity. Frigate assigns a face DURING tracking,
+# so the sub_label lands on "update"/"end" events and then repeats on every
+# update tick for the same tracked object. Fire a recognition only when the
+# (event_id, name) pair is new — re-fire if the name changes for the same object
+# (e.g. "unknown" → "Sam" once the model gets a clearer frame). Bounded so a busy
+# camera can't grow it without limit.
+_FRIGATE_SUBID_FIRED: dict[str, str] = {}
+_FRIGATE_SUBID_MAX = 512
+
+
+def _subid_should_fire(event_id: str, name: str) -> bool:
+    """True when this (event, recognised name) hasn't been fired yet. No event id
+    (shouldn't happen) is always let through."""
+    if not event_id:
+        return True
+    if _FRIGATE_SUBID_FIRED.get(event_id) == name:
+        return False
+    if len(_FRIGATE_SUBID_FIRED) >= _FRIGATE_SUBID_MAX:
+        _FRIGATE_SUBID_FIRED.clear()
+    _FRIGATE_SUBID_FIRED[event_id] = name
+    return True
+
+
 def _camera_entity_from_name(camera_name: str) -> str:
     """DoubleTake uses Frigate's camera name ('front_door'); HA entity is camera.front_door."""
     return f"camera.{camera_name.lower()}"
@@ -1227,6 +1250,43 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                     except Exception:
                         pass
 
+                # ── Frigate-native identity via sub_label ──────────────────
+                # Frigate assigns a face sub_label DURING tracking, so it lands
+                # on "update"/"end" events — NOT the initial "new" one. The
+                # person-detection gate below returns early on anything but
+                # "new", so the old sub_label handling there never saw a
+                # populated sub_label and known residents were never recognized.
+                # Handle identity here instead, on ANY event carrying a person
+                # sub_label, deduped per (event, name) so the repeated update
+                # ticks don't re-fire. This feeds the Faces panel and, via
+                # _schedule_face_capture, the opt-in LLM auto-training.
+                if _use_frigate_id and label == "person":
+                    _sub_name, _sub_conf = _parse_sub_label(after.get("sub_label"))
+                    if not _sub_conf:          # bare-string sub_label → recover a score
+                        _raw = (after.get("sub_label_score")
+                                or (after.get("data") or {}).get("sub_label_score"))
+                        if _raw is not None:
+                            _sub_conf = _normalize_score(_raw)
+                    if _sub_name and _subid_should_fire(after.get("id", ""), _sub_name):
+                        _is_unknown = _sub_name.lower() in ("unknown", "unknown person")
+                        remember_recognition(camera, _sub_name, _sub_conf, hass=hass,
+                                             source="frigate")
+                        _schedule_face_capture(hass, camera, _sub_name, _sub_conf)
+                        hass.bus.async_fire("jarvis_face_recognized", {
+                            "camera": camera,
+                            "camera_entity": f"camera.{camera}",
+                            "name": _sub_name,
+                            "confidence": _sub_conf,
+                            "is_unknown": _is_unknown,
+                            "is_confident": _sub_conf >= CONFIDENCE_THRESHOLD,
+                            **_relationship_fields(_sub_name, _is_unknown),
+                            "source": "frigate",
+                        })
+                        _LOGGER.info(
+                            "JARVIS: Frigate identified %s @ %s (%.1f%%) via sub_label (%s)",
+                            _sub_name, camera, _sub_conf, event_type,
+                        )
+
                 # Only act on new person detections with high confidence
                 if event_type != "new" or label != "person" or score < 0.7:
                     return
@@ -1254,35 +1314,9 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                     "score": score,
                     "event_id": event_id,
                 })
-
-                # ── Frigate-native identity (v6.59.0) ──────────────────────
-                # If Frigate's own face recognition (or a +/- plus model)
-                # attached a sub_label, use it directly — no Double Take needed.
-                # sub_label is either "Name" or ["Name", score] across versions.
-                # Gated by recognition_source (v6.64.1): person detection above
-                # always runs, but identity firing honors the chosen source.
-                if _use_frigate_id:
-                    sub = after.get("sub_label")
-                    sub_name, sub_conf = _parse_sub_label(sub)
-                    if sub_name:
-                        remember_recognition(camera, sub_name, sub_conf, hass=hass,
-                                             source="frigate")
-                        _schedule_face_capture(hass, camera, sub_name, sub_conf)
-                        hass.bus.async_fire("jarvis_face_recognized", {
-                            "camera": camera,
-                            "camera_entity": camera_entity,
-                            "name": sub_name,
-                            "confidence": sub_conf,
-                            "is_unknown": sub_name.lower() in ("unknown", "unknown person"),
-                            "is_confident": sub_conf >= CONFIDENCE_THRESHOLD,
-                            **_relationship_fields(
-                                sub_name, sub_name.lower() in ("unknown", "unknown person")),
-                            "source": "frigate",
-                        })
-                        _LOGGER.info(
-                            "JARVIS: Frigate identified %s @ %s (%.1f%%) via sub_label",
-                            sub_name, camera, sub_conf,
-                        )
+                # (Frigate sub_label identity is handled above, before the
+                # new-only gate, so it fires on the update/end events that
+                # actually carry the recognised face.)
 
             except Exception as exc:
                 _LOGGER.debug("Frigate event parse error: %s", exc)
