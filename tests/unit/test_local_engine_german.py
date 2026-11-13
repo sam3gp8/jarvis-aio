@@ -129,3 +129,36 @@ async def test_english_turn_on_still_works(load, monkeypatch):
     result = await le.try_local(h, "turn on Bodenleuchte", "sir")
     assert result is not None and result.handled
     assert any(c[:2] == ("light", "turn_on") for c in h.service_calls)
+
+
+# ── German replies honor output_language (#511, local_i18n) ───────────────────
+
+async def test_german_command_reply_is_german(load, monkeypatch):
+    le = load("local_engine")
+    _install_vc(monkeypatch)
+    h = _hass()
+    result = await le.try_local(h, "Schalte Bodenleuchte ein", "mein Herr", lang="de")
+    assert result is not None and result.handled
+    assert any(c[:2] == ("light", "turn_on") for c in h.service_calls)
+    # The spoken reply is German, not "… is on."
+    assert "ist an" in result.text
+    assert "is on" not in result.text
+
+
+async def test_german_state_query_reply_is_german(load, monkeypatch):
+    le = load("local_engine")
+    _install_vc(monkeypatch)
+    h = _hass()
+    h.states.set("light.bodenleuchte_flur", "off", friendly_name="Bodenleuchte Flur")
+    # A bare device name → speculative state query, now rendered in German.
+    result = await le.try_local(h, "Bodenleuchte Flur", "mein Herr", lang="de")
+    assert result is not None
+    assert "ist derzeit aus" in result.text        # "is currently off" → de, state translated
+
+
+async def test_english_reply_unchanged_when_lang_en(load, monkeypatch):
+    le = load("local_engine")
+    _install_vc(monkeypatch)
+    h = _hass()
+    result = await le.try_local(h, "turn on Bodenleuchte", "sir", lang="en")
+    assert result is not None and "is on" in result.text
