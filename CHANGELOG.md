@@ -1,3 +1,22 @@
+## [9.107.0] — Fix: embeddings honour `ollama_base_url` (semantic search no longer "down")
+
+Bug fix. `embeddings._ollama_base()` resolved the Ollama host from
+`embed_base_url` → `llm_base_url` → the default local address — but **never read
+`ollama_base_url`**, the field the LLM provider actually uses for the `ollama`
+provider (`const.resolve_provider_base_url`). Its own docstring claimed it used
+"the same config the LLM layer uses", which it didn't.
+
+The result: an install that points JARVIS at a specific Ollama endpoint via
+`ollama_base_url` (e.g. a dedicated GPU add-on) with `llm_base_url` left blank —
+the common case — had **chat working but embeddings silently falling back to the
+default host**, so semantic search reported *down* ("Ollama /api/embed
+unreachable") even though the LLM path was fine.
+
+Fix: embeddings now resolve `embed_base_url` → `ollama_base_url` → `llm_base_url`
+→ default, matching the LLM layer's precedence (with an embed-specific override
+still first). No behaviour change for installs that set `llm_base_url` or nothing
+at all; it only starts using the endpoint you already configured.
+
 ## [9.106.0] — Fast-chat config: provider + live model dropdowns (not locked to Ollama)
 
 Follow-up to 9.105.0 on owner feedback: the fast-chat tier shipped with a
