@@ -1,3 +1,28 @@
+## [9.120.0] — Deeper world-model: JARVIS now flags a stale "last seen" out loud (Temporal → enforce)
+
+MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning), the **enforce**
+step — **owner-authorized**. 9.118.0/9.119.0 *measured*, log-only, how often a
+temporal-aware answer would hedge a stale sighting; this makes it **bite** on the
+"where did I last see X?" answer.
+
+When you ask where something was last seen and the surfaced sighting is stale,
+JARVIS now **says so** instead of stating it flat: "The bike was by the garage —
+though that was about 9h ago, so it may be out of date; I'd re-check." A fresh
+sighting is answered exactly as before.
+
+- **Downward-only honesty.** The enforce step never removes or weakens the
+  answer — it only *adds a caveat* to a stale one. The caveat is the same pure
+  `agent._temporal_hedge_suffix` the parity rung logged, so what was measured and
+  what JARVIS says are identical.
+- **Fail-safe and kill-switchable.** Any fault, or a missing timestamp, leaves the
+  flat answer untouched; `WHERE_LAST_SEEN_TEMPORAL_ENFORCE` reverts to the
+  pre-9.120.0 behaviour.
+- **Scope.** This enforces the *episodic* "last seen" answer. The *semantic*
+  side — caveating an aging curated **fact** at the point JARVIS recalls it — is
+  the queued follow-up; its parity rung (9.119.0) is already measuring.
+- No kernel-coverage/actuator change — an Epistemic-Fabric rung, not an actuation
+  path.
+
 ## [9.119.0] — Deeper world-model: the Temporal fabric reaches curated knowledge
 
 MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning), increment 2.

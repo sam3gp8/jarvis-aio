@@ -578,9 +578,17 @@ in beliefs); this tier makes them canonical and first-class.
   the current flat use that caveats none (kill-switch `TEMPORAL_PARITY`,
   observe-only, rows unchanged), so parity now spans both the **episodic**
   (scene memory) and **semantic** (knowledge) sides the shadow rung already
-  covered. Ladder: pure ✅ → shadow ✅ → parity ✅ (where-last-seen + curated
-  knowledge) → enforce (a decision defers on / hedges a stale value),
-  **owner-gated**. Reused by world-model + belief semantics (and Q).
+  covered. **Enforce ✅ (where-last-seen, owner-flipped 9.120.0):**
+  `agent._apply_where_last_seen_temporal_enforce` now actually HEDGES a stale
+  sighting — when the surfaced frame is AGING/EXPIRED the tool result carries the
+  staleness caveat (the same pure `_temporal_hedge_suffix` the parity rung
+  measured), so JARVIS says "…though that was 3h ago, so it may have changed"
+  instead of stating it flat. Downward-only honesty (never removes an answer,
+  only caveats a stale one), fail-safe, kill-switch `WHERE_LAST_SEEN_TEMPORAL_ENFORCE`.
+  The curated-knowledge enforce (caveating an aging *fact* at the recall-render
+  seam) is the queued follow-up. Ladder: pure ✅ → shadow ✅ → parity ✅ →
+  enforce ✅ (where-last-seen; curated knowledge pending), **owner-gated**. Reused
+  by world-model + belief semantics (and Q).
 
 These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and
