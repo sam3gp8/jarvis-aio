@@ -3031,6 +3031,61 @@ def _emit_where_last_seen_temporal_shadow(hit: dict) -> None:
         pass
 
 
+# Temporal fabric, PARITY rung (Epistemic Fabric) on the where-last-seen path.
+# The shadow rung above logs how stale the surfaced sighting is; parity logs what
+# a temporal-AWARE answer WOULD do about it — whether it would hedge the sighting
+# as stale — against the CURRENT behaviour, which always answers flat and never
+# hedges. The divergence rate (how often a surfaced sighting is aging/expired) is
+# the quantified bar the owner-gated enforce step reads before a real hedge turns
+# on. Observe-only; the tool's JSON is unchanged. Flip off to silence it.
+WHERE_LAST_SEEN_TEMPORAL_PARITY = True
+
+
+def _temporal_hedge_suffix(band: str, age_s: float) -> str:
+    """The caveat a temporal-AWARE 'where last seen' answer appends when the
+    surfaced sighting is stale; empty for a fresh/durable one. Pure, and reused by
+    the (owner-gated) enforce rung, so the parity log and the eventual real hedge
+    agree on the exact wording. Never raises."""
+    if band not in ("aging", "expired"):
+        return ""
+    try:
+        secs = max(0.0, float(age_s))
+    except Exception:
+        return ""
+    hrs = secs / 3600.0
+    when = f"{hrs:.0f}h ago" if hrs >= 1 else f"{secs / 60.0:.0f}m ago"
+    if band == "expired":
+        return f" — though that was {when}, so it may be out of date; I'd re-check."
+    return f" — though that was {when}, so it may have changed."
+
+
+def _emit_where_last_seen_temporal_parity(hit: dict) -> None:
+    """Parity rung for the Temporal fabric on the where-last-seen answer: log
+    whether a temporal-aware answer WOULD hedge this sighting as stale, and that
+    the current answer never does (so a stale sighting is a divergence). Pairs the
+    stored freshness band with the exact hedge wording the enforce rung would use.
+    Observe-only — the tool's JSON is unchanged. Never raises."""
+    if not WHERE_LAST_SEEN_TEMPORAL_PARITY:
+        return
+    try:
+        from .kernel import temporal as T
+        ts = hit.get("ts") if isinstance(hit, dict) else None
+        if ts is None:
+            return
+        now = time.time()
+        v = T.assess(float(ts), ttl=WHERE_LAST_SEEN_TTL)
+        band = v.band(now)
+        # Current answer never hedges → it diverges from the temporal-aware answer
+        # exactly when that answer would add a staleness caveat.
+        diverge = bool(_temporal_hedge_suffix(band, v.age(now)))
+        _LOGGER.debug(
+            "temporal(parity): where-last-seen band=%s would_hedge=%s "
+            "current_hedges=False diverge=%s (camera=%s)",
+            band, diverge, diverge, hit.get("camera") or "?")
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
     """Search scene memory for when/where a thing was last observed (v8.3.0)."""
     term = str(args.get("term", "") or "").strip()
@@ -3042,6 +3097,7 @@ async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
         if not hit:
             return json.dumps({"found": False, "term": term})
         _emit_where_last_seen_temporal_shadow(hit)   # Epistemic Fabric: observe-only
+        _emit_where_last_seen_temporal_parity(hit)   # Temporal: parity (observe-only)
         return json.dumps({
             "found": True, "term": term, "camera": hit.get("camera"),
             "ts": hit.get("ts"), "description": hit.get("description"),

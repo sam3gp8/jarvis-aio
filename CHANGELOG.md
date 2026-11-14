@@ -1,3 +1,28 @@
+## [9.118.0] — Deeper world-model: the Temporal fabric learns to flag a stale "last seen"
+
+MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning). Advances the
+**Temporal** Epistemic-Fabric primitive one rung — shadow → **parity** — on the
+"where did I last see X?" answer path, still fully observe-only.
+
+Background: a surfaced scene sighting carries a timestamp, and `kernel/temporal.py`
+can already band it (fresh / aging / expired) against `WHERE_LAST_SEEN_TTL`. The
+existing **shadow** rung logs that band. This **parity** rung goes one step
+further and logs what a *temporal-aware* answer WOULD do about it — whether it
+would **hedge** the sighting as stale ("…though that was 3h ago, so it may have
+changed") — against the current behaviour, which always answers flat and never
+hedges. The divergence rate (how often a surfaced sighting is aging/expired) is
+the quantified bar the eventual enforce step reads before a real hedge turns on.
+
+- **Reusable hedge wording.** The caveat lives in a pure `agent._temporal_hedge_suffix`
+  that the parity log and the future enforce rung both call, so the measured
+  "would hedge" and the real hedge are guaranteed to read identically.
+- **Observe-only and kill-switched.** `agent._emit_where_last_seen_temporal_parity`
+  only logs; the tool's JSON answer is byte-for-byte unchanged. `WHERE_LAST_SEEN_TEMPORAL_PARITY`
+  silences it. **The enforce step (JARVIS actually hedging a stale answer) is
+  owner-gated** and ships later, only once parity shows the divergence is sane.
+- No behaviour change, no new setting, no kernel-coverage/actuator change — this
+  is an Epistemic-Fabric rung, not an actuation path.
+
 ## [9.117.0] — Fix: local confirmation ignored the spoken language (#522)
 
 Bug fix, follow-up to 9.111.0's local-reply localization. A command spoken to a
