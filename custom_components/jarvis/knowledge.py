@@ -217,6 +217,49 @@ def _emit_temporal_shadow(facts: list, now: float) -> None:
         pass
 
 
+# PARITY (Epistemic Fabric — Temporal validity): all_facts() also logs how many
+# of the returned curated facts a temporal-AWARE consumer WOULD caveat as
+# approaching staleness (AGING, or EXPIRED on a row that slipped the expiry
+# filter) against the current behaviour, which caveats none. Mirrors the
+# where-last-seen parity rung (9.118.0) for semantic knowledge: the AGING share is
+# the quantified bar the owner-gated enforce rung reads before JARVIS starts
+# hedging an aging fact ("as of a while ago…"). Observe-only; all_facts() returns
+# the same rows. Flip off to silence.
+TEMPORAL_PARITY = True
+
+
+def _emit_temporal_parity(facts: list, now: float) -> None:
+    """Parity rung for the Temporal fabric on curated knowledge (Epistemic Fabric).
+    The shadow rung logs the freshness-band distribution; parity logs how many
+    returned facts a temporal-aware consumer WOULD caveat as stale (AGING/EXPIRED)
+    against the current behaviour, which caveats none. ``all_facts`` already drops
+    EXPIRED rows, so the live divergence is the AGING share — facts still valid but
+    worth a "this may be a little out of date" hedge. Observe-only; the returned
+    rows are unchanged. Never raises."""
+    if not TEMPORAL_PARITY:
+        return
+    try:
+        from .kernel import temporal as T
+        vals = []
+        for f in (facts or []):
+            if not isinstance(f, dict):
+                continue
+            observed = float(f.get("updated_at", 0.0) or 0.0)
+            exp = f.get("expires_at")
+            ttl = None if exp is None else max(0.0, float(exp) - observed)
+            vals.append(T.assess(observed, ttl=ttl))
+        if not vals:
+            return
+        st = T.summarize(vals, now)
+        would_caveat = st.aging + st.expired   # a temporal-aware consumer hedges these
+        _LOGGER.debug(
+            "temporal(parity): %d fact(s) — would_caveat=%d (aging/expired) "
+            "current_caveats=0 diverge=%s",
+            st.count, would_caveat, would_caveat > 0)
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 def _emit_privacy_shadow(facts: list) -> None:
     """Log the information-flow (privacy) view of a fact set — the FIRST live
     consult of ``kernel.privacy`` (Phase W prerequisite, shadow). Each fact is
@@ -722,6 +765,8 @@ def all_facts(subject: Optional[str] = None, now: Optional[float] = None,
             _emit_graph_shadow(facts)        # Phase T: observe-only
         if TEMPORAL_SHADOW:
             _emit_temporal_shadow(facts, now)  # Epistemic Fabric: observe-only
+        if TEMPORAL_PARITY:
+            _emit_temporal_parity(facts, now)  # Temporal: parity (observe-only)
         if PRIVACY_SHADOW:
             _emit_privacy_shadow(facts)        # Phase W prerequisite: observe-only
         return facts

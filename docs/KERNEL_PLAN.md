@@ -572,9 +572,15 @@ in beliefs); this tier makes them canonical and first-class.
   hedges — the divergence rate is the quantified bar for enforce — and the exact
   hedge wording lives in a pure `agent._temporal_hedge_suffix` the enforce rung
   reuses (kill-switch `WHERE_LAST_SEEN_TEMPORAL_PARITY`, observe-only, JSON
-  unchanged). Ladder: pure ✅ → shadow ✅ → parity ✅ (where-last-seen) → enforce
-  (a decision defers on / hedges a stale value), **owner-gated**. Reused by
-  world-model + belief semantics (and Q).
+  unchanged). Parity then extends to **curated knowledge**: `knowledge._emit_temporal_parity`
+  logs the AGING/EXPIRED share of the facts `all_facts` returns — the ones a
+  temporal-aware consumer WOULD caveat as "may be a little out of date" against
+  the current flat use that caveats none (kill-switch `TEMPORAL_PARITY`,
+  observe-only, rows unchanged), so parity now spans both the **episodic**
+  (scene memory) and **semantic** (knowledge) sides the shadow rung already
+  covered. Ladder: pure ✅ → shadow ✅ → parity ✅ (where-last-seen + curated
+  knowledge) → enforce (a decision defers on / hedges a stale value),
+  **owner-gated**. Reused by world-model + belief semantics (and Q).
 
 These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and
