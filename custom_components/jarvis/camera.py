@@ -237,6 +237,38 @@ async def _capped_camera_chat(hass: HomeAssistant, client, **chat_kwargs):
             lambda: client.chat(**chat_kwargs))
 
 
+async def _vision_describe(hass, client, messages, model, thinking, camera_name=""):
+    """Run the vision pass and return a cleaned description (<think> stripped).
+
+    #520: a reasoning vision model (Qwen) may ignore the /no_think nudge on some
+    turns and emit a <think> block that the tight non-thinking budget truncates,
+    so _strip_think leaves nothing and the frame is skipped ("no usable view") —
+    intermittently, depending on whether the model reasons that turn. When the
+    no-think pass comes back empty, retry ONCE with the larger thinking budget so
+    the model has room to finish reasoning AND still emit the description, which
+    _strip_think then cleanly separates. Only the empty path pays the retry."""
+    result = await _capped_camera_chat(
+        hass, client, messages=messages,
+        max_tokens=_vision_max_tokens(hass, 300, thinking),
+        model_override=model or None, thinking=thinking)
+    analysis = _strip_think((result.get("text") or "").strip())
+    if not thinking and len(analysis) < 3:
+        retry = await _capped_camera_chat(
+            hass, client, messages=messages,
+            max_tokens=_vision_max_tokens(hass, 300, True),
+            model_override=model or None, thinking=False)
+        retry_analysis = _strip_think((retry.get("text") or "").strip())
+        if len(retry_analysis) >= 3:
+            analysis = retry_analysis
+            try:
+                from .websocket import jarvis_log
+                jarvis_log("CAMERA", f"{camera_name}: vision recovered on a "
+                                     f"larger-budget retry ({model})")
+            except Exception:
+                pass
+    return analysis
+
+
 def _vision_model_rejects_images(exc) -> bool:
     """True when the error is the API refusing our image content because the
     configured vision model is text-only — e.g. Groq's
@@ -1565,30 +1597,25 @@ async def async_analyze_camera(
         hass, vision_provider, vision_model, groq_client)
     try:
         vision_thinking = bool(_cfg_opt(hass, "vision_thinking_enabled", False))
-        vision_max_tokens = _vision_max_tokens(hass, 300, vision_thinking)
-        result = await _capped_camera_chat(
-            hass, vision_client,
-            messages=[
-                {"role": "system", "content": system},
-                {
-                    "role": "user",
-                    "content": (
-                        [
-                            {"type": "image_url",
-                             "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
-                            for b in images_b64
-                        ]
-                        + [{"type": "text",
-                             "text": prompt + ("" if vision_thinking
-                                               else _no_think_suffix(vision_model))}]
-                    ),
-                },
-            ],
-            max_tokens=vision_max_tokens,
-            model_override=vision_model or None,
-            thinking=vision_thinking,
-        )
-        analysis = _strip_think((result.get("text") or "").strip())
+        _vision_messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": (
+                    [
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
+                        for b in images_b64
+                    ]
+                    + [{"type": "text",
+                         "text": prompt + ("" if vision_thinking
+                                           else _no_think_suffix(vision_model))}]
+                ),
+            },
+        ]
+        analysis = await _vision_describe(
+            hass, vision_client, _vision_messages, vision_model,
+            vision_thinking, camera_name)
         # Best-effort LLM resident recognition (#140 Phase 3) — opt-in. Reuse the
         # frame we already captured; fire-and-forget so it never delays or alters
         # this analysis. The matcher self-gates on the config flag and on enrolled
