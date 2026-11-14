@@ -751,6 +751,31 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "send_notification",
+            "description": (
+                "Send a short free-text message to the owner through the "
+                "notification destination configured in JARVIS Settings → "
+                "Notifications (a phone via the HA companion app, a Telegram bot, "
+                "etc.). Use it to proactively report something or reach the owner "
+                "when they are not in the conversation — e.g. 'the dryer finished "
+                "an hour ago'. Put the full text in 'message'. If no destination "
+                "is configured it returns an error and sends nothing; don't retry."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The text to send to the owner.",
+                    },
+                },
+                "required": ["message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "delegate_task",
             "description": (
                 "Spin up a focused sub-agent for a self-contained slice of a "
@@ -2615,6 +2640,58 @@ async def _exec_web_research(hass: HomeAssistant, args: dict) -> str:
         return json.dumps({"error": str(exc)})
 
 
+# ── send_notification (#513) ─────────────────────────────────────────────────
+# Lets JARVIS reach the owner with free text (e.g. "the dryer's been done an
+# hour") through the notification destination already configured in Settings →
+# Notifications (CONF_NOTIFY_SERVICE) — the same target intrusion/hazard pushes
+# use, so no second setting and no hardcoded service. Guardrails: the message is
+# capped, and a rolling-window rate limit stops a looping model from spamming
+# the owner's phone.
+_NOTIFY_SEND_TS: list[float] = []
+_NOTIFY_MAX_PER_WINDOW = 6
+_NOTIFY_WINDOW_S = 60.0
+_NOTIFY_MAX_CHARS = 3500
+
+
+async def _exec_send_notification(hass: HomeAssistant, args: dict) -> str:
+    """Send a short free-text message to the owner via the configured notify
+    service. Reads notify_service the same call-time way the rest of the agent
+    reads config; errors clearly (and sends nothing) if none is set."""
+    message = str(args.get("message", "") or "").strip()
+    if not message:
+        return json.dumps({"error": "message is required"})
+    try:
+        from . import jarvis_config
+        svc = str(jarvis_config.get("notify_service", "") or "").strip()
+    except Exception:
+        svc = ""
+    if not svc or "." not in svc:
+        return json.dumps({"error": "no notification destination configured — "
+                           "set one in JARVIS Settings → Notifications"})
+    # Rolling-window rate limit: a looping or confused model must not be able to
+    # flood the owner's phone. Drop timestamps outside the window, then gate.
+    now = time.monotonic()
+    global _NOTIFY_SEND_TS
+    _NOTIFY_SEND_TS = [t for t in _NOTIFY_SEND_TS if now - t < _NOTIFY_WINDOW_S]
+    if len(_NOTIFY_SEND_TS) >= _NOTIFY_MAX_PER_WINDOW:
+        return json.dumps({"error": "rate limited — too many notifications just "
+                           "now; try again in a moment"})
+    message = message[:_NOTIFY_MAX_CHARS]
+    domain, name = svc.split(".", 1)
+    try:
+        await hass.services.async_call(
+            domain, name, {"message": message, "title": "JARVIS"}, blocking=True)
+    except Exception as exc:
+        return json.dumps({"error": f"notification failed: {exc}"})
+    _NOTIFY_SEND_TS.append(now)
+    try:
+        from .websocket import jarvis_log
+        jarvis_log("AGENT", f"send_notification → {svc} ({len(message)} chars)")
+    except Exception:
+        pass
+    return json.dumps({"success": True, "sent_via": svc})
+
+
 async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
     """Communication Agent — calendar agenda + conflict detection (v6.51.0)."""
     try:
@@ -3136,6 +3213,7 @@ _TOOL_MAP = {
     "update_goal":         _exec_update_goal,
     "manage_goals":        _exec_manage_goals,
     "web_research":        _exec_web_research,
+    "send_notification":   _exec_send_notification,
     "calendar_agenda":     _exec_calendar_agenda,
     "read_email":          _exec_read_email,
     "look_at_camera":      _exec_look_at_camera,
@@ -3754,6 +3832,7 @@ _SLIM_TOOLS = {
     "control_device", "get_entity_state", "search_entities",
     "run_scene_or_script", "get_area_devices", "bulk_control",
     "get_home_summary", "web_research", "calendar_agenda", "weather_forecast",
+    "send_notification",
 }
 
 
