@@ -1,3 +1,26 @@
+## [9.113.0] — Fix: small models skipped web_research and faked a knowledge cutoff (#515)
+
+Bug fix. Asked for current information (e.g. "news about the Ukraine", even
+"use your web tool …"), small local models — qwen3.5:4b, gemma4:12b — didn't
+call `web_research`. They answered with a canned excuse instead: that the date is
+"in the future", or outside their training/knowledge cutoff. Tiny models are
+simply unreliable at *deciding* to call a tool, and no prompt wording guarantees
+it.
+
+Two layers:
+
+- **Prompt** — the `web_research` tool description and the agent's system rule
+  now state plainly: for current events / news / anything dated at or after your
+  training, call `web_research`, and **never** decline by citing a training or
+  knowledge cutoff or "that's in the future". This lifts the odds on every model.
+- **Deterministic backstop** — because a nudge isn't enough on a 4B model, the
+  agent now detects a cutoff-excuse in a *final* answer (English or German) and
+  runs the web lookup the model skipped, then re-answers from the results. It
+  fires only on a detected refusal, so a normal reply is never second-guessed;
+  it costs one extra model call and degrades gracefully (keeps the original
+  answer) if the search itself fails. Covers both the native tool-calling path
+  and the JSON-action path small local models use.
+
 ## [9.112.0] — Fix: reasoning vision models (Qwen-VL) returned no usable description (#514)
 
 Bug fix. Camera analysis with a Qwen vision model (and other reasoning models)

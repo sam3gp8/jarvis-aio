@@ -728,11 +728,13 @@ JARVIS_TOOLS = [
             "name": "web_research",
             "description": (
                 "Look something up on the web for current or external "
-                "information you don't have — news, facts, definitions, "
-                "'who is', 'what's the latest on', prices, weather context, "
-                "anything past your training. Returns a short summary you "
-                "then relay in your own voice. Use when the user asks about "
-                "the outside world, not the home."
+                "information you don't have — news, current events, facts, "
+                "definitions, 'who is', 'what's the latest on', prices, weather "
+                "context, anything dated at or after your training. ALWAYS use "
+                "this instead of replying that you can't answer because of a "
+                "knowledge/training cutoff or that something is 'in the future'. "
+                "Returns a short summary you then relay in your own voice. Use "
+                "when the user asks about the outside world, not the home."
             ),
             "parameters": {
                 "type": "object",
@@ -4059,6 +4061,87 @@ def _no_action_note(served_by: str, n_tools: int) -> str:
             f"{n_tools} tool(s) available")
 
 
+# ── #515: web_research rescue for small models ───────────────────────────────
+# Small local models (qwen3.5:4b, gemma4:12b, …) sometimes answer a current-events
+# question with a canned "training cutoff / that's in the future / no real-time
+# data" excuse INSTEAD of calling web_research — even when the tool is available
+# and even when the user explicitly asks them to search. The prompt now forbids
+# this, but prompt nudges aren't reliable on tiny models, so this is the backstop:
+# detect the excuse in a FINAL answer and run the lookup the model should have run.
+_CUTOFF_REFUSAL_MARKERS = (
+    # English
+    "training data", "training cutoff", "knowledge cutoff", "knowledge cut-off",
+    "as of my last", "my last update", "my last training", "don't have real-time",
+    "do not have real-time", "no real-time", "can't access the internet",
+    "cannot access the internet", "can't browse", "cannot browse the",
+    "in the future", "hasn't happened yet", "has not happened yet",
+    "beyond my knowledge", "outside my knowledge", "up to my training",
+    "only goes up to", "i can't provide current", "i cannot provide current",
+    # German
+    "trainingsdaten", "wissensstand", "keinen echtzeit", "keine echtzeit",
+    "in der zukunft", "noch nicht geschehen", "kein zugriff auf das internet",
+    "kann nicht im internet", "mein wissen reicht",
+)
+
+
+def _looks_like_cutoff_refusal(text: str) -> bool:
+    """True when a reply declines a current-info question by citing a training /
+    knowledge cutoff, 'that's in the future', or 'no real-time data' instead of
+    searching (#515)."""
+    t = (text or "").lower()
+    return bool(t) and any(m in t for m in _CUTOFF_REFUSAL_MARKERS)
+
+
+def _strip_think_text(text: str) -> str:
+    """Drop <think>…</think> (and a dangling, budget-truncated <think>) so a
+    reasoning model's hidden reasoning never reaches the user."""
+    import re
+    t = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL | re.IGNORECASE)
+    t = re.sub(r"<\|?/?think\|?>.*$", "", t, flags=re.DOTALL | re.IGNORECASE)
+    return t.strip()
+
+
+async def _maybe_web_rescue(hass, answer, *, user_text, client, hass_api,
+                            user_input, config):
+    """If a final answer is a knowledge-cutoff refusal (#515), run the web lookup
+    the model should have run and narrate from the results — one extra model call,
+    only on a detected refusal. Returns the original answer on any failure, so a
+    normal reply is never second-guessed or degraded. Never raises."""
+    if not answer or not user_text or not _looks_like_cutoff_refusal(answer):
+        return answer
+    try:
+        research = await _execute_tool(
+            hass, "web_research", {"query": user_text}, hass_api, user_input)
+    except Exception:
+        return answer
+    if not research or '"error"' in research[:80]:
+        return answer
+    try:
+        from .websocket import jarvis_log
+        jarvis_log("AGENT", "web_research rescue (#515): model declined with a "
+                   "knowledge-cutoff excuse; searched the web and re-answered")
+    except Exception:
+        pass
+    honorific = (config or {}).get("honorific", "sir") if config else "sir"
+    addr = f" Address them as '{honorific}'." if honorific else ""
+    msgs = [
+        {"role": "system", "content": (
+            "You are JARVIS. Using ONLY the web results provided, answer the "
+            "user's question concisely in your own voice." + addr +
+            " Never mention a training cutoff, a knowledge cutoff, or any lack of "
+            "real-time data — you just searched the web.")},
+        {"role": "user",
+         "content": f"Question: {user_text}\n\nWeb results:\n{research}"},
+    ]
+    try:
+        res = await hass.async_add_executor_job(
+            lambda: client.chat(messages=msgs, max_tokens=500, temperature=0.4))
+        narrated = _strip_think_text((res.get("text") or "").strip())
+        return narrated or answer
+    except Exception:
+        return answer
+
+
 async def _run_agent_json(
     hass: HomeAssistant,
     *,
@@ -4296,10 +4379,13 @@ async def run_agent(
         f"tool calls. Search for entity_ids first if unsure.\n"
         f"7. If the user says 'stop doing X automatically' or asks what you do on "
         f"your own, use manage_autonomy.\n"
-        f"8. For questions about the outside world — current events, facts, "
-        f"'who is', 'what's the latest', prices, anything past your training — "
-        f"use web_research, then relay the gist in your own voice. Don't read "
-        f"the raw result aloud; summarize it as JARVIS would.\n"
+        f"8. For questions about the outside world — current events, news, "
+        f"'who is', 'what's the latest', recent developments, prices, or anything "
+        f"dated at or after your training — call web_research and relay the gist in "
+        f"your own voice. NEVER decline such a question by citing a training or "
+        f"knowledge cutoff, by saying a date is 'in the future', or that you lack "
+        f"real-time data: you have web_research for exactly this, so search first. "
+        f"Don't read the raw result aloud; summarize it as JARVIS would.\n"
         f"9. For the schedule, upcoming events, or scheduling conflicts, use "
         f"calendar_agenda. Proactively flag overlaps and tight transitions. "
         f"To check email — what is new, anything important — use read_email "
@@ -4367,6 +4453,20 @@ async def run_agent(
 
     working = list(full_messages)
 
+    # The user's own question (last user turn) — used by the #515 web_research
+    # rescue to run the lookup a model may have refused with a cutoff excuse.
+    _user_text = ""
+    for _m in reversed(messages or []):
+        if _m.get("role") == "user":
+            _c = _m.get("content")
+            if isinstance(_c, str):
+                _user_text = _c
+            elif isinstance(_c, list):
+                _user_text = " ".join(
+                    p.get("text", "") for p in _c
+                    if isinstance(p, dict) and p.get("type") == "text").strip()
+            break
+
     # Local-capability parity: a model that can't do function-calling (e.g. Gemma
     # via Ollama) would run the native loop below, emit no tool call, and narrate
     # without ever acting (issue #413). Route it through the shared JSON-action
@@ -4382,10 +4482,13 @@ async def run_agent(
     except Exception:
         _tools_ok = None
     if _tools_ok is False:
-        return await _run_agent_json(
+        _json_answer = await _run_agent_json(
             hass, client=client, working=working, allowed_tools=allowed_tools,
             hass_api=hass_api, user_input=user_input, config=config,
             max_iterations=max_iterations)
+        return await _maybe_web_rescue(
+            hass, _json_answer, user_text=_user_text, client=client,
+            hass_api=hass_api, user_input=user_input, config=config)
 
     llm_run_state: dict[str, Any] = {}
     slim_retried = False   # one-shot 413 recovery (drop HA tools + home-state)
@@ -4587,7 +4690,12 @@ async def run_agent(
                     jarvis_log("AGENT", _no_action_note(_served_by, len(tools or [])))
                 except Exception:
                     pass
-            return text.strip() if _has_text else _empty_reply_fallback(config)
+            _final = text.strip() if _has_text else _empty_reply_fallback(config)
+            # #515: rescue a knowledge-cutoff refusal (no tool call) by actually
+            # searching the web and re-answering. No-op for a normal reply.
+            return await _maybe_web_rescue(
+                hass, _final, user_text=_user_text, client=client,
+                hass_api=hass_api, user_input=user_input, config=config)
 
         _LOGGER.info(
             "Agent iteration %d: %d tool call(s): %s",
