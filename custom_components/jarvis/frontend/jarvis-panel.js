@@ -12746,7 +12746,7 @@ ${this._renderExcludedEntities(d)}
   .faces-section-head { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--border, rgba(255,255,255,.1)); padding-bottom: 6px; margin-bottom: 12px; }
   .faces-section-head > span:first-child { font-size: 13px; letter-spacing: .04em; color: var(--text, #cfe); }
   .faces-section-sub { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); font-family: var(--font-mono); }
-  .faces-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+  .faces-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
   .faces-card { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
   .faces-thumb { position: relative; width: 100%; aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden; background: var(--panel-2, rgba(255,255,255,.04)); border: 1px solid var(--border, rgba(255,255,255,.1)); display: flex; align-items: center; justify-content: center; cursor: zoom-in; }
   .faces-thumb:hover { border-color: var(--cyan, #00f2fe); }
