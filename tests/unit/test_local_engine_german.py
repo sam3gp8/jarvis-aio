@@ -56,6 +56,36 @@ async def test_schalte_aus_turns_off(load, monkeypatch):
     assert any(c[:2] == ("light", "turn_off") for c in h.service_calls)
 
 
+# ── #522: the spoken/pipeline language steers the local confirmation ──────────
+
+async def test_german_command_confirmed_in_german(load, monkeypatch):
+    """A command spoken to a German satellite is confirmed in German (#522). The
+    conversation front door now hands try_local the request's pipeline language;
+    here we pass it directly. The bug dropped it, so a German command that was
+    actuated correctly still came back with an ENGLISH confirmation."""
+    le = load("local_engine")
+    _install_vc(monkeypatch)
+    h = _hass()
+    result = await le.try_local(h, "Schalte Bodenleuchte ein.", "sir", lang="de")
+    assert result is not None and result.handled
+    # German turn_on template is "{ack}, {h}. {name} ist an." — the English one
+    # reads "… is on." Assert the German rendering won.
+    assert "ist an" in result.text.lower()
+    assert " is on" not in result.text.lower()
+
+
+def test_output_lang_prefers_request_language(load):
+    """_output_lang threads the per-request pipeline language straight to
+    configured_language, where it is priority #1 — so a German request resolves
+    to 'de' regardless of the household/system default, and a full 'de-DE' tag is
+    normalised to its primary subtag (#522). A None request language falls through
+    to the output_language → ui_language → system order exactly as before."""
+    le = load("local_engine")
+    assert le._output_lang(FakeHass(), "de-DE") == "de"
+    assert le._output_lang(FakeHass(), "de") == "de"
+    assert le._output_lang(FakeHass(), None) == "en"
+
+
 # ── other German forms ────────────────────────────────────────────────────────
 
 async def test_mach_an_turns_on(load, monkeypatch):

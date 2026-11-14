@@ -1030,8 +1030,13 @@ class JarvisAgent(conversation.ConversationEntity):
             # everyone else. Offline safety is preserved below (a doomed LLM call
             # still falls back to a forced local salvage pass).
             _direct = bool(self._opt("direct_reasoning", False))
+            # Confirm/answer in the language the request came in (#522): the
+            # pipeline language (a German satellite → "de") is priority #1 in the
+            # language resolution, so a German command is confirmed in German even
+            # when JARVIS's output_language is Auto and the system is English.
+            _req_lang = getattr(user_input, "language", None)
             local_result = None if _direct else await try_local(
-                self.hass, user_input.text, honorific)
+                self.hass, user_input.text, honorific, lang=_req_lang)
 
             if local_result and local_result.handled:
                 response_text = local_result.text
@@ -1046,7 +1051,8 @@ class JarvisAgent(conversation.ConversationEntity):
                 if not connectivity.allow_request():
                     jarvis_log("OFFLINE", f"LLM down — local salvage: {user_input.text[:60]}")
                     salvage = await try_local(
-                        self.hass, user_input.text, honorific, force=True
+                        self.hass, user_input.text, honorific, force=True,
+                        lang=_req_lang
                     )
                     if salvage and salvage.handled:
                         response_text = salvage.text
@@ -1144,7 +1150,8 @@ class JarvisAgent(conversation.ConversationEntity):
                         if _is_connectivity_failure(response_text):
                             connectivity.record_failure()
                             salvage = await try_local(
-                                self.hass, user_input.text, honorific, force=True
+                                self.hass, user_input.text, honorific, force=True,
+                                lang=_req_lang
                             )
                             if salvage and salvage.handled:
                                 response_text = salvage.text
@@ -1154,7 +1161,8 @@ class JarvisAgent(conversation.ConversationEntity):
                         _LOGGER.warning("Agent call raised: %s", agent_exc)
                         connectivity.record_failure()
                         salvage = await try_local(
-                            self.hass, user_input.text, honorific, force=True
+                            self.hass, user_input.text, honorific, force=True,
+                            lang=_req_lang
                         )
                         if salvage and salvage.handled:
                             response_text = salvage.text
