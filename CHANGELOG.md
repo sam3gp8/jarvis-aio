@@ -1,3 +1,22 @@
+## [9.115.0] — Fix: intermittent "no usable view" from reasoning vision models (#520)
+
+Bug fix, follow-up to 9.112.0 (#514). With the `/no_think` nudge, Qwen vision
+models describe the frame most of the time — but `/no_think` is only a prompt
+hint, so on some turns the model reasons anyway. The tight non-thinking vision
+budget (300 tokens) then truncates that `<think>` block mid-reasoning, so
+`_strip_think` leaves nothing and the frame is skipped ("no usable view from
+vision model … — skipped"). The result was an intermittent mix of good
+descriptions and skips from the same model.
+
+Fix: when the no-think vision pass comes back empty, the camera pipeline now
+retries **once** with the larger thinking budget (`vision_thinking_max_tokens`),
+so a model that reasoned anyway has room to finish reasoning AND still emit the
+description — which `_strip_think` then cleanly separates. Only the empty path
+pays the retry: a frame that described correctly on the first pass is untouched,
+and a frame that's still empty after the retry is skipped as before. This makes
+a reasoning model usable as the `vision_model` without needing to dedicate a
+non-reasoning model to camera analysis.
+
 ## [9.114.0] — Feature: send_notification — JARVIS can message the owner on its own (#513)
 
 Feature (thanks to the proposal in #513). A new `send_notification` agent tool
