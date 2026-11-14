@@ -1,3 +1,26 @@
+## [9.117.0] — Fix: local confirmation ignored the spoken language (#522)
+
+Bug fix, follow-up to 9.111.0's local-reply localization. A command spoken to a
+German satellite was actuated correctly but **confirmed in English** — not the
+spoken language, and not the system language either.
+
+Root cause: the language resolver (`language.configured_language`) is designed to
+answer in the request's pipeline language as **priority #1** — a German satellite
+is meant to be answered in German even when the household default is something
+else. But the local path never handed that language in. The conversation front
+door called `try_local(...)` without the request language, and
+`local_engine._output_lang` called `configured_language` without it too, so the
+spoken language (`user_input.language`) was dropped on the floor and resolution
+fell through to JARVIS's `output_language` → `ui_language` → system language →
+English. The online LLM path already threaded it (via `_language_directive`), so
+only the zero-API local confirmations were affected.
+
+Fix: the conversation front door now passes the request's pipeline language into
+every local dispatch (the primary turn and all three offline-salvage passes), and
+`_output_lang(hass, lang)` forwards it to `configured_language`. A command spoken
+in German is now confirmed in German; a `None` request language resolves the
+household output language exactly as before. No API cost, no new setting.
+
 ## [9.116.0] — Faces tab: bigger snapshots, and a frame that actually has a face in it
 
 Two Faces-tab improvements.

@@ -328,7 +328,7 @@ def _load_conversation_module(monkeypatch):
     spy_mod.recognition_context_string = lambda hass: "Recognition: Sam"
     _setter("recognition", spy_mod)
 
-    async def try_local(hass, text, honorific, force=False):
+    async def try_local(hass, text, honorific, force=False, lang=None):
         return types.SimpleNamespace(handled=True, text=f"Handled: {text}")
 
     local_engine = types.ModuleType(f"{pkg_name}.local_engine")
@@ -846,7 +846,7 @@ def test_handle_message_uses_offline_response_when_local_salvage_fails(monkeypat
     connectivity = sys.modules[f"{mod.__package__}.connectivity"]
     calls = []
 
-    async def unhandled_local(hass, text, honorific, force=False):
+    async def unhandled_local(hass, text, honorific, force=False, lang=None):
         calls.append(force)
         return types.SimpleNamespace(handled=False, text="")
 
@@ -921,7 +921,7 @@ def test_handle_message_salvages_when_agent_raises(monkeypatch):
     local_engine = sys.modules[f"{mod.__package__}.local_engine"]
     calls = []
 
-    async def local_sequence(hass, text, honorific, force=False):
+    async def local_sequence(hass, text, honorific, force=False, lang=None):
         calls.append(force)
         return types.SimpleNamespace(
             handled=force, text="Local salvage succeeded" if force else "")
@@ -1047,7 +1047,7 @@ def test_direct_reasoning_skips_local_triage_and_goes_straight_to_agent(monkeypa
 
     local_engine = sys.modules[f"{mod.__package__}.local_engine"]
     local_calls = []
-    async def spy_local(hass, text, honorific, force=False):
+    async def spy_local(hass, text, honorific, force=False, lang=None):
         local_calls.append(force)
         return types.SimpleNamespace(handled=force, text="salvage" if force else "")
     local_engine.try_local = spy_local
@@ -1080,7 +1080,7 @@ def test_local_first_still_default_when_direct_reasoning_off(monkeypatch):
 
     local_engine = sys.modules[f"{mod.__package__}.local_engine"]
     local_calls = []
-    async def spy_local(hass, text, honorific, force=False):
+    async def spy_local(hass, text, honorific, force=False, lang=None):
         local_calls.append(force)
         return types.SimpleNamespace(handled=True, text="Handled locally.")
     local_engine.try_local = spy_local

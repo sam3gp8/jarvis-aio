@@ -881,13 +881,21 @@ def _ctx_query(hass, qtype, h="sir", area_match="", lang="en"):
 
 # ── Main entry point ─────────────────────────────────────────────────────────
 
-def _output_lang(hass):
+def _output_lang(hass, lang=None):
     """The household output language as a primary subtag ('de'), 'en' default.
     Steers the zero-API local replies the same way the LLM path is steered by
-    language.language_directive. Never raises."""
+    language.language_directive. Never raises.
+
+    ``lang`` is the per-request pipeline language (``user_input.language``) when
+    the caller has one — a command spoken to a German satellite. It is passed
+    straight through to :func:`language.configured_language`, where it is
+    priority #1, so a German satellite is confirmed in German even when JARVIS's
+    ``output_language`` is Auto and the system language is English (#522). A
+    None ``lang`` falls through to the output_language/ui_language/system order
+    exactly as before."""
     try:
         from . import language
-        return language.configured_language(hass)
+        return language.configured_language(hass, lang)
     except Exception:
         return "en"
 
@@ -907,8 +915,12 @@ async def try_local(hass, text, honorific="sir", force=False, lang=None):
     rendered in it via local_i18n with zero API cost. None → resolve from config.
     """
     from . import local_i18n
-    if lang is None:
-        lang = _output_lang(hass)
+    # Resolve through configured_language so the spoken/pipeline language that the
+    # conversation front door hands in as `lang` wins (#522): a command spoken to
+    # a German satellite is confirmed in German even when output_language is Auto
+    # and the system language is English. A None `lang` resolves the household
+    # output language exactly as before (output_language → ui_language → system).
+    lang = _output_lang(hass, lang)
     normalized = _normalize(text)
     complexity = score_complexity(text)
 
