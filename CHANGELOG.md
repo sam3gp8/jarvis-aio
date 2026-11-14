@@ -1,3 +1,24 @@
+## [9.116.0] — Faces tab: bigger snapshots, and a frame that actually has a face in it
+
+Two Faces-tab improvements.
+
+**Snapshots are larger.** The household/recently-seen gallery now lays out on a
+wider column floor (120px → 132px, ~110%), so every face thumbnail is about 10%
+bigger and easier to read at a glance without opening the lightbox.
+
+**The pinned frame now contains the person.** When a known face is recognized,
+JARVIS pins a "recognition-time" snapshot for the card. That pin was taken by a
+live camera grab fired a beat *after* recognition — so if the person had already
+stepped out of view, the pinned frame could be an empty room, and the card
+showed a face with no face in it. The capture now **prefers Frigate's
+event-cropped frame** — the exact frame Frigate detected the person in, so it
+contains their face by construction — and only falls back to the live grab for
+non-Frigate setups or when no fresh event snapshot is available. No behavior
+change for non-Frigate installs; Frigate installs get a reliably face-bearing
+thumbnail. Reuses the existing `_fetch_frigate_image` event-snapshot path (the
+same higher-quality source camera narration already uses), so there is no new
+configuration and no extra camera load.
+
 ## [9.115.0] — Fix: intermittent "no usable view" from reasoning vision models (#520)
 
 Bug fix, follow-up to 9.112.0 (#514). With the `/no_think` nudge, Qwen vision

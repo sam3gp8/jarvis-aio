@@ -498,9 +498,22 @@ async def capture_face_snapshot(hass, camera: str, name: str,
             return None
         from .paths import config_path_str
         camera_entity = camera if str(camera).startswith("camera.") else f"camera.{camera}"
-        from homeassistant.components.camera import async_get_image as _get_image
-        image = await _get_image(hass, camera_entity, timeout=10)
-        content = getattr(image, "content", None)
+        # Prefer Frigate's event-cropped frame — it's the frame Frigate detected
+        # the person in, so it contains their face by construction. A plain live
+        # grab here runs a beat after the recognition fires and can catch an empty
+        # room once the person has stepped out of view, which is why face cards
+        # sometimes showed a frame with no face in it. Fall back to the live grab
+        # for non-Frigate setups or when no fresh event snapshot is available.
+        content = None
+        try:
+            from .camera import _fetch_frigate_image
+            content = await _fetch_frigate_image(hass, camera_entity)
+        except Exception:
+            content = None
+        if not content:
+            from homeassistant.components.camera import async_get_image as _get_image
+            image = await _get_image(hass, camera_entity, timeout=10)
+            content = getattr(image, "content", None)
         if not content:
             return None
         try:

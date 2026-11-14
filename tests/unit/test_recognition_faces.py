@@ -275,6 +275,61 @@ async def test_capture_face_snapshot_contains_traversal(load, recog, fake_hass, 
     assert not os.path.exists(os.path.join(str(tmp_path), "..", "etc"))
 
 
+# ── Face card must show a frame that actually contains the person ──────────────
+
+async def test_capture_face_snapshot_prefers_frigate_frame(load, recog, fake_hass, tmp_path, monkeypatch):
+    """A face card should show a frame with the person's face in it. Frigate's
+    event-cropped frame contains the detection by construction; a live grab a
+    beat after recognition can catch an empty room once they've moved. So
+    capture_face_snapshot prefers the Frigate frame — and when it has one it must
+    NOT reach the live grab at all."""
+    import os
+    import sys
+    mod, _ = recog
+    paths = load("paths")
+    monkeypatch.setattr(paths, "config_path_str", lambda *a, **k: str(tmp_path))
+
+    # Frigate yields a (sentinel) event-cropped frame.
+    cam = load("camera")
+
+    async def _frigate(hass, entity_id):
+        return b"\xff\xd8\xff\xe0FRIGATE-EVENT-FRAME"
+    monkeypatch.setattr(cam, "_fetch_frigate_image", _frigate)
+
+    # The live grab must never be reached when a Frigate frame is in hand.
+    _install_fake_camera(monkeypatch)
+
+    def _boom(*a, **k):
+        raise AssertionError("live grab used though a Frigate frame was available")
+    sys.modules["homeassistant.components.camera"].async_get_image = _boom
+
+    rec = await mod.capture_face_snapshot(fake_hass, "front_door", "Sam")
+    assert rec is not None
+    with open(os.path.join(str(tmp_path), "sam.jpg"), "rb") as f:
+        assert f.read() == b"\xff\xd8\xff\xe0FRIGATE-EVENT-FRAME"
+
+
+async def test_capture_face_snapshot_falls_back_to_live_grab(load, recog, fake_hass, tmp_path, monkeypatch):
+    """Non-Frigate setups (or no fresh event snapshot) still pin a frame: when the
+    Frigate helper yields nothing, the live camera grab is used as before."""
+    import os
+    mod, _ = recog
+    paths = load("paths")
+    monkeypatch.setattr(paths, "config_path_str", lambda *a, **k: str(tmp_path))
+
+    cam = load("camera")
+
+    async def _no_frigate(hass, entity_id):
+        return None
+    monkeypatch.setattr(cam, "_fetch_frigate_image", _no_frigate)
+    _install_fake_camera(monkeypatch, content=b"\xff\xd8\xff\xe0LIVE-GRAB")
+
+    rec = await mod.capture_face_snapshot(fake_hass, "front_door", "Sam")
+    assert rec is not None
+    with open(os.path.join(str(tmp_path), "sam.jpg"), "rb") as f:
+        assert f.read() == b"\xff\xd8\xff\xe0LIVE-GRAB"
+
+
 # ── Phase 3: best-effort LLM guesses stay out of the trusted path (#140) ────────
 
 def test_resident_present_ignores_llm_guess(recog, fake_hass):
