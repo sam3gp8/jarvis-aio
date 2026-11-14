@@ -1,3 +1,26 @@
+## [9.119.0] — Deeper world-model: the Temporal fabric reaches curated knowledge
+
+MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning), increment 2.
+9.118.0 brought the Temporal fabric to **parity** on the *episodic* "where did I
+last see X?" answer; this extends that same parity rung to *semantic* **curated
+knowledge**, so both sides the shadow rung already watched are now measured.
+
+`knowledge.all_facts()` already logged the freshness-band distribution of the
+curated facts it returns (shadow). This **parity** rung adds
+`knowledge._emit_temporal_parity`, which logs how many of those returned facts a
+*temporal-aware* consumer WOULD caveat as approaching staleness (AGING — still
+valid but worth a "this may be a little out of date" hedge — or EXPIRED on a row
+that slips the expiry filter) against the current behaviour, which caveats none.
+The AGING share is the quantified bar the eventual enforce step reads before
+JARVIS starts hedging an aging fact.
+
+- **Observe-only and kill-switched.** It only logs; `all_facts()` returns the
+  same rows. `TEMPORAL_PARITY` silences it. **The enforce step (JARVIS actually
+  caveating a stale fact) is owner-gated** and ships later, once parity shows the
+  divergence is sane.
+- No behaviour change, no new setting, no kernel-coverage/actuator change — an
+  Epistemic-Fabric rung, not an actuation path.
+
 ## [9.118.0] — Deeper world-model: the Temporal fabric learns to flag a stale "last seen"
 
 MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning). Advances the
