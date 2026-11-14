@@ -339,3 +339,23 @@ def test_strip_think(cam):
     assert cam._strip_think("<think>only thinking</think>") == ""
     assert cam._strip_think("plain text") == "plain text"
     assert cam._strip_think("") == ""
+    # An unterminated (budget-truncated) think block strips to nothing — the
+    # exact #514 symptom a reasoning vision model produces.
+    assert cam._strip_think("<think>reasoning that never clo") == ""
+
+
+def test_no_think_suffix(cam):
+    # #514: Qwen reasons by default on the OpenAI-compat Ollama path, exhausting
+    # the vision budget. The suffix tells it (and any reasoner) to answer
+    # directly; Qwen also gets its /no_think control token.
+    q = cam._no_think_suffix("qwen358q4k4bfix:latest")
+    assert "/no_think" in q
+    assert "reasoning" in q.lower() and "<think>" in q
+    # A Qwen3-VL variant is covered by the substring match too.
+    assert "/no_think" in cam._no_think_suffix("qwen3-vl:8b")
+    # Non-reasoning vision models get the plain instruction but NOT the Qwen
+    # control token (harmless, but keep it model-specific).
+    g = cam._no_think_suffix("gemma3:12b")
+    assert "/no_think" not in g
+    assert "directly" in g.lower()
+    assert cam._no_think_suffix("") and "/no_think" not in cam._no_think_suffix("")

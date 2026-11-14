@@ -1,3 +1,28 @@
+## [9.112.0] — Fix: reasoning vision models (Qwen-VL) returned no usable description (#514)
+
+Bug fix. Camera analysis with a Qwen vision model (and other reasoning models)
+logged "no usable view from vision model … — skipped" and never used the result,
+while gemma3 / minicpm / ministral worked. The model *was* analysing the image
+(visible in Ollama), but JARVIS discarded its reply.
+
+Root cause: Qwen3 / Qwen3-VL emit a `<think>` reasoning block by default. On the
+**OpenAI-compatible** Ollama endpoint (provider `openai` pointed at Ollama) there
+is no way to send Ollama's native `think: false` option, so the model spends its
+whole generation budget reasoning — the budget is exhausted (the provider's
+empty-content retry even bumps it to 2048) and the visible description never
+arrives, or arrives as a truncated, unterminated `<think>`. `_strip_think` then
+correctly removes that reasoning, leaving an empty analysis that is skipped.
+
+Fix: when vision "thinking" is **off** (the default), the vision prompt now
+carries an explicit *answer-directly, no-reasoning* instruction, and for Qwen
+models it appends Qwen3's `/no_think` control token (honoured via its chat
+template) — so the model emits the description straight into the reply instead of
+burning the budget on hidden reasoning. Non-reasoning models (gemma3, minicpm,
+ministral) are unaffected: they already answer directly and get only the harmless
+plain-English line. If you deliberately enable vision thinking, nothing is
+suppressed. No new setting; works on the OpenAI-compat and native Ollama paths
+alike.
+
 ## [9.111.0] — Local replies follow output_language, zero-API (#511 follow-up)
 
 Feature. The local intent engine (`local_engine.try_local`) handles 95%+ of

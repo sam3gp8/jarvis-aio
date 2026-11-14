@@ -244,6 +244,26 @@ def _vision_model_rejects_images(exc) -> bool:
     return "must be a string" in str(exc)
 
 
+def _no_think_suffix(model: str) -> str:
+    """A vision-prompt suffix that stops a reasoning model from spending its
+    whole token budget on hidden <think> and returning no visible description
+    (#514).
+
+    On the OpenAI-compatible Ollama path (provider 'openai' pointed at Ollama)
+    we cannot send Ollama's native ``think: false`` option, and a reasoning
+    vision model (Qwen3 / Qwen3-VL, DeepSeek-R1, …) otherwise emits a <think>
+    block that exhausts the budget — `_strip_think` then removes the truncated
+    reasoning and the analysis comes back empty ("no usable description"). The
+    plain-English line steers any model; Qwen3 additionally honours the
+    ``/no_think`` control token via its chat template. Models that don't think
+    (gemma3, minicpm, ministral) are unaffected — they already answer directly."""
+    base = ("\n\nAnswer directly with the description only. Do not output any "
+            "reasoning, analysis, or <think> tags.")
+    if "qwen" in (model or "").lower():
+        base += " /no_think"
+    return base
+
+
 def _strip_think(text: str) -> str:
     """Remove model 'thinking' traces (e.g. Gemma/Qwen <think>…</think> or
     <|think|>…) that otherwise leave the real answer empty or unparseable."""
@@ -1558,7 +1578,9 @@ async def async_analyze_camera(
                              "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
                             for b in images_b64
                         ]
-                        + [{"type": "text", "text": prompt}]
+                        + [{"type": "text",
+                             "text": prompt + ("" if vision_thinking
+                                               else _no_think_suffix(vision_model))}]
                     ),
                 },
             ],
