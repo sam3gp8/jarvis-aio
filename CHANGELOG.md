@@ -1,3 +1,28 @@
+## [9.114.0] — Feature: send_notification — JARVIS can message the owner on its own (#513)
+
+Feature (thanks to the proposal in #513). A new `send_notification` agent tool
+lets JARVIS send free text to the owner — "the dryer's been done for an hour", a
+reply when no one's at a satellite — rather than only triggering fixed scripts.
+
+It sends through the notification destination **already configured** in Settings
+→ Notifications (`notify_service`) — the same target intrusion and hazard pushes
+use (a phone via the HA companion app, a Telegram bot, any `notify.*` service).
+So there is **no second setting to configure** and no hardcoded service: the
+existing dropdown of the home's notify services is the picker. If none is set,
+the tool returns a clear error and sends nothing.
+
+Guardrails, so a looping or confused model can't misuse it: the message is capped
+at 3500 characters, and a rolling-window rate limit (max 6 per minute) stops it
+from flooding the owner's phone. The tool is classified in the kernel coverage
+gate as a non-actuator (an outbound message — it commands no device and changes
+no home state), and it's in the slim tool set so it works on the size-limited
+retry path too.
+
+(Implementation note vs. the issue's proposed patch: rather than add a parallel
+`notify_entity` setting, this reuses the `notify_service` destination JARVIS
+already has, which the issue's author didn't know existed — same capability, one
+fewer thing to configure.)
+
 ## [9.113.0] — Fix: small models skipped web_research and faked a knowledge cutoff (#515)
 
 Bug fix. Asked for current information (e.g. "news about the Ukraine", even

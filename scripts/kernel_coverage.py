@@ -459,6 +459,10 @@ _NON_ACTUATOR_TOOLS: frozenset[str] = frozenset({
     "create_automation", "dismiss_suggestion", "manage_autonomy",
     # alert / intrusion acknowledgement (state of an alert, not a device)
     "dismiss_intrusion", "acknowledge_alert",
+    # outbound message to the owner via the configured notify service (#513) —
+    # leaves the house as a notification; it commands no device and changes no
+    # home state, so it is not a kernel actuation path.
+    "send_notification",
 })
 
 
