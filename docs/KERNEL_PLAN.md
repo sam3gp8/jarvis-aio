@@ -566,9 +566,15 @@ in beliefs); this tier makes them canonical and first-class.
   surfaces for a "where did I last see X" answer, against `WHERE_LAST_SEEN_TTL`
   (kill-switch `WHERE_LAST_SEEN_TEMPORAL_SHADOW`). Both observe-only — the fabric
   now covers **semantic** (curated knowledge) and **episodic** (scene memory)
-  time-boundedness. Ladder: pure ✅ → shadow ✅ → parity → enforce (a decision
-  defers on / hedges a stale value), owner-gated. Reused by world-model + belief
-  semantics (and Q).
+  time-boundedness. **Parity ✅** (where-last-seen): `agent._emit_where_last_seen_temporal_parity`
+  logs, per surfaced sighting, whether a temporal-aware answer WOULD hedge it as
+  stale (`band` ∈ aging/expired) against the current flat answer that never
+  hedges — the divergence rate is the quantified bar for enforce — and the exact
+  hedge wording lives in a pure `agent._temporal_hedge_suffix` the enforce rung
+  reuses (kill-switch `WHERE_LAST_SEEN_TEMPORAL_PARITY`, observe-only, JSON
+  unchanged). Ladder: pure ✅ → shadow ✅ → parity ✅ (where-last-seen) → enforce
+  (a decision defers on / hedges a stale value), **owner-gated**. Reused by
+  world-model + belief semantics (and Q).
 
 These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and
