@@ -1117,9 +1117,18 @@ arrives, under the same discipline:
   consumer — each proactive announcement's resolved target speakers become
   `Surface`s and the arbiter's verdict (the one surface that should emit; whether
   the fan-out would double-announce) is logged observe-only, the announcement
-  unchanged. Ladder: pure → shadow ✅ → parity (which satellite speaks) → enforce
-  (cross-surface arbitration authoritative, mutes honored everywhere, handoff
-  preserves interaction identity), owner-gated. Kill: `SURFACES_SHADOW`.
+  unchanged. **Enforce path ✅ (9.124.0, owner-gated DEFAULT-OFF):**
+  `proactive_audio._consolidate_announce_targets` — when `SURFACES_ENFORCE` / the
+  `surfaces_enforce` config key is on, a SAME-ROOM announcement fan-out
+  (`mode == "area"`, >1 speaker) is consolidated to the ONE surface the arbiter
+  picks (announced once, not N times), while a house-wide `broadcast` is never
+  consolidated (house-wide by intent). Fail-safe: the flag off, a non-area mode, a
+  single target, or any error returns the original targets. Ladder: pure → shadow
+  ✅ → enforce ✅ *(path; owner flips `SURFACES_ENFORCE` to activate)*. The parity
+  "which satellite speaks" rung was N/A by design — the announce path has no
+  incumbent single-surface pick to compare against; the shadow fan-out count is
+  the quantified bar. Further enforce (mutes honored everywhere, handoff preserves
+  interaction identity) builds on this. Kill: `SURFACES_SHADOW` / `SURFACES_ENFORCE`.
 - **`privacy` + `social` (W)** — information-flow boundary + per-person preference
   models; await labelled cross-subject data flows to govern.
 - **`coordination` (O+AB peer half)** — a budgeted peer bid/claim/settle protocol;

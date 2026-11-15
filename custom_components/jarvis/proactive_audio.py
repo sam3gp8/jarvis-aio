@@ -589,6 +589,53 @@ def _emit_surfaces_shadow(hass, area_id, targets, mode) -> None:
         pass
 
 
+# Phase AA (surfaces) ENFORCE — owner-gated, DEFAULT OFF. When on, a SAME-ROOM
+# announcement fan-out (``mode == "area"`` with more than one speaker in the room)
+# is consolidated to the ONE surface the cross-surface arbiter picks, so a
+# proactive message in a room with several speakers is announced once, not N times
+# — the shadow rung measured exactly this. A house-wide ``broadcast`` is NEVER
+# consolidated: it is house-wide by intent and must reach every speaker. Kill-switch
+# SURFACES_ENFORCE / the `surfaces_enforce` config key reverts to today's fan-out.
+SURFACES_ENFORCE = False
+
+
+def _surfaces_enforce_on() -> bool:
+    """True when the Phase AA cross-surface consolidation is active (module flag or
+    the `surfaces_enforce` config key). Never raises."""
+    if SURFACES_ENFORCE:
+        return True
+    try:
+        from . import jarvis_config
+        return bool(jarvis_config.get("surfaces_enforce", False))
+    except Exception:
+        return False
+
+
+def _consolidate_announce_targets(hass, area_id, targets, mode):
+    """Phase AA enforce (owner-gated): consolidate a same-room announcement fan-out
+    to the single surface the cross-surface arbiter picks. Only ``mode == "area"``
+    (one room) is consolidated — ``broadcast`` is house-wide by intent and reaches
+    every speaker untouched. Fail-safe: the flag off, a non-area mode, a single
+    target, an empty arbiter verdict, or any error returns ``targets`` unchanged.
+    Returns the (possibly consolidated) target list. Never raises."""
+    try:
+        if (not _surfaces_enforce_on() or mode != "area"
+                or len(targets or []) <= 1):
+            return targets
+        from .kernel import surfaces as SF
+        surfs = [SF.Surface(surface_id=t, kind=SF.VOICE, present=True)
+                 for t in targets if t]
+        winner = SF.arbitrate(surfs)
+        if winner and winner.surface_id in targets:
+            _LOGGER.debug(
+                "surfaces(enforce): consolidated %d same-room speaker(s) in %s "
+                "to %s", len(surfs), area_id, winner.surface_id)
+            return [winner.surface_id]
+    except Exception:   # pragma: no cover - defensive
+        pass
+    return targets
+
+
 @callback
 def _build_telemetry(
     hass: HomeAssistant, area_id: str, targets: list[str], critical: bool
@@ -722,6 +769,9 @@ async def _announce(hass: HomeAssistant, message: str, area_id: str, critical: b
         return
 
     _emit_surfaces_shadow(hass, area_id, targets, mode)   # Phase AA: observe-only
+    # Phase AA enforce (owner-gated, default OFF): consolidate a same-room fan-out
+    # to one arbiter-picked surface; a house-wide broadcast is untouched.
+    targets = _consolidate_announce_targets(hass, area_id, targets, mode)
 
     # A proactive *question* should let the owner answer: open the mic on the
     # satellite nearest the target speaker via start_conversation (#400 #6). A

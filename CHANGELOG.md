@@ -1,3 +1,26 @@
+## [9.124.0] — Ambient presence: announce a room once, not once per speaker (Phase AA enforce path)
+
+MCU-fidelity ladder (Bucket B — ambient presence), the **enforce path** — built,
+**owner-gated, default OFF**. 9.123.0 *measured* (log-only) how often a proactive
+announcement fans out across several speakers in one room; this builds the
+behaviour that consolidates it.
+
+When on, a **same-room** announcement fan-out (several speakers in the *one* room
+JARVIS is addressing) is routed to the **single surface the cross-surface arbiter
+picks** — so a proactive message is announced **once**, not once per speaker. A
+**house-wide broadcast is never consolidated**: it is house-wide by intent and
+still reaches every speaker. This is the intent-aware half that a naive "always
+pick one" would get wrong.
+
+- **Owner-gated, ships OFF.** `SURFACES_ENFORCE` / the `surfaces_enforce` config
+  key activates it; with it off, every announcement fans out exactly as today, so
+  **merging this changes nothing** until you flip it.
+- **Fail-safe.** A non-area mode, a single target, an empty arbiter verdict, or any
+  error returns the original target list untouched — it can only ever *narrow* a
+  same-room fan-out, never drop a broadcast or a sole speaker.
+- Moves the `surfaces` kernel primitive shadow → enforce on the adoption matrix
+  (its consolidation path is now built; the owner decides when it bites).
+
 ## [9.123.0] — Ambient presence: the cross-surface arbiter gets its first live eyes (Phase AA shadow)
 
 MCU-fidelity ladder (Bucket B — ambient presence), the first step off the ground.
