@@ -114,7 +114,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `social` | · pure |
 | `space_time` | ● enforce |
 | `surfaces` | ● enforce |
-| `temporal` | ◐ shadow |
+| `temporal` | ● enforce |
 | `token_telemetry` | ● enforce |
 | `uncertainty` | ● enforce |
 | `working_memory` | ● enforce |
