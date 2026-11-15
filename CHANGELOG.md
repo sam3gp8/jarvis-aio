@@ -1,3 +1,28 @@
+## [9.129.0] — Truth-in-labeling: the adoption matrix now shows `temporal` at enforce (it has been since 9.121.0)
+
+A documentation correction — **no behaviour changes**.
+
+The kernel adoption matrix (`KERNEL_ADOPTION.md`, generated from
+`scripts/kernel_adoption.py`) and the Constitution's stage ledger still listed
+the `temporal` primitive at **shadow**, with a note calling both of its consumers
+"observe-only". That stopped being true two releases after it was written:
+
+- **9.120.0** — a "where did I last see X" answer whose sighting has gone stale
+  carries a staleness caveat instead of being stated flat
+  (`WHERE_LAST_SEEN_TEMPORAL_ENFORCE`, owner-flipped, default ON).
+- **9.121.0** — a stale curated fact is recalled as "(may be out of date)"
+  (`TEMPORAL_ENFORCE`, owner-flipped, default ON).
+
+Both make the kernel's freshness band authoritative on a live path, which is the
+matrix's own definition of *enforce*. `KERNEL_PLAN.md` already said so; the matrix
+row was simply never moved. This release moves it and rewrites the stale note.
+
+**Read the number honestly:** the count of primitives at enforce goes 26 → 27 of
+47 **only because a wrong label was corrected** — nothing new was built or
+switched on here. A sweep of every other below-enforce row against the code found
+no other row out of date (`conflict`, `optimize` and `router` are at parity in
+both the matrix and the code).
+
 ## [9.128.0] — Ambient presence: a room is now announced once, by default (Phase AA enforce — owner-flipped)
 
 MCU-fidelity ladder (Bucket B — ambient presence). 9.123.0 measured how often a

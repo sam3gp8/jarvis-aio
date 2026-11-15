@@ -339,18 +339,23 @@ _DECLARED: dict[str, dict] = {
     # age / remaining / is_valid / fraction-elapsed and a coarse freshness band
     # (fresh / aging / expired / durable); summarize() rolls a set up by band.
     # Makes time-boundedness first-class alongside uncertainty and provenance —
-    # "true 30 min ago / probably still true / expired, re-check". SHADOW spans two
-    # sources now: (1) knowledge.all_facts() packages each curated fact's updated_at
-    # (valid-as-of) + expires_at (→ ttl; absent ⇒ durable) as a temporal.Validity
-    # and logs the freshness-band distribution (kill-switch TEMPORAL_SHADOW); and
-    # (2) agent._exec_where_last_seen logs the freshness band of the scene sighting
-    # it surfaces for a "where did I last see X" answer, against WHERE_LAST_SEEN_TTL
-    # (kill-switch WHERE_LAST_SEEN_TEMPORAL_SHADOW) — the episodic-memory source
-    # where staleness is exactly what a future hedge needs. Both observe-only; the
-    # fabric now covers semantic + episodic time-boundedness. Ladder from here:
-    # shadow → parity → enforce (a decision defers on / hedges a stale value,
-    # owner-gated).
-    "temporal":     {"stage": "shadow",  "owners": ["agent", "knowledge"]},
+    # "true 30 min ago / probably still true / expired, re-check". ENFORCE on two
+    # live paths, both owner-flipped and default ON:
+    #   (1) episodic — agent._apply_where_last_seen_temporal_enforce (9.120.0): a
+    #       "where did I last see X" answer whose sighting is AGING/EXPIRED against
+    #       WHERE_LAST_SEEN_TTL carries a staleness caveat instead of being stated
+    #       flat (kill-switch WHERE_LAST_SEEN_TEMPORAL_ENFORCE);
+    #   (2) semantic — knowledge._temporal_fact_marker (9.121.0): an AGING/EXPIRED
+    #       curated fact is rendered "(may be out of date)" in the recall block
+    #       (kill-switch TEMPORAL_ENFORCE).
+    # Both are downward-only honesty (they only ever caveat a stale value, never
+    # drop or invent one) and fail-safe to the flat answer. The shadow rungs
+    # (8.160.0–8.161.0, TEMPORAL_SHADOW / WHERE_LAST_SEEN_TEMPORAL_SHADOW) and the
+    # parity rungs (9.118.0–9.119.0, *_TEMPORAL_PARITY) still run alongside.
+    # This cell read "shadow" until 9.129.0 — a stale label: the enforce rungs
+    # shipped in 9.120.0/9.121.0 without this row being moved. Corrected here to
+    # match the code; no behaviour changed in the correction.
+    "temporal":     {"stage": "enforce", "owners": ["agent", "knowledge"]},
     # self_model: JARVIS's honest, inspectable picture of itself (roadmap Phase S).
     # A read-only projection — capabilities (each with a status), current
     # commitments (goals / open situations), overall confidence, known limits —
