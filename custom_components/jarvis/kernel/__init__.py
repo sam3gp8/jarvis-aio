@@ -58,6 +58,7 @@ from . import (
     self_model,
     situation,
     space_time,
+    surfaces,
     token_telemetry,
     working_memory,
 )

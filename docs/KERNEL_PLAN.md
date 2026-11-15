@@ -1112,8 +1112,14 @@ because the real-world surface it would make authoritative does not exist on thi
 deployment. They climb the remaining ladder rungs when (and only when) that surface
 arrives, under the same discipline:
 
-- **`surfaces` (AA)** — a cross-surface announcement arbiter; awaits a live
-  multi-surface fan-out (one utterance eligible on voice *and* mobile *and* panel).
+- **`surfaces` (AA)** — a cross-surface announcement arbiter. **Shadow ✅
+  (9.123.0):** `proactive_audio._emit_surfaces_shadow` is its first live
+  consumer — each proactive announcement's resolved target speakers become
+  `Surface`s and the arbiter's verdict (the one surface that should emit; whether
+  the fan-out would double-announce) is logged observe-only, the announcement
+  unchanged. Ladder: pure → shadow ✅ → parity (which satellite speaks) → enforce
+  (cross-surface arbitration authoritative, mutes honored everywhere, handoff
+  preserves interaction identity), owner-gated. Kill: `SURFACES_SHADOW`.
 - **`privacy` + `social` (W)** — information-flow boundary + per-person preference
   models; await labelled cross-subject data flows to govern.
 - **`coordination` (O+AB peer half)** — a budgeted peer bid/claim/settle protocol;

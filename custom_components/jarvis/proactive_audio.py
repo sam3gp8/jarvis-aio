@@ -551,6 +551,44 @@ def _resolve_targets(hass: HomeAssistant, area_id: str) -> tuple[list[str], str]
     return [], "none"
 
 
+# Phase AA (surfaces) SHADOW — the FIRST live consumer of the kernel surface
+# registry (`kernel/surfaces.py`), which until now was a pure primitive with no
+# caller. When a proactive announcement resolves its target speakers, build a
+# Surface per target and log what the cross-surface arbiter WOULD do: the single
+# surface that should emit, and whether the current fan-out would double-announce
+# (>1 speaker). Observe-only — the announcement still reaches every resolved target
+# exactly as today; this just measures how often one-announcement arbitration would
+# consolidate a fan-out, the signal the parity → enforce rungs build on toward "one
+# conversation, announced once, that follows you room to room." Set SURFACES_SHADOW
+# = False to silence.
+SURFACES_SHADOW = True
+
+
+def _emit_surfaces_shadow(hass, area_id, targets, mode) -> None:
+    """Phase AA shadow: log the cross-surface arbiter's verdict over the resolved
+    announcement targets. Each resolved speaker becomes a present, unmuted voice
+    Surface; ``arbitrate()`` picks the one that should emit and
+    ``would_double_announce()`` flags a fan-out. Observe-only — the announcement is
+    unchanged whether this runs or not. Never raises."""
+    if not SURFACES_SHADOW:
+        return
+    try:
+        from .kernel import surfaces as SF
+        surfs = [SF.Surface(surface_id=t, kind=SF.VOICE, present=True)
+                 for t in (targets or []) if t]
+        if not surfs:
+            return
+        winner = SF.arbitrate(surfs)
+        _LOGGER.debug(
+            "surfaces(shadow): announce area=%s mode=%s targets=%d; "
+            "arbiter would emit on %s; double_announce=%s",
+            area_id, mode, len(surfs),
+            winner.surface_id if winner else "<none>",
+            SF.would_double_announce(surfs))
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 @callback
 def _build_telemetry(
     hass: HomeAssistant, area_id: str, targets: list[str], critical: bool
@@ -682,6 +720,8 @@ async def _announce(hass: HomeAssistant, message: str, area_id: str, critical: b
             "no broadcast/default fallback) — nothing to announce on", area_id,
         )
         return
+
+    _emit_surfaces_shadow(hass, area_id, targets, mode)   # Phase AA: observe-only
 
     # A proactive *question* should let the owner answer: open the mic on the
     # satellite nearest the target speaker via start_conversation (#400 #6). A
