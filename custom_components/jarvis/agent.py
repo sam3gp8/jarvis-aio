@@ -3086,6 +3086,43 @@ def _emit_where_last_seen_temporal_parity(hit: dict) -> None:
         pass
 
 
+# ENFORCE (Epistemic Fabric — Temporal validity, owner-flipped 9.120.0): the
+# where-last-seen answer now actually HEDGES a stale sighting instead of stating
+# it flat. The parity rung (9.118.0) measured that this would fire on real
+# traffic; the owner flipped it on. When the surfaced sighting is AGING/EXPIRED,
+# the tool result carries the staleness caveat — the same pure
+# `_temporal_hedge_suffix` the parity rung logged — so JARVIS's narration says
+# "…though that was 3h ago, so it may have changed." A fresh/durable sighting is
+# unchanged. Kill-switch: WHERE_LAST_SEEN_TEMPORAL_ENFORCE off reverts to the flat
+# answer.
+WHERE_LAST_SEEN_TEMPORAL_ENFORCE = True
+
+
+def _apply_where_last_seen_temporal_enforce(result: dict, hit: dict) -> None:
+    """ENFORCE the Temporal fabric on the where-last-seen answer: when the surfaced
+    sighting is stale, annotate the tool result with the staleness caveat so JARVIS
+    hedges it rather than stating it flat. Downward-only honesty — it never removes
+    or weakens the answer, only caveats a stale one — and fail-safe: any fault, a
+    missing timestamp, or a fresh/durable sighting leaves the flat result
+    untouched. Owner-gated; `WHERE_LAST_SEEN_TEMPORAL_ENFORCE` off reverts. Never
+    raises."""
+    if not WHERE_LAST_SEEN_TEMPORAL_ENFORCE:
+        return
+    try:
+        from .kernel import temporal as T
+        ts = hit.get("ts") if isinstance(hit, dict) else None
+        if ts is None:
+            return
+        now = time.time()
+        v = T.assess(float(ts), ttl=WHERE_LAST_SEEN_TTL)
+        suffix = _temporal_hedge_suffix(v.band(now), v.age(now))
+        if suffix:
+            result["is_stale"] = True
+            result["staleness_note"] = suffix.lstrip(" —").strip()
+    except Exception:   # pragma: no cover - defensive
+        pass
+
+
 async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
     """Search scene memory for when/where a thing was last observed (v8.3.0)."""
     term = str(args.get("term", "") or "").strip()
@@ -3098,10 +3135,12 @@ async def _exec_where_last_seen(hass: HomeAssistant, args: dict) -> str:
             return json.dumps({"found": False, "term": term})
         _emit_where_last_seen_temporal_shadow(hit)   # Epistemic Fabric: observe-only
         _emit_where_last_seen_temporal_parity(hit)   # Temporal: parity (observe-only)
-        return json.dumps({
+        result = {
             "found": True, "term": term, "camera": hit.get("camera"),
             "ts": hit.get("ts"), "description": hit.get("description"),
-        })
+        }
+        _apply_where_last_seen_temporal_enforce(result, hit)  # Temporal: ENFORCE
+        return json.dumps(result)
     except Exception as exc:
         return json.dumps({"error": str(exc), "found": False, "term": term})
 
