@@ -3261,21 +3261,35 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     return html;
   }
 
+  // Announcement speakers: a dropdown of ALL media_player entities + removable
+  // chips, saved as the existing `announcement_speakers` JSON list — no fixed
+  // limit, any media_player (Cast, Sonos, …), not just Cast devices (#528). The
+  // same round-trip as arrival-greeting doors (#60).
+  _annSpeakersList() {
+    let ds = (this._data().config && this._data().config.announcement_speakers) || [];
+    if (!Array.isArray(ds)) { try { ds = JSON.parse(ds) || []; } catch (_) { ds = []; } }
+    return ds;
+  }
+  async _annSpeakersSave(ds) {
+    await this._saveConfig('announcement_speakers', JSON.stringify(ds));
+    if (this._liveData && this._liveData.config) this._liveData.config.announcement_speakers = ds;
+    await this._fetchAndRender();
+  }
+  _annSpeakerChips() {
+    const ds = this._annSpeakersList();
+    return ds.length
+      ? ds.map((e, i) => `<span class="pl-chip">${this._esc(this._entName(e))}<button class="ann-speaker-del" data-i="${i}" title="Remove">×</button></span>`).join('')
+      : '<span class="pl-empty">No announcement speakers selected — proactive announcements fall back to the broadcast group, if set.</span>';
+  }
   _renderAnnouncementSpeakers(d) {
-    const castDevs = d.config?.cast_devices || [];
-    const selected = d.config?.announcement_speakers || [];
-    if (!castDevs.length) return '<div class="toggle-desc" style="padding:10px">No Cast devices found</div>';
-    let html = '';
-    for (const cd of castDevs) {
-      const isOn = selected.includes(cd.entity_id);
-      html += '<div class="rule-row">'
-        + '<span class="rule-name">' + cd.name + '</span>'
-        + '<span class="rule-desc">' + cd.entity_id + '</span>'
-        + '<button class="toggle-btn ' + (isOn ? 'on' : 'off') + ' ann-speaker-toggle" data-speaker-id="' + cd.entity_id + '">'
-        + (isOn ? 'ON' : 'OFF') + '</button>'
-        + '</div>';
-    }
-    return html;
+    return ''
+      + '<div class="greet-doors-field" style="flex:1;min-width:0;padding:10px;">'
+      +   '<div class="pl-add">'
+      +     '<select class="op-field pl-input" id="ann-speaker-select">' + this._mediaPlayerOptions('') + '</select>'
+      +     '<button class="ctrl" id="ann-speaker-add">+ Add</button>'
+      +   '</div>'
+      +   '<div class="pl-chips" id="ann-speaker-chips">' + this._annSpeakerChips() + '</div>'
+      + '</div>';
   }
 
   // ─── Floor plan: data-driven with config editor ────────────────────────
@@ -7616,24 +7630,23 @@ ${this._renderExcludedEntities(d)}
       });
     });
 
-    // Announcement speaker toggles
-    this.shadowRoot.querySelectorAll(".ann-speaker-toggle").forEach(btn => {
-      btn.addEventListener("click", async (e) => {
-        const spkId = e.currentTarget.getAttribute("data-speaker-id");
-        if (!spkId || !this._hass) return;
-        const d = this._data();
-        const current = d.config?.announcement_speakers || [];
-        const isOn = current.includes(spkId);
-        const updated = isOn ? current.filter(id => id !== spkId) : [...current, spkId];
-        try {
-          await this._hass.callWS({ type: "jarvis/update_config", key: "announcement_speakers", value: JSON.stringify(updated) });
-          this._toast(`\u2713 ${spkId.split(".").pop()} \u2192 ${isOn ? 'OFF' : 'ON'}`, "ok");
-          await this._fetchAndRender();
-        } catch (err) {
-          this._toast(`\u2717 speaker toggle \u2014 ${err?.message || err}`, "err");
-        }
-      });
+    // Announcement speakers: add any media_player (dropdown) / remove a chip,
+    // saved as the `announcement_speakers` JSON list \u2014 no fixed limit (#528).
+    const _annAdd = this.shadowRoot.getElementById("ann-speaker-add");
+    if (_annAdd) _annAdd.addEventListener("click", () => {
+      const sel = this.shadowRoot.getElementById("ann-speaker-select");
+      const eid = sel && sel.value.trim();
+      if (!eid) return;
+      const arr = this._annSpeakersList();
+      if (arr.includes(eid)) { this._toast(`${eid} is already added`, "ok"); return; }
+      arr.push(eid);
+      this._annSpeakersSave(arr);
     });
+    this.shadowRoot.querySelectorAll(".ann-speaker-del").forEach(b => b.addEventListener("click", () => {
+      const arr = this._annSpeakersList();
+      arr.splice(parseInt(b.getAttribute("data-i")), 1);
+      this._annSpeakersSave(arr);
+    }));
 
     // Arrival-greeting doors: a dropdown of door / entry / lock / cover entities
     // + removable chips, saved as a JSON list (#60). The toggle / hours / cooldown
