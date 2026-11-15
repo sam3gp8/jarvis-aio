@@ -1,11 +1,12 @@
 """Phase AA (ambient presence) — cross-surface consolidation ENFORCE.
 
-`proactive_audio._consolidate_announce_targets`: when `SURFACES_ENFORCE` (or the
-`surfaces_enforce` config key) is on, a SAME-ROOM announcement fan-out
+`proactive_audio._consolidate_announce_targets`: a SAME-ROOM announcement fan-out
 (`mode == "area"`, more than one speaker) is consolidated to the ONE surface the
 cross-surface arbiter picks — announced once, not N times. A house-wide
-`broadcast` is never consolidated (house-wide by intent). Default OFF is
-behaviour-preserving; fail-safe to the original targets on any issue.
+`broadcast` is never consolidated (house-wide by intent). DEFAULT ON
+(owner-flipped, 9.128.0); kill-switched by the module flag `SURFACES_ENFORCE`
+(the Governance tab) or `surfaces_enforce: false` in config, either of which
+restores the full fan-out. Fail-safe to the original targets on any issue.
 """
 import sys
 import types
@@ -50,45 +51,58 @@ def pa(load, monkeypatch):
 _AREA2 = ["media_player.kitchen", "media_player.den"]   # arbiter picks "…den"
 
 
-def test_off_by_default(pa):
+def test_on_by_default(pa):
+    # Owner-flipped 9.128.0: ships ON with nothing configured.
+    assert pa.SURFACES_ENFORCE is True
+    assert pa._surfaces_enforce_on() is True
+
+
+def test_kill_switch_flag_reverts(pa, monkeypatch):
+    # The Governance tab sets the module flag; off is decisive.
+    monkeypatch.setattr(pa, "SURFACES_ENFORCE", False)
+    assert pa._surfaces_enforce_on() is False
+    # …even if the config key says true — the flag is the master kill-switch.
+    pa._TEST_CFG["surfaces_enforce"] = True
     assert pa._surfaces_enforce_on() is False
 
 
-def test_on_via_flag(pa, monkeypatch):
+@pytest.mark.parametrize("off", [False, "false", "off", "0", "no", " False "])
+def test_kill_switch_config_reverts(pa, off):
+    pa._TEST_CFG["surfaces_enforce"] = off
+    assert pa._surfaces_enforce_on() is False
+
+
+@pytest.mark.parametrize("on", [True, "true", 1, None])
+def test_config_non_false_keeps_default_on(pa, on):
+    pa._TEST_CFG["surfaces_enforce"] = on
+    assert pa._surfaces_enforce_on() is True
+
+
+def test_killed_leaves_fanout_unchanged(pa, monkeypatch):
+    # Kill-switch off: a same-room fan-out is untouched (the pre-flip behaviour).
+    monkeypatch.setattr(pa, "SURFACES_ENFORCE", False)
+    assert pa._consolidate_announce_targets(FakeHass(), "kitchen", _AREA2, "area") == _AREA2
     monkeypatch.setattr(pa, "SURFACES_ENFORCE", True)
-    assert pa._surfaces_enforce_on() is True
-
-
-def test_on_via_config(pa):
-    pa._TEST_CFG["surfaces_enforce"] = True
-    assert pa._surfaces_enforce_on() is True
-
-
-def test_off_leaves_fanout_unchanged(pa):
-    # Default OFF: a same-room fan-out is untouched (today's behaviour).
+    pa._TEST_CFG["surfaces_enforce"] = False
     assert pa._consolidate_announce_targets(FakeHass(), "kitchen", _AREA2, "area") == _AREA2
 
 
-def test_area_fanout_consolidated_when_on(pa):
-    pa._TEST_CFG["surfaces_enforce"] = True
+def test_area_fanout_consolidated_by_default(pa):
     out = pa._consolidate_announce_targets(FakeHass(), "kitchen", _AREA2, "area")
     # Consolidated to the ONE arbiter pick (all VOICE, none focused → min surface_id).
     assert out == ["media_player.den"]
 
 
 def test_broadcast_never_consolidated(pa):
-    pa._TEST_CFG["surfaces_enforce"] = True
     out = pa._consolidate_announce_targets(FakeHass(), "kitchen", _AREA2, "broadcast")
     assert out == _AREA2   # house-wide by intent — every speaker kept
 
 
 def test_single_target_unchanged(pa):
-    pa._TEST_CFG["surfaces_enforce"] = True
     out = pa._consolidate_announce_targets(FakeHass(), "den", ["media_player.den"], "area")
     assert out == ["media_player.den"]
 
 
 def test_failsafe_on_blank_targets(pa):
-    pa._TEST_CFG["surfaces_enforce"] = True
     # Blanks can't arbitrate to a target in the list → fail-safe to the original.
     assert pa._consolidate_announce_targets(FakeHass(), "x", [None, ""], "area") == [None, ""]

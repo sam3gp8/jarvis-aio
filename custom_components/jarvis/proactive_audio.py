@@ -589,35 +589,45 @@ def _emit_surfaces_shadow(hass, area_id, targets, mode) -> None:
         pass
 
 
-# Phase AA (surfaces) ENFORCE — owner-gated, DEFAULT OFF. When on, a SAME-ROOM
+# Phase AA (surfaces) ENFORCE — DEFAULT ON (owner-flipped, 9.128.0). A SAME-ROOM
 # announcement fan-out (``mode == "area"`` with more than one speaker in the room)
 # is consolidated to the ONE surface the cross-surface arbiter picks, so a
 # proactive message in a room with several speakers is announced once, not N times
 # — the shadow rung measured exactly this. A house-wide ``broadcast`` is NEVER
-# consolidated: it is house-wide by intent and must reach every speaker. Kill-switch
-# SURFACES_ENFORCE / the `surfaces_enforce` config key reverts to today's fan-out.
-SURFACES_ENFORCE = False
+# consolidated: it is house-wide by intent and must reach every speaker (that is
+# also where the owner's explicit `announcement_speakers` list applies, so the
+# list is never narrowed). Kill-switch, either of: the Governance tab's "Same-room
+# announcement consolidation" switch (sets SURFACES_ENFORCE off and persists it),
+# or `surfaces_enforce: false` in config — both revert to the full fan-out.
+SURFACES_ENFORCE = True
+
+_FALSEY = ("false", "0", "off", "no")
 
 
 def _surfaces_enforce_on() -> bool:
-    """True when the Phase AA cross-surface consolidation is active (module flag or
-    the `surfaces_enforce` config key). Never raises."""
-    if SURFACES_ENFORCE:
-        return True
+    """True when the Phase AA cross-surface consolidation is active. DEFAULT ON,
+    kill-switched by the module flag (`SURFACES_ENFORCE`, the Governance tab) or
+    the `surfaces_enforce` config key set false. Never raises."""
+    if not SURFACES_ENFORCE:
+        return False
     try:
         from . import jarvis_config
-        return bool(jarvis_config.get("surfaces_enforce", False))
-    except Exception:
-        return False
+        v = jarvis_config.get("surfaces_enforce", None)
+        if v is False or (isinstance(v, str) and v.strip().lower() in _FALSEY):
+            return False
+    except Exception:   # pragma: no cover - defensive
+        pass
+    return True
 
 
 def _consolidate_announce_targets(hass, area_id, targets, mode):
-    """Phase AA enforce (owner-gated): consolidate a same-room announcement fan-out
-    to the single surface the cross-surface arbiter picks. Only ``mode == "area"``
-    (one room) is consolidated — ``broadcast`` is house-wide by intent and reaches
-    every speaker untouched. Fail-safe: the flag off, a non-area mode, a single
-    target, an empty arbiter verdict, or any error returns ``targets`` unchanged.
-    Returns the (possibly consolidated) target list. Never raises."""
+    """Phase AA enforce (default ON, kill-switchable): consolidate a same-room
+    announcement fan-out to the single surface the cross-surface arbiter picks.
+    Only ``mode == "area"`` (one room) is consolidated — ``broadcast`` is house-wide
+    by intent and reaches every speaker untouched. Fail-safe: the kill-switch off,
+    a non-area mode, a single target, an empty arbiter verdict, or any error
+    returns ``targets`` unchanged. Returns the (possibly consolidated) target
+    list. Never raises."""
     try:
         if (not _surfaces_enforce_on() or mode != "area"
                 or len(targets or []) <= 1):
@@ -769,8 +779,8 @@ async def _announce(hass: HomeAssistant, message: str, area_id: str, critical: b
         return
 
     _emit_surfaces_shadow(hass, area_id, targets, mode)   # Phase AA: observe-only
-    # Phase AA enforce (owner-gated, default OFF): consolidate a same-room fan-out
-    # to one arbiter-picked surface; a house-wide broadcast is untouched.
+    # Phase AA enforce (default ON, kill-switchable): consolidate a same-room
+    # fan-out to one arbiter-picked surface; a house-wide broadcast is untouched.
     targets = _consolidate_announce_targets(hass, area_id, targets, mode)
 
     # A proactive *question* should let the owner answer: open the mic on the
