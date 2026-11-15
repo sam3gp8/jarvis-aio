@@ -1,3 +1,28 @@
+## [9.122.0] — Proactive fluency: JARVIS's suggestions are now causally grounded (Phase L enforce)
+
+MCU-fidelity ladder (Bucket B — proactive fluency), the **enforce** step —
+**owner-authorized**. For a while JARVIS has been *measuring* (log-only) whether a
+learned "X then Y" routine is a genuine cause or just a coincidence; this makes it
+**bite**.
+
+A learned **sequence** pattern is now stored as a **proactive suggestion only when
+the kernel causal model confirms X genuinely causes Y** — a real cause/effect
+contingency (ΔP), not mere co-occurrence. So JARVIS stops nudging you about things
+that merely happened to co-occur and keeps the ones it can actually predict — the
+difference between a helpful anticipation and noise.
+
+- **The verdict is already computed.** The parity rung tags each sequence pattern
+  with its causal verdict during the normal analysis pass; this flip just lets the
+  storing loop act on it.
+- **Fail-safe.** An untagged or errored verdict counts as **confirmed**, so a
+  failure can only ever fall back to suggesting as before — it never silently
+  drops a suggestion the model didn't actually evaluate.
+- **Non-safety and kill-switchable.** It gates *only* the learned-suggestion
+  surface, never any safety actuation. `CAUSAL_PREDICT_ENFORCE = False` or the
+  `causal_predict_enforce` config key reverts to the pre-9.122.0 ungated behaviour.
+- Only `time_routine` and other non-sequence patterns are unaffected — the gate is
+  sequence-only.
+
 ## [9.121.0] — Deeper world-model: JARVIS caveats a stale fact it recalls (Temporal enforce, semantic side)
 
 MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning). Completes the

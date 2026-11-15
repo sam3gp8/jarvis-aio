@@ -199,19 +199,20 @@ CAUSAL_PREDICT_PARITY = True
 _CAUSAL_PARITY_WINDOW_S = 600.0   # match _find_sequence_patterns' pairing window
 _CAUSAL_PARITY_CAP = 10           # top sequence patterns to reconstruct per pass
 
-# ENFORCE (Phase L) — owner-gated, DEFAULT OFF. When on, a detected SEQUENCE
-# pattern is only stored as a proactive suggestion if the kernel causal model
-# confirms it is a genuine cause (real cause/effect contingency ΔP → direction
-# "causes"), not mere co-occurrence — so proactivity is gated on prediction
-# confidence, not just how often two things were seen together. The causal verdict
-# is tagged onto each sequence pattern during the parity pass (where the DB conn is
-# open) as details["causal_confirms"]; the storing loop reads that tag. Kill-switch
-# CAUSAL_PREDICT_ENFORCE / the `causal_predict_enforce` config key. **Fail-safe =
-# current behaviour**: an untagged pattern (no verdict computed / any error) is
-# treated as confirmed, so a failure can only fall back to storing the suggestion
-# as today — never silently drop a suggestion. Non-safety: gates only the
-# learned-suggestion surface, never a safety actuation.
-CAUSAL_PREDICT_ENFORCE = False
+# ENFORCE (Phase L) — **owner-flipped ON (9.122.0)**, kill-switchable. A detected
+# SEQUENCE pattern is only stored as a proactive suggestion if the kernel causal
+# model confirms it is a genuine cause (real cause/effect contingency ΔP →
+# direction "causes"), not mere co-occurrence — so proactivity is gated on
+# prediction confidence, not just how often two things were seen together. The
+# causal verdict is tagged onto each sequence pattern during the parity pass (where
+# the DB conn is open) as details["causal_confirms"]; the storing loop reads that
+# tag. Kill-switch `CAUSAL_PREDICT_ENFORCE = False` / the `causal_predict_enforce`
+# config key reverts to the pre-9.122.0 ungated behaviour. **Fail-safe**: an
+# untagged pattern (no verdict computed / any error) is treated as confirmed, so a
+# failure can only fall back to storing the suggestion as before — never silently
+# drop a suggestion. Non-safety: gates only the learned-suggestion surface, never a
+# safety actuation.
+CAUSAL_PREDICT_ENFORCE = True
 
 
 def _causal_predict_enforce_on() -> bool:
@@ -1440,8 +1441,9 @@ class PatternAnalyzer:
         causal_gated = 0
         for p in patterns:
             if p.confidence >= _eff_threshold:
-                # Phase L enforce (default OFF): a sequence suggestion surfaces only
-                # when the kernel causal model confirms a genuine cause. Fail-safe —
+                # Phase L enforce (default ON, 9.122.0): a sequence suggestion
+                # surfaces only when the kernel causal model confirms a genuine
+                # cause. Fail-safe —
                 # an untagged pattern (verdict missing/errored) counts as confirmed,
                 # so this can only ever drop a suggestion the causal contrast
                 # explicitly refuted, never one it didn't evaluate.

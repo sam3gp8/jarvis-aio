@@ -32,7 +32,14 @@ def _pat(pa, ptype="sequence", confirms=None):
         confidence=0.9, occurrences=10, details=details)
 
 
-def test_enforce_off_by_default(pa, cfg):
+def test_enforce_on_by_default(pa, cfg):
+    # Owner-flipped ON (9.122.0): enforce is active with no config override.
+    assert pa._causal_predict_enforce_on() is True
+
+
+def test_kill_switch_reverts_enforce(pa, cfg, monkeypatch):
+    # The module kill-switch reverts to the pre-9.122.0 ungated behaviour.
+    monkeypatch.setattr(pa, "CAUSAL_PREDICT_ENFORCE", False)
     assert pa._causal_predict_enforce_on() is False
 
 
@@ -47,8 +54,10 @@ def test_enforce_on_via_flag(pa, monkeypatch):
 
 
 # ── the gate decision ───────────────────────────────────────────────────────────
-def test_no_gating_when_off(pa, cfg):
-    # Even an explicitly-refuted sequence is NOT gated while enforce is off.
+def test_no_gating_when_off(pa, cfg, monkeypatch):
+    # With enforce explicitly OFF (kill-switch), even a refuted sequence is NOT
+    # gated — the pre-9.122.0 ungated behaviour.
+    monkeypatch.setattr(pa, "CAUSAL_PREDICT_ENFORCE", False)
     assert pa._causal_gates_out(_pat(pa, confirms=False)) is False
 
 
