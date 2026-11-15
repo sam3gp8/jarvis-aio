@@ -892,6 +892,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("JARVIS: document auto-ingest active (scan every %s min)",
                      int(DOCS_SCAN_INTERVAL.total_seconds() // 60))
 
+    # Vision open/closed watch for sensor-less openings (#530): a placed
+    # door/window with no contact sensor but a camera sightline has its open/closed
+    # state read from that camera on a throttle (one opening per tick, each
+    # re-checked no more often than opening_watch_interval_min). Owner-gated — the
+    # tick returns immediately unless `opening_watch_enabled` is set, so it costs
+    # nothing until the owner turns it on.
+    OPENING_WATCH_INTERVAL = timedelta(minutes=15)
+
+    async def _opening_watch_tick(_now) -> None:
+        try:
+            from . import opening_watch
+            await opening_watch.check_openings(hass)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS opening-watch tick error: %s", exc)
+
+    if sched.add("opening_watch", OPENING_WATCH_INTERVAL, _opening_watch_tick):
+        _LOGGER.info("JARVIS: sensor-less opening watch registered "
+                     "(owner-gated, off by default)")
+
     # Daily knowledge-store maintenance: hard-purge facts past their TTL and
     # deletion tombstones past their retention window (bounds knowledge.db growth
     # without needing the user to run the database_purge service by hand).

@@ -1,3 +1,32 @@
+## [9.126.0] — Doors & windows without a sensor: read open/closed from the camera that sees them (#530, core)
+
+A placed door or window with **no contact sensor** mapped to it is a blind spot —
+JARVIS has no idea whether it is open or closed. But many of those openings sit
+in a **camera's sightline**, and a camera already *sees* the answer. This adds the
+core watch that reads it.
+
+When enabled, a throttled background sweep:
+
+- Finds the **sensor-less** door/window floor-plan elements (no `entity` mapped).
+- Keeps only the ones whose room resolves to a **covering camera**
+  (`camera_coverage.camera_for_area`).
+- Reads the least-recently-checked one with a **single vision classify** —
+  "is this {door/window} OPEN or CLOSED?" — and remembers the verdict per opening.
+- **Logs an open↔closed change** to the activity log as it happens.
+
+Owner-safe by construction:
+
+- **Ships OFF.** Nothing runs until you set the `opening_watch_enabled` config key;
+  with it off the tick returns immediately, so **merging this changes nothing**.
+- **Bounded cost.** At most one vision call per tick, and each opening is
+  re-checked no more often than `opening_watch_interval_min` (default 30 min) —
+  credits aren't free.
+- **Fail-safe.** A missing camera, an unreadable frame, or an unparseable verdict
+  leaves the opening's prior state untouched and never raises.
+
+A Home-view readout of each watched opening's last state follows as a second,
+separate increment.
+
 ## [9.125.0] — Announcement speakers: pick a repeatable list, not one on/off per cast device (#528)
 
 The **Proactive → Announcement speakers** field used to render every cast device
