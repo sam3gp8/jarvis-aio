@@ -1,3 +1,26 @@
+## [9.121.0] — Deeper world-model: JARVIS caveats a stale fact it recalls (Temporal enforce, semantic side)
+
+MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning). Completes the
+Temporal **enforce** step — **owner-authorized** — by landing the *semantic* half
+alongside the *episodic* one shipped in 9.120.0.
+
+9.120.0 made JARVIS hedge a stale "where did I last see X?" sighting. This does
+the same for a stale **curated fact**: at the point JARVIS recalls what it knows,
+an AGING or EXPIRED fact is now marked **"(may be out of date)"** in the "What you
+know" block, so JARVIS caveats a dated fact instead of stating it as current
+("the garage code is 1234 — though that may be out of date"). A fresh or durable
+fact is rendered exactly as before.
+
+- **At the one render seam.** The marker is added in `knowledge._format_block`,
+  the single place recalled facts become text for JARVIS, so both the keyword and
+  semantic recall paths get it. The staleness test is the same `kernel.temporal`
+  band the parity rung (9.119.0) measured.
+- **Downward-only, fail-safe, kill-switchable.** It only *adds* a caveat to a
+  stale fact — never drops or blanks a fact — and any fault leaves the block
+  exactly as it was. `TEMPORAL_ENFORCE` reverts to the undated block.
+- No kernel-coverage/actuator change — an Epistemic-Fabric rung. With this, the
+  Temporal fabric is at **enforce on both its episodic and semantic consumers**.
+
 ## [9.120.0] — Deeper world-model: JARVIS now flags a stale "last seen" out loud (Temporal → enforce)
 
 MCU-fidelity ladder (Bucket B — deeper world/space-time reasoning), the **enforce**

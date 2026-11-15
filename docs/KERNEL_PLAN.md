@@ -585,10 +585,14 @@ in beliefs); this tier makes them canonical and first-class.
   measured), so JARVIS says "…though that was 3h ago, so it may have changed"
   instead of stating it flat. Downward-only honesty (never removes an answer,
   only caveats a stale one), fail-safe, kill-switch `WHERE_LAST_SEEN_TEMPORAL_ENFORCE`.
-  The curated-knowledge enforce (caveating an aging *fact* at the recall-render
-  seam) is the queued follow-up. Ladder: pure ✅ → shadow ✅ → parity ✅ →
-  enforce ✅ (where-last-seen; curated knowledge pending), **owner-gated**. Reused
-  by world-model + belief semantics (and Q).
+  The **curated-knowledge enforce** then lands at the recall-render seam
+  (9.121.0): `knowledge._temporal_fact_marker` marks an AGING/EXPIRED fact
+  "(may be out of date)" in the "What you know" block `_format_block` builds, so
+  JARVIS caveats a stale *fact* when it recalls it instead of stating it as
+  current — a fresh/durable fact is rendered flat as before (kill-switch
+  `TEMPORAL_ENFORCE`, downward-only, fail-safe). Ladder: pure ✅ → shadow ✅ →
+  parity ✅ → enforce ✅ (episodic *and* semantic), **owner-gated**. Reused by
+  world-model + belief semantics (and Q).
 
 These are the **Governance / Epistemic Fabric** that wraps the whole cognitive
 loop — alongside authority, privacy, safety, budgets, rate limits, audit and

@@ -227,6 +227,15 @@ def _emit_temporal_shadow(facts: list, now: float) -> None:
 # the same rows. Flip off to silence.
 TEMPORAL_PARITY = True
 
+# ENFORCE (Epistemic Fabric — Temporal validity, owner-flipped 9.121.0): the "What
+# you know" recall block now marks an AGING/EXPIRED curated fact as possibly dated,
+# so JARVIS caveats a stale fact when it recalls it instead of stating it as
+# current — the divergence the parity rung measured, now acted on. A fresh/durable
+# fact is rendered exactly as before. Mirrors the where-last-seen enforce (9.120.0)
+# for the semantic side. Kill-switch: TEMPORAL_ENFORCE off reverts to the undated
+# block.
+TEMPORAL_ENFORCE = True
+
 
 def _emit_temporal_parity(facts: list, now: float) -> None:
     """Parity rung for the Temporal fabric on curated knowledge (Epistemic Fabric).
@@ -848,11 +857,31 @@ def prompt_block(query: str = "", *, subject: Optional[str] = None,
     return _format_block(facts)
 
 
+def _temporal_fact_marker(f: dict, now: float) -> str:
+    """Staleness marker appended to a recalled fact when it is AGING/EXPIRED, so the
+    model caveats a dated fact instead of stating it as current (Temporal ENFORCE,
+    owner-flipped). Empty for a fresh/durable fact, when ``TEMPORAL_ENFORCE`` is
+    off, or on any fault — the block is never blanked or corrupted. Never raises."""
+    if not TEMPORAL_ENFORCE:
+        return ""
+    try:
+        from .kernel import temporal as T
+        observed = float(f.get("updated_at", 0.0) or 0.0)
+        exp = f.get("expires_at")
+        ttl = None if exp is None else max(0.0, float(exp) - observed)
+        if T.assess(observed, ttl=ttl).band(now) in ("aging", "expired"):
+            return " (may be out of date)"
+    except Exception:   # pragma: no cover - defensive
+        return ""
+    return ""
+
+
 def _format_block(facts: list[dict]) -> str:
     """Render a facts list as the "What you know" prompt block. Shared by the
     sync (keyword) and async (semantic) prompt builders."""
     if not facts:
         return ""
+    now = time.time()
     by_subject: dict = {}
     for f in facts:
         by_subject.setdefault(f["subject"], []).append(f)
@@ -861,7 +890,8 @@ def _format_block(facts: list[dict]) -> str:
         lines.append(_SUBJECT_LABEL.get(subj, subj))
         for f in items:
             hedge = "" if f["source"] == "stated" and f["confidence"] >= 0.9 else " (~)"
-            lines.append(f"- {f['key']}: {f['value']}{hedge}")
+            stale = _temporal_fact_marker(f, now)   # Temporal ENFORCE (owner-flipped)
+            lines.append(f"- {f['key']}: {f['value']}{hedge}{stale}")
     return "\n".join(lines)
 
 
