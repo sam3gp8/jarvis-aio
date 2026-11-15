@@ -1,3 +1,22 @@
+## [9.125.0] — Announcement speakers: pick a repeatable list, not one on/off per cast device (#528)
+
+The **Proactive → Announcement speakers** field used to render every cast device
+in the house as its own on/off toggle, so choosing where proactive announcements
+play meant hunting through a wall of switches and there was no way to see, at a
+glance, the handful you had actually picked.
+
+This replaces it with the same **pick-and-chip** control the arrival-greeting
+doors field already uses:
+
+- A **media-player dropdown + Add button** builds an explicit, ordered list — the
+  speakers you choose show as removable chips, and nothing you did not pick is in
+  the list.
+- The selection is saved as the `announcement_speakers` list the backend already
+  reads (`_as_list()` in `__init__.py`), so this is a **frontend-only** change:
+  no behaviour moves, the same entities drive the same announcements.
+- An **empty list reads as a clear sentence** ("proactive announcements fall back
+  to the broadcast group, if set.") instead of a silent wall of off switches.
+
 ## [9.124.0] — Ambient presence: announce a room once, not once per speaker (Phase AA enforce path)
 
 MCU-fidelity ladder (Bucket B — ambient presence), the **enforce path** — built,
