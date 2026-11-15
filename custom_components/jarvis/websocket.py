@@ -1536,6 +1536,8 @@ PANEL_WRITABLE_KEYS = {
     "floor_plan_sqft",           # str/int: estimated square footage
     "floor_plan_units",          # "imperial" | "metric" for room dimensions
     "floor_plan_elements",       # JSON: placed windows/doors per floor (+ sensor map)
+    "opening_watch_enabled",     # bool: vision-check sensor-less openings in camera sightlines (#530, owner-gated, off by default)
+    "opening_watch_interval_min",# int: minutes between re-checks of each sensor-less opening (#530)
     "floor_plan_cameras",        # JSON: placed cameras per floor (pos/angle/fov/range) (v7.17.0)
     "floor_plan_property",       # JSON: property boundary polygon {points:[[x,y],...]} (v7.22.0)
     "home_context_max_entities", # int: entity names per domain in the system prompt (0=counts only) (v7.23.1)
