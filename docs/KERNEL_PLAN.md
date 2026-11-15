@@ -705,9 +705,14 @@ Ladder: pure → shadow
 enforce (proactive gated on prediction confidence). Kill:
 `CAUSAL_PREDICT_ENFORCE`; fail-safe = reactive only. Done: a measured accuracy
 number gates ≥1 proactive path.
-**Status:** pure + shadow + parity shipped (`causal.predict`/`explain`;
-`pattern_analyzer` emits `causal(shadow)`/`causal(parity)`). Enforce
-owner-gated (held).
+**Status:** pure + shadow + parity + **enforce** shipped (`causal.predict`/`explain`;
+`pattern_analyzer` emits `causal(shadow)`/`causal(parity)`, and — **owner-flipped
+ON in 9.122.0** — gates a learned SEQUENCE suggestion on the kernel causal ΔP
+verdict: a pattern surfaces as a proactive suggestion only when the model confirms
+a genuine cause, not mere co-occurrence). Fail-safe (an untagged/errored verdict
+counts as confirmed → suggest as before), non-safety (gates only the
+learned-suggestion surface), kill-switch `CAUSAL_PREDICT_ENFORCE` /
+`causal_predict_enforce`.
 
 **Phase M — Learning & Adaptation (closed loop).** Journaled outcomes feed back
 into beliefs/weights. New: `kernel/learning.py` (bounded, reversible updates).
