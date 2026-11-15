@@ -43,8 +43,9 @@ def test_known_defaults(enf):
     assert by_key["continuity_resume"].default is False
     assert by_key["continuity_resume"].category == enf.mod.CATEGORY_CAPABILITY
     # Capabilities owner-enabled so far (knowledge_graph 8.158.0, agency_orchestration
-    # 8.159.0) now ship ON — still capabilities (reversible), fail-safe to incumbent.
-    for k in ("knowledge_graph", "agency_orchestration"):
+    # 8.159.0, surfaces_consolidation 9.128.0) now ship ON — still capabilities
+    # (reversible), fail-safe to incumbent.
+    for k in ("knowledge_graph", "agency_orchestration", "surfaces_consolidation"):
         assert by_key[k].default is True
         assert by_key[k].category == enf.mod.CATEGORY_CAPABILITY
     # Live safety rungs ship ON.

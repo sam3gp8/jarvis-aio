@@ -103,6 +103,21 @@ _REGISTRY: List[Switch] = [
             "to flat recall, so this only ADDS context. Turn OFF to revert to "
             "plain flat recall."),
     ),
+    Switch(
+        key="surfaces_consolidation", module="proactive_audio",
+        attr="SURFACES_ENFORCE", default=True,
+        category=CATEGORY_CAPABILITY, phase="AA",
+        name="Same-room announcement consolidation",
+        explanation=(
+            "When a proactive announcement is for ONE room that has several "
+            "speakers, say it once — on the single speaker the cross-surface "
+            "arbiter picks — instead of once per speaker. A house-wide broadcast "
+            "is never consolidated: it still reaches every speaker, including "
+            "your chosen announcement speakers. ON (enabled 9.128.0). Fail-safe: "
+            "a single speaker, a broadcast, or any error leaves the speaker list "
+            "untouched. Turn OFF to go back to announcing on every speaker in "
+            "the room."),
+    ),
     # ── Live safety / governance rungs (ship ON; these are KILL-SWITCHES — turn
     #    one OFF only to revert that rung to observe-only in an emergency) ───────
     Switch(

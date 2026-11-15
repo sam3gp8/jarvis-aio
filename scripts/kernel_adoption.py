@@ -590,14 +590,15 @@ _DECLARED: dict[str, dict] = {
     # shadow → parity (vs the breaker's own online/offline call) → enforce
     # (RESILIENCE_ENFORCE, fail-safe = current breaker), owner-gated.
     "resilience":   {"stage": "shadow",  "owners": ["connectivity"]},
-    # surfaces: PURE (Phase AA, Omnipresent Multimodal — presence continuity). A
-    # surface registry + a single cross-surface arbiter: one utterance is emitted
-    # on exactly ONE surface (no double-announce), mutes honored everywhere, and an
-    # Interaction survives a handoff between surfaces (voice → mobile → HUD) keeping
-    # its id — presence continuity, not a UI layer. No HA import, no I/O, no clock;
-    # nothing live consumes it yet (the registry + announcement path wire on at the
-    # shadow rung). Ladder: pure → shadow → parity (which satellite speaks) →
-    # enforce (SURFACES_ENFORCE, fail-safe = per-surface current logic), owner-gated.
+    # surfaces: ENFORCE (Phase AA, Omnipresent Multimodal — presence continuity). A
+    # surface registry + a single cross-surface arbiter. Live consumer:
+    # proactive_audio — shadow 9.123.0 (fan-out measured, observe-only), enforce
+    # path 9.124.0, DEFAULT ON 9.128.0 (owner-flipped): a SAME-ROOM announcement
+    # fan-out is emitted on exactly ONE arbiter-picked speaker; a house-wide
+    # broadcast is never consolidated. Kill: SURFACES_ENFORCE (Governance tab) /
+    # `surfaces_enforce: false`; fail-safe = the full fan-out. NOT yet live, and not
+    # claimed here: mutes honored everywhere, and an Interaction surviving a handoff
+    # between surfaces (voice → mobile → HUD) — those rungs still build on this.
     "surfaces":     {"stage": "enforce", "owners": ["proactive_audio"]},
     # inquiry: PURE (Phase AD, Research & Discovery — investigative agency).
     # Bounded, cited inquiry with evidence provenance: a Finding is a TYPED claim

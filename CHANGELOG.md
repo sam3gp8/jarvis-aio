@@ -1,3 +1,34 @@
+## [9.128.0] — Ambient presence: a room is now announced once, by default (Phase AA enforce — owner-flipped)
+
+MCU-fidelity ladder (Bucket B — ambient presence). 9.123.0 measured how often a
+proactive announcement fans out across several speakers in one room; 9.124.0
+built the consolidation, owner-gated and OFF. **The owner has now flipped it on.**
+
+**What changes for you:** when JARVIS speaks to **one room** that has more than
+one speaker, you hear it **once** — on the single speaker the cross-surface
+arbiter picks (stable: the same speaker each time, not a random hop) — instead of
+the same sentence from every speaker in the room.
+
+**What does not change:**
+
+- A **house-wide broadcast is never consolidated.** It still reaches every
+  speaker — and that is where your chosen *Announcement speakers* list (9.125.0)
+  applies, so that list is never narrowed.
+- A room with **one** speaker behaves exactly as before.
+- Any error, or an arbiter verdict that isn't one of the room's speakers, falls
+  back to the full fan-out — it can only ever *narrow* a same-room fan-out.
+
+**Turning it off (two kill-switches, either works):**
+
+- **Settings → Governance → "Same-room announcement consolidation"** — newly
+  registered there; the toggle takes effect immediately and survives a restart.
+- `surfaces_enforce: false` in the JARVIS config.
+
+No adoption-matrix cell moves: `surfaces` was already at *enforce* (the path
+shipped in 9.124.0); this makes it live by default. Still **not** live, and not
+claimed: mutes honoured on every surface, and one conversation surviving a
+hand-off between surfaces — those rungs build on this.
+
 ## [9.127.0] — Openings readout on the Residence tab: see each sensor-less door/window's last state (#530, readout)
 
 9.126.0 added the watch that reads a sensor-less door/window's open/closed state

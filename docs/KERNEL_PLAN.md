@@ -1123,12 +1123,16 @@ arrives, under the same discipline:
   (`mode == "area"`, >1 speaker) is consolidated to the ONE surface the arbiter
   picks (announced once, not N times), while a house-wide `broadcast` is never
   consolidated (house-wide by intent). Fail-safe: the flag off, a non-area mode, a
-  single target, or any error returns the original targets. Ladder: pure → shadow
-  ✅ → enforce ✅ *(path; owner flips `SURFACES_ENFORCE` to activate)*. The parity
+  single target, or any error returns the original targets. **Default ON ✅
+  (9.128.0, owner-flipped):** `SURFACES_ENFORCE = True`, registered on the
+  Governance tab as *Same-room announcement consolidation* so the owner has a
+  persisted runtime kill-switch (`surfaces_enforce: false` in config also kills
+  it). Ladder: pure → shadow ✅ → enforce ✅ *(live by default)*. The parity
   "which satellite speaks" rung was N/A by design — the announce path has no
   incumbent single-surface pick to compare against; the shadow fan-out count is
   the quantified bar. Further enforce (mutes honored everywhere, handoff preserves
-  interaction identity) builds on this. Kill: `SURFACES_SHADOW` / `SURFACES_ENFORCE`.
+  interaction identity) builds on this and is **not yet live**. Kill:
+  `SURFACES_SHADOW` / `SURFACES_ENFORCE`.
 - **`privacy` + `social` (W)** — information-flow boundary + per-person preference
   models; await labelled cross-subject data flows to govern.
 - **`coordination` (O+AB peer half)** — a budgeted peer bid/claim/settle protocol;
