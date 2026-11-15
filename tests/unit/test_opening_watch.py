@@ -104,6 +104,16 @@ def test_record_flags_only_real_state_changes(ow):
     assert st["state"] == "unknown" and st["camera"] == "camera.shed" and st["ts"] == 400
 
 
+# ── public gate ─────────────────────────────────────────────────────────────
+def test_is_enabled_default_off(ow):
+    assert ow.is_enabled(object()) is False
+
+
+def test_is_enabled_tracks_watch_on(ow, monkeypatch):
+    monkeypatch.setattr(ow, "_watch_on", lambda hass: True)
+    assert ow.is_enabled(object()) is True
+
+
 # ── driver: ships OFF ───────────────────────────────────────────────────────
 async def test_check_openings_disabled_by_default(ow):
     # No config → _watch_on False → the tick does nothing.

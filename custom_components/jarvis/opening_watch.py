@@ -184,6 +184,13 @@ def _watch_on(hass) -> bool:
     return True
 
 
+def is_enabled(hass) -> bool:
+    """Public read of the owner gate — true when the watch is currently on. Lets
+    the panel readout say 'the watch is off' instead of implying a watched
+    opening has simply never been seen."""
+    return _watch_on(hass)
+
+
 def _interval_s(hass) -> float:
     try:
         from . import jarvis_config

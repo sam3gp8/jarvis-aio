@@ -783,6 +783,7 @@ async def ws_get_panel_data(
             "sleep_reason":   sleep_reason if sleeping else None,
             "doorbell_training": doorbell_training,
             "doors":          _get_door_states(hass),
+            "openings":       _get_opening_watch_states(hass),
             "lockdown":       _get_lockdown_status(),
             "intrusion":      _get_intrusion_status(),
             "knowledge":      knowledge_stats,
@@ -1089,6 +1090,37 @@ def _get_door_states(hass: HomeAssistant) -> dict:
         return door_state.get_door_states(hass, mapping)
     except Exception:
         return {}
+
+
+def _get_opening_watch_states(hass: HomeAssistant) -> dict:
+    """Last vision-read open/closed state of each sensor-less opening the watch
+    covers (#530), for the Home-view readout. ``enabled`` says whether the watch
+    is on, so the panel distinguishes 'off' from 'nothing seen yet'. Each item
+    carries a human 'age' since its last check. Never raises."""
+    import time as _t
+    try:
+        from . import opening_watch
+        now = _t.time()
+        items = []
+        for rec in opening_watch.get_states().values():
+            ts = rec.get("ts") or 0
+            items.append({
+                "id": rec.get("id"),
+                "label": rec.get("label") or rec.get("type") or "opening",
+                "type": rec.get("type"),
+                "room": rec.get("room") or "",
+                "floor": rec.get("floor") or "",
+                "state": rec.get("state") or "unknown",
+                "camera": rec.get("camera") or "",
+                "age": _format_duration((now - ts) if ts else None),
+                "ts": ts,
+            })
+        # Open or unknown first (the ones worth a glance), then most recently seen.
+        _rank = {"open": 0, "unknown": 1, "closed": 2}
+        items.sort(key=lambda r: (_rank.get(r["state"], 1), -(r["ts"] or 0)))
+        return {"enabled": bool(opening_watch.is_enabled(hass)), "items": items}
+    except Exception:
+        return {"enabled": False, "items": []}
 
 
 def _get_doorbell_training() -> dict:

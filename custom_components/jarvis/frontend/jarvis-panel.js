@@ -2115,6 +2115,7 @@ class JarvisPanel extends HTMLElement {
       config: live.config || {},
       onboarding: live.onboarding || null,
       doors: live.doors || {},
+      openings: live.openings || { enabled: false, items: [] },
       // v7.94.0: goals card. Also fixes suggestions, which _data() never
       // carried through from the raw payload — _renderSuggestions(d) has
       // been reading undefined since it was added.
@@ -4276,6 +4277,39 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     return `<div class="door-map"><div class="door-map-head">DOORS · map to your entities <span class="door-map-hint">(blank = auto-detect by name)</span></div><div class="door-map-grid">${rows}</div></div>`;
   }
 
+  // #530 panel readout: the last vision-read open/closed state of each
+  // sensor-less door/window the watch covers. Rows are inline-styled so this
+  // drops in without touching the component's shared stylesheet.
+  _renderOpeningWatch(d) {
+    const ow = (d && d.openings) || { enabled: false, items: [] };
+    const items = Array.isArray(ow.items) ? ow.items : [];
+    const col = (s) => s === 'closed' ? '#28e07a' : (s === 'open' ? '#ffcf3f' : '#6b8294');
+    const word = (s) => s === 'closed' ? 'CLOSED' : (s === 'open' ? 'OPEN' : 'UNKNOWN');
+    let body;
+    if (!items.length) {
+      body = ow.enabled
+        ? '<div class="mmwave-empty">No sensor-less openings seen yet — JARVIS reads each one on a throttle when a camera covers it.</div>'
+        : '<div class="mmwave-empty">Opening watch is off. Turn on <b>opening_watch_enabled</b> to have JARVIS read sensor-less doors &amp; windows from the cameras that see them.</div>';
+    } else {
+      body = items.map((it) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid rgba(90,120,140,.12);">
+          <span style="width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:${col(it.state)}"></span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this._esc(it.label || it.type || 'opening')}${it.room ? ` <span style="opacity:.55">· ${this._esc(it.room)}</span>` : ''}</span>
+          <span style="font-weight:600;font-size:11px;letter-spacing:.5px;color:${col(it.state)}">${word(it.state)}</span>
+          <span style="opacity:.5;font-size:11px;min-width:30px;text-align:right;" title="time since last checked">${this._esc(it.age || '—')}</span>
+        </div>`).join('');
+    }
+    return `
+      <div class="res-side panel ow-panel">
+        <div class="head">
+          <span>Openings</span>
+          <span class="side">${ow.enabled ? '◉ WATCH' : '○ OFF'}</span>
+        </div>
+        <div class="mem-sub">Doors &amp; windows with no contact sensor, read open / closed from the camera that sees them (#530). <span style="color:#28e07a">●</span> closed · <span style="color:#ffcf3f">●</span> open · <span style="color:#6b8294">●</span> unknown.</div>
+        <div class="ow-list">${body}</div>
+      </div>`;
+  }
+
   _update3DTransform() { /* 2D isometric — no transform to apply */ }
 
 
@@ -5195,6 +5229,8 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
         <div class="mmwave-empty">Reading sensors…</div>
       </div>
     </div>
+
+    ${this._renderOpeningWatch(d)}
   </div>
   ` : ''}
 
