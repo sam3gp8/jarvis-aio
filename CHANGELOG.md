@@ -1,3 +1,19 @@
+## [9.127.0] — Openings readout on the Residence tab: see each sensor-less door/window's last state (#530, readout)
+
+9.126.0 added the watch that reads a sensor-less door/window's open/closed state
+from the camera that sees it. This surfaces it: a new **Openings** panel on the
+Residence tab lists each watched opening with a colour dot (green closed · amber
+open · grey unknown), its room, and how long ago it was last checked —
+most-worth-a-glance first (open, then unknown, then closed).
+
+- Reads the state the core watch already remembers (`opening_watch.get_states()`),
+  carried on the panel-data payload — **no new background work, no extra vision
+  calls**.
+- When the watch is **off**, the panel says so and points at the
+  `opening_watch_enabled` switch, instead of implying an opening was never seen.
+- Fail-safe: a formatting error degrades to an empty, disabled readout and never
+  breaks the Residence tab.
+
 ## [9.126.0] — Doors & windows without a sensor: read open/closed from the camera that sees them (#530, core)
 
 A placed door or window with **no contact sensor** mapped to it is a blind spot —
