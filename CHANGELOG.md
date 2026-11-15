@@ -1,3 +1,26 @@
+## [9.123.0] — Ambient presence: the cross-surface arbiter gets its first live eyes (Phase AA shadow)
+
+MCU-fidelity ladder (Bucket B — ambient presence), the first step off the ground.
+`kernel/surfaces.py` — the cross-surface announcement arbiter that decides which
+ONE surface should speak so a notification is announced *once*, not N times across
+N speakers — has been a pure, unit-tested primitive with **no live consumer**.
+This wires its **first shadow consumer**.
+
+When a proactive announcement resolves its target speakers, JARVIS now also builds
+a `Surface` per target and logs what the arbiter *would* do — the single surface
+that should emit, and whether the current fan-out would **double-announce** (more
+than one speaker). It's **observe-only**: the announcement still reaches every
+resolved target exactly as today. This measures, on real traffic, how often
+one-announcement arbitration would consolidate a fan-out — the signal the parity →
+enforce rungs build on toward "one conversation, announced once, that follows you
+room to room."
+
+- First live consumer of the `surfaces` kernel primitive; moves it pure → shadow
+  on the adoption matrix.
+- Kill-switch `SURFACES_SHADOW`; never raises into the announcement path.
+- No behaviour change, no new setting — the enforce rung (the arbiter actually
+  consolidating a fan-out to one surface) stays owner-gated and ships later.
+
 ## [9.122.0] — Proactive fluency: JARVIS's suggestions are now causally grounded (Phase L enforce)
 
 MCU-fidelity ladder (Bucket B — proactive fluency), the **enforce** step —

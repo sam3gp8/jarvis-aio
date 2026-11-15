@@ -598,7 +598,7 @@ _DECLARED: dict[str, dict] = {
     # nothing live consumes it yet (the registry + announcement path wire on at the
     # shadow rung). Ladder: pure → shadow → parity (which satellite speaks) →
     # enforce (SURFACES_ENFORCE, fail-safe = per-surface current logic), owner-gated.
-    "surfaces":     {"stage": "pure",    "owners": [], "staged_ahead": True},
+    "surfaces":     {"stage": "shadow",  "owners": ["proactive_audio"]},
     # inquiry: PURE (Phase AD, Research & Discovery — investigative agency).
     # Bounded, cited inquiry with evidence provenance: a Finding is a TYPED claim
     # (fact/observation/inference/prediction/hypothesis/recommendation) with source,

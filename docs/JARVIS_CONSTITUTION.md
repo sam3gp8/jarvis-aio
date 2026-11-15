@@ -113,7 +113,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `situation` | ● enforce |
 | `social` | · pure |
 | `space_time` | ● enforce |
-| `surfaces` | · pure |
+| `surfaces` | ◐ shadow |
 | `temporal` | ◐ shadow |
 | `token_telemetry` | ● enforce |
 | `uncertainty` | ● enforce |
