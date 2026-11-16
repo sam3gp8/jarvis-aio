@@ -1,3 +1,18 @@
+## [9.135.0] — Proactive "usually…" alerts now speak your language (#539)
+
+JARVIS's learned‑routine and anticipation mentions — *"the garage is open, it's
+usually closed by now"*, *"Sam is usually home by 18:00 but isn't back yet"*,
+*"around this time you usually…"*, *"Sam is heading home — about 3 km out"* — are
+built **without** the LLM, so unlike chat replies they never followed your
+language: a non‑English household got them in hard‑coded English, both spoken and
+pushed. They're now localized through a static per‑language catalog (French,
+German, Spanish, Italian, Dutch, Portuguese, Russian, Ukrainian, Polish — English
+is the base and the fallback), with no API call and no added latency. Entity
+names, people's names, calendar titles and your own spoken commands pass through
+untouched, and numbers use your language's decimal mark. The routine mention also
+got sharper — a learned command now reads *"you usually ask me: '…'"* instead of
+an awkward run‑on. English installs are unchanged.
+
 ## [9.134.0] — A full settings guide & setup FAQ
 
 Every JARVIS setting, what it does, and how to set it up, in one place:

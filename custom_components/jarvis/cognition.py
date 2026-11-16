@@ -30,6 +30,8 @@ import re
 import time
 from collections import deque, namedtuple
 
+from . import anticipation_i18n as _ai  # leaf module, no package imports (#539)
+
 _LOGGER = logging.getLogger(__name__)
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
@@ -448,6 +450,21 @@ def _humanize(state, dclass) -> str:
     return s.replace("_", " ")
 
 
+def _lang(hass) -> str:
+    """The household's configured output language for proactive alerts (#539).
+
+    These anticipation / routine mentions are built WITHOUT the LLM, so the
+    agent's language directive never touched them — a non-English household got
+    them in hard-coded English. They carry no per-request pipeline language
+    (they fire from a background loop), so this resolves from JARVIS's
+    output_language / ui_language / the HA system language. Never raises."""
+    try:
+        from .language import configured_language
+        return configured_language(hass)
+    except Exception:
+        return "en"
+
+
 def _occupancy_candidates(hass):
     """Discrete-state entities whose 'normal state by hour' is meaningful."""
     out = []
@@ -551,10 +568,11 @@ def predict(hass, now: float = None) -> list:
             name = st.attributes.get("friendly_name", eid)
             domain = eid.split(".", 1)[0]
             urgency = "medium" if domain in ("lock", "alarm_control_panel", "cover") else "low"
-            msg = (
-                f"{name} is {_humanize(cur, dclass)}. Around this time it's "
-                f"usually {_humanize(dominant, dclass)}, so I thought it worth mentioning."
-            )
+            lang = _lang(hass)
+            msg = _ai.message(
+                "unusual_state", lang, name=name,
+                state=_ai.state_word(cur, lang, dclass),
+                usual=_ai.state_word(dominant, lang, dclass))
             out.append({
                 "type": "anticipation",
                 "urgency": urgency,
@@ -736,10 +754,8 @@ def _predict_overdue_loop(hass, now: float = None) -> tuple[list, list]:
             out.append({
                 "type": "anticipation_overdue",
                 "urgency": "low",
-                "message": (
-                    f"{name} usually has activity by around {usual}, but there's "
-                    f"been none yet today — thought it worth flagging."
-                ),
+                "message": _ai.message("overdue_activity", _lang(hass),
+                                       name=name, time=usual),
                 "pattern_key": f"overdue:{eid}",
                 "offer": False,
             })
@@ -928,7 +944,6 @@ async def predict_departure(hass, now: float = None) -> list:
             if _RECUR_ALERTED.get(key) == today:
                 continue
             mins_to = max(0, int((start_dt - now_dt).total_seconds() // 60))
-            loc_str = (" at %s" % loc) if loc else ""
             await hass.async_add_executor_job(
                 _log_decision,
                 "anticipation_departure",
@@ -938,10 +953,15 @@ async def predict_departure(hass, now: float = None) -> list:
                 "recurring calendar event + estimated travel time",
             )
             _RECUR_ALERTED[key] = today
+            lang = _lang(hass)
+            ev_title = ev.get("title") or _ai.an_event(lang)
+            dmsg = (_ai.message("departure_at", lang, event=ev_title,
+                                location=loc, minutes=mins_to) if loc
+                    else _ai.message("departure", lang, event=ev_title,
+                                     minutes=mins_to))
             out.append({
                 "type": "anticipation_departure", "urgency": "low",
-                "message": ("Heads up — %s%s begins in about %d minutes; "
-                            "you'll want to head out." % (title, loc_str, mins_to)),
+                "message": dmsg,
                 "pattern_key": key, "offer": False,
             })
             break  # one departure alert per tick — the nearest event
@@ -1037,9 +1057,26 @@ def _predict_routine_start_loop(
                 "prompt routine start",
                 "learned per-person routine",
             )))
+            lang = _lang(hass)
+            cmd = str(data.get("command") or "").strip()
+            dev_state = str(data.get("state") or "").strip()
+            dev_entity = str(data.get("entity") or "").strip()
+            if cmd:
+                # A learned spoken command — passed through verbatim (a person's
+                # own words are never translated).
+                rmsg = _ai.message("routine_command", lang, command=cmd)
+            elif dev_state and dev_entity:
+                st = hass.states.get(dev_entity) if hass else None
+                nm = (st.attributes.get("friendly_name") if st else None) or dev_entity
+                rmsg = _ai.message("routine_device", lang, name=nm,
+                                   state=_ai.state_word(dev_state, lang))
+            else:
+                # No structured parts (an older stored routine): localize the
+                # lead-in and show the stored description as-is.
+                rmsg = _ai.message("routine_other", lang, routine=desc)
             out.append({
                 "type": "anticipation_routine", "urgency": "low",
-                "message": "Around this time you usually %s." % desc,
+                "message": rmsg,
                 "pattern_key": key, "offer": False,
             })
     except Exception as exc:
@@ -1105,8 +1142,8 @@ def _predict_presence_loop(hass, now: float = None) -> tuple[list, list]:
                     )))
                     out.append({
                         "type": "anticipation_presence", "urgency": "low",
-                        "message": (f"{name} is usually out by around {_hhmm(m)}, "
-                                    f"but is still home — thought you'd want to know."),
+                        "message": _ai.message("still_home", _lang(hass),
+                                               name=name, time=_hhmm(m)),
                         "pattern_key": f"presence_depart:{eid}", "offer": False,
                     })
 
@@ -1126,8 +1163,8 @@ def _predict_presence_loop(hass, now: float = None) -> tuple[list, list]:
                     )))
                     out.append({
                         "type": "anticipation_presence", "urgency": "low",
-                        "message": (f"{name} is usually home by around {_hhmm(m)}, "
-                                    f"but isn't back yet."),
+                        "message": _ai.message("not_back", _lang(hass),
+                                               name=name, time=_hhmm(m)),
                         "pattern_key": f"presence_arrive:{eid}", "offer": False,
                     })
     except Exception as exc:
@@ -1237,9 +1274,11 @@ def predict_proximity(hass, now: float = None) -> list:
                     pst = hass.states.get(pkey)
                     if pst is not None:
                         name = pst.attributes.get("friendly_name") or name
+                lang = _lang(hass)
                 out.append({
                     "type": "anticipation_arriving", "urgency": "low",
-                    "message": f"{name} is heading home — about {d:.1f} km out.",
+                    "message": _ai.message("arriving", lang, name=name,
+                                           distance=_ai.number(d, lang, 1)),
                     "pattern_key": f"arriving:{pkey}", "offer": False,
                     # Push-eligible (issue #265): low urgency so it is normally
                     # spoken only; _emit_action pushes it to the phone when the
