@@ -1,3 +1,61 @@
+## [9.130.0] — Cameras now respect the property line: a car on the neighbour's driveway is no longer "parked on the driveway"
+
+A Front Yard camera was logging *"a vehicle remains parked on the driveway"* for a
+car that was on the **neighbour's** driveway. JARVIS was not reading the property
+line at all when it looked through a camera. Three separate faults, all fixed:
+
+- **The property line you drew was never consulted.** Camera scope looked only at
+  the *names* of areas in each camera's saved coverage list. The
+  `floor_plan_property` polygon was not used anywhere in the camera path, and land
+  that is simply "outside the line" — a neighbour's lot — is not a named area, so
+  it could never be marked off-property.
+- **The frame was described from the wrong list.** That saved list answers *"which
+  rooms does this camera cover at least 70% of"* (for confirming an intruder). Used
+  as "what is in view" it told the vision model that a Front Yard camera *"covers
+  the Driveway"*, and dropped the street entirely because a camera only ever sees
+  a sliver of it.
+- **The model that can see was never told the scope.** The property-only rule
+  reached only the text-only reasoning step. The vision step was asked to "note
+  vehicles" with no idea where the property ends, and the reasoning step had
+  nothing to correct it with.
+
+**What happens now.** For an outdoor camera placed on the floor plan, JARVIS works
+out from the plan's geometry — the camera's position and aim, your outdoor areas,
+and the property line — what the frame actually contains, and tells both the
+vision and the reasoning model, for the left / centre / right of the picture, which
+of your areas are there, roughly how far the property reaches, and what lies past
+it (*"…then the Driveway from about 35 ft out; the property ends about 70 ft from
+the camera, and past that is a neighbouring property"*). It is told that if two
+driveways are visible only the nearer one is yours, and to say plainly when
+something is on the street or next door instead of placing it in your yard.
+
+Also fixed along the way:
+
+- **Frigate's detections no longer read as proof.** "Frigate sees: car" covers the
+  whole frame, so it was reinforcing the mistake. It is now stated as what it is: a
+  detection somewhere in view, which does not by itself put the car on the property.
+- **An off-property scene can't be filed as yours.** The reasoning step now returns
+  an explicit on-property verdict. On an automatic review, when nothing described
+  is on the property the event is forced quiet and filed as "empty" in code — so a
+  neighbour's car is not announced, and not learned or remembered as a vehicle on
+  your driveway. (An "urgent" verdict is never downgraded this way.)
+- **Hazy frames.** The night/infrared caution covered only people and animals; a
+  fogged lens was yielding a confident "vehicle and large container on the
+  driveway". It now covers vehicles and objects, and asks for "the view is unclear"
+  instead of a guess.
+
+**No setup needed** — it uses the floor plan you already drew, and applies from the
+next analysis. Indoor cameras are unchanged. A camera that is not placed on the
+floor plan gets a generic "don't adopt the street's or a neighbour's contents"
+instruction instead of the geometry; placing it on the plan gives it the full
+boundary. An easement is still treated as your own land.
+
+**What this cannot promise.** JARVIS now knows where your property ends and says so
+to the model, but the model still has to judge from a picture which side of that
+line a car is on. That is much better grounded than before, not guaranteed —
+especially at night or through a wide-angle lens. A hard guarantee needs a zone
+drawn on the camera image itself.
+
 ## [9.129.0] — Truth-in-labeling: the adoption matrix now shows `temporal` at enforce (it has been since 9.121.0)
 
 A documentation correction — **no behaviour changes**.

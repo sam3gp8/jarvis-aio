@@ -29,6 +29,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url
 
 from .camera_backends import find_backend
+from .camera_view import PUBLIC_AREA_PATTERNS as _PUBLIC_AREA_PATTERNS
 from .const import JARVIS_PERSONA, DOMAIN
 from .database import save_message
 from .directive_helper import build_system_prompt
@@ -414,14 +415,26 @@ async def _reason_about_scene(
     frigate_dets: dict | None = None,
     property_only: bool = True,
     public_areas: list | None = None,
+    offsite_areas: list | None = None,
+    boundary: str = "",
+    beyond_property: bool = False,
 ) -> dict:
     """
     Camera-reasoning step: interpret a raw vision description into a judgment.
-    Returns {notable: bool, category: str, summary: str, speak: str|None}.
+    Returns {notable, severity, category, summary, speak, on_property}.
 
-    On any failure this falls back to treating the event as notable and speaking
-    the raw description — it must never silently drop a real event due to a
-    reasoning error.
+    ``public_areas`` / ``offsite_areas`` are the parts of this camera's view that
+    are not the property (a named Street; a neighbouring lot), ``boundary`` is the
+    floor-plan description of where the property ends in the frame, and
+    ``beyond_property`` says the view reaches past the property line at all.
+
+    ``on_property`` is the model's explicit verdict on whether anything described
+    is on the home's own ground (None when it gave none). Under property-only
+    scope an off-property-only scene is forced to routine/"empty" in code, so a
+    car next door can neither be announced nor learned as a vehicle event here.
+
+    On any failure this fails QUIET (routine, nothing spoken); genuine intrusions
+    are handled by the separate always-on intrusion path.
     """
     now = datetime.now().strftime("%A %I:%M %p")
     context = ""
@@ -436,16 +449,34 @@ async def _reason_about_scene(
     # owner drew) — an explicit callout naming it, so the boundary is grounded in
     # the floor plan rather than guessed from the image. (v9.81.0)
     scope_block = ""
+    _off_all = [str(a) for a in list(public_areas or []) + list(offsite_areas or []) if a]
     if property_only:
         scope_block = _PROPERTY_SCOPE_DIRECTIVE
-        if public_areas:
+        if _off_all:
             scope_block += (
                 "Per the home's floor plan, this camera's view extends over these "
                 "areas that are NOT part of the property: "
-                + ", ".join(str(a) for a in public_areas if a) + ". Anything "
+                + ", ".join(_off_all) + ". Anything "
                 "happening there — e.g. out on the street — is off-property and out "
                 "of scope: do not describe, flag, or raise severity for it.\n"
             )
+    # Where the property ends in this camera's frame, from the floor plan. Given
+    # in both modes: even a manual look must not report a neighbour's car as being
+    # in this home's driveway. (v9.130.0)
+    if boundary:
+        scope_block += "CAMERA VIEW (from the home's floor plan): " + boundary + "\n"
+    # An explicit location verdict, so the code — not prose — can act on it.
+    _locate = bool(property_only or boundary or beyond_property)
+    if _locate:
+        scope_block += (
+            "LOCATION: never say something is in this home's driveway, yard or "
+            "grounds unless the description places it on this home's property. If "
+            "the description puts a vehicle or person on a street or a neighbouring "
+            "property, the summary must say that. When nothing is happening on the "
+            "property, set \"on_property\" to false and \"category\" to \"empty\", "
+            "and word the summary so it cannot be misread — for example 'Nothing "
+            "on the property; a car is parked on the neighbouring property.'\n"
+        )
     system = (
         "You are JARVIS's camera-reasoning module. Given a description of what a "
         "camera saw, classify how much it warrants the resident's attention. "
@@ -459,7 +490,8 @@ async def _reason_about_scene(
         "Respond with ONLY a JSON object: "
         '{"severity": "urgent|notable|routine", '
         '"notable": true|false, '
-        '"category": "delivery|package|mail|person|known_resident|vehicle|animal|empty|other", '
+        + ('"on_property": true|false, ' if _locate else "")
+        + '"category": "delivery|package|mail|person|known_resident|vehicle|animal|empty|other", '
         '"summary": "<one concise factual sentence for the log>", '
         '"speak": "<what JARVIS should say aloud, in his voice, ONLY if severity is urgent or notable; otherwise an empty string>"}'
     )
@@ -491,18 +523,27 @@ async def _reason_about_scene(
             fg_line = f"Frigate detector currently sees: {', '.join(_present)}\n"
         else:
             fg_line = "Frigate detector: nothing detected\n"
+        if beyond_property and _present:
+            # Whole-frame detections: true of a car on the street or next door too.
+            fg_line = (fg_line.rstrip("\n")
+                       + " (anywhere in the frame, including beyond the property "
+                       "line — this alone does not place it on the property)\n")
     # Areas in view, marking any the floor plan says are off-property so the model
     # reads the boundary from the plan, not the pixels.
     areas_line = ""
-    if covered:
+    if covered or offsite_areas:
         _pub_l = {str(p).strip().lower() for p in (public_areas or [])}
-        _parts = []
-        for c in covered:
-            if not c:
+        _off_l = {str(p).strip().lower() for p in (offsite_areas or [])}
+        _parts, _seen = [], set()
+        for c in list(covered or []) + list(offsite_areas or []):
+            if not c or str(c).strip().lower() in _seen:
                 continue
+            _seen.add(str(c).strip().lower())
             label = str(c)
             if str(c).strip().lower() in _pub_l:
                 label += " [public — NOT the property]"
+            elif str(c).strip().lower() in _off_l:
+                label += " [NOT the property]"
             _parts.append(label)
         if _parts:
             areas_line = f"Areas in view: {', '.join(_parts)}\n"
@@ -537,12 +578,22 @@ async def _reason_about_scene(
             notable = bool(data.get("notable", severity in ("urgent", "notable")))
             if severity not in _SEV_RANK:
                 severity = "notable" if notable else "routine"
+            category = str(data.get("category", det_type) or det_type)
+            on_property = _as_tristate(data.get("on_property"))
+            # Property-only scope, decided in code: the model says nothing
+            # described is on this home's ground → it is not this home's event.
+            # It cannot be announced, and it is filed as "empty" so a car next
+            # door is not learned or remembered as a vehicle on this property.
+            # An "urgent" verdict is left alone — fail toward alerting.
+            if property_only and on_property is False and severity != "urgent":
+                severity, notable, speak, category = "routine", False, "", "empty"
             return {
                 "notable": notable,
                 "severity": severity,
-                "category": str(data.get("category", det_type) or det_type),
+                "category": category,
                 "summary": (str(data.get("summary", "") or description))[:300],
                 "speak": speak or None,
+                "on_property": on_property,
             }
     except Exception as exc:
         _LOGGER.warning("camera: reasoning step failed (%s) — failing quiet", exc)
@@ -552,7 +603,21 @@ async def _reason_about_scene(
     # resident; genuine intrusions are handled by the separate always-on
     # intrusion path, not this scene narration. (v7.94.0)
     return {"notable": False, "severity": "routine", "category": det_type,
-            "summary": description or "", "speak": None}
+            "summary": description or "", "speak": None, "on_property": None}
+
+
+def _as_tristate(value) -> Optional[bool]:
+    """A model's true/false field as True / False, or None when it gave neither
+    (missing, null, or anything else) — never guess a verdict that wasn't made."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "yes"):
+            return True
+        if v in ("false", "no"):
+            return False
+    return None
 
 
 # ─── Utility: detect camera integration ──────────────────────────────────────
@@ -1225,9 +1290,114 @@ def _camera_coverage_rooms(hass: HomeAssistant, entity_id: str) -> list:
 # NB: "easement" is deliberately NOT here — an easement is the owner's own land
 # (others merely hold a right over it), so it counts as on-property by default. A
 # household that wants theirs excluded can tag that area {"scope":"public"}.
-_PUBLIC_AREA_PATTERNS = (
-    "street", "road", "sidewalk", "pavement", "alley",
-    "right of way", "right-of-way", "curb", "public",
+# The list itself (_PUBLIC_AREA_PATTERNS, imported above) lives in camera_view so
+# the name rule has one home.
+
+
+def _view_profile(hass: HomeAssistant, entity_id: str) -> Optional[dict]:
+    """What an outdoor camera placed on the floor plan actually frames — the
+    home's areas in view, and where the property ends in the left / centre / right
+    of the picture — computed from the plan's rooms, the camera's position and
+    the `floor_plan_property` polygon. None for an indoor camera, one not on the
+    plan, or on any error, so callers fall back to the saved coverage list.
+    Never raises. (v9.130.0)"""
+    try:
+        from . import camera_view
+        return camera_view.view_profile(
+            _cfg_opt(hass, "floor_plan_rooms", "{}"),
+            _cfg_opt(hass, "floor_plan_cameras", "{}"),
+            _cfg_opt(hass, "floor_plan_property", "{}"),
+            entity_id,
+            units=str(_cfg_opt(hass, "floor_plan_units", "imperial") or "imperial"),
+        )
+    except Exception:
+        return None
+
+
+def _camera_is_indoor(hass: HomeAssistant, entity_id: str) -> Optional[bool]:
+    """True/False as the floor plan marks this camera, or None when it is not
+    placed on the plan (so the caller does not know). Never raises."""
+    try:
+        from . import camera_view
+        found = camera_view.find_camera(_cfg_opt(hass, "floor_plan_cameras", "{}"), entity_id)
+        if not found:
+            return None
+        return found[1].get("indoor") is not False
+    except Exception:
+        return None
+
+
+def _frame_context(hass: HomeAssistant, entity_id: str, scoped: bool) -> dict:
+    """What this camera's frame contains, for both the vision and the reasoning
+    step. Returns:
+
+    ``areas``            areas in view (the home's own, then named public ones)
+    ``hint``             the fragment appended to the vision task
+    ``boundary``         where the property ends in the frame ("" when unknown)
+    ``public``           named public areas in view (e.g. ["Street"])
+    ``offsite``          other off-property labels (e.g. ["a neighbouring property"])
+    ``beyond_property``  True when the view reaches past the property line
+
+    An OUTDOOR camera placed on the floor plan is read from the plan's geometry
+    (v9.130.0). The saved ``covered`` list answers "which rooms can this camera
+    CONFIRM a person in" (≥70% of the room); as a description of the frame it
+    named the wrong area (a Front Yard camera "covers the Driveway") and never
+    mentioned anything past the property line, so a car on a neighbour's driveway
+    was narrated as parked on this home's. The view profile says which of the
+    home's areas are in frame and where the property ends in the left / centre /
+    right of the picture, from the ``floor_plan_property`` polygon the owner drew.
+    Any other camera keeps the saved coverage list. Never raises."""
+    covered = _camera_coverage_rooms(hass, entity_id)
+    view = _view_profile(hass, entity_id)
+    if view:
+        try:
+            from . import camera_view
+            own, off = camera_view.areas_in_view(view)
+            public = list(view.get("public") or [])
+            boundary = camera_view.briefing(view)
+            beyond = bool(view.get("beyond"))
+            hint = " " + boundary
+            if beyond:
+                hint += _VISION_SCOPE_HINT if scoped else _VISION_PLACE_HINT
+            return {"areas": own + public, "hint": hint, "boundary": boundary,
+                    "public": public,
+                    "offsite": [a for a in off if a not in public],
+                    "beyond_property": beyond}
+        except Exception:   # pragma: no cover - defensive: fall through to the old path
+            pass
+    hint = _coverage_hint(covered)
+    public = _public_areas_in_view(hass, covered)
+    # No geometry for this camera. Unless the plan says it is an indoor one, still
+    # ask the model not to adopt the street's or a neighbour's contents.
+    if scoped and _camera_is_indoor(hass, entity_id) is not True:
+        hint += _VISION_SCOPE_GENERIC
+    return {"areas": covered, "hint": hint, "boundary": "", "public": public,
+            "offsite": [], "beyond_property": bool(public)}
+
+
+# Vision-step scope (v9.130.0). The property-only directive used to reach only the
+# text-only REASONING step; the vision model — the one that can actually see where
+# things are — was asked to "note vehicles" with no idea where the property ends,
+# so a car on a neighbour's driveway came back as "a vehicle parked on the
+# driveway" and the reasoning step had nothing to correct it with. These tell the
+# vision model to place what it describes.
+_VISION_PLACE_HINT = (
+    " For every person, vehicle or object you mention, say where it is. If it is "
+    "beyond the property limits described above, say so in those words — for "
+    "example 'a car is parked on the neighbouring property' or 'a van is passing "
+    "on the street' — and never describe it as being in this home's driveway or "
+    "yard. If you cannot tell which side of the boundary something is on, say that "
+    "plainly instead of guessing."
+)
+_VISION_SCOPE_HINT = (
+    " Describe what is happening ON this home's property." + _VISION_PLACE_HINT
+)
+# No floor-plan geometry for this camera: still ask the model not to adopt a
+# neighbour's or the street's contents as the home's own.
+_VISION_SCOPE_GENERIC = (
+    " If a person, vehicle or object you mention is not on this home's own property "
+    "— it is on a street, a sidewalk or a neighbouring property — say so explicitly "
+    "rather than placing it in this home's yard or driveway."
 )
 
 
@@ -1311,6 +1481,12 @@ _LOWLIGHT_HINT = (
     "reflections are NOT people or animals. Only report a person or animal if a "
     "living being is clearly and unambiguously visible; if you are unsure, say so "
     "rather than guessing."
+    # A fogged, glared or very dark lens produces confident nonsense about
+    # objects too — a bin became "a vehicle and a large container parked on the
+    # driveway" on a hazy infrared frame. (v9.130.0)
+    " The same goes for vehicles and objects: do not report one you cannot "
+    "clearly make out, and if the view is foggy, glared, blurred or too dark to "
+    "tell what something is, say that the view is unclear."
 )
 
 
@@ -1356,20 +1532,34 @@ def _frigate_detections(hass: HomeAssistant, entity_id: str) -> Optional[dict]:
         return None
 
 
-def _frigate_ground_hint(dets: Optional[dict]) -> str:
+# Frigate's per-camera object sensors cover the WHOLE frame. On a camera whose
+# view reaches past the property line, "car: present" is just as true of a car on
+# the street or next door — so stated bare it reads as confirmation that a car is
+# on the property. Say what it does and does not establish. (v9.130.0)
+_FRIGATE_WHOLE_FRAME_NOTE = (
+    " Frigate reports objects anywhere in the frame, including beyond the property "
+    "line, so this does not by itself place them on the property."
+)
+
+
+def _frigate_ground_hint(dets: Optional[dict], *, beyond_property: bool = False) -> str:
     """Prompt fragment stating Frigate's ground truth, emphasising the
-    person-absent case (the situation that causes false 'people at night')."""
+    person-absent case (the situation that causes false 'people at night').
+    ``beyond_property`` — this camera's view reaches past the property line — adds
+    the caveat that a whole-frame detection does not locate the object."""
     if not dets:
         return ""
     present = [l for l, v in dets.items() if v]
+    note = _FRIGATE_WHOLE_FRAME_NOTE if (beyond_property and present) else ""
     if "person" in dets and not dets["person"]:
         also = (" It does currently detect: " + ", ".join(present) + ".") if present else ""
         return (
             " Frigate's object detector currently reports NO person on this "
-            "camera." + also + " Weigh that heavily before reporting a person."
+            "camera." + also + " Weigh that heavily before reporting a person." + note
         )
     if present:
-        return " Frigate's object detector currently reports: " + ", ".join(present) + "."
+        return (" Frigate's object detector currently reports: "
+                + ", ".join(present) + "." + note)
     return ""
 
 
@@ -1557,12 +1747,16 @@ async def async_analyze_camera(
     # Floor-plan coverage: tell the model which areas this camera actually sees,
     # so it reports on EVERY covered area (e.g. the Living Room that a Dining
     # Room camera also frames), not just the room it's named after (v7.91.0).
-    cov_rooms = _camera_coverage_rooms(hass, entity_id)
-    cov_hint = _coverage_hint(cov_rooms)
+    # Property-only scope applies to automatic reviews; a manual analyze
+    # (gate_announce False — the user explicitly asked to look) sees everything.
+    _scoped = gate_announce and _property_scope_only(hass)
+    _frame = _frame_context(hass, entity_id, _scoped)
+    cov_rooms, cov_hint = _frame["areas"], _frame["hint"]
+    beyond_property = _frame["beyond_property"]
     # Ground the vision pass against Frigate's actual detections + a low-light
     # caution, so IR shadows/objects aren't reported as people (v7.92.0).
     frigate_dets = _frigate_detections(hass, entity_id)
-    ground_hint = _frigate_ground_hint(frigate_dets)
+    ground_hint = _frigate_ground_hint(frigate_dets, beyond_property=beyond_property)
     if is_clip:
         seq = ("a single contact sheet whose tiles are labelled Frame 1, Frame 2, … "
                "in chronological order" if sheet is not None
@@ -1697,17 +1891,20 @@ async def async_analyze_camera(
     rsn_model = _cfg_opt(hass, "camera_reasoning_model", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
     rsn_client = await async_make_client(
         hass, rsn_provider, rsn_model, groq_client)
-    # Property-only scope applies to automatic reviews; a manual analyze
-    # (gate_announce False — the user explicitly asked to look) sees everything.
-    # When scoped, the floor plan tells us which of this camera's covered areas
-    # are off-property (a named Street/Easement), so the boundary is grounded in
-    # the plan rather than guessed from the image.
-    _scoped = gate_announce and _property_scope_only(hass)
+    # The reasoning step gets the same floor-plan facts the vision step did —
+    # which areas in view are not the property (a named Street; a neighbouring
+    # lot past the property line) and where the property ends in the frame — so
+    # the boundary is read from the plan rather than guessed. `_scoped` (set
+    # above) confines an automatic review to the property; a manual look is not
+    # confined, but is still told where things are.
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,
         covered=cov_rooms, frigate_dets=frigate_dets,
         property_only=_scoped,
-        public_areas=(_public_areas_in_view(hass, cov_rooms) if _scoped else None),
+        public_areas=_frame["public"] or None,
+        offsite_areas=_frame["offsite"] or None,
+        boundary=_frame["boundary"],
+        beyond_property=beyond_property,
     )
     summary = judgment["summary"]
 
