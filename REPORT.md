@@ -1,4 +1,4 @@
-# JARVIS traction report — 2026-11-15
+# JARVIS traction report — 2026-11-16
 
 Generated daily by `.github/workflows/traffic.yml`. What to do with these
 numbers lives in `docs/GROWTH.md` on the default branch. Clone counts
@@ -17,15 +17,15 @@ include CI checkouts, so treat views and referrers as the audience signal.
 
 | Metric | Now | 7d change | 30d change |
 |---|---:|---:|---:|
-| Stars | 38 | +2 | +11 |
+| Stars | 39 | +3 | +11 |
 | Forks | 15 | +2 | +9 |
 | Watchers | 1 | +0 | +0 |
-| HA analytics installs | 178 | +22 | — |
+| HA analytics installs | 184 | +26 | — |
 | Release asset downloads | 0 | +0 | +0 |
 
 ## HA forum thread
 
-[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **2303** views, **12** replies.
+[Jarvis-AIO](https://community.home-assistant.io/t/jarvis-aio/1027117): **2367** views, **12** replies.
 
 _No new posts in the last 7 days._
 
@@ -89,4 +89,3 @@ _No new posts in the last 7 days._
 | 2026-10-20 | 24 | 11 | 21 | 17 |
 | 2026-10-19 | 36 | 16 | 20 | 13 |
 | 2026-10-18 | 50 | 30 | 42 | 23 |
-| 2026-10-17 | 61 | 26 | 43 | 22 |
