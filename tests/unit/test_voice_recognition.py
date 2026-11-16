@@ -132,3 +132,29 @@ async def test_maybe_fire_enrollment_gated_by_flag(vr, cfg, presence, fake_hass)
     presence["home"] = ["Sam"]
     assert vr.maybe_fire_enrollment(fake_hass) is None
     assert fake_hass.bus.fired == []
+
+
+# ── #542: the local-voice flag saved as the STRING "false" must read OFF ──────
+# The Voices toggle once sent its state as the raw string "true"/"false", and a
+# plain bool("false") is truthy — so turning the local tier off didn't stick.
+
+def test_as_bool_coerces_string_false(vr):
+    assert vr._as_bool("false") is False
+    assert vr._as_bool("False") is False
+    assert vr._as_bool("0") is False
+    assert vr._as_bool("true") is True
+    assert vr._as_bool(True) is True
+    assert vr._as_bool(1) is True
+    assert vr._as_bool(None) is False
+
+
+def test_identify_local_off_for_stored_string_false(vr, cfg):
+    cfg["voice_recognition_local"] = "false"     # the stuck value from the bug
+    vr.note_local_speaker({"trusted": True, "name": "sam", "score": 90})
+    assert vr.identify_local(None) == {}          # tier is OFF, not truthy-on
+
+
+def test_identify_local_on_when_truly_enabled(vr, cfg):
+    cfg["voice_recognition_local"] = True
+    vr.note_local_speaker({"trusted": True, "name": "sam", "score": 90})
+    assert vr.identify_local(None) == {"sam": pytest.approx(0.9)}

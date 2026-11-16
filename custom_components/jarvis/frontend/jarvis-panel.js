@@ -9442,7 +9442,12 @@ ${this._renderExcludedEntities(d)}
       el.addEventListener("click", () => this._voicesRecord(el.getAttribute("data-voice-rec"))));
     const toggle = body.querySelector("[data-voice-toggle]");
     if (toggle) toggle.addEventListener("click", () =>
-      this._voicesSetCfg("voice_recognition_local", toggle.getAttribute("data-voice-toggle")));
+      // data-voice-toggle carries the NEXT state as a string ("true"/"false").
+      // Send a real boolean — not the raw string — so turning it off stores
+      // `false`, not the STRING "false", which is truthy everywhere and left the
+      // local voice tier impossible to switch off (#542).
+      this._voicesSetCfg("voice_recognition_local",
+                         toggle.getAttribute("data-voice-toggle") === "true"));
     const saveField = (sel, key) => {
       const el = body.querySelector(sel);
       if (!el) return;

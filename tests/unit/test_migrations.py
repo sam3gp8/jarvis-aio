@@ -14,7 +14,7 @@ def m(load):
 
 def test_full_chain_v1_to_current(m):
     data, options, ver = m.migrate_config({}, {}, current_version=1)
-    assert ver == m.CURRENT_SCHEMA_VERSION == 7
+    assert ver == m.CURRENT_SCHEMA_VERSION == 8
     assert "tts_premium_engine" in options                         # v2
     assert options["tts_premium_contexts"] == [
         "briefing", "camera", "doorbell", "recognition"]
@@ -28,8 +28,8 @@ def test_full_chain_v1_to_current(m):
 
 
 def test_already_current_is_noop(m):
-    data, options, ver = m.migrate_config({"x": 1}, {"y": 2}, current_version=7)
-    assert ver == 7 and data == {"x": 1} and options == {"y": 2}
+    data, options, ver = m.migrate_config({"x": 1}, {"y": 2}, current_version=8)
+    assert ver == 8 and data == {"x": 1} and options == {"y": 2}
 
 
 def test_future_version_is_noop(m):
@@ -39,11 +39,34 @@ def test_future_version_is_noop(m):
 
 def test_partial_start_v5_skips_earlier_steps(m):
     _, options, ver = m.migrate_config({}, {}, current_version=5)
-    assert ver == 7
+    assert ver == 8
     assert "observer_enabled" in options        # 5→6 ran
     assert "bedroom_areas" in options           # 6→7 ran
     assert "tts_premium_engine" not in options  # 1→2 did NOT (started at v5)
     assert "llm_provider" not in options        # 3→4 did NOT
+
+
+def test_v7_to_8_clears_whitespace_directive(m):
+    # A lone space saved into the custom directive couldn't be erased (#542);
+    # the migration strips a whitespace-only value back to "".
+    _, options, ver = m.migrate_config({}, {"directive": "   "}, current_version=7)
+    assert ver == 8
+    assert options["directive"] == ""
+
+
+def test_v7_to_8_preserves_a_real_directive(m):
+    _, options, _ = m.migrate_config(
+        {}, {"directive": "  Always double-check the garage.  "}, current_version=7)
+    # Real text is left exactly as the user wrote it (not trimmed).
+    assert options["directive"] == "  Always double-check the garage.  "
+
+
+def test_v7_to_8_leaves_empty_and_missing_alone(m):
+    # Already-empty stays empty; a missing key is not invented.
+    _, o1, _ = m.migrate_config({}, {"directive": ""}, current_version=7)
+    assert o1["directive"] == ""
+    _, o2, _ = m.migrate_config({}, {}, current_version=7)
+    assert "directive" not in o2
 
 
 def test_legacy_cast_speakers_promoted_to_broadcast_group(m):
@@ -51,7 +74,7 @@ def test_legacy_cast_speakers_promoted_to_broadcast_group(m):
     _, options, ver = m.migrate_config(
         {}, {"cast_speakers": ["media_player.kitchen", "media_player.den"]},
         current_version=4)
-    assert ver == 7
+    assert ver == 8
     assert options["broadcast_speakers"] == ["media_player.kitchen", "media_player.den"]
     assert options["broadcast_group"] == "media_player.kitchen"
 

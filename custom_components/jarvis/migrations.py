@@ -38,8 +38,9 @@ _LOGGER = logging.getLogger(__name__)
 # v6 = added observer mode (proactive reasoning, Gemini tier providers, sleep detection)
 # v7 = area-registry-driven routing; flat entity lists removed in favor of
 #      HA area registry + bedroom_areas toggle + broadcast_group entity
+# v8 = heal a custom directive that is only whitespace (#542)
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 
 # ─── Migrations ──────────────────────────────────────────────────────────────
@@ -173,6 +174,25 @@ def migrate_6_to_7(data: dict, options: dict) -> tuple[dict, dict]:
     return data, options
 
 
+def migrate_7_to_8(data: dict, options: dict) -> tuple[dict, dict]:
+    """v7 → v8: heal a custom directive that is only whitespace.
+
+    A lone space saved by accident into the custom-directive field could not be
+    erased again — the options flow drops a cleared optional text field, so the
+    old value stuck — and it then showed as a stray space in both the options
+    form and the panel (#542). It never affected behaviour (``get_directive``
+    already ignores a blank custom directive), but it couldn't be removed. Strip
+    a whitespace-only value back to ``""`` so the field reads empty everywhere.
+    A directive with real text is left exactly as-is.
+    """
+    d = options.get("directive")
+    if isinstance(d, str) and d != "" and d.strip() == "":
+        options["directive"] = ""
+        _LOGGER.info(
+            "JARVIS migration v7→v8: cleared a whitespace-only custom directive")
+    return data, options
+
+
 # (source_version, migration_function)
 MIGRATIONS: list[tuple[int, Callable]] = [
     (1, migrate_1_to_2),
@@ -181,6 +201,7 @@ MIGRATIONS: list[tuple[int, Callable]] = [
     (4, migrate_4_to_5),
     (5, migrate_5_to_6),
     (6, migrate_6_to_7),
+    (7, migrate_7_to_8),
 ]
 
 

@@ -88,7 +88,7 @@ def identify_local(hass: HomeAssistant, device_id: Optional[str] = None) -> dict
     """In-process voice vote for the identity voice tier: the latest *trusted*
     match, as ``{person: score}``. A guess is withheld (panel-only), so the
     strongest identity tier is never fed an unreliable in-process result."""
-    if not bool(_cfg("voice_recognition_local", False)):
+    if not _as_bool(_cfg("voice_recognition_local", False)):
         return {}
     m = current_local_speaker()
     if not m or not m.get("trusted") or not m.get("name"):
@@ -105,6 +105,20 @@ def _cfg(key: str, default):
         return jarvis_config.get(key, default)
     except Exception:
         return default
+
+
+def _as_bool(v, default: bool = False) -> bool:
+    """Coerce a stored config flag to a real boolean. A panel toggle that saved
+    its state as the STRING ``"false"`` (a bespoke-toggle bug, #542) reads back
+    truthy under a plain ``bool()`` — so the local voice tier could never be
+    switched off. Treat the usual false-y strings as False."""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
 def normalize(name: str) -> str:
