@@ -281,6 +281,11 @@ This lives in `/config/jarvis/config.json` (merge it into the existing object �
 
 ## Configuration highlights
 
+> **Full settings reference & setup FAQ:** [`docs/SETTINGS.md`](docs/SETTINGS.md)
+> — every setting, what it does, and how to set it up (phone notifications,
+> speakers, cameras, face/voice recognition, Observer, briefings, the floor plan,
+> FRIDAY, and more). The highlights below are the ones worth knowing first.
+
 | Setting | What it does |
 | --- | --- |
 | `llm_provider` / per-role models | Choose Groq, Gemini, OpenAI, Anthropic, Ollama, or custom — independently for the Main Agent, Classifier, Reasoning, Review, Vision, and Camera Reasoning roles. The config flow offers live model dropdowns for each selected provider. |
