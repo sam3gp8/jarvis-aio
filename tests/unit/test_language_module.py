@@ -90,6 +90,43 @@ def test_english_request_on_nonenglish_home_gets_nothing(language):
     assert language.language_directive(_hass("de"), "en") == ""
 
 
+# ── per-request language scope (#541 — camera narration in the wrong language) ─
+# A mid-turn task prompt (camera analysis) is built with no explicit `lang`, so
+# before #541 it fell to the household GLOBAL language — a German voice query
+# had its camera line come back in Russian. The scope carries the turn's
+# pipeline language so configured_language picks it up with no param threaded
+# through the camera stack.
+def test_request_scope_sets_language_for_internal_task(language):
+    with language.request_language_scope("de"):
+        # No explicit lang (the camera path) now resolves to the turn language,
+        # not the Russian global.
+        assert language.configured_language(_hass("ru"), None) == "de"
+        assert "German" in language.language_task_directive(_hass("ru"))
+    # Scope exits cleanly → back to the global.
+    assert language.configured_language(_hass("ru"), None) == "ru"
+
+
+def test_request_scope_noop_for_falsy_language(language):
+    # No pipeline language → background behaviour is untouched.
+    with language.request_language_scope(None):
+        assert language.configured_language(_hass("ru"), None) == "ru"
+    with language.request_language_scope(""):
+        assert language.configured_language(_hass("ru"), None) == "ru"
+
+
+def test_explicit_lang_beats_request_scope(language):
+    # An explicit per-call lang (same source, more specific) still wins.
+    with language.request_language_scope("de"):
+        assert language.configured_language(_hass("ru"), "fr") == "fr"
+
+
+def test_request_scope_beats_output_language(language, set_output_language):
+    set_output_language("de")
+    with language.request_language_scope("fr"):
+        # The turn arrived in French → French, over the JARVIS output setting.
+        assert language.configured_language(_hass("ru")) == "fr"
+
+
 def _load_real_directive_helper():
     """Load the real directive_helper into jc.directive_helper, past conftest's
     lightweight stub, restoring the stub afterwards so other tests are

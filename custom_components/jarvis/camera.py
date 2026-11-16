@@ -687,6 +687,193 @@ def _camera_friendly_name(hass: HomeAssistant, entity_id: str) -> str:
     return entity_id
 
 
+# ─── Spoken-reference → camera entity resolution (#541) ──────────────────────
+# A small on-device model (and a voice pipeline that spells "5" as "five", or a
+# TTS proxy that rewrites digits) rarely emits a valid camera entity_id. It
+# guesses: ``camera.five`` for "cam 5", ``camera.garage`` for "the garage
+# camera" — entities that do not exist — and the look fails or lands on nothing.
+# These helpers resolve a loose spoken reference to a real camera so the look
+# lands on the right feed, and return the available list when it genuinely
+# cannot, so the model can retry with a real id instead of guessing again.
+
+# Number WORDS → digits, English + German (the two languages in the report).
+_NUM_WORDS = {
+    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+    "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+    "eleven": "11", "twelve": "12",
+    "null": "0", "eins": "1", "ein": "1", "eine": "1", "zwei": "2", "drei": "3",
+    "vier": "4", "fünf": "5", "fuenf": "5", "sechs": "6", "sieben": "7",
+    "acht": "8", "neun": "9", "zehn": "10", "elf": "11", "zwölf": "12",
+    "zwoelf": "12",
+}
+
+# Words that carry no camera identity — the noun itself, articles/prepositions,
+# and the command verbs a spoken reference often drags in ("check the garage
+# camera"). Stripped before number / area matching so "check cam four" reduces
+# to the number 4 and "the garage camera" to "garage" (English + German).
+_CAM_WORDS = {"cam", "cams", "camera", "cameras", "kamera", "kameras",
+              "feed", "feeds"}
+_CAM_STOP = _CAM_WORDS | {
+    "the", "a", "an", "in", "on", "at", "of", "my", "please",
+    "der", "die", "das", "den", "dem", "im", "auf", "vor", "von", "mal", "bitte",
+    # command verbs that ride along on a spoken reference
+    "check", "checks", "show", "look", "see", "watch", "view", "get", "go",
+    "prüfe", "pruefe", "prüf", "pruef", "schau", "schaue", "zeig", "zeige",
+    "guck", "gucke", "sieh",
+}
+
+
+def _norm_cam(s: str) -> str:
+    """Lowercase, drop a ``camera.`` prefix, flatten ``._-`` to spaces, and map
+    number words to digits token-wise. Pure; the shared normaliser for both the
+    reference and each candidate so they compare on equal terms."""
+    s = (s or "").strip().lower()
+    if s.startswith("camera."):
+        s = s[len("camera."):]
+    s = re.sub(r"[._\-]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    return " ".join(_NUM_WORDS.get(t, t) for t in s.split(" "))
+
+
+def resolve_camera(ref: str, cameras: list) -> Optional[str]:
+    """Resolve a loose spoken reference to exactly one camera entity_id, or
+    ``None`` when nothing matches *or* the match is ambiguous.
+
+    ``cameras`` is a list of ``{"entity_id", "name", "area"}`` dicts. Pure — no
+    hass, no I/O — so the matching rules are unit-testable directly. Returns a
+    result only when it is unambiguous; a tie resolves to ``None`` so the caller
+    asks rather than guesses. Match order, most specific first:
+
+      1. exact entity_id, with or without the ``camera.`` domain;
+      2. exact normalised match against a camera's id or friendly name
+         ("Kamera 4" ≡ "kamera vier" ≡ "cam 4");
+      3. a bare number ("5", "five", "cam 5") → the one camera whose id or name
+         carries that number as a whole token;
+      4. an area / name reference ("garage", "the garage camera") → the one
+         camera whose friendly name or HA area contains every content token.
+    """
+    if not ref or not cameras:
+        return None
+    raw = str(ref).strip().lower()
+    by_id = {}
+    for c in cameras:
+        eid = c.get("entity_id")
+        if eid:
+            by_id[eid.lower()] = eid
+    # 1. exact entity_id (as given, or with the domain added)
+    if raw in by_id:
+        return by_id[raw]
+    if ("camera." + raw) in by_id:
+        return by_id["camera." + raw]
+
+    rn = _norm_cam(ref)
+    if not rn:
+        return None
+
+    views = []
+    for c in cameras:
+        eid = c.get("entity_id")
+        if not eid:
+            continue
+        views.append((
+            eid,
+            _norm_cam(eid),
+            _norm_cam(c.get("name", "")),
+            _norm_cam(c.get("area", "")),
+        ))
+
+    def _unique(ids):
+        ids = list(dict.fromkeys(ids))
+        return ids[0] if len(ids) == 1 else None
+
+    # 2. exact normalised match on id or friendly name
+    hit = _unique([eid for (eid, idn, name, _a) in views if rn in (idn, name)])
+    if hit:
+        return hit
+
+    # Split the reference into numbers vs. identifying words (filler dropped).
+    parts = rn.split()
+    nums = [t for t in parts if t.isdigit()]
+    content = [t for t in parts if t not in _CAM_STOP and not t.isdigit()]
+
+    # 3. a number reference ("5", "cam 5", "check camera five") with no other
+    #    identifying word → the one camera carrying that number as a whole token
+    if len(nums) == 1 and not content:
+        num = nums[0]
+        hit = _unique([
+            eid for (eid, idn, name, _a) in views
+            if re.search(rf"\b{num}\b", idn) or re.search(rf"\b{num}\b", name)
+        ])
+        if hit:
+            return hit
+
+    # 4. an area / name reference ("garage", "the garage camera") → the one
+    #    camera whose friendly name or HA area contains every content token
+    if content:
+        hit = _unique([
+            eid for (eid, _idn, name, area) in views
+            if all(t in (set(name.split()) | set(area.split())) for t in content)
+        ])
+        if hit:
+            return hit
+
+    return None
+
+
+def _camera_area_name(hass: HomeAssistant, entity_id: str) -> str:
+    """The HA area NAME for a camera (via its entity/device), ``""`` if none.
+    Used only for loose reference matching; never raises."""
+    try:
+        from .audio_routing import entity_area
+        from homeassistant.helpers import area_registry as ar
+        aid = entity_area(hass, entity_id)
+        if not aid:
+            return ""
+        reg = ar.async_get(hass)
+        area = reg.async_get_area(aid)
+        return (getattr(area, "name", None) or aid) or ""
+    except Exception:
+        return ""
+
+
+def _camera_catalog(hass: HomeAssistant) -> list:
+    """Every enabled camera as ``{entity_id, name, area}`` for resolution and for
+    listing choices back to the model. Never raises."""
+    out = []
+    for s in active_camera_states(hass):
+        eid = s.entity_id
+        out.append({
+            "entity_id": eid,
+            "name": _camera_friendly_name(hass, eid),
+            "area": _camera_area_name(hass, eid),
+        })
+    return out
+
+
+def resolve_camera_entity(hass: HomeAssistant, ref: str):
+    """Map a spoken/guessed camera reference to a real entity to analyse.
+
+    Returns ``(entity_id, None)`` on a confident resolution, or
+    ``(None, [names])`` listing the available cameras when nothing matched — so
+    the tool can answer with real choices instead of failing on a hallucinated
+    id. A reference that is already a live ``camera.*`` entity wins outright (an
+    explicit look honours exactly what was asked, enabled-list or not). Never
+    raises."""
+    ref = str(ref or "").strip()
+    try:
+        if ref.startswith("camera.") and hass.states.get(ref) is not None:
+            return ref, None
+    except Exception:
+        pass
+    cams = _camera_catalog(hass)
+    hit = resolve_camera(ref, cams)
+    if hit:
+        return hit, None
+    return None, [c["name"] or c["entity_id"] for c in cams]
+
+
 # ─── Frigate-specific fetch ──────────────────────────────────────────────────
 
 def _frigate_camera_name(entity_id: str) -> str:
