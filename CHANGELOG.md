@@ -1,3 +1,22 @@
+## [9.133.0] — "Tell dad dinner's ready": JARVIS can relay a message to the house (#540)
+
+A first step toward JARVIS passing word between people in the household. A new
+**relay** ability lets you say *"tell dad dinner's ready"* or *"let mum know I'm
+heading out"* and JARVIS announces it on the home's speakers, framed as a message
+for that person — and if they look to be away, the reply tells you so. It's for
+relaying between people in the house; reaching your own phone still uses the
+existing notification.
+
+This is the immediate, house-wide relay. Deliberately still to come (the larger
+pieces, tracked on #540):
+
+- holding a message to deliver **the next time** someone is seen or comes home;
+- routing to the one speaker in the room the recipient is actually in (household
+  presence today is anonymous — a sensor knows a *room* is occupied, not *who* is
+  in it);
+- a type-and-send message box in the panel;
+- a two-way ESPHome intercom.
+
 ## [9.132.0] — Two settings you couldn't switch off or clear now behave (#542)
 
 Two small but stubborn settings bugs, both fixed:

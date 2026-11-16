@@ -463,6 +463,11 @@ _NON_ACTUATOR_TOOLS: frozenset[str] = frozenset({
     # leaves the house as a notification; it commands no device and changes no
     # home state, so it is not a kernel actuation path.
     "send_notification",
+    # spoken relay to a household member (#540): announces a message on the
+    # house speakers — communication, like send_notification and every other
+    # announcement/TTS path. It commands no device and changes no home state, so
+    # it is not a kernel actuation path.
+    "relay_message",
 })
 
 

@@ -776,6 +776,47 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "relay_message",
+            "description": (
+                "Pass a spoken message to someone in the household by announcing "
+                "it on the home's speakers, framed as a message for that person "
+                "— e.g. 'tell dad dinner's ready', 'let mum know I'm leaving'. "
+                "Use this for relaying word between people in the house, NOT for "
+                "reaching the owner's phone (use send_notification for that). The "
+                "message is spoken aloud on the broadcast speakers; if the "
+                "recipient appears to be away, the reply says so. Put the "
+                "recipient in 'to' and what to say in 'message'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": (
+                            "Who the message is for, as said — a name ('Sam') or "
+                            "a household word ('dad', 'mum'). Spoken aloud as "
+                            "given; it need not match a Home Assistant person."
+                        ),
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "What to tell them.",
+                    },
+                    "from": {
+                        "type": "string",
+                        "description": (
+                            "Optional — who the message is from, if known, so the "
+                            "announcement can name the sender."
+                        ),
+                    },
+                },
+                "required": ["to", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "delegate_task",
             "description": (
                 "Spin up a focused sub-agent for a self-contained slice of a "
@@ -2699,6 +2740,40 @@ async def _exec_send_notification(hass: HomeAssistant, args: dict) -> str:
     return json.dumps({"success": True, "sent_via": svc})
 
 
+# Rolling-window rate limit for relay announcements — a looping or confused
+# model must not be able to blast the household's speakers (#540).
+_RELAY_SEND_TS: list[float] = []
+_RELAY_MAX_PER_WINDOW = 6
+_RELAY_WINDOW_S = 60.0
+
+
+async def _exec_relay_message(hass: HomeAssistant, args: dict) -> str:
+    """Relay a spoken message to a household member (#540): announce it on the
+    home's speakers, framed as a message for that person — passing word between
+    people in the house, e.g. 'tell dad dinner's ready'."""
+    message = str(args.get("message", "") or "").strip()
+    if not message:
+        return json.dumps({"error": "message is required"})
+    to = str(args.get("to", "") or "").strip()
+    frm = str(args.get("from", "") or "").strip() or None
+    # Rate limit (same shape as send_notification) so a confused model can't
+    # turn the house's speakers into a loudspeaker loop.
+    now = time.monotonic()
+    global _RELAY_SEND_TS
+    _RELAY_SEND_TS = [t for t in _RELAY_SEND_TS if now - t < _RELAY_WINDOW_S]
+    if len(_RELAY_SEND_TS) >= _RELAY_MAX_PER_WINDOW:
+        return json.dumps({"error": "rate limited — too many announcements just "
+                           "now; try again in a moment"})
+    try:
+        from . import relay
+        result = await relay.async_relay(hass, to, message[:300], frm)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+    if result.get("success"):
+        _RELAY_SEND_TS.append(now)
+    return json.dumps(result)
+
+
 async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
     """Communication Agent — calendar agenda + conflict detection (v6.51.0)."""
     try:
@@ -3334,6 +3409,7 @@ _TOOL_MAP = {
     "manage_goals":        _exec_manage_goals,
     "web_research":        _exec_web_research,
     "send_notification":   _exec_send_notification,
+    "relay_message":       _exec_relay_message,
     "calendar_agenda":     _exec_calendar_agenda,
     "read_email":          _exec_read_email,
     "look_at_camera":      _exec_look_at_camera,
