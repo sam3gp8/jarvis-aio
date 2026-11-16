@@ -1601,7 +1601,7 @@ class PatternAnalyzer:
 
             time_str = f"{hour:02d}:00"
             details = {
-                "hour": hour, "state": state,
+                "hour": hour, "state": state, "entity": entity,
                 "coverage": round(coverage, 2),
                 "consistency": round(coverage, 2),   # back-compat key
                 "observed_days": positive_days,
