@@ -1,3 +1,14 @@
+## [9.134.0] — A full settings guide & setup FAQ
+
+Every JARVIS setting, what it does, and how to set it up, in one place:
+[`docs/SETTINGS.md`](docs/SETTINGS.md), linked from the README. It walks through
+first‑time setup (providers, model, honorific), a practical *"how do I set
+up…?"* FAQ for the common things people ask — phone notifications, broadcast
+speakers, cameras and the vision throttle, face and voice recognition, Observer
+and briefings, the floor plan and property line, departure/driving alerts,
+read‑only email, and letting JARVIS act on its own (FRIDAY / autonomy) — and a
+grouped reference to every setting in the panel. Docs only; no behaviour change.
+
 ## [9.133.0] — "Tell dad dinner's ready": JARVIS can relay a message to the house (#540)
 
 A first step toward JARVIS passing word between people in the household. A new
