@@ -108,6 +108,9 @@ def test_frigate_ground_hint_person_absent(cam):
 
 def test_lowlight_hint_present(cam):
     assert "infrared" in cam._LOWLIGHT_HINT and "shadows" in cam._LOWLIGHT_HINT
+    # a hazy frame must not yield a confident vehicle either (v9.130.0)
+    assert "vehicles and objects" in cam._LOWLIGHT_HINT
+    assert "say that the view is unclear" in cam._LOWLIGHT_HINT
 
 
 
@@ -359,3 +362,192 @@ def test_no_think_suffix(cam):
     assert "/no_think" not in g
     assert "directly" in g.lower()
     assert cam._no_think_suffix("") and "/no_think" not in cam._no_think_suffix("")
+
+
+# ── Property line read from the floor-plan GEOMETRY (v9.130.0) ───────────────
+# Real report: a Front Yard camera logged "a vehicle is parked on the driveway"
+# for a car on the neighbour's driveway. The frame was described from the saved
+# ≥70% "confirmable" list (so the camera "covered the Driveway"), the property
+# polygon was never read, and the vision step was told nothing about scope.
+_GEO_ROOMS = {"1f": {"rooms": [
+    {"name": "House", "x": 0, "y": 0, "w": 300, "h": 100, "type": "room"},
+    {"name": "Kitchen", "x": 0, "y": 0, "w": 100, "h": 100, "type": "room"},
+    {"name": "Front Yard", "type": "outdoor", "x": -100, "y": -150, "w": 500, "h": 150},
+    {"name": "Driveway", "type": "outdoor", "x": 200, "y": -150, "w": 100, "h": 150},
+    {"name": "Street", "type": "outdoor", "x": -500, "y": -220, "w": 1300, "h": 70},
+]}}
+_GEO_PROPERTY = {"points": [[-100, -150], [400, -150], [400, 300], [-100, 300]]}
+_GEO_CAMS = {"1f": [
+    {"entity": "camera.front", "x": 5, "y": -5, "angle": 315, "fov": 90,
+     "range": 900, "indoor": False,
+     "coverage": {"covered": ["Driveway"], "source": "llm"}},
+    {"entity": "camera.kitchen", "x": 50, "y": 50, "angle": 0, "fov": 120,
+     "range": 60, "indoor": True,
+     "coverage": {"covered": ["Kitchen"], "source": "geometry"}},
+]}
+
+
+def _with_geometry(cam, monkeypatch):
+    import json
+    vals = {"floor_plan_rooms": json.dumps(_GEO_ROOMS),
+            "floor_plan_cameras": json.dumps(_GEO_CAMS),
+            "floor_plan_property": json.dumps(_GEO_PROPERTY)}
+    monkeypatch.setattr(
+        cam, "_cfg_opt",
+        lambda hass, key, default=None: vals.get(key, default), raising=False)
+
+
+def test_frame_context_outdoor_camera_is_read_from_the_plan(cam, monkeypatch):
+    _with_geometry(cam, monkeypatch)
+    fr = cam._frame_context(None, "camera.front", True)
+    # what is actually in frame — not the saved "confirmable" list (["Driveway"])
+    assert fr["areas"] == ["Front Yard", "Driveway", "Street"]
+    assert "This camera's view covers the Driveway" not in fr["hint"]
+    # the part of the view that is not the property is named
+    assert fr["public"] == ["Street"]
+    assert fr["offsite"] == ["a neighbouring property"]
+    assert fr["beyond_property"] is True
+    assert "a neighbouring property — not this home" in fr["boundary"]
+    # and the VISION step is told to keep to the property and to place things
+    assert "Describe what is happening ON this home's property." in fr["hint"]
+    assert "never describe it as being in this home's driveway or yard" in fr["hint"]
+
+
+def test_frame_context_manual_look_places_but_does_not_confine(cam, monkeypatch):
+    _with_geometry(cam, monkeypatch)
+    fr = cam._frame_context(None, "camera.front", False)
+    assert "Describe what is happening ON this home's property." not in fr["hint"]
+    assert "say where it is" in fr["hint"]          # still must not misplace a car
+    assert fr["boundary"]
+
+
+def test_frame_context_indoor_camera_is_unchanged(cam, monkeypatch):
+    _with_geometry(cam, monkeypatch)
+    assert cam._frame_context(None, "camera.kitchen", True) == {
+        "areas": ["Kitchen"], "hint": " This camera's view covers the Kitchen.",
+        "boundary": "", "public": [], "offsite": [], "beyond_property": False}
+
+
+def test_frame_context_camera_not_on_the_plan_gets_the_generic_scope(cam, monkeypatch):
+    _with_geometry(cam, monkeypatch)
+    assert cam._camera_is_indoor(None, "camera.doorbell") is None
+    assert cam._frame_context(None, "camera.doorbell", True)["hint"] == cam._VISION_SCOPE_GENERIC
+    # a manual look is not confined
+    assert cam._frame_context(None, "camera.doorbell", False)["hint"] == ""
+
+
+def test_frigate_hint_says_a_whole_frame_detection_does_not_locate(cam):
+    assert "does not by itself place" not in cam._frigate_ground_hint({"car": True})
+    scoped = cam._frigate_ground_hint({"car": True}, beyond_property=True)
+    assert "car" in scoped and "does not by itself place them on the property" in scoped
+    absent = cam._frigate_ground_hint({"person": False, "car": True}, beyond_property=True)
+    assert "NO person" in absent and "does not by itself place" in absent
+    # nothing detected → there is nothing to caveat
+    assert "does not by itself place" not in cam._frigate_ground_hint(
+        {"person": False}, beyond_property=True)
+
+
+def _reply(**fields):
+    import json
+    base = {"severity": "routine", "notable": False, "category": "vehicle",
+            "summary": "A car is parked on the neighbouring property.", "speak": ""}
+    base.update(fields)
+    return {"text": json.dumps(base)}
+
+
+async def test_reasoning_step_gets_the_boundary_and_marks_what_is_off_property(cam, monkeypatch):
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"], captured["user"] = messages[0]["content"], messages[1]["content"]
+        return _reply(on_property=False)
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    await cam._reason_about_scene(
+        None, object(), "", "Front Yard", "A car is parked next door.", "motion",
+        covered=["Front Yard", "Driveway", "Street"], frigate_dets={"car": True},
+        property_only=True, public_areas=["Street"],
+        offsite_areas=["a neighbouring property"],
+        boundary="BOUNDARY-TEXT", beyond_property=True)
+    assert "CAMERA VIEW (from the home's floor plan): BOUNDARY-TEXT" in captured["system"]
+    assert "Street, a neighbouring property" in captured["system"]   # the callout
+    assert '"on_property": true|false' in captured["system"]
+    assert "Street [public — NOT the property]" in captured["user"]
+    assert "a neighbouring property [NOT the property]" in captured["user"]
+    assert "anywhere in the frame, including beyond the property line" in captured["user"]
+
+
+async def test_off_property_only_scene_is_quiet_and_filed_as_empty(cam, monkeypatch):
+    # The model flags it notable and wants to speak, but says nothing described is
+    # on the property → the code, not the prose, keeps it off this home's record.
+    async def _fake_chat(hass, client, *, messages, **kw):
+        return _reply(severity="notable", notable=True, on_property=False,
+                      speak="Sir, a vehicle is parked nearby.")
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    out = await cam._reason_about_scene(
+        None, object(), "", "Front Yard", "A car is parked next door.", "motion",
+        property_only=True, beyond_property=True)
+    assert out["on_property"] is False
+    assert out["severity"] == "routine" and out["notable"] is False
+    assert out["speak"] is None
+    assert out["category"] == "empty"      # not learned/remembered as a vehicle here
+    assert out["summary"] == "A car is parked on the neighbouring property."
+
+
+async def test_urgent_is_never_downgraded_by_the_location_verdict(cam, monkeypatch):
+    async def _fake_chat(hass, client, *, messages, **kw):
+        return _reply(severity="urgent", notable=True, on_property=False,
+                      category="person", speak="Sir, someone is at the fence.")
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    out = await cam._reason_about_scene(
+        None, object(), "", "Front Yard", "x", "motion", property_only=True)
+    assert out["severity"] == "urgent" and out["category"] == "person"
+    assert out["speak"] == "Sir, someone is at the fence."
+
+
+async def test_manual_look_is_not_overridden(cam, monkeypatch):
+    async def _fake_chat(hass, client, *, messages, **kw):
+        return _reply(severity="notable", notable=True, on_property=False, speak="A car next door.")
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    out = await cam._reason_about_scene(
+        None, object(), "", "Front Yard", "x", "motion",
+        property_only=False, boundary="BOUNDARY-TEXT")
+    assert out["category"] == "vehicle" and out["speak"] == "A car next door."
+    assert out["on_property"] is False     # reported, just not acted on
+
+
+async def test_no_verdict_from_the_model_changes_nothing(cam, monkeypatch):
+    async def _fake_chat(hass, client, *, messages, **kw):
+        return _reply(severity="notable", notable=True, speak="A car in the driveway.")
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    out = await cam._reason_about_scene(
+        None, object(), "", "Driveway", "x", "motion", property_only=True)
+    assert out["on_property"] is None
+    assert out["category"] == "vehicle" and out["severity"] == "notable"
+    assert out["speak"] == "A car in the driveway."
+
+
+async def test_prompt_is_unchanged_when_there_is_nothing_to_locate(cam, monkeypatch):
+    captured = {}
+
+    async def _fake_chat(hass, client, *, messages, **kw):
+        captured["system"] = messages[0]["content"]
+        return _reply()
+
+    monkeypatch.setattr(cam, "_capped_camera_chat", _fake_chat)
+    out = await cam._reason_about_scene(
+        None, object(), "", "Kitchen", "x", "motion", property_only=False)
+    assert "on_property" not in captured["system"]
+    assert "CAMERA VIEW" not in captured["system"]
+    assert out["on_property"] is None
+
+
+def test_as_tristate(cam):
+    assert cam._as_tristate(True) is True and cam._as_tristate(False) is False
+    assert cam._as_tristate("true") is True and cam._as_tristate(" No ") is False
+    for junk in (None, "", "maybe", 0, 1, [], {}):
+        assert cam._as_tristate(junk) is None
