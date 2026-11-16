@@ -410,8 +410,30 @@ async def test_section_saves_independently(config_flow, fake_hass):
     assert res["step_id"] == "core_model"
     res = await flow.async_step_core_model({"model": "x"})
     assert res["type"] == "create_entry"
-    # only the submitted keys are carried in _data (other sections untouched)
-    assert flow._data == {"honorific": "boss", "llm_provider": "groq", "model": "x"}
+    # only the submitted keys are carried in _data (other sections untouched);
+    # the custom directive is always normalised to an explicit "" so a cleared
+    # field reliably persists as empty rather than keeping a stale value (#542).
+    assert flow._data == {
+        "honorific": "boss", "llm_provider": "groq", "model": "x", "directive": ""}
+
+
+async def test_core_clears_whitespace_directive(config_flow, fake_hass):
+    # #542: a lone-space custom directive, which otherwise couldn't be erased,
+    # is normalised to "" on save.
+    flow = _flow(config_flow, fake_hass)
+    flow._available_models = _models
+    await flow.async_step_core(
+        {"honorific": "boss", "llm_provider": "groq", "directive": "   "})
+    assert flow._data["directive"] == ""
+
+
+async def test_core_keeps_a_real_directive(config_flow, fake_hass):
+    flow = _flow(config_flow, fake_hass)
+    flow._available_models = _models
+    await flow.async_step_core(
+        {"honorific": "boss", "llm_provider": "groq",
+         "directive": "  Always check the garage.  "})
+    assert flow._data["directive"] == "Always check the garage."
 
 
 async def test_llm_menu_lists_providers_and_main(config_flow, fake_hass):

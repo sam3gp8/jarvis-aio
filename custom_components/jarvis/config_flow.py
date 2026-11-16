@@ -31,6 +31,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .paths import config_path
+from .migrations import CURRENT_SCHEMA_VERSION
 from .const import (
     CONF_API_KEY,
     CONF_HONORIFIC,
@@ -347,7 +348,7 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_HONORIFIC: self._finish_honorific,
                     "llm_provider": provider,
                     "llm_base_url": base_url,
-                    "schema_version": 7,
+                    "schema_version": CURRENT_SCHEMA_VERSION,
                 },
             )
         return self.async_show_form(
@@ -408,7 +409,7 @@ class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_HONORIFIC: import_data.get(CONF_HONORIFIC, import_data.get("honorific", DEFAULT_HONORIFIC)),
                 "llm_provider": provider,
                 "llm_base_url": base_url,
-                "schema_version": 7,
+                "schema_version": CURRENT_SCHEMA_VERSION,
             },
             options={k: v for k, v in import_data.items()
                      if k not in ha_secrets.CREDENTIAL_KEYS
@@ -685,6 +686,12 @@ class JarvisOptionsFlow(OptionsFlow):
         """Core — persona, directive, conversation model, home control."""
         if user_input is not None:
             provider = user_input.pop("llm_provider", self._cur("llm_provider", "groq"))
+            # A cleared optional text field is dropped from user_input (HA sends
+            # nothing for an emptied TextSelector), so without this an existing
+            # custom directive — even a stray lone space — could never be erased
+            # from the options flow (#542). Force an explicit, stripped value, so
+            # cleared or whitespace-only reliably persists as "".
+            user_input[CONF_DIRECTIVE] = str(user_input.get(CONF_DIRECTIVE) or "").strip()
             self._data.update(user_input)
             self._data["llm_provider"] = provider
             return await self.async_step_core_model()

@@ -127,6 +127,20 @@ def _runtime_opt(hass: HomeAssistant, entry, key: str, default=None):
     return jarvis_config.runtime_get(hass, entry, key, default)
 
 
+def _as_bool(v, default: bool = False) -> bool:
+    """Coerce a stored config flag to a real boolean for the panel payload. A
+    bespoke toggle that saved its state as the STRING ``"false"`` (#542) reads
+    back truthy under a plain ``bool()`` — so the toggle rendered ON after being
+    turned off. Treat the usual false-y strings as False."""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _honorific_payload(value) -> str:
     """Honorific for the panel payload. An explicitly-blank honorific (the owner
     wants no form of address) is preserved; only a truly-unset value (``None``)
@@ -810,14 +824,18 @@ async def ws_get_panel_data(
                 "proactive_questions_interactive": bool(_runtime_opt(hass, entry, "proactive_questions_interactive", True)),
                 "directive_preset": str(_runtime_opt(hass, entry, "directive_preset", _DEF_DIR_PRESET)
                                         or _DEF_DIR_PRESET),
-                "directive": str(_runtime_opt(hass, entry, "directive", "") or ""),
+                # Strip so a directive that is only whitespace (an accidental
+                # lone space saved once can't otherwise be erased, #542) shows as
+                # empty in the panel — and matches get_directive, which already
+                # ignores a blank custom directive.
+                "directive": str(_runtime_opt(hass, entry, "directive", "") or "").strip(),
                 "directive_presets": list(_DIR_PRESETS.keys()),
                 "use_hass_api": bool(_runtime_opt(hass, entry, "use_hass_api", True)),
                 "identity_enabled": bool(_runtime_opt(hass, entry, "identity_enabled", True)),
                 "identity_voice_fingerprint": bool(_runtime_opt(hass, entry, "identity_voice_fingerprint", False)),
                 "voice_recognition_source": str(_runtime_opt(hass, entry, "voice_recognition_source", "") or ""),
                 "voice_recognition_auto_enroll": bool(_runtime_opt(hass, entry, "voice_recognition_auto_enroll", True)),
-                "voice_recognition_local": bool(_runtime_opt(hass, entry, "voice_recognition_local", False)),
+                "voice_recognition_local": _as_bool(_runtime_opt(hass, entry, "voice_recognition_local", False)),
                 "voice_recognition_delegate_stt": str(_runtime_opt(hass, entry, "voice_recognition_delegate_stt", "") or ""),
                 "imap_enabled": bool(_runtime_opt(hass, entry, "imap_enabled", False)),
                 "imap_host": str(_runtime_opt(hass, entry, "imap_host", "") or ""),
@@ -3473,7 +3491,7 @@ async def ws_voices(
         connection.send_result(msg["id"], {
             "profiles": profiles,
             "current": voice_recognition.current_local_speaker(),
-            "local_enabled": bool(_runtime_opt(hass, entry, "voice_recognition_local", False)),
+            "local_enabled": _as_bool(_runtime_opt(hass, entry, "voice_recognition_local", False)),
             "delegate_stt": str(_runtime_opt(hass, entry, "voice_recognition_delegate_stt", "") or ""),
             "model_path": str(_runtime_opt(hass, entry, "voice_embedding_model_path", "") or ""),
             "backend_available": bool(backend),

@@ -1,3 +1,25 @@
+## [9.132.0] — Two settings you couldn't switch off or clear now behave (#542)
+
+Two small but stubborn settings bugs, both fixed:
+
+- **"Identify speakers in-process" (local voice recognition) couldn't be turned
+  off.** Its toggle was saving its state as the *text* `"false"` instead of the
+  boolean `false` — and a non-empty string counts as "on" everywhere — so the
+  tier read as enabled no matter how many times you pressed the button, and it
+  stayed on. The toggle now stores a real boolean, and JARVIS reads the flag
+  defensively, so an install already stuck in this state reads the local tier as
+  **off** again on upgrade (no clicking required) and the button switches
+  cleanly from then on. Nothing else about the feature changed — it still only
+  does anything with a speaker-ID backend and model installed.
+- **A custom directive saved as a single space couldn't be erased.** Clearing an
+  optional text field in Home Assistant's options flow sends *nothing* back, so
+  the old value — even a stray lone space typed by accident — stuck, and showed
+  as a phantom space in both the options form and the panel. It never changed
+  JARVIS's behaviour (a blank custom directive is ignored and the preset is
+  used), but it wouldn't go away. Clearing the field now reliably saves as empty,
+  the panel shows it empty, and a one-time upgrade step tidies away a
+  whitespace-only directive that was already stored.
+
 ## [9.131.0] — Camera checks land on the right camera, in the right language (#541)
 
 Two bugs when you ask JARVIS to look through a camera on demand, both fixed:

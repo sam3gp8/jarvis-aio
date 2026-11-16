@@ -42,6 +42,20 @@ def _cfg(hass: HomeAssistant, key: str, default):
         return default
 
 
+def _as_bool(v, default: bool = False) -> bool:
+    """Coerce a stored config flag to a real boolean. A panel toggle that saved
+    its state as the STRING ``"false"`` (a bespoke-toggle bug, #542) would read
+    back truthy under a plain ``bool()`` — so the local voice tier could never
+    be turned off. Treat the usual false-y strings as False."""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -51,7 +65,7 @@ async def async_setup_entry(
     pieces are present. Otherwise add nothing — a default install is untouched,
     so this platform is a no-op and can't affect anyone's voice pipeline."""
     try:
-        if not bool(_cfg(hass, "voice_recognition_local", False)):
+        if not _as_bool(_cfg(hass, "voice_recognition_local", False)):
             return
         delegate = (_cfg(hass, "voice_recognition_delegate_stt", "") or "").strip()
         if not delegate:
