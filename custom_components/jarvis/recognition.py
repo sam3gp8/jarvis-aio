@@ -427,6 +427,18 @@ def remember_recognition(camera_name: str, name: str, confidence: float, hass=No
     # stand-down behaviour resumes the moment a real sighting lands.
     _persist(hass)
 
+    # Deferred-notify (#540 increment 2): a confident sighting of a NAMED person is
+    # a literal "see" — deliver anything held for them. Guarded by has_pending() so
+    # a sighting costs nothing when the queue is empty (the usual case); an unknown
+    # face never triggers it.
+    try:
+        if hass is not None and name and name.lower() != "unknown":
+            from . import notify_queue
+            if notify_queue.has_pending():
+                notify_queue.schedule_delivery(hass, name, "camera")
+    except Exception:
+        pass
+
 
 def _face_norm(name: str) -> str:
     """Filesystem-safe key for a recognized name, used both as the snapshot

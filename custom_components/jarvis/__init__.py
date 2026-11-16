@@ -799,9 +799,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             from . import arrival_greeting
             new = event.data.get("new_state")
+            # Deferred-notify (#540 increment 2): deliver anything held for someone
+            # the moment they arrive home. Independent of the arrival-greeting
+            # opt-in; the cheap has_pending() guard means no work (no DB touch)
+            # when nothing is queued, which is the usual case.
+            old = event.data.get("old_state")
+            if new and str(new.state).lower() == "home" and (
+                    old is None or str(old.state).lower() != "home"):
+                try:
+                    from . import notify_queue
+                    if notify_queue.has_pending():
+                        a = getattr(new, "attributes", {}) or {}
+                        who = a.get("friendly_name") \
+                            or str(event.data.get("entity_id", "")).split(".", 1)[-1]
+                        notify_queue.schedule_delivery(hass, who, "home")
+                except Exception:
+                    pass
             if not new or str(new.state).lower() not in ("not_home", "away"):
                 return
-            old = event.data.get("old_state")
             if old is not None and str(old.state).lower() in ("not_home", "away"):
                 return                               # already away → leaving edge only
             attrs = getattr(new, "attributes", {}) or {}
@@ -834,6 +849,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 async_track_state_change_event(hass, _presence_ids, _presence_departed))
     except Exception as exc:
         _LOGGER.debug("JARVIS arrival greeting listener setup failed: %s", exc)
+
+    # Deferred-notify (#540 increment 2): seed the "anything held?" flag from the
+    # DB so a restart with queued messages still delivers. The presence/recognition
+    # hooks read this flag to stay free (no DB touch) when the queue is empty.
+    try:
+        from . import notify_queue
+        await hass.async_add_executor_job(notify_queue.warm_start)
+    except Exception as exc:
+        _LOGGER.debug("JARVIS notify_queue warm_start failed: %s", exc)
 
     # Hourly gentle service-health sweep (v6.70.3): re-runs the core-dependency
     # checks on its own so the panel stays current without the user opening it.

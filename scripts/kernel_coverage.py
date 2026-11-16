@@ -468,6 +468,11 @@ _NON_ACTUATOR_TOOLS: frozenset[str] = frozenset({
     # announcement/TTS path. It commands no device and changes no home state, so
     # it is not a kernel actuation path.
     "relay_message",
+    # deferred relay (#540 increment 2): holds a message and, when JARVIS next
+    # detects the person, announces it / pushes it — the same communication class
+    # as relay_message and send_notification. It queues and delivers words; it
+    # commands no device and changes no home state.
+    "notify_when_seen",
 })
 
 
