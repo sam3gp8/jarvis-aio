@@ -1,3 +1,29 @@
+## [9.131.0] — Camera checks land on the right camera, in the right language (#541)
+
+Two bugs when you ask JARVIS to look through a camera on demand, both fixed:
+
+- **"Check cam 5" looked at the wrong camera — or none.** JARVIS trusted whatever
+  entity id the language model guessed, and a small on-device model rarely gets
+  it right: it tried `camera.five` for "cam 5", `camera.garage` for "the garage
+  camera" — entities that don't exist — and the look failed or landed on nothing.
+  A voice or TTS layer that spells digits as words ("5" → "five") made it worse.
+  Camera references are now **resolved to a real camera** before the look: a
+  number ("5", "cam 5", "camera five", German "vier"), a room ("garage", "the
+  garage camera"), or a name all find the right feed. When nothing matches —or
+  two cameras match equally— JARVIS hands back the list of real cameras to choose
+  from instead of guessing again.
+- **A German request got its camera description back in Russian.** Spoken replies
+  already followed the language you spoke, but the camera-analysis step was built
+  with no per-request language and fell back to Home Assistant's **global** system
+  language. In a household whose HA system language differs from the language you
+  actually talk to JARVIS in, that meant the camera line came out in the wrong
+  language (a German *"ist jemand draußen?"* answered with a Russian scene
+  description) — which also made JARVIS look like it was contradicting itself. The
+  turn's language now carries through to camera analysis (and every other task
+  prompt built mid-turn), so the whole exchange stays in one language. Background
+  briefings and notices are unchanged — they still use your configured output
+  language.
+
 ## [9.130.0] — Cameras now respect the property line: a car on the neighbour's driveway is no longer "parked on the driveway"
 
 A Front Yard camera was logging *"a vehicle remains parked on the driveway"* for a

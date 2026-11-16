@@ -1204,7 +1204,14 @@ JARVIS_TOOLS = [
                 "properties": {
                     "entity_id": {
                         "type": "string",
-                        "description": "The camera entity_id (e.g. camera.workshop).",
+                        "description": (
+                            "Which camera to look at. Prefer a real entity_id "
+                            "(e.g. camera.workshop). A loose reference also "
+                            "works and is resolved to the nearest camera: a "
+                            "number ('5', 'camera 5'), a room ('garage', 'the "
+                            "garage camera'), or a name. If none matches you "
+                            "get the list of real cameras to choose from."
+                        ),
                     },
                     "question": {
                         "type": "string",
@@ -3213,6 +3220,24 @@ async def _exec_look_at_camera(hass: HomeAssistant, args: dict) -> str:
     if not entity_id or not question:
         return json.dumps({"error": "entity_id and question are required"})
     try:
+        # Resolve a loose spoken reference ("cam 5", "the garage camera") to a
+        # real camera before looking — a small model rarely emits a valid
+        # entity_id, and a voice/TTS layer that spells digits as words turns
+        # "camera 5" into "camera five" (#541). On no match, hand back the real
+        # choices so the model retries with a true id instead of guessing again.
+        from .camera import resolve_camera_entity
+        resolved, available = resolve_camera_entity(hass, entity_id)
+        if resolved is None:
+            names = ", ".join(available) if available else "none are set up"
+            return json.dumps({
+                "success": False,
+                "error": f"No camera matches '{entity_id}'.",
+                "available_cameras": available,
+                "hint": (f"Cameras available: {names}. Call look_at_camera again "
+                         f"with the exact entity_id of the one you want, or use "
+                         f"get_home_summary to check all cameras."),
+            })
+        entity_id = resolved
         from . import jarvis_config
         # Preserve an explicitly-blank honorific (owner wants no address); only
         # fall back to "sir" when truly unset/None (#400 #8).

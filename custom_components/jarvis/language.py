@@ -12,6 +12,67 @@ anywhere without pulling in heavier chains.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
+
+# ── Per-request pipeline language (contextvar) ───────────────────────────────
+# The conversation / voice pipeline knows the language a turn arrived in
+# (``user_input.language``). Chat replies thread it explicitly, but internal
+# task prompts built *mid-turn* — above all CAMERA ANALYSIS (async_analyze_camera
+# → build_system_prompt → language_task_directive) — are built with no explicit
+# ``lang`` and so fell back to the household's GLOBAL language. A German voice
+# request in a household whose HA *system* language is Russian therefore had its
+# camera narration come back in Russian while the spoken reply was correctly
+# German (issue #541). Scoping the turn's language here lets configured_language
+# pick it up with no new parameter threaded through the whole camera stack.
+# Unset outside a request (background briefings / sentinel notices), so those
+# keep using the output/ui/global language exactly as before. Mirrors the
+# correlation-id contextvar pattern used elsewhere in the integration.
+_REQUEST_LANG: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
+    "jarvis_request_language", default=None)
+
+
+def set_request_language(lang):
+    """Set the current turn's pipeline language. Returns a reset token (or
+    ``None`` on error / falsy input). Never raises."""
+    try:
+        return _REQUEST_LANG.set(lang or None)
+    except Exception:
+        return None
+
+
+def reset_request_language(token) -> None:
+    """Undo :func:`set_request_language`. Safe with a ``None`` token. Never
+    raises."""
+    try:
+        if token is not None:
+            _REQUEST_LANG.reset(token)
+    except Exception:
+        pass
+
+
+def _request_language() -> str:
+    """The current turn's pipeline language, or ``""`` when none is in scope.
+    Never raises."""
+    try:
+        return _REQUEST_LANG.get() or ""
+    except Exception:
+        return ""
+
+
+@contextlib.contextmanager
+def request_language_scope(lang):
+    """Scope ``lang`` as the current turn's pipeline language so internal task
+    prompts follow the language the turn arrived in (issue #541). A no-op for a
+    falsy ``lang`` — background work carries no request language and is
+    unaffected. Never raises."""
+    tok = set_request_language(lang) if lang else None
+    try:
+        yield
+    finally:
+        reset_request_language(tok)
+
+
 # Language names keyed by the primary ISO-639 subtag of Home Assistant's
 # configured language.
 _LANG_NAMES = {
@@ -73,6 +134,12 @@ def configured_language(hass, lang: str | None = None) -> str:
          language (``user_input.language``). A request coming through a German
          satellite is answered in German even in a household whose global
          language is Russian (the case that produced garbled voice replies).
+      1b. The per-request contextvar (:func:`request_language_scope`) — the same
+         pipeline language, picked up ambiently when a caller can't thread
+         ``lang`` through (e.g. camera analysis built mid-turn). Below an
+         explicit ``lang`` (identical source), above every stored setting, so a
+         German turn's camera narration is German, not the household global
+         (issue #541). Unset outside a request, so background work is unchanged.
       2. JARVIS's own ``output_language`` setting — so a home can have JARVIS
          speak German while Home Assistant's UI stays English (issue #148).
       3. JARVIS's panel ``ui_language`` setting — if you set JARVIS's own UI to
@@ -86,7 +153,8 @@ def configured_language(hass, lang: str | None = None) -> str:
 
     Never raises."""
     try:
-        raw = lang or _jarvis_output_language() or _jarvis_ui_language() \
+        raw = lang or _request_language() or _jarvis_output_language() \
+            or _jarvis_ui_language() \
             or getattr(hass.config, "language", None) or "en"
         return (raw or "en").split("-")[0].lower()
     except Exception:

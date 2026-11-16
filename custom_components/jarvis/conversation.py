@@ -761,7 +761,18 @@ class JarvisAgent(conversation.ConversationEntity):
         except Exception:
             _scope = _ctxlib.nullcontext()
 
-        with _scope:
+        # Scope the turn's pipeline language so task prompts built mid-turn —
+        # above all camera analysis — follow the language the request arrived in,
+        # not the household's global HA language (issue #541: a German voice
+        # query had its camera narration come back in Russian). No-op when the
+        # pipeline reports no language.
+        try:
+            from .language import request_language_scope as _rls
+            _lang_scope = _rls(getattr(user_input, "language", None))
+        except Exception:
+            _lang_scope = _ctxlib.nullcontext()
+
+        with _scope, _lang_scope:
             try:
                 return await self._handle_message_impl(user_input, chat_log)
             except Exception:
