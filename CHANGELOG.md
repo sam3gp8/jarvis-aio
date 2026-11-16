@@ -1,3 +1,21 @@
+## [9.137.0] — JARVIS no longer "confirms" an action it didn't take (#556)
+
+A multi-device command like *"turn on the LED and the TV"* could come back with a
+cheerful *"done — both are on"* while **nothing actually happened** — a smaller
+local model would narrate the action but never call the tool to carry it out
+(one-by-one worked because each was simple enough to trigger a real call). Two
+fixes: when a **control** command produces no tool call, JARVIS now **forces one
+more attempt**, telling the model it must actually call the control tool (and can
+switch several devices at once) — so the lights really do come on. And if it
+*still* won't act, JARVIS gives an honest *"I wasn't able to carry that out —
+please try again"* instead of a false confirmation. It never claims an action it
+didn't take.
+
+Scoped to real control commands (recognised across English, German and French),
+so ordinary questions — *"what's the capital of France?"*, *"is the TV on?"* — are
+untouched, and a reply that already admits it couldn't find the device is left as
+it is. Cloud models that reliably call tools are unaffected.
+
 ## [9.136.0] — "Tell dad next time you see him": JARVIS can hold a message (#540)
 
 The headline of #540, and the half that was deferred when the relay shipped in

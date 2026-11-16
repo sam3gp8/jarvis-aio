@@ -4542,6 +4542,84 @@ async def _maybe_web_rescue(hass, answer, *, user_text, client, hass_api,
         return answer
 
 
+# ── #556: control command that narrates but calls no tool ────────────────────
+# A tool-CAPABLE local model (passes supports_tools, uses the native loop) can
+# still reply to "turn on the TV and the LED" with a confirmation and NO tool
+# call — so nothing happens, yet JARVIS says it's done. The native loop returns
+# on the first no-tool-call, so the model never gets a second chance. This forces
+# ONE retry to actually act, and if it still won't, replaces the false
+# confirmation with an honest line — JARVIS must never claim an action it didn't
+# take. Scoped to control requests (high-precision verbs) so a plain Q&A that
+# legitimately makes no tool call is untouched.
+import re as _re556
+
+_CONTROL_VERB_RE = _re556.compile(
+    r"\b("
+    # English — imperative device control (kept tight to avoid question forms)
+    r"turn(\s+\w+){0,3}\s+(on|off)|turn\s+(on|off)|switch(\s+\w+){0,3}\s+(on|off)|"
+    r"switch\s+(on|off)|toggle|power\s+(on|off)|dim|brighten|lock|unlock|"
+    r"activate|deactivate|enable|disable|"
+    # German
+    r"(ein|aus|an|ab)schalt|(an|aus)mach|"
+    r"mach(e|st)?(\s+\w+){0,3}\s+(an|aus)|schalt(e|est)?(\s+\w+){0,3}\s+(ein|aus)|"
+    r"dimm|sperr|entsperr|verriegl|entriegl|aktivier|deaktivier|einschalt|ausschalt|"
+    # French
+    r"allum|éteins|éteind|éteign|verrouill|déverrouill|activ|désactiv"
+    r")",
+    _re556.IGNORECASE)
+
+# Phrases that mean the model ALREADY admitted it couldn't act / needs more info.
+# When one is present we leave the reply as-is — it is honest, not a false claim.
+_NO_ACTION_MARKERS = (
+    # English
+    "couldn't", "could not", "can't find", "cannot find", "unable to",
+    "not able", "didn't find", "did not find", "don't see", "do not see",
+    "no device", "no matching", "not found", "wasn't able", "was not able",
+    "which device", "not sure which", "could you tell me", "please specify",
+    # German
+    "konnte nicht", "kann nicht", "nicht gefunden", "nicht finden", "kein gerät",
+    "kein geraet", "nicht sicher", "welches gerät", "welches geraet", "finde kein",
+    "finde nicht",
+    # French
+    "n'ai pas", "je ne peux pas", "impossible de", "pas trouvé", "pas trouve",
+    "aucun appareil", "ne trouve pas", "quel appareil",
+)
+
+_CONTROL_NUDGE = (
+    "You replied without calling any tool, so NOTHING was actually done. The user "
+    "asked you to control one or more devices. Call control_device now for each "
+    "device (or bulk_control to set several at once); if you need an entity_id, "
+    "call search_entities first. Do NOT reply with words until you have called the "
+    "tool(s) to carry out the request."
+)
+
+
+def _looks_like_control_request(text: str) -> bool:
+    """True when the user's words are an imperative device-control command (not a
+    question). High-precision across EN/DE/FR so a plain Q&A is never caught."""
+    return bool(text) and bool(_CONTROL_VERB_RE.search(text))
+
+
+def _admits_no_action(text: str) -> bool:
+    """True when a reply already says it couldn't act / needs clarification — such
+    a reply is honest and must be left alone (never overridden)."""
+    t = (text or "").lower()
+    return bool(t) and any(m in t for m in _NO_ACTION_MARKERS)
+
+
+def _honest_no_action_reply(config) -> str:
+    """Honest line for a control command that executed nothing — so JARVIS never
+    relays a false 'done'. Honorific-aware; never raises."""
+    try:
+        hon = config.get("honorific", "sir") if isinstance(config, dict) else "sir"
+        if hon is None:
+            hon = "sir"
+    except Exception:
+        hon = "sir"
+    return (f"I wasn't able to carry that out, {hon} — please try again, or tell me "
+            f"exactly which device to control.")
+
+
 async def _run_agent_json(
     hass: HomeAssistant,
     *,
@@ -4893,6 +4971,7 @@ async def run_agent(
     llm_run_state: dict[str, Any] = {}
     slim_retried = False   # one-shot 413 recovery (drop HA tools + home-state)
     _acted = False         # Phase AE shadow: did this turn execute a tool action?
+    _control_retried = False  # #556: one-shot "you must call a tool" nudge used?
     # The model that actually served this turn — starts as the primary, and is
     # updated if the reasoning-tier fallback takes over, so the #413 diagnostic
     # names the real responder rather than the configured primary.
@@ -5090,6 +5169,29 @@ async def run_agent(
                     jarvis_log("AGENT", _no_action_note(_served_by, len(tools or [])))
                 except Exception:
                     pass
+            # #556: a control command that produced NO tool call and NO action —
+            # the model narrated instead of acting. Unless it already admitted it
+            # couldn't act, force ONE retry to actually call the tool; if it still
+            # won't, return an honest line rather than relaying a false confirmation.
+            if (not _acted and _looks_like_control_request(_user_text)
+                    and not _admits_no_action(text)):
+                if not _control_retried and iteration + 1 < _cap:
+                    _control_retried = True
+                    working.append({"role": "user", "content": _CONTROL_NUDGE})
+                    try:
+                        from .websocket import jarvis_log
+                        jarvis_log("AGENT", "control request got no tool call — "
+                                   "forcing one retry to actually act (#556)")
+                    except Exception:
+                        pass
+                    continue
+                try:
+                    from .websocket import jarvis_log
+                    jarvis_log("AGENT", "control request produced no action — "
+                               "honest reply, not a false confirmation (#556)")
+                except Exception:
+                    pass
+                return _honest_no_action_reply(config)
             _final = text.strip() if _has_text else _empty_reply_fallback(config)
             # #515: rescue a knowledge-cutoff refusal (no tool call) by actually
             # searching the web and re-answering. No-op for a normal reply.
