@@ -1,3 +1,16 @@
+## [9.138.0] — "Who founded the Soviet Union?" — JARVIS searches instead of dodging (#547)
+
+Ask a small local model a general-knowledge question and it would sometimes
+**dodge** rather than answer — *"that's not house-relevant"*, or *"I'd need to do
+a full web search"* — and then never actually run one. JARVIS already had a
+backstop for the *"that's beyond my training cutoff"* excuse (9.x, #515): it
+quietly runs the search the model should have run and answers from the results.
+That backstop now also catches the *"needs a web search"* and *"not about the
+home"* deflections (recognised in English, German and French), so the question
+gets answered instead of batted away. A reply that already answers — *"Lenin and
+the Bolsheviks, in 1922"* — is never second-guessed, and if no web provider is
+configured the original reply is kept unchanged.
+
 ## [9.137.0] — JARVIS no longer "confirms" an action it didn't take (#556)
 
 A multi-device command like *"turn on the LED and the TV"* could come back with a
