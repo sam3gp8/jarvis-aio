@@ -126,3 +126,49 @@ async def test_empty_user_text_no_rescue(agent, monkeypatch):
         client=client, hass_api=None, user_input=None, config={})
     assert out == "beyond my training cutoff"
     assert calls["n"] == 0
+
+
+# ── #547: "needs a web search" / "not house relevant" deflections ────────────
+
+def test_deflection_detector(agent):
+    assert agent._looks_like_search_deflection("That's not house relevant.")
+    assert agent._looks_like_search_deflection("I'd need to do a full websearch.")
+    assert agent._looks_like_search_deflection("Ich müsste eine Web-Suche machen.")
+    assert agent._looks_like_search_deflection("Das ist nicht hausrelevant.")
+    assert agent._looks_like_search_deflection("Je dois faire une recherche web.")
+    # a real answer is NOT a deflection — must never trigger a re-search
+    assert not agent._looks_like_search_deflection(
+        "Lenin founded the Soviet Union in 1922, sir.")
+    assert not agent._looks_like_search_deflection("The kitchen light is on.")
+    assert not agent._looks_like_search_deflection("")
+
+
+async def test_rescue_searches_on_search_deflection(agent, monkeypatch):
+    """The #547 case: the model says it needs a web search (or 'not house
+    relevant') but never ran one — the rescue searches and re-answers."""
+    h = FakeHass()
+    calls = _patch_research(agent, monkeypatch,
+                            '{"summary":"Lenin and the Bolsheviks, 1922."}')
+    client = _Client("The Bolsheviks founded the Soviet Union in 1922, sir.")
+    out = await agent._maybe_web_rescue(
+        h, "That's not house relevant — I'd need to do a full websearch.",
+        user_text="who founded the soviet union?",
+        client=client, hass_api=None, user_input=None, config={"honorific": "sir"})
+    assert calls["n"] == 1 and calls["name"] == "web_research"
+    assert "soviet union" in (calls["query"] or "").lower()
+    assert out == "The Bolsheviks founded the Soviet Union in 1922, sir."
+
+
+async def test_correct_answer_not_re_searched(agent, monkeypatch):
+    """A reply that already answers the question (no deflection) is returned as-is
+    — no web search, no extra model call."""
+    h = FakeHass()
+    calls = _patch_research(agent, monkeypatch, '{"summary":"x"}')
+    client = _Client()
+    answer = "Lenin founded the Soviet Union in 1922, sir."
+    out = await agent._maybe_web_rescue(
+        h, answer, user_text="who founded the soviet union?",
+        client=client, hass_api=None, user_input=None, config={})
+    assert out == answer
+    assert calls["n"] == 0
+    assert client.chat_calls == []

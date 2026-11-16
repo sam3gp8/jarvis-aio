@@ -4492,6 +4492,38 @@ def _looks_like_cutoff_refusal(text: str) -> bool:
     return bool(t) and any(m in t for m in _CUTOFF_REFUSAL_MARKERS)
 
 
+# #547: a small model also deflects a general-knowledge question by SAYING it
+# needs a web search (but never calling web_research), or by declaring the
+# question "not house relevant" instead of just answering. Same backstop: when
+# the final answer deflects this way, run the search the model talked about.
+_SEARCH_DEFLECTION_MARKERS = (
+    # English — the model talks about searching but didn't
+    "web search", "web-search", "websearch", "search the web", "search online",
+    "search the internet", "look it up online", "look this up online",
+    "do a web", "a full web", "full websearch", "need to look that up",
+    # English — "that's not about the home" deflection to a real question
+    "not house relevant", "not home relevant", "not home-related",
+    "not related to your home", "not related to the home", "not about your home",
+    "not about the home", "nothing to do with your home", "not a home-related",
+    # German
+    "web-suche", "websuche", "internetsuche", "im internet suchen",
+    "im web suchen", "online suchen", "im netz suchen", "nicht hausrelevant",
+    "nichts mit dem haus", "nicht haus-relevant",
+    # French
+    "recherche web", "recherche sur le web", "chercher sur internet",
+    "recherche en ligne", "chercher en ligne", "pas lié à la maison",
+    "rien à voir avec la maison",
+)
+
+
+def _looks_like_search_deflection(text: str) -> bool:
+    """True when a reply deflects a general-knowledge question by talking about a
+    web search it never ran, or by calling the question 'not house relevant',
+    instead of answering it (#547)."""
+    t = (text or "").lower()
+    return bool(t) and any(m in t for m in _SEARCH_DEFLECTION_MARKERS)
+
+
 def _strip_think_text(text: str) -> str:
     """Drop <think>…</think> (and a dangling, budget-truncated <think>) so a
     reasoning model's hidden reasoning never reaches the user."""
@@ -4503,11 +4535,15 @@ def _strip_think_text(text: str) -> str:
 
 async def _maybe_web_rescue(hass, answer, *, user_text, client, hass_api,
                             user_input, config):
-    """If a final answer is a knowledge-cutoff refusal (#515), run the web lookup
-    the model should have run and narrate from the results — one extra model call,
-    only on a detected refusal. Returns the original answer on any failure, so a
-    normal reply is never second-guessed or degraded. Never raises."""
-    if not answer or not user_text or not _looks_like_cutoff_refusal(answer):
+    """If a final answer declined a question the web could answer — a
+    knowledge-cutoff refusal (#515), or a 'needs a web search' / 'not house
+    relevant' deflection (#547) — run the lookup the model should have run and
+    narrate from the results. One extra model call, only on a detected deflection.
+    Returns the original answer on any failure, so a normal reply is never
+    second-guessed or degraded. Never raises."""
+    if not answer or not user_text or not (
+            _looks_like_cutoff_refusal(answer)
+            or _looks_like_search_deflection(answer)):
         return answer
     try:
         research = await _execute_tool(
@@ -4518,8 +4554,8 @@ async def _maybe_web_rescue(hass, answer, *, user_text, client, hass_api,
         return answer
     try:
         from .websocket import jarvis_log
-        jarvis_log("AGENT", "web_research rescue (#515): model declined with a "
-                   "knowledge-cutoff excuse; searched the web and re-answered")
+        jarvis_log("AGENT", "web_research rescue (#515/#547): model deflected a "
+                   "web-answerable question; searched the web and re-answered")
     except Exception:
         pass
     honorific = (config or {}).get("honorific", "sir") if config else "sir"
@@ -4528,8 +4564,9 @@ async def _maybe_web_rescue(hass, answer, *, user_text, client, hass_api,
         {"role": "system", "content": (
             "You are JARVIS. Using ONLY the web results provided, answer the "
             "user's question concisely in your own voice." + addr +
-            " Never mention a training cutoff, a knowledge cutoff, or any lack of "
-            "real-time data — you just searched the web.")},
+            " Never mention a training cutoff, a knowledge cutoff, any lack of "
+            "real-time data, a need to search, or that the question isn't about "
+            "the home — you just searched the web and have the answer.")},
         {"role": "user",
          "content": f"Question: {user_text}\n\nWeb results:\n{research}"},
     ]
