@@ -76,6 +76,7 @@ _ALLOWED_SITES: dict[tuple[str, str], str] = {
     ("observer.py", "_send_notification"): "config-driven notify (communication)",
     ("__init__.py", "_test_notify"): "config-driven test notify (communication)",
     ("agent.py", "_exec_send_notification"): "config-driven notify (communication) — send_notification tool (#513)",
+    ("notify_queue.py", "_push_owner"): "config-driven notify (communication) — deferred-notify owner ping (#540)",
     # tts / announcement playback through dynamic service names (jarvis.speak).
     ("proactive_audio.py", "_run_audit"): "jarvis.speak announcement (communication)",
     # the TTS announcement pipeline sets the target speaker's volume before

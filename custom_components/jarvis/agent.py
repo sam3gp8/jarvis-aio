@@ -817,6 +817,66 @@ JARVIS_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "notify_when_seen",
+            "description": (
+                "Hold a message and deliver it the NEXT TIME JARVIS detects a "
+                "household member — when they arrive home or a camera recognises "
+                "them. Use for 'tell dad his tool order is done next time you see "
+                "him' or 'let me know next time you see mum'. Two shapes: a message "
+                "FOR the person (omit 'notify', or name them) is announced to them "
+                "when they appear; a sighting ALERT for someone else (set 'notify' "
+                "to 'me' to ping the owner's phone, or to another resident) tells "
+                "them the target showed up. This is DEFERRED — for an announcement "
+                "right now use relay_message instead. Set 'action' to 'list' to "
+                "read what's being held, or 'cancel' to drop held messages."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "Who to watch for — the person JARVIS must see before "
+                            "delivering, as said ('dad', 'mum', 'Sam')."
+                        ),
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": (
+                            "What to say when the target appears. Optional for a "
+                            "bare sighting alert ('just let me know when you see "
+                            "them')."
+                        ),
+                    },
+                    "notify": {
+                        "type": "string",
+                        "description": (
+                            "Optional — who to tell when the target appears. Omit "
+                            "to deliver the message TO the target. 'me' pings the "
+                            "owner's phone; a resident's name announces it to them."
+                        ),
+                    },
+                    "from": {
+                        "type": "string",
+                        "description": "Optional — who the held message is from.",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["queue", "list", "cancel"],
+                        "description": (
+                            "'queue' (default) holds a new message; 'list' reads "
+                            "what's held; 'cancel' drops held messages for 'target' "
+                            "(or all held when no target is given)."
+                        ),
+                    },
+                },
+                "required": ["target"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "delegate_task",
             "description": (
                 "Spin up a focused sub-agent for a self-contained slice of a "
@@ -2746,6 +2806,10 @@ _RELAY_SEND_TS: list[float] = []
 _RELAY_MAX_PER_WINDOW = 6
 _RELAY_WINDOW_S = 60.0
 
+# Deferred "notify next time you see them" shares the relay window/cap so the
+# queue can't be spammed either (#540 increment 2).
+_NOTIFY_WHEN_TS: list[float] = []
+
 
 async def _exec_relay_message(hass: HomeAssistant, args: dict) -> str:
     """Relay a spoken message to a household member (#540): announce it on the
@@ -2772,6 +2836,66 @@ async def _exec_relay_message(hass: HomeAssistant, args: dict) -> str:
     if result.get("success"):
         _RELAY_SEND_TS.append(now)
     return json.dumps(result)
+
+
+async def _exec_notify_when_seen(hass: HomeAssistant, args: dict) -> str:
+    """Deferred relay (#540 increment 2): hold a message for a household member and
+    deliver it the next time JARVIS detects them (arrival / camera recognition).
+    'action' list/cancel read or drop held messages."""
+    try:
+        from . import notify_queue
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+    action = str(args.get("action", "queue") or "queue").strip().lower()
+    target = str(args.get("target", "") or "").strip()
+
+    if action == "list":
+        held = notify_queue.pending_for(target) if target else notify_queue.list_pending()
+        return json.dumps({
+            "count": len(held),
+            "holding": [
+                {"target": r.get("target_display"),
+                 "message": r.get("message"),
+                 "to": ("owner" if r.get("notify_owner")
+                        else (r.get("notify_display") or r.get("target_display"))),
+                 "from": r.get("from_person")}
+                for r in held
+            ],
+        })
+
+    if action == "cancel":
+        n = notify_queue.cancel_for(target or None)
+        return json.dumps({"success": True, "cancelled": n, "target": target or "all"})
+
+    # queue (default)
+    message = str(args.get("message", "") or "").strip()
+    if not target or not message:
+        return json.dumps({"error": "target and message are required to hold a message"})
+    now = time.monotonic()
+    global _NOTIFY_WHEN_TS
+    _NOTIFY_WHEN_TS = [t for t in _NOTIFY_WHEN_TS if now - t < _RELAY_WINDOW_S]
+    if len(_NOTIFY_WHEN_TS) >= _RELAY_MAX_PER_WINDOW:
+        return json.dumps({"error": "rate limited — too many just now; try again "
+                           "in a moment"})
+    notify = str(args.get("notify", "") or "").strip() or None
+    frm = str(args.get("from", "") or "").strip() or None
+    try:
+        rid = notify_queue.enqueue(target, message[:300], notify_display=notify,
+                                   from_person=frm)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+    if rid is None:
+        return json.dumps({"error": "couldn't hold that — the queue may be full "
+                           "for this person"})
+    _NOTIFY_WHEN_TS.append(now)
+    if notify_queue.is_owner_notify(notify):
+        where = "I'll let you know on your phone"
+    elif notify:
+        where = f"I'll tell {notify}"
+    else:
+        where = f"I'll pass it to {target}"
+    return json.dumps({"success": True, "queued_id": rid, "target": target,
+                       "note": f"Held — {where} the next time I see {target}."})
 
 
 async def _exec_calendar_agenda(hass: HomeAssistant, args: dict) -> str:
@@ -3410,6 +3534,7 @@ _TOOL_MAP = {
     "web_research":        _exec_web_research,
     "send_notification":   _exec_send_notification,
     "relay_message":       _exec_relay_message,
+    "notify_when_seen":    _exec_notify_when_seen,
     "calendar_agenda":     _exec_calendar_agenda,
     "read_email":          _exec_read_email,
     "look_at_camera":      _exec_look_at_camera,

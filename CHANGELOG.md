@@ -1,3 +1,24 @@
+## [9.136.0] — "Tell dad next time you see him": JARVIS can hold a message (#540)
+
+The headline of #540, and the half that was deferred when the relay shipped in
+9.133.0: JARVIS can now **hold a message and deliver it the next time it detects
+the person** — when they arrive home, or when a camera recognises them. Say
+*"tell dad his tool order is done next time you see him"* and JARVIS keeps it,
+then announces it to him the moment he's back. Or *"let me know next time you see
+mum"* and it pings your phone when she turns up. Held messages are **persistent**
+(they survive a restart) and expire on their own after a couple of weeks if the
+person never appears; you can ask JARVIS what it's holding, or cancel a held
+message, at any time. It commands no devices — it only carries words, with the
+same rate limits as the relay — and when the queue is empty it costs nothing, so
+arrivals and camera sightings are unaffected.
+
+Honest limits, consistent with the relay: the trigger is a person *arriving home*
+or being *recognised on a camera* (no camera, no face match → it waits for the
+next arrival). A message held for someone already home lands on their next
+genuine arrival. Delivery to the house speakers reaches whoever's there; a
+sighting alert for *you* goes to your configured phone notification. Voice — the
+literal "hear them" — is the next small step.
+
 ## [9.135.0] — Proactive "usually…" alerts now speak your language (#539)
 
 JARVIS's learned‑routine and anticipation mentions — *"the garage is open, it's
