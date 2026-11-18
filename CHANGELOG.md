@@ -1,3 +1,27 @@
+## [9.139.0] — No more 5-in-a-row backup "routine" spam, and it speaks Italian (#560)
+
+A follow-up to #539: on an Italian install, a scheduled Home Assistant **backup**
+was being pushed as a learned "routine" every morning — **five near-identical
+alerts at 05:01** for the same event, most of them mixed Italian/English
+("*A quest'ora, di solito: Backup Backup automatico turns in_progress around
+05:00 on 19 of 28 days…*"), and the one that used the Italian template left the
+state in English ("*…passa a «in progress»*"). Three fixes:
+
+- **It's no longer learned at all.** Internal, stateless system entities — an
+  automatic backup's `event.*`, an `update.*` check — are never turned into a
+  pushed household routine.
+- **No more duplicates.** The rolling "on N of M days" figure was baked into each
+  stored routine, so every time the figure shifted the routine was saved as a
+  *new* row and all of them fired at once. JARVIS now emits at most **one** alert
+  per routine per moment, and prefers the structured (fully localized) version
+  when several rows describe the same thing.
+- **The state is localized.** `in_progress`, `completed`, `failed`, backup/update
+  and other lifecycle states are now in the language catalog across all ten
+  languages, so you get "*«in corso»*", not "*«in progress»*".
+
+If you'd already silenced the backup entity with `jarvis.shush` or
+`excluded_entities`, you can leave it — the alert won't come back on its own.
+
 ## [9.138.0] — "Who founded the Soviet Union?" — JARVIS searches instead of dodging (#547)
 
 Ask a small local model a general-knowledge question and it would sometimes

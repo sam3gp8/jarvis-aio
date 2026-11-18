@@ -291,6 +291,45 @@ STATES: dict[str, dict[str, str]] = {
     },
 }
 
+# #560: event.* / backup-manager / generic lifecycle states that a learned
+# routine can surface. Without these, state_word() falls back to the raw token
+# ("in_progress" → "in progress"), leaving an English word inside an otherwise
+# localized alert. Merged in rather than threaded through every block above.
+_EXTRA_STATES: dict[str, dict[str, str]] = {
+    "en": {"in_progress": "in progress", "completed": "completed", "failed": "failed",
+           "create_backup": "backing up", "triggered": "triggered",
+           "unavailable": "unavailable", "unknown": "unknown"},
+    "fr": {"in_progress": "en cours", "completed": "terminé", "failed": "échoué",
+           "create_backup": "sauvegarde en cours", "triggered": "déclenché",
+           "unavailable": "indisponible", "unknown": "inconnu"},
+    "de": {"in_progress": "läuft", "completed": "abgeschlossen", "failed": "fehlgeschlagen",
+           "create_backup": "Sicherung läuft", "triggered": "ausgelöst",
+           "unavailable": "nicht verfügbar", "unknown": "unbekannt"},
+    "es": {"in_progress": "en curso", "completed": "completado", "failed": "fallido",
+           "create_backup": "creando copia", "triggered": "activado",
+           "unavailable": "no disponible", "unknown": "desconocido"},
+    "it": {"in_progress": "in corso", "completed": "completato", "failed": "fallito",
+           "create_backup": "backup in corso", "triggered": "attivato",
+           "unavailable": "non disponibile", "unknown": "sconosciuto"},
+    "nl": {"in_progress": "bezig", "completed": "voltooid", "failed": "mislukt",
+           "create_backup": "back-up bezig", "triggered": "geactiveerd",
+           "unavailable": "niet beschikbaar", "unknown": "onbekend"},
+    "pt": {"in_progress": "em curso", "completed": "concluído", "failed": "falhou",
+           "create_backup": "a criar cópia", "triggered": "acionado",
+           "unavailable": "indisponível", "unknown": "desconhecido"},
+    "ru": {"in_progress": "выполняется", "completed": "завершено", "failed": "сбой",
+           "create_backup": "резервное копирование", "triggered": "сработало",
+           "unavailable": "недоступно", "unknown": "неизвестно"},
+    "uk": {"in_progress": "виконується", "completed": "завершено", "failed": "помилка",
+           "create_backup": "резервне копіювання", "triggered": "спрацювало",
+           "unavailable": "недоступно", "unknown": "невідомо"},
+    "pl": {"in_progress": "w toku", "completed": "zakończone", "failed": "niepowodzenie",
+           "create_backup": "tworzenie kopii", "triggered": "wyzwolone",
+           "unavailable": "niedostępne", "unknown": "nieznane"},
+}
+for _lang_code, _extra in _EXTRA_STATES.items():
+    STATES.setdefault(_lang_code, {}).update(_extra)
+
 # Device classes whose binary on/off means open/closed.
 _OPENING_CLASSES = ("door", "window", "garage_door", "opening", "garage")
 

@@ -366,3 +366,20 @@ def test_run_all_finders_on_real_worker_thread(analyzer, tmp_path, monkeypatch):
     # _run_all_finders is documented to close the connection itself.
     with pytest.raises(sqlite3.ProgrammingError):
         opened[0].execute("SELECT 1")
+
+
+def test_event_domain_not_learned_as_routine(analyzer, tmp_path):
+    """#560: an HA automatic backup (event.*) firing at the same time daily is
+    not a household routine — it must not be learned or pushed, while a real
+    routine alongside it still is."""
+    conn = _conn(tmp_path / "noise.db")
+    for d in range(1, 9):
+        _add_state(conn, "event.backup_backup_automatico", "in_progress", d, 5)
+        _add_state(conn, "light.porch_test", "on", d, 18)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    found = pa._find_time_routines(conn)
+    ents = [e for p in found for e in p.entity_ids]
+    assert "event.backup_backup_automatico" not in ents
+    assert "light.porch_test" in ents
+    conn.close()

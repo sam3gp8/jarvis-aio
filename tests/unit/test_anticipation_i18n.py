@@ -150,3 +150,17 @@ def test_number_decimal_mark(ai):
 def test_an_event_localized(ai):
     assert ai.an_event("it") == "un evento"
     assert ai.an_event("xx") == "an event"
+
+
+# ── #560: event/backup lifecycle states resolve (not raw passthrough) ────────
+def test_560_lifecycle_states_localized(ai):
+    assert ai.state_word("in_progress", "it") == "in corso"
+    assert ai.state_word("in_progress", "de") == "läuft"
+    assert ai.state_word("completed", "it") == "completato"
+    assert ai.state_word("create_backup", "it") == "backup in corso"
+    # the raw token never leaks when a localization exists
+    assert ai.state_word("in_progress", "it") != "in progress"
+    for lang in ai.LANGS:
+        for k in ("in_progress", "completed", "failed", "create_backup",
+                  "triggered", "unavailable", "unknown"):
+            assert k in ai.STATES[lang], f"{lang} missing {k}"

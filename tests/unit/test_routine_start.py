@@ -93,3 +93,56 @@ def test_no_hour_skipped(cog, env, fake_hass):
     r["data"] = json.dumps({})                         # no hour
     holder["list"] = [r]
     assert cog.predict_routine_start(fake_hass, now) == []
+
+
+# ── #560: dedup + structured preference + noise-domain skip ──────────────────
+def _routine_state(hour, state, desc, person="sam", entity=None, conf=0.8, rid=1):
+    data = {"hour": hour, "state": state}
+    if entity:
+        data["entity"] = entity
+    return {"id": rid, "person": person, "pattern_type": "time_routine",
+            "description": desc, "data": json.dumps(data),
+            "confidence": conf, "occurrences": 8}
+
+
+def test_560_dedup_duplicate_rows(cog, env, fake_hass):
+    """Several rows for one routine (rolling N-of-M stats baked into the desc) →
+    ONE alert per (person, state, hour) per cycle."""
+    holder, home, cfg = env
+    now, now_dt = _now_at(5)
+    h = now_dt.hour
+    holder["list"] = [
+        _routine_state(h, "on", "coffee on 19 of 28 days", rid=1),
+        _routine_state(h, "on", "coffee on 22 of 30 days", rid=2),
+        _routine_state(h, "on", "coffee on 20 of 31 days", rid=3),
+    ]
+    assert len(cog.predict_routine_start(fake_hass, now)) == 1
+
+
+def test_560_prefers_structured_row(cog, env, fake_hass):
+    """A structured (entity+state) row wins dedup over a bare English
+    routine_other row for the same routine, so the surviving alert localizes."""
+    holder, home, cfg = env
+    now, now_dt = _now_at(5)
+    h = now_dt.hour
+    holder["list"] = [
+        _routine_state(h, "in_progress",
+                       "Box IMOU turns in_progress around 05:00 on 20 of 30 days", rid=1),
+        _routine_state(h, "in_progress", "irrelevant", entity="switch.box_imou", rid=2),
+    ]
+    preds = cog.predict_routine_start(fake_hass, now)
+    assert len(preds) == 1
+    assert "on 20 of 30 days" not in preds[0]["message"]   # the structured one won
+
+
+def test_560_skips_event_domain_routine(cog, env, fake_hass):
+    """A stored event.*/update.* routine never produces a push (#560 flaw 4
+    belt-and-suspenders for rows already in the DB)."""
+    holder, home, cfg = env
+    now, now_dt = _now_at(5)
+    h = now_dt.hour
+    holder["list"] = [
+        _routine_state(h, "in_progress", "Backup turns in_progress",
+                       entity="event.backup_backup_automatico", rid=1),
+    ]
+    assert cog.predict_routine_start(fake_hass, now) == []

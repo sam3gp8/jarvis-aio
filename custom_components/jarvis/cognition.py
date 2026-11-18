@@ -1028,6 +1028,21 @@ def _predict_routine_start_loop(
         today = _local_day(now)
         now_dt = datetime.datetime.fromtimestamp(now)
         now_min = now_dt.hour * 60 + now_dt.minute
+        # #560: prefer structured rows (device state / command) so the alert that
+        # survives dedup is the localized one, not an English routine_other.
+        def _struct_rank(_r):
+            try:
+                _d = _json.loads(_r.get("data") or "{}")
+            except Exception:
+                return 2
+            if _d.get("entity") and _d.get("state"):
+                return 0
+            return 1 if _d.get("command") else 2
+        try:
+            routines = sorted(routines, key=_struct_rank)
+        except Exception:
+            pass
+        _emitted = set()   # (person, state|desc, hour) already alerted THIS cycle
         for r in routines:
             person = r.get("person")
             if not person or person not in home:
@@ -1047,6 +1062,18 @@ def _predict_routine_start_loop(
             desc = str(r.get("description") or "").strip()
             if not desc:
                 continue
+            # #560: a stored event.*/update.* routine (learned before the noise
+            # filter, or still in an old DB) must never produce a routine push.
+            _ent = str(data.get("entity") or "").strip()
+            if _ent and _ent.split(".", 1)[0] in ("event", "update"):
+                continue
+            # #560: the rolling "N of M days" stat is baked into each row's
+            # description, so person_patterns holds several rows for one routine.
+            # Emit at most ONE alert per (person, state, hour) per cycle.
+            canon = (person, str(data.get("state") or "").strip() or desc, int(hour))
+            if canon in _emitted:
+                continue
+            _emitted.add(canon)
             key = "routine:%s:%s" % (person, r.get("id") or desc)
             if _RECUR_ALERTED.get(key) == today:
                 continue

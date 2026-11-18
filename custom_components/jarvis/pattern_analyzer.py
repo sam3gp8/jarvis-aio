@@ -42,6 +42,10 @@ MIN_DAYS = 7           # Don't analyze until we have this much data
 MIN_OCCURRENCES = 5    # Pattern must repeat this many times
 CONFIDENCE_THRESHOLD = 0.65  # Minimum to create a suggestion
 ANALYSIS_INTERVAL = 21600    # 6 hours between analyses
+# #560: domains whose state changes are internal/system lifecycle, not household
+# behaviour — an HA automatic backup's event.* firing "in_progress" at 05:00, an
+# update.* check — must never become a learned, pushed "routine".
+_NOISE_ROUTINE_DOMAINS = frozenset({"event", "update"})
 KNOWLEDGE_FACT_CONFIDENCE = 0.75  # routines/commands above this also become observed facts
 PERSON_DOMINANCE_RATIO = 0.8      # a person must account for this share of a
                                    # pattern's occurrences to own it, vs. household
@@ -1576,6 +1580,11 @@ class PatternAnalyzer:
             state = row["new_state"]
             hour = row["hour"]
             count = row["cnt"]
+
+            # #560: skip internal/system lifecycle entities — a scheduled backup
+            # (event.*) or an update check is not a household routine to push.
+            if entity.split(".", 1)[0] in _NOISE_ROUTINE_DOMAINS:
+                continue
 
             # Positive days: distinct days this routine ACTUALLY happened. Using
             # distinct days (not raw event count) so several same-hour events on
