@@ -45,6 +45,7 @@ _COMM_DOMAINS = frozenset({
 _READONLY_META = frozenset({
     ("weather", "get_forecasts"),
     ("automation", "reload"),
+    ("calendar", "get_events"),
 })
 
 # media_player services that are playback/announcement (TTS), not device control
