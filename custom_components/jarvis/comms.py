@@ -149,3 +149,112 @@ def agenda(hass, horizon_hours: int = 24) -> dict:
     except Exception as exc:
         _LOGGER.debug("comms.agenda failed: %s", exc)
         return {"events": [], "conflicts": [], "count": 0, "error": str(exc)}
+
+
+# ── range lookup (#554) ──────────────────────────────────────────────────────
+# gather_events() above reads each calendar entity's *attributes*, which only
+# expose its current + next event — so anything further out (next week's waste
+# collection) is invisible, and an add-on like Annuals, whose entity STATE is a
+# number (an age/countdown, e.g. 42), reads back as that number rather than the
+# event's date. list_events() instead calls the `calendar.get_events` service,
+# which returns the real event list over an arbitrary window, with true dates.
+
+def _calendar_entities(hass, entity_id: Optional[str] = None) -> list[str]:
+    """Resolve target calendar entity_ids. With ``entity_id`` (an exact id, or a
+    substring of an id or friendly name, case-insensitive) return the matches;
+    without it, every ``calendar.*`` entity. An unmatched name returns []."""
+    try:
+        states = hass.states.async_all("calendar")
+    except Exception:
+        return []
+    if not entity_id:
+        return [s.entity_id for s in states]
+    needle = str(entity_id).strip().lower()
+    for s in states:                                  # exact id first
+        if s.entity_id.lower() == needle:
+            return [s.entity_id]
+    matches = []
+    for s in states:
+        fn = str((s.attributes or {}).get("friendly_name") or "").lower()
+        if needle in s.entity_id.lower() or (fn and needle in fn):
+            matches.append(s.entity_id)
+    return matches
+
+
+def _is_all_day(raw) -> bool:
+    """A calendar event is all-day when its start is a bare date (no time)."""
+    s = str(raw or "")
+    return "T" not in s and ":" not in s and len(s.strip()) <= 10
+
+
+async def list_events(hass, days_ahead: int = 31, query: Optional[str] = None,
+                      entity_id: Optional[str] = None) -> dict:
+    """Actual events across the household calendars over the next ``days_ahead``
+    days, via the ``calendar.get_events`` service (the real list with true dates,
+    not the entity's current+next-event attributes). Optionally filtered to one
+    calendar and/or to events whose title/description contains ``query``.
+
+    Returns ``{events: [{calendar,title,date,weekday,time,start,end,all_day,
+    location}], count}`` with JSON-safe values. Never raises (#554)."""
+    out: dict = {"events": [], "count": 0}
+    if hass is None:
+        return out
+    try:
+        days = max(1, min(int(days_ahead or 31), 400))
+    except Exception:
+        days = 31
+    now = datetime.now()
+    end_dt = now + timedelta(days=days)
+    ents = _calendar_entities(hass, entity_id)
+    if not ents:
+        return {"events": [], "count": 0,
+                "error": "no matching calendar entity" if entity_id
+                         else "no calendar entities found"}
+    collected: list[dict] = []
+    for eid in ents:
+        try:
+            res = await hass.services.async_call(
+                "calendar", "get_events",
+                {"entity_id": eid,
+                 "start_date_time": now.strftime("%Y-%m-%d %H:%M:%S"),
+                 "end_date_time": end_dt.strftime("%Y-%m-%d %H:%M:%S")},
+                blocking=True, return_response=True,
+            )
+        except Exception as exc:
+            _LOGGER.debug("calendar.get_events failed for %s: %s", eid, exc)
+            continue
+        data = (res or {}).get(eid) or {}
+        for ev in (data.get("events") or []):
+            start = _parse(ev.get("start"))
+            if start is None:
+                continue
+            end = _parse(ev.get("end"))
+            collected.append({
+                "calendar": eid,
+                "title": str(ev.get("summary") or ev.get("message") or ""),
+                "start": start,
+                "end": end or (start + timedelta(hours=1)),
+                "all_day": _is_all_day(ev.get("start")),
+                "location": ev.get("location"),
+                "description": ev.get("description"),
+            })
+    if query:
+        q = str(query).strip().lower()
+        collected = [e for e in collected
+                     if q in e["title"].lower()
+                     or q in str(e.get("description") or "").lower()]
+    collected.sort(key=lambda e: e["start"])
+    events = []
+    for e in collected[:50]:
+        events.append({
+            "calendar": e["calendar"],
+            "title": e["title"],
+            "date": e["start"].strftime("%Y-%m-%d"),
+            "weekday": e["start"].strftime("%A"),
+            "time": None if e["all_day"] else e["start"].strftime("%H:%M"),
+            "start": e["start"].isoformat(),
+            "end": e["end"].isoformat() if e["end"] else None,
+            "all_day": e["all_day"],
+            "location": e.get("location"),
+        })
+    return {"events": events, "count": len(events)}

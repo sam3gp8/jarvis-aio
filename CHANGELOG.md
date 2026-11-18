@@ -1,3 +1,22 @@
+## [9.141.0] — JARVIS reads the whole calendar now, not just the next event (#554)
+
+Asked "is the waste collected next week?" or "what's on the 26th?", JARVIS would
+say it wasn't on the calendar — it could only see each calendar's *current and
+next* event (read from the entity's attributes), so anything further out was
+invisible. And for an add-on like [Annuals](https://github.com/somansch/annuals),
+whose entity *state* is a number (an age, a countdown), "when is my birthday?"
+came back as that number instead of the date.
+
+The new `calendar_lookup` tool reads the real event list over a window (today to
+N days ahead — default 31, up to ~a year for birthdays) through Home Assistant's
+`calendar.get_events` service, with true dates, weekdays and times. It can filter
+by text ("birthday", "waste") or to a single calendar, and the model is told to
+use it for any specific date or event rather than reading a calendar's state as
+if it were a date.
+
+`calendar_agenda` (proactive overlap / tight-transition conflict detection) is
+unchanged. Letting JARVIS *add* events is the next step for #554.
+
 ## [9.140.0] — Routine de-spam, finished: the duplicates from *legacy* rows (#560)
 
 9.139.0 stopped the duplicate routine alerts only when every copy carried the
