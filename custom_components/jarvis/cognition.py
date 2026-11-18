@@ -1001,6 +1001,32 @@ async def async_predict_routine_start(hass, now: float = None) -> list:
     return out
 
 
+# #560: several stored rows can describe ONE routine — person_patterns inserts a
+# fresh row every 6h because the rolling "on N of M days" / "(N times)" figure is
+# baked into the description, which is its dedup key. They collapse to a single
+# alert only if keyed on (person, state, hour): the state is the stable identity.
+# Structured rows carry it directly; legacy routine_other rows (which predate the
+# structured state/entity fields and so render the English description verbatim)
+# only hold it inside that description, so recover it from there.
+_ROUTINE_STAT_RE = re.compile(r"\s*(?:on \d+ of \d+ days|\(\s*\d+ times[^)]*\))",
+                              re.IGNORECASE)
+_ROUTINE_STATE_RE = re.compile(r"\bturns (\w+) around\b|\bchanges to '([^']+)'")
+
+
+def _routine_identity(person, data, desc, hour):
+    """A routine's stable identity for per-cycle dedup: (person, state, hour).
+    ``state`` comes from the structured field, else is recovered from ``desc``,
+    else falls back to the description with its volatile count stripped — so the
+    many stat-only variants of one routine share an identity and emit once."""
+    state = str((data or {}).get("state") or "").strip()
+    if not state and desc:
+        m = _ROUTINE_STATE_RE.search(desc)
+        if m:
+            state = (m.group(1) or m.group(2) or "").strip()
+    ident = state or _ROUTINE_STAT_RE.sub("", desc or "").strip()
+    return (person, ident, int(hour))
+
+
 def _predict_routine_start_loop(
     hass, now: float = None, routines: list | None = None,
     alerts_enabled: bool | None = None,
@@ -1067,10 +1093,13 @@ def _predict_routine_start_loop(
             _ent = str(data.get("entity") or "").strip()
             if _ent and _ent.split(".", 1)[0] in ("event", "update"):
                 continue
-            # #560: the rolling "N of M days" stat is baked into each row's
-            # description, so person_patterns holds several rows for one routine.
-            # Emit at most ONE alert per (person, state, hour) per cycle.
-            canon = (person, str(data.get("state") or "").strip() or desc, int(hour))
+            # #560: person_patterns holds several rows for one routine (each
+            # re-analysis stores a new row because the rolling "N of M days" stat
+            # sits in the description, its dedup key). Collapse them to ONE alert
+            # per (person, state, hour) per cycle, keyed on the routine's stable
+            # identity rather than its volatile text, so legacy routine_other rows
+            # that differ only by that stat no longer each fire.
+            canon = _routine_identity(person, data, desc, hour)
             if canon in _emitted:
                 continue
             _emitted.add(canon)

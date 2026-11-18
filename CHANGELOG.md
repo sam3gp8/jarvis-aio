@@ -1,3 +1,23 @@
+## [9.140.0] — Routine de-spam, finished: the duplicates from *legacy* rows (#560)
+
+9.139.0 stopped the duplicate routine alerts only when every copy carried the
+structured `state` field. But the rows that actually pile up on an upgraded
+install predate that field — they were learned before #539 — so they render
+through the `routine_other` path with the state buried in an English sentence,
+and the rolling "on N of M days" figure in that sentence made each copy look
+distinct, so the de-dup never caught them. A reporter was still getting **12**
+near-identical "Box IMOU" alerts in one breath on 9.138.0.
+
+Now a routine's identity for de-dup is `(person, state, hour)` whatever its
+vintage: the state is read from the structured field, or recovered from the
+stored description when there isn't one. Every copy of a routine — structured or
+legacy, whatever its "N of M days" count — collapses to a **single** alert, and
+the structured (fully localized) copy still wins when both are present.
+
+Carried over from 9.139.0, unchanged: system entities (`event.*`/`update.*`) are
+never learned as routines, and the lifecycle state words are localized across all
+ten languages.
+
 ## [9.139.0] — No more 5-in-a-row backup "routine" spam, and it speaks Italian (#560)
 
 A follow-up to #539: on an Italian install, a scheduled Home Assistant **backup**
