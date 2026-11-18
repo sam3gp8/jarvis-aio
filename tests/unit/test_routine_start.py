@@ -146,3 +146,42 @@ def test_560_skips_event_domain_routine(cog, env, fake_hass):
                        entity="event.backup_backup_automatico", rid=1),
     ]
     assert cog.predict_routine_start(fake_hass, now) == []
+
+
+# ── #560 (follow-up, 9.140.0): legacy routine_other rows have no structured
+# state, so the per-cycle dedup must recover identity from the description ──────
+def _routine_legacy(hour, desc, person="sam", conf=0.8, rid=1):
+    """A pre-#539 row: hour only, no structured state/entity. Renders via the
+    routine_other path; its state is recoverable only from the description."""
+    return {"id": rid, "person": person, "pattern_type": "time_routine",
+            "description": desc, "data": json.dumps({"hour": hour}),
+            "confidence": conf, "occurrences": 8}
+
+
+def test_560_legacy_routine_other_spam_deduped(cog, env, fake_hass):
+    """Reporter data: many legacy rows for one routine, differing only by the
+    rolling 'N of M days' stat → ONE alert, not one per stored row."""
+    holder, home, cfg = env
+    now, now_dt = _now_at(5)
+    h = now_dt.hour
+    tmpl = "Box IMOU turns idle around %02d:00 on {0} of {1} days when sam is home" % h
+    holder["list"] = [_routine_legacy(h, tmpl.format(25 - i, 31 - i), rid=i)
+                      for i in range(12)]
+    assert len(cog.predict_routine_start(fake_hass, now)) == 1
+
+
+def test_560_legacy_siblings_collapse_into_structured(cog, env, fake_hass):
+    """A structured row and its legacy siblings (same state+hour, the state
+    recovered from the English description) collapse to ONE localized alert."""
+    holder, home, cfg = env
+    now, now_dt = _now_at(5)
+    h = now_dt.hour
+    legacy = "Box IMOU turns idle around %02d:00 on {0} of {1} days when sam is home" % h
+    holder["list"] = [
+        _routine_legacy(h, legacy.format(25, 31), rid=1),
+        _routine_legacy(h, legacy.format(24, 30), rid=2),
+        _routine_state(h, "idle", "irrelevant", entity="switch.box_imou", rid=3),
+    ]
+    preds = cog.predict_routine_start(fake_hass, now)
+    assert len(preds) == 1
+    assert "on 25 of 31 days" not in preds[0]["message"]   # the structured row won
