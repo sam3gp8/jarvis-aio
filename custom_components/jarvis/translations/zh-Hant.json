@@ -152,6 +152,7 @@
           "directive": "自定義指令（可選，會覆蓋預設）",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "啟用家居控制（燈光、空調、門鎖等）",
+          "extra_llm_apis": "額外的 Home Assistant LLM API（例如 MCP Client、HACS 工具整合）",
           "web_research_llm_fallback": "當預設後端找不到結果時，允許網路調查升級為 LLM 自帶的網路搜尋"
         }
       },

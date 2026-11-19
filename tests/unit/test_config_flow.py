@@ -370,7 +370,7 @@ async def test_step_agents_disabling_friday_needs_no_confirm(config_flow, fake_h
 async def test_step_core_renders_fields(config_flow, fake_hass):
     res = await _flow(config_flow, fake_hass).async_step_core(None)
     assert res["type"] == "form" and res["step_id"] == "core"
-    assert len(res["data_schema"].schema) == 6   # persona, preset, directive, model, hass-api, web-research-fallback
+    assert len(res["data_schema"].schema) == 7   # persona, preset, directive, model, hass-api, extra-llm-apis, web-research-fallback
 
 
 async def test_step_routing_renders_fields(config_flow, fake_hass):
@@ -602,3 +602,47 @@ async def test_import_aborts_when_custom_legacy_key_cannot_be_persisted(
     })
     assert res["type"] == "abort"
     assert res["reason"] == "import_failed"
+
+
+# ── #564: extra HA LLM APIs ──────────────────────────────────────────────────
+
+def _stub_llm_apis(monkeypatch, apis):
+    """Install a stub homeassistant.helpers.llm.async_get_apis + selector
+    SelectOptionDict so _available_llm_api_options can be exercised."""
+    sel = sys.modules["homeassistant.helpers.selector"]
+    monkeypatch.setattr(sel, "SelectOptionDict", lambda **k: dict(**k), raising=False)
+    llm = sys.modules.get("homeassistant.helpers.llm")
+    if llm is None:
+        llm = types.ModuleType("homeassistant.helpers.llm")
+        sys.modules["homeassistant.helpers.llm"] = llm
+    helpers = sys.modules.get("homeassistant.helpers")
+    if helpers is not None:
+        helpers.llm = llm
+    if isinstance(apis, Exception):
+        def _boom(hass):
+            raise apis
+        monkeypatch.setattr(llm, "async_get_apis", _boom, raising=False)
+    else:
+        monkeypatch.setattr(llm, "async_get_apis", lambda hass: apis, raising=False)
+    return llm
+
+
+def test_available_llm_api_options_excludes_assist_and_maps_label(
+    config_flow, fake_hass, monkeypatch,
+):
+    _stub_llm_apis(monkeypatch, [
+        types.SimpleNamespace(id="assist", name="Assist"),           # always excluded
+        types.SimpleNamespace(id="mcp_x", name="MCP Server X"),
+        types.SimpleNamespace(id="wiki", name=""),                   # label falls back to id
+        types.SimpleNamespace(id="mcp_x", name="dupe"),              # de-duplicated
+    ])
+    opts = config_flow._available_llm_api_options(fake_hass)
+    assert opts == [
+        {"value": "mcp_x", "label": "MCP Server X"},
+        {"value": "wiki", "label": "wiki"},
+    ]
+
+
+def test_available_llm_api_options_is_graceful_on_error(config_flow, fake_hass, monkeypatch):
+    _stub_llm_apis(monkeypatch, RuntimeError("no LLM registry"))
+    assert config_flow._available_llm_api_options(fake_hass) == []

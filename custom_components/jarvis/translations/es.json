@@ -152,6 +152,7 @@
           "directive": "Directiva personalizada (opcional, anula el preajuste)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Activar el control del hogar (luces, clima, cerraduras, etc.)",
+          "extra_llm_apis": "APIs LLM adicionales de Home Assistant (p. ej., MCP Client, integraciones de herramientas HACS)",
           "web_research_llm_fallback": "Permitir que la investigación web escale a la búsqueda web propia del LLM cuando el backend predeterminado no encuentra nada"
         }
       },

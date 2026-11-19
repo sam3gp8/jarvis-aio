@@ -39,6 +39,7 @@ from .const import (
     CONF_DIRECTIVE,
     CONF_DIRECTIVE_PRESET,
     CONF_USE_HASS_API,
+    CONF_EXTRA_LLM_APIS,
     CONF_WEB_RESEARCH_LLM_FALLBACK,
     DEFAULT_WEB_RESEARCH_LLM_FALLBACK,
     CONF_BEDROOM_AREAS,
@@ -139,6 +140,31 @@ def _find_config(runtime_config_path: str | None = None, secrets_path: str | Non
         provider == "custom" and bool(resolve_provider_base_url(data, "custom"))
     )
     return data if (has_secret or has_legacy_secret or local_ok) else None
+
+
+def _available_llm_api_options(hass) -> list:
+    """List the registered Home Assistant LLM APIs the user can add alongside
+    the built-in ``assist`` API (#564), as selector options.
+
+    ``assist`` itself is excluded — JARVIS always includes it. Best-effort: a
+    missing helper or an enumeration error yields an empty list (the selector
+    then accepts hand-typed api ids via ``custom_value``) rather than breaking
+    the options form.
+    """
+    opts: list = []
+    try:
+        from homeassistant.helpers import llm as _llm
+        seen = set()
+        for api in _llm.async_get_apis(hass):
+            api_id = getattr(api, "id", None)
+            if not api_id or api_id == "assist" or api_id in seen:
+                continue
+            seen.add(api_id)
+            label = getattr(api, "name", None) or api_id
+            opts.append(selector.SelectOptionDict(value=api_id, label=str(label)))
+    except Exception:  # pylint: disable=broad-except
+        return []
+    return opts
 
 
 class JarvisConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -711,6 +737,17 @@ class JarvisOptionsFlow(OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN)),
             vol.Optional(CONF_USE_HASS_API, description=self._sv(CONF_USE_HASS_API, True)):
                 selector.BooleanSelector(),
+            # #564: expose extra registered HA LLM APIs (MCP Client, HACS
+            # LLM-tool providers) alongside the built-in "assist" API. Options
+            # are enumerated live; custom_value lets advanced users type an api
+            # id that isn't enumerable yet. Only takes effect while the HA LLM
+            # API above is enabled.
+            vol.Optional(CONF_EXTRA_LLM_APIS, description=self._sv(CONF_EXTRA_LLM_APIS, [])):
+                selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=_available_llm_api_options(self.hass),
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN)),
             vol.Optional(CONF_WEB_RESEARCH_LLM_FALLBACK,
                          description=self._sv(CONF_WEB_RESEARCH_LLM_FALLBACK,
                                               DEFAULT_WEB_RESEARCH_LLM_FALLBACK)):

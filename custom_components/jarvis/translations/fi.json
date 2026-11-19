@@ -152,6 +152,7 @@
           "directive": "Mukautettu ohje (valinnainen, ohittaa esiasetuksen)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Ota kodin ohjaus käyttöön (valot, ilmasto, lukot jne.)",
+          "extra_llm_apis": "Ylimääräiset Home Assistant LLM-API:t (esim. MCP Client, HACS-työkaluintegraatiot)",
           "web_research_llm_fallback": "Anna verkkotutkimuksen siirtyä LLM:n omaan verkkohakuun, kun oletustausta ei löydä mitään"
         }
       },

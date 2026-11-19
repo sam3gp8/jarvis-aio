@@ -152,6 +152,7 @@
           "directive": "Eigene Direktive (optional, überschreibt Vorlage)",
           "llm_provider": "Anbieter des Gesprächsmodells",
           "use_hass_api": "Haussteuerung aktivieren (Licht, Klima, Schlösser usw.)",
+          "extra_llm_apis": "Zusätzliche Home Assistant LLM-APIs (z. B. MCP Client, HACS-Tool-Integrationen)",
           "web_research_llm_fallback": "Websuche bei leerem Ergebnis des Standard-Backends an die eigene Websuche des LLM eskalieren lassen"
         }
       },

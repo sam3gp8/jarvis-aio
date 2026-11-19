@@ -1,3 +1,18 @@
+## [9.147.0] — Expose external Home Assistant LLM APIs (MCP Client, HACS tools) (#564)
+
+JARVIS only ever loaded Home Assistant's built-in `assist` LLM API, so tools
+registered by other integrations — the official **Model Context Protocol (MCP)
+Client**, or HACS LLM-tool providers like Wikipedia / web search — were invisible
+to it, even though Home Assistant's own conversation agents can use them.
+
+You can now select **extra Home Assistant LLM APIs** to expose alongside `assist`,
+in Settings → Configure → Core (a multi-select of the APIs registered on your
+system) and in the main JARVIS panel (a comma-separated list of api ids). Their
+tools are merged in and called through Home Assistant's own routing, so adding an
+MCP server or a HACS tool integration makes its tools available to JARVIS with no
+code changes on our side. `assist` is always included; leave the field empty for
+the previous behaviour.
+
 ## [9.146.0] — KV-cache-friendly prompt ordering for local models (#561)
 
 On a local OpenAI-compatible backend (llama.cpp / vLLM / Ollama), JARVIS was

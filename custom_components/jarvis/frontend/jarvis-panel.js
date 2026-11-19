@@ -6516,6 +6516,7 @@ ${this._renderExcludedEntities(d)}
           <div class="cfg-row"><label>Directive preset</label><select class="cfg-field" data-cfg-key="directive_preset">${this._opts(presets, String(c.directive_preset || ''))}</select></div>
           <div class="cfg-row"><label>Custom directive <span class="mode-bind-sub">overrides preset</span></label><textarea class="cfg-field cfg-text" data-cfg-key="directive" rows="3" placeholder="(optional) a custom standing directive">${esc(c.directive || '')}</textarea></div>
           <div class="cfg-row"><label>Use Home Assistant LLM API</label>${tog('use_hass_api', c.use_hass_api !== false)}</div>
+          <div class="cfg-row"><label>Extra HA LLM APIs <span class="mode-bind-sub">comma-separated api ids (MCP, HACS tools)</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="extra_llm_apis" value="${esc(c.extra_llm_apis || '')}" placeholder="(optional) e.g. mcp-myserver"></div>
           <div class="cfg-row"><label>LLM web-search fallback</label>${tog('web_research_llm_fallback', !!c.web_research_llm_fallback)}</div>
         </div>
       </div>
