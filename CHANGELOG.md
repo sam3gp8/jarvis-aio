@@ -1,3 +1,24 @@
+## [9.143.0] — The voice gatekeeper stops muting you while JARVIS is talking (#554)
+
+A reported satellite kept "gate-keeping" — ignoring real commands as if they were
+ambient TV, especially right after JARVIS spoke or during a follow-up question,
+and only a satellite restart fixed it.
+
+The cause: JARVIS casts its own reply (and its follow-up prompts) onto the
+satellite's own speaker, and the relevance gate counted *that* as "media playing
+nearby" — so your very next turn was judged against the strict TV-filter and, if
+it didn't happen to carry an English command word, was dropped as ambient. The
+follow-up then stalled, and restarting the satellite only helped because it reset
+that speaker's media_player back to idle.
+
+Now the satellite's own speaker is excluded from the "is media playing near me?"
+check: JARVIS talking is not ambient TV. Genuinely external media (a real TV, or
+a speaker elsewhere in the room) still tightens the gate exactly as before.
+
+Not yet covered (a smaller follow-up): while a *real* external TV is playing, the
+strict filter still leans on English command words, so a non-English command can
+still be dropped — that relevance heuristic needs to learn other languages.
+
 ## [9.142.0] — JARVIS can add events to the calendar now (#554)
 
 The other half of #554's calendar gap: JARVIS could read the calendar but not
