@@ -1,3 +1,19 @@
+## [9.148.0] — Known guests & friends, with notes JARVIS keeps in mind (#549)
+
+The Faces tab already told a household **resident** from an anonymous visitor.
+Now you can curate the people in between — recurring friends, relatives and
+regular guests — and give each a short note on how JARVIS should treat them:
+"best friend, fine to be here alone", "don't disturb him", "let me know when he
+arrives".
+
+A new **Known Guests & Friends** section on the Faces tab (and the same control
+in Settings) lets you add a guest by the name your camera recognizes them by,
+with a free-text note. When that person is then recognized on a camera, their
+note is woven into what JARVIS knows for the moment — so it applies your
+guidance instead of treating them as just another face. Residents are
+unchanged; this is a separate, curated list, and a guest with no note behaves
+exactly as before.
+
 ## [9.147.0] — Expose external Home Assistant LLM APIs (MCP Client, HACS tools) (#564)
 
 JARVIS only ever loaded Home Assistant's built-in `assist` LLM API, so tools

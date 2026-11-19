@@ -72,6 +72,7 @@ let _bioEnabled = false;
 let _intrCalledOff = false;
 let _intrAck = false;
 const _residents = ["Sam"];
+const _guests = [{ name: "Bob", note: "best friend; fine here alone" }];   // #549
 const _faceRefs = [];
 const _mutedEntities = ["binary_sensor.lounge_window"];
 const _intrSnap = { url: "/local/jarvis/intrusion/intrusion_dining_room_1730000000.jpg", camera: "camera.dining_room", ts: 1730000000, path: "/config/www/jarvis/intrusion/x.jpg" };
@@ -228,8 +229,18 @@ const hass = {
       if (m.action === "add_resident" && m.name && !_residents.includes(m.name)) _residents.push(m.name);
       if (m.action === "remove_resident" && m.name) { const i = _residents.indexOf(m.name); if (i >= 0) _residents.splice(i, 1); }
       if (m.action === "set_reference" && m.name && !_faceRefs.includes(m.name.toLowerCase())) _faceRefs.push(m.name.toLowerCase());
+      if (m.action === "set_guest" && m.name) {
+        const i = _guests.findIndex(g => g.name.toLowerCase() === m.name.toLowerCase());
+        if (i >= 0) _guests[i] = { name: m.name, note: m.note || "" };
+        else _guests.push({ name: m.name, note: m.note || "" });
+      }
+      if (m.action === "remove_guest" && m.name) {
+        const i = _guests.findIndex(g => g.name.toLowerCase() === m.name.toLowerCase());
+        if (i >= 0) _guests.splice(i, 1);
+      }
       return {
         residents: _residents.slice(),
+        guests: _guests.slice(),
         references: _faceRefs.slice(),
         llm_face_recognition: true,
         recent: [
@@ -1121,6 +1132,53 @@ setTimeout(async () => {
       /faces-badge guess/.test(_facesBody) && /LLM GUESS/.test(_facesBody)],
     ["resident cards expose a reference-photo upload for the matcher",
       !!_samCard && !!_samCard.querySelector('input[type=file][data-faces-ref="Sam"]')],
+  );
+
+  // ── #549 Known guests & friends: curated list + notes, round-tripped ──
+  let _guestCall = null;
+  const _origCallWSg = el._hass.callWS.bind(el._hass);
+  el._hass.callWS = async (m) => {
+    if (m && m.type === "jarvis/faces" && (m.action === "set_guest" || m.action === "remove_guest")) _guestCall = m;
+    return _origCallWSg(m);
+  };
+  // Edit the seeded guest's note and Save → set_guest carries the new note.
+  const _bobNote = el.shadowRoot.querySelector('input.guest-note[data-guest-note="Bob"]');
+  const _bobSave = el.shadowRoot.querySelector('button[data-guest-save="Bob"]');
+  if (_bobNote && _bobSave) {
+    _bobNote.value = "fine alone; tell me when he arrives";
+    _bobSave.click();
+    await new Promise(r => setTimeout(r, 15));
+  }
+  const _guestSaveCall = _guestCall;
+  // Add a brand-new guest from the add form.
+  _guestCall = null;
+  const _gName = el.shadowRoot.querySelector("#guest-add-name");
+  const _gNote = el.shadowRoot.querySelector("#guest-add-note");
+  const _gBtn = el.shadowRoot.querySelector("#guest-add-btn");
+  if (_gName && _gNote && _gBtn) {
+    _gName.value = "Nina";
+    _gNote.value = "neighbour, has a key";
+    _gBtn.click();
+    await new Promise(r => setTimeout(r, 15));
+  }
+  const _guestAddCall = _guestCall;
+  await new Promise(r => setTimeout(r, 15));   // let the re-fetch/re-render settle
+  el._hass.callWS = _origCallWSg;
+  const _facesBodyG = el.shadowRoot.getElementById("faces-body")?.innerHTML || "";
+  checks.push(
+    ["faces tab has a Known Guests & Friends section",
+      _facesSections.includes("Known Guests & Friends")],
+    ["known-guests section renders a seeded guest with its note",
+      /data-guest-note="Bob"/.test(_facesBody) && /best friend; fine here alone/.test(_facesBody)],
+    ["known-guests add form present (name + note + button)",
+      !!_gName && !!_gNote && !!_gBtn],
+    ["editing a guest note saves it via set_guest carrying the note text",
+      !!_guestSaveCall && _guestSaveCall.name === "Bob"
+      && _guestSaveCall.note === "fine alone; tell me when he arrives"],
+    ["adding a guest sends set_guest with name + note",
+      !!_guestAddCall && _guestAddCall.name === "Nina"
+      && _guestAddCall.note === "neighbour, has a key"],
+    ["the newly added guest appears in the list", /data-guest-save="Nina"/.test(_facesBodyG)],
   );
 
   // #140: on-the-fly labeling — build the reference dataset straight from

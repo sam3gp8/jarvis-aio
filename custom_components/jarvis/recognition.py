@@ -1133,6 +1133,7 @@ def recognition_context_string(hass: HomeAssistant) -> str:
     so JARVIS can answer "can you see me" from whichever source has data."""
     bits = []
     seen_names = set()
+    recognized_display: dict[str, str] = {}   # lower -> display, for #549 notes
 
     # MQTT/DoubleTake cache
     current = who_is_where(hass)
@@ -1148,6 +1149,7 @@ def recognition_context_string(hass: HomeAssistant) -> str:
         friendly_cam = entity_id.replace("camera.", "").replace("_", " ")
         bits.append(f"{name} seen at {friendly_cam} ({when})")
         seen_names.add(name.lower())
+        recognized_display.setdefault(name.lower(), name)
 
     # Frigate last_recognized_face sensors (may have data before an MQTT event)
     try:
@@ -1159,12 +1161,31 @@ def recognition_context_string(hass: HomeAssistant) -> str:
                 tail = f" ~{conf:.0f}%" if conf else ""
                 bits.append(f"{nm} recognized at {friendly_cam}{tail}")
                 seen_names.add(nm.lower())
+                recognized_display.setdefault(nm.lower(), nm)
     except Exception:
         pass
 
     if not bits:
         return ""
-    return "Recent faces: " + "; ".join(bits) + "."
+    out = "Recent faces: " + "; ".join(bits) + "."
+
+    # #549: annotate any recognized person who is a curated known guest with the
+    # household's note for them, so JARVIS applies that guidance (e.g. "fine to
+    # be here alone", "don't disturb", "let me know when he arrives") instead of
+    # treating them as an anonymous visitor. Notes are deduplicated by person.
+    try:
+        from . import guest_roster
+        guest_bits = []
+        for display in recognized_display.values():
+            note = guest_roster.note_for(display)
+            if note:
+                guest_bits.append(f"{display} — {note}")
+        if guest_bits:
+            out += " Known guests present: " + "; ".join(guest_bits) + "."
+    except Exception:
+        pass
+
+    return out
 
 
 # ─── MQTT subscription ───────────────────────────────────────────────────────

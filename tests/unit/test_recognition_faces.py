@@ -584,3 +584,34 @@ async def test_auto_reference_never_feeds_resident_present(recog, fake_hass, loa
     await mod._maybe_auto_enroll_reference(fake_hass, "Sam", 95.0, b"\xff\xd8data")
     assert mod.is_auto_reference("Sam") is True
     assert mod.resident_present(fake_hass) is None
+
+
+# ── #549: known-guest note annotation in the agent context string ──────────────
+
+def _isolate_guests(load, tmp_path, monkeypatch):
+    gr = load("guest_roster")
+    monkeypatch.setattr(gr, "ROSTER_PATH", str(tmp_path / "guest_roster.json"))
+    gr._loaded = False
+    gr._roster = {}
+    return gr
+
+
+def test_recognition_context_annotates_known_guest(recog, fake_hass, load, tmp_path, monkeypatch):
+    mod, _fr = recog
+    gr = _isolate_guests(load, tmp_path, monkeypatch)
+    gr.set_guest("Bob", "best friend; fine to be here alone")
+    _cache(mod, "camera.front_door", "Bob", 90.0, age_seconds=10)
+
+    s = mod.recognition_context_string(fake_hass)
+    assert "Bob seen at front door" in s
+    assert "Known guests present: Bob — best friend; fine to be here alone." in s
+
+
+def test_recognition_context_no_guest_clause_for_plain_face(recog, fake_hass, load, tmp_path, monkeypatch):
+    mod, _fr = recog
+    _isolate_guests(load, tmp_path, monkeypatch)       # empty roster
+    _cache(mod, "camera.front_door", "Quentin", 90.0, age_seconds=10)
+
+    s = mod.recognition_context_string(fake_hass)
+    assert "Quentin seen at front door" in s
+    assert "Known guests present" not in s

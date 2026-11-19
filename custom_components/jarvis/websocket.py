@@ -3323,8 +3323,10 @@ async def ws_intrusion(
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/faces",
     vol.Optional("action"): vol.In(
-        ["list", "add_resident", "remove_resident", "set_reference", "remove_reference"]),
+        ["list", "add_resident", "remove_resident", "set_reference", "remove_reference",
+         "set_guest", "remove_guest"]),
     vol.Optional("name"): str,
+    vol.Optional("note"): str,    # free-text note for a known guest (#549)
     vol.Optional("image"): str,   # base64 JPEG for set_reference (#140 Phase 3)
     vol.Optional("limit"): int,
 })
@@ -3338,10 +3340,11 @@ async def ws_faces(
     and manage the resident whitelist. JARVIS reads identity from the vision
     backend; this only curates the 'who is a resident' flag layered on top."""
     try:
-        from . import recognition, face_roster
+        from . import recognition, face_roster, guest_roster
         action = msg.get("action", "list")
         if action in ("add_resident", "remove_resident", "set_reference",
-                      "remove_reference") and _deny_non_admin(connection, msg):
+                      "remove_reference", "set_guest", "remove_guest") \
+                and _deny_non_admin(connection, msg):
             return
         # Roster file I/O happens on the executor; the read below then runs on the
         # event loop against an already-loaded roster (no blocking file read).
@@ -3369,15 +3372,27 @@ async def ws_faces(
         elif action == "remove_reference" and msg.get("name"):
             await hass.async_add_executor_job(recognition.remove_face_reference, msg["name"])
             jarvis_log("CAMERA", f"Resident reference photo removed: {msg['name']}")
+        elif action == "set_guest" and msg.get("name"):
+            # Curate a known guest/friend + note JARVIS keeps in mind (#549).
+            await hass.async_add_executor_job(
+                guest_roster.set_guest, msg["name"], msg.get("note", ""))
+            jarvis_log("CAMERA", f"Known guest saved: {msg['name']}")
+        elif action == "remove_guest" and msg.get("name"):
+            await hass.async_add_executor_job(guest_roster.remove_guest, msg["name"])
+            jarvis_log("CAMERA", f"Known guest removed: {msg['name']}")
         else:
             await hass.async_add_executor_job(face_roster._load)
         recent = recognition.recent_faces(hass, int(msg.get("limit", 20)))
         refs = await hass.async_add_executor_job(recognition.list_face_references)
         auto_refs = await hass.async_add_executor_job(recognition.list_auto_references)
+        # Known guests + notes — read on the executor so the roster file isn't
+        # touched on the event loop (#549).
+        guests = await hass.async_add_executor_job(guest_roster.guests)
         entry = _get_entry(hass)
         connection.send_result(msg["id"], {
             "recent": recent,
             "residents": face_roster.residents(),
+            "guests": guests,
             # Normalized names that have an enrolled reference photo (Phase 3).
             "references": refs,
             # Of those, the ones auto-enrolled from a backend recognition

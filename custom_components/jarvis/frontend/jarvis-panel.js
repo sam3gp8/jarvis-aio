@@ -9362,11 +9362,19 @@ ${this._renderExcludedEntities(d)}
     this._fetchVoices();
   }
 
-  async _facesAction(action, name) {
+  async _facesAction(action, name, note) {
     if (!this._hass) return;
     try {
-      await this._hass.callWS({ type: "jarvis/faces", action, name });
-      this._toast(action === "remove_resident" ? "✓ removed resident" : "✓ added resident", "ok");
+      const payload = { type: "jarvis/faces", action, name };
+      if (note !== undefined) payload.note = note;   // #549 known-guest note
+      await this._hass.callWS(payload);
+      const toast = {
+        add_resident: "✓ added resident",
+        remove_resident: "✓ removed resident",
+        set_guest: "✓ saved guest",
+        remove_guest: "✓ removed guest",
+      }[action] || "✓ done";
+      this._toast(toast, "ok");
       await this._fetchFaces();
     } catch (err) {
       this._toast(`✗ ${err?.message || err}`, "err");
@@ -9616,6 +9624,33 @@ ${this._renderExcludedEntities(d)}
     }
     html += `</div>`;
 
+    // ── Section 1b: Known guests & friends (curated, with notes) — #549 ──
+    // Recurring visitors JARVIS should recognize, each with a free-text note of
+    // how the household wants them treated. Distinct from Section 2, which is
+    // whatever the backend happened to recognize recently.
+    const guests = Array.isArray(f.guests) ? f.guests : [];
+    html += `<div class="faces-section">
+      <div class="faces-section-head"><span>Known Guests &amp; Friends</span><span class="faces-section-sub">recurring visitors &mdash; and how JARVIS should treat them</span></div>`;
+    if (guests.length) {
+      html += `<div class="guests-list">` + guests.map(g => {
+        const nm = g.name || "";
+        return `<div class="guest-row">
+          <span class="guest-name">${this._esc(nm)}</span>
+          <input class="guest-note cfg-text" type="text" data-guest-note="${this._esc(nm)}" value="${this._esc(g.note || "")}" placeholder="e.g. best friend; fine here alone; tell me when he arrives">
+          <button class="guest-btn" data-guest-save="${this._esc(nm)}">Save</button>
+          <button class="guest-btn guest-del" data-guest-remove="${this._esc(nm)}">Remove</button>
+        </div>`;
+      }).join("") + `</div>`;
+    } else {
+      html += `<div class="mmwave-empty">No known guests yet. Add a recurring friend or visitor your camera recognizes, with a note on how JARVIS should treat them (e.g. &ldquo;best friend, fine to be here alone&rdquo;, &ldquo;don't disturb&rdquo;, &ldquo;let me know when he arrives&rdquo;).</div>`;
+    }
+    html += `<div class="guest-add-row">
+      <input id="guest-add-name" class="cfg-text" type="text" placeholder="Name (as your camera recognizes them)">
+      <input id="guest-add-note" class="cfg-text" type="text" placeholder="Note (optional)">
+      <button id="guest-add-btn" class="guest-btn">Add guest</button>
+    </div>`;
+    html += `</div>`;
+
     // ── Section 2: Recently seen (non-residents: guests + unknown) ──
     // A recognized face that isn't a resident is a GUEST (issue #388); an
     // unidentified face is UNKNOWN. Promoting a guest to resident = "+ Resident";
@@ -9658,6 +9693,30 @@ ${this._renderExcludedEntities(d)}
       el.addEventListener("click", () => this._facesAction("add_resident", el.getAttribute("data-faces-add"))));
     body.querySelectorAll("[data-faces-remove]").forEach(el =>
       el.addEventListener("click", () => this._facesAction("remove_resident", el.getAttribute("data-faces-remove"))));
+    // #549 known guests: save the edited note, remove, or add a new one.
+    body.querySelectorAll("[data-guest-save]").forEach(el =>
+      el.addEventListener("click", () => {
+        const row = el.closest(".guest-row");
+        const inp = row ? row.querySelector(".guest-note") : null;
+        this._facesAction("set_guest", el.getAttribute("data-guest-save"), inp ? inp.value : "");
+      }));
+    body.querySelectorAll("[data-guest-remove]").forEach(el =>
+      el.addEventListener("click", () => this._facesAction("remove_guest", el.getAttribute("data-guest-remove"))));
+    {
+      const gAddBtn = body.querySelector("#guest-add-btn");
+      const gName = body.querySelector("#guest-add-name");
+      const gNote = body.querySelector("#guest-add-note");
+      const addGuest = () => {
+        const nm = (gName?.value || "").trim();
+        if (!nm) return;
+        this._facesAction("set_guest", nm, gNote?.value || "");
+        if (gName) gName.value = "";
+        if (gNote) gNote.value = "";
+      };
+      gAddBtn?.addEventListener("click", addGuest);
+      gName?.addEventListener("keydown", e => { if (e.key === "Enter") addGuest(); });
+      gNote?.addEventListener("keydown", e => { if (e.key === "Enter") addGuest(); });
+    }
     // Fill each card's snapshot from the camera that saw the subject.
     body.querySelectorAll("img[data-faces-cam]").forEach(img =>
       this._loadFaceSnap(img.getAttribute("data-faces-cam"), img));
@@ -12828,6 +12887,14 @@ ${this._renderExcludedEntities(d)}
      ("Both (Double Take + Frigate)") and it overflowed the panel. Cap it to the
      row and include padding in the box so it fits like the grid ones. */
   .faces-src-row select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .guests-list { margin: 6px 0; }
+  .guest-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .guest-row .guest-name { min-width: 90px; font-weight: 600; color: var(--text, #cfe); overflow: hidden; text-overflow: ellipsis; }
+  .guest-row .guest-note { flex: 1; min-width: 0; }
+  .guest-add-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; }
+  .guest-add-row #guest-add-name { width: 38%; }
+  .guest-add-row #guest-add-note { flex: 1; min-width: 0; }
+  .guest-btn { white-space: nowrap; cursor: pointer; }
   /* Phase 3: best-effort LLM recognition controls */
   .faces-llm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
   .faces-llm-row label { font-size: 12px; color: var(--text, #cfe); display: flex; align-items: center; gap: 6px; }
