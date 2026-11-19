@@ -4163,6 +4163,32 @@ def _is_too_large(exc: Exception) -> bool:
     ))
 
 
+def _is_tool_unsupported_error(exc: Exception) -> bool:
+    """True when the provider rejects the request because the model does not
+    support tool/function calling AT ALL — distinct from the model fumbling the
+    tool-call SYNTAX (:func:`_is_tool_format_error`). The model is reachable and
+    can still answer in plain prose, so the right recovery is to retry the SAME
+    model WITHOUT tools, not to switch to the fallback tier (which may be another
+    tool-less model and then fails to the connectivity sentinel). (#557)
+
+    Seen on tool-less Groq / Gemini models, e.g. 400 '`tool calling` is not
+    supported with this model', 'does not support tools', 'tool use is not
+    supported'. Requires a tool/function keyword to co-occur with an
+    unsupported/not-supported phrase, so it doesn't swallow unrelated 400s."""
+    s = str(exc).lower()
+    mentions_tools = (
+        "tool calling" in s or "tool call" in s or "tool use" in s
+        or "tool-calling" in s or "tools" in s
+        or "function calling" in s or "function call" in s
+    )
+    unsupported = (
+        "not supported" in s or "unsupported" in s
+        or "does not support" in s or "doesn't support" in s
+        or "no support for" in s or "not support" in s
+    )
+    return mentions_tools and unsupported
+
+
 def _strip_home_state(system_text: str) -> str:
     """Replace the '## Current home state' block with a short pointer, to shrink
     the request for a 413 retry. Leaves the rest of the prompt intact."""
@@ -5309,7 +5335,33 @@ async def run_agent(
             except Exception:
                 pass
         except Exception as exc:
-            if _is_tool_format_error(exc):
+            if _is_tool_unsupported_error(exc):
+                # The model doesn't support tool/function calling at all (a 400
+                # "tool calling is not supported with this model" from a tool-less
+                # Groq/Gemini model, #557). It's reachable and can still answer in
+                # prose, so drop tools for the rest of this turn and retry the SAME
+                # model — don't fall through to the reasoning-tier fallback, which
+                # may also be tool-less and then ends at the connectivity sentinel.
+                _LOGGER.info(
+                    "Agent iter %d: model does not support tool calling — "
+                    "answering without tools", iteration,
+                )
+                tools = None
+                try:
+                    result = await hass.async_add_executor_job(
+                        lambda: client.chat(
+                            working, None, 1024, temperature,
+                            run_state=llm_run_state,
+                        ),
+                    )
+                except Exception as exc2:
+                    if _is_connectivity_error(exc2):
+                        return (
+                            "I'm experiencing connectivity issues with my "
+                            "reasoning systems, sir. Please try again in a moment."
+                        )
+                    return "I'm not sure I caught that, sir."
+            elif _is_tool_format_error(exc):
                 # The model is reachable but emitted malformed tool syntax —
                 # stochastic with Llama-3.3-70b. This is NOT connectivity, so we
                 # must not return the connectivity sentinel (which trips the
