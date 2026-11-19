@@ -1,3 +1,13 @@
+## [9.144.0] — Faces tab: the "Identity source" dropdown fits again (#548)
+
+On the Faces tab in Firefox and Edge, the "Identity source" dropdown overflowed
+its panel. It's the one settings `<select>` that sits in a flex row rather than a
+width-constraining grid cell, so nothing capped the native control — and those
+browsers size a `<select>` to its longest option ("Both (Double Take + Frigate)"),
+which spilled past the edge. It's now capped to its row, with padding counted in
+the box, so it fits like every other dropdown. Chrome was unaffected and stays
+that way.
+
 ## [9.143.0] — The voice gatekeeper stops muting you while JARVIS is talking (#554)
 
 A reported satellite kept "gate-keeping" — ignoring real commands as if they were
