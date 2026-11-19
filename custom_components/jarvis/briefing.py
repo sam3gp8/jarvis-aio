@@ -14,6 +14,7 @@ and includes:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -178,11 +179,19 @@ def _gather_overnight_events(hass: HomeAssistant, hours: int = 12) -> list[str]:
     return events
 
 
+# Internal square-bracketed directives (e.g. "[read-only sensor: report as open
+# only; …]") are instructions for the briefing LLM, never spoken content. Strip
+# them before the deterministic fallback reads the raw context lines aloud (#581).
+_ANNOTATION_RE = re.compile(r"\s*\[[^\]]*\]")
+
+
 def _plain_briefing(greeting: str, honorific: str, context_lines: list[str]) -> str:
     """A deterministic briefing read straight from the gathered facts, used when
     the language model returns nothing so the briefing still happens instead of
-    silently skipping."""
-    facts = [ln.strip() for ln in (context_lines or []) if ln and ln.strip()]
+    silently skipping. Internal [bracketed] directives are stripped so they are
+    never spoken aloud (#581)."""
+    facts = [_ANNOTATION_RE.sub("", ln or "").strip() for ln in (context_lines or [])]
+    facts = [ln for ln in facts if ln]
     if not facts:
         return f"{greeting}, {honorific}. Nothing notable to report."
     return f"{greeting}, {honorific}. " + " ".join(facts)
@@ -290,11 +299,14 @@ async def async_briefing(
         f"{_greeting_instruction(hass, honorific)}Then concisely cover the important items. "
         f"Under 120 words. Be efficient — do not list trivia. "
         f"If nothing is noteworthy, say so briefly. "
+        f"Square-bracketed annotations in the context are internal directives for "
+        f"you, not spoken content — never read or repeat them verbatim. "
         f"Your prime directive should inform what you surface — protect, steward, "
         f"anticipate. Lead with anything that affects their safety or wellbeing."
     )
     system = build_system_prompt(hass, honorific, task)
 
+    _empty_reason = "no text returned"
     try:
         result = await hass.async_add_executor_job(
             lambda: groq_client.chat(
@@ -307,15 +319,23 @@ async def async_briefing(
             )
         )
         briefing_text = (result.get("text") or "").strip()
+        if not briefing_text:
+            # Redacted: provider status only, never the content or context.
+            _empty_reason = f"finish_reason={result.get('finish_reason')!r}"
     except Exception as exc:
         _LOGGER.error("JARVIS briefing error: %s", exc)
         briefing_text = ""
+        _empty_reason = f"exception={type(exc).__name__}"
 
     # The model sometimes returns an empty completion (a local-model hiccup, or
     # an unusual prompt). Rather than silently skip the announce, read the facts
-    # already gathered — a plain briefing beats no briefing.
+    # already gathered — a plain briefing beats no briefing. Log a REDACTED reason
+    # (provider status + fact count, never content) so a fallback that fires often
+    # is diagnosable (#581).
     if not briefing_text:
-        _LOGGER.warning("JARVIS briefing: empty model output — reading gathered facts instead")
+        _LOGGER.warning(
+            "JARVIS briefing: empty model output (%s) — reading %d gathered fact "
+            "line(s) instead", _empty_reason, len(context_lines or []))
         briefing_text = _plain_briefing(greeting, honorific, context_lines)
 
     await hass.async_add_executor_job(
