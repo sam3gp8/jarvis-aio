@@ -269,6 +269,7 @@ def _load_conversation_module(monkeypatch):
         "CONF_ROOM_ROUTING": "room_routing",
         "CONF_TTS_ENGINE": "tts_engine",
         "CONF_USE_HASS_API": "use_hass_api",
+        "CONF_EXTRA_LLM_APIS": "extra_llm_apis",
         "CONF_VOICE_SATELLITES": "voice_satellites",
         "DEFAULT_DIRECTIVE_PRESET": "guardian_steward",
         "DEFAULT_HONORIFIC": "sir",
@@ -1154,3 +1155,30 @@ def test_relevance_gate_passes_non_english_commands_during_media():
     # A non-command foreign fragment (no leading imperative, not a question) is
     # still dropped as ambient while media plays.
     assert g("ja genau das meinte ich auch", strict=True) is False
+
+
+def test_llm_api_ids_defaults_to_assist_and_merges_extras(monkeypatch):
+    """#564: _get_hass_api requests "assist" plus any configured extra HA LLM
+    APIs. No extras keeps the bare "assist" string (common path unchanged); a
+    list (options flow) or a CSV string (panel) both merge, de-duplicating
+    "assist" and dropping blanks."""
+    mod = _load_conversation_module(monkeypatch)
+    agent = _make_dispatch_agent(mod)
+
+    # Default: nothing configured → bare "assist" string.
+    assert agent._llm_api_ids() == "assist"
+
+    # List (options flow multi-select): merged, assist de-duplicated, blanks gone.
+    agent._opt = lambda key, default=None: (
+        ["assist", "mcp_x", "", "wiki"] if key == "extra_llm_apis" else default)
+    assert agent._llm_api_ids() == ["assist", "mcp_x", "wiki"]
+
+    # CSV string (panel text field): split on commas, trimmed.
+    agent._opt = lambda key, default=None: (
+        "mcp_x, wiki" if key == "extra_llm_apis" else default)
+    assert agent._llm_api_ids() == ["assist", "mcp_x", "wiki"]
+
+    # Empty / None → just "assist".
+    for junk in ("", None, []):
+        agent._opt = lambda key, default=None, _j=junk: (_j if key == "extra_llm_apis" else default)
+        assert agent._llm_api_ids() == "assist"

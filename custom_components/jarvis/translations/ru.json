@@ -152,6 +152,7 @@
           "directive": "Своя директива (необязательно, переопределяет предустановку)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Включить управление домом (свет, климат, замки и т. д.)",
+          "extra_llm_apis": "Дополнительные LLM API Home Assistant (например, MCP Client, интеграции инструментов HACS)",
           "web_research_llm_fallback": "Разрешить веб-поиску переходить к собственному веб-поиску LLM, если backend по умолчанию ничего не находит"
         }
       },

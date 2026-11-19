@@ -152,6 +152,7 @@
           "directive": "Direttiva personalizzata (facoltativa, sostituisce il preset)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Abilita il controllo della casa (luci, clima, serrature, ecc.)",
+          "extra_llm_apis": "API LLM aggiuntive di Home Assistant (es. MCP Client, integrazioni di strumenti HACS)",
           "web_research_llm_fallback": "Consenti alla ricerca web di passare alla ricerca web nativa dell'LLM quando il backend predefinito non trova nulla"
         }
       },

@@ -152,6 +152,7 @@
           "directive": "Custom directive (optional, overrides preset)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Enable home control (lights, climate, locks, etc.)",
+          "extra_llm_apis": "Extra Home Assistant LLM APIs to expose (e.g. MCP Client, HACS tool integrations)",
           "web_research_llm_fallback": "Let web research escalate to the LLM's own web search when the default backend finds nothing"
         }
       },

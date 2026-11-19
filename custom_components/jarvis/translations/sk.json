@@ -152,6 +152,7 @@
           "directive": "Vlastná direktíva (voliteľné, prepíše predvoľbu)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Povoliť ovládanie domácnosti (svetlá, klíma, zámky atď.)",
+          "extra_llm_apis": "Ďalšie rozhrania LLM API Home Assistant (napr. MCP Client, integrácie nástrojov HACS)",
           "web_research_llm_fallback": "Umožniť, aby webový výskum eskaloval na vlastné webové vyhľadávanie LLM, keď predvolený backend nič nenájde"
         }
       },

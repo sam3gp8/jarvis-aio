@@ -152,6 +152,7 @@
           "directive": "Brugerdefineret direktiv (valgfrit, tilsidesætter forudindstilling)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Aktivér hjemmestyring (lys, klima, låse osv.)",
+          "extra_llm_apis": "Ekstra Home Assistant LLM-API'er (f.eks. MCP Client, HACS-værktøjsintegrationer)",
           "web_research_llm_fallback": "Lad websøgning eskalere til LLM'ens egen websøgning, når standardbackendet ikke finder noget"
         }
       },

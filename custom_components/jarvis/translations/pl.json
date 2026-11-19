@@ -152,6 +152,7 @@
           "directive": "Własna dyrektywa (opcjonalnie, zastępuje ustawienie wstępne)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Włącz sterowanie domem (światła, klimat, zamki itp.)",
+          "extra_llm_apis": "Dodatkowe interfejsy LLM API Home Assistant (np. MCP Client, integracje narzędzi HACS)",
           "web_research_llm_fallback": "Pozwól, aby wyszukiwanie w sieci eskalowało do własnej wyszukiwarki internetowej LLM, gdy domyślny backend niczego nie znajdzie"
         }
       },

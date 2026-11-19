@@ -152,6 +152,7 @@
           "directive": "Özel direktif (isteğe bağlı, ön ayarı geçersiz kılar)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Ev kontrolünü etkinleştir (ışıklar, iklim, kilitler vb.)",
+          "extra_llm_apis": "Ek Home Assistant LLM API'leri (ör. MCP Client, HACS araç entegrasyonları)",
           "web_research_llm_fallback": "Varsayılan arka uç hiçbir şey bulamadığında web araştırmasının LLM'in kendi web aramasına yükseltilmesine izin ver"
         }
       },

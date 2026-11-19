@@ -127,6 +127,20 @@ def _runtime_opt(hass: HomeAssistant, entry, key: str, default=None):
     return jarvis_config.runtime_get(hass, entry, key, default)
 
 
+def _as_csv(v) -> str:
+    """Coerce a stored list-or-string setting to a comma-separated string for a
+    panel text input. The options flow stores a list (multi-select) while the
+    panel writes a comma-separated string, so a plain ``list()`` would shatter a
+    stored string into characters — branch on the type instead (#564)."""
+    if isinstance(v, str):
+        parts = v.split(",")
+    elif isinstance(v, (list, tuple)):
+        parts = [str(x) for x in v]
+    else:
+        parts = []
+    return ", ".join(p.strip() for p in parts if str(p).strip())
+
+
 def _as_bool(v, default: bool = False) -> bool:
     """Coerce a stored config flag to a real boolean for the panel payload. A
     bespoke toggle that saved its state as the STRING ``"false"`` (#542) reads
@@ -831,6 +845,7 @@ async def ws_get_panel_data(
                 "directive": str(_runtime_opt(hass, entry, "directive", "") or "").strip(),
                 "directive_presets": list(_DIR_PRESETS.keys()),
                 "use_hass_api": bool(_runtime_opt(hass, entry, "use_hass_api", True)),
+                "extra_llm_apis": _as_csv(_runtime_opt(hass, entry, "extra_llm_apis", [])),
                 "identity_enabled": bool(_runtime_opt(hass, entry, "identity_enabled", True)),
                 "identity_voice_fingerprint": bool(_runtime_opt(hass, entry, "identity_voice_fingerprint", False)),
                 "voice_recognition_source": str(_runtime_opt(hass, entry, "voice_recognition_source", "") or ""),
@@ -1746,6 +1761,7 @@ PANEL_WRITABLE_KEYS = {
     "directive_preset",             # str: persona directive preset key
     "directive",                    # str: custom standing directive (overrides the preset when set)
     "use_hass_api",                 # bool: let JARVIS use Home Assistant's own LLM API tools
+    "extra_llm_apis",               # list|csv: extra HA LLM API ids to expose (#564)
     "identity_enabled",             # bool: per-person recognition master switch
     "identity_voice_fingerprint",   # bool: voice-fingerprint identity tier (needs a GPU)
     "voice_recognition_source",     # str: voice-recognition source identifier

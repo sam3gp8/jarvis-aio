@@ -28,6 +28,7 @@ from .const import (
     CONF_ROOM_ROUTING,
     CONF_TTS_ENGINE,
     CONF_USE_HASS_API,
+    CONF_EXTRA_LLM_APIS,
     CONF_VOICE_SATELLITES,
     DEFAULT_DIRECTIVE_PRESET,
     DEFAULT_HONORIFIC,
@@ -379,6 +380,33 @@ class JarvisAgent(conversation.ConversationEntity):
     def _use_hass_api(self) -> bool:
         return bool(self._opt(CONF_USE_HASS_API, True))
 
+    def _llm_api_ids(self):
+        """The Home Assistant LLM API id(s) to expose to the agent.
+
+        Always the built-in ``"assist"`` API, plus any extra registered HA LLM
+        APIs the user selected (#564) — e.g. the MCP Client integration or a
+        HACS LLM-tool provider. HA's ``async_get_api`` accepts a list and
+        returns a single merged API (tools + execution routing), so the agent
+        needs no further wiring. Returns a bare ``"assist"`` string when nothing
+        extra is configured, keeping the common path byte-for-byte unchanged.
+        """
+        extras = self._opt(CONF_EXTRA_LLM_APIS, []) or []
+        # The options flow stores a list (multi-select); the panel stores a
+        # comma-separated string — accept either.
+        if isinstance(extras, str):
+            extras = extras.split(",")
+        ids = ["assist"]
+        seen = {"assist"}
+        try:
+            for e in extras:
+                s = str(e).strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    ids.append(s)
+        except TypeError:
+            pass
+        return ids[0] if len(ids) == 1 else ids
+
     def _broadcast_fallback_speakers(self) -> list[str]:
         """The broadcast/announcement speakers briefings deliver to (e.g. a Cast
         group). Used as a reply fallback when the paired room speaker won't play —
@@ -647,7 +675,7 @@ class JarvisAgent(conversation.ConversationEntity):
                 assistant=conversation.HOME_ASSISTANT_AGENT,
                 device_id=user_input.device_id,
             ))
-            api = await llm.async_get_api(self.hass, "assist", ctx)
+            api = await llm.async_get_api(self.hass, self._llm_api_ids(), ctx)
             _LOGGER.debug("JARVIS: %d HA tools available", len(api.tools))
             return api
         except Exception as exc:  # pylint: disable=broad-except

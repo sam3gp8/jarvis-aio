@@ -152,6 +152,7 @@
           "directive": "Anpassat direktiv (valfritt, åsidosätter förval)",
           "llm_provider": "Conversation model provider",
           "use_hass_api": "Aktivera hemstyrning (lampor, klimat, lås osv.)",
+          "extra_llm_apis": "Extra Home Assistant LLM-API:er (t.ex. MCP Client, HACS-verktygsintegrationer)",
           "web_research_llm_fallback": "Låt webbsökning eskalera till LLM:ens egen websökning när standardbackenden inte hittar något"
         }
       },

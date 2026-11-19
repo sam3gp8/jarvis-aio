@@ -17,6 +17,10 @@ CONF_TTS_ENGINE           = "tts_engine"
 CONF_TTS_PREMIUM_ENGINE   = "tts_premium_engine"
 CONF_TTS_PREMIUM_CONTEXTS = "tts_premium_contexts"
 CONF_USE_HASS_API         = "use_hass_api"
+# Additional Home Assistant LLM API ids to expose alongside the built-in
+# "assist" API (#564) — e.g. the MCP Client integration or HACS LLM-tool
+# providers. A list of api ids; "assist" is always included implicitly.
+CONF_EXTRA_LLM_APIS       = "extra_llm_apis"
 CONF_CAST_ANNOUNCE        = "cast_announce"
 CONF_DIRECTIVE            = "directive"
 CONF_DIRECTIVE_PRESET     = "directive_preset"
