@@ -908,6 +908,7 @@ async def ws_get_panel_data(
                 "driving_car_sensor": str(_runtime_opt(hass, entry, "driving_car_sensor", "") or ""),
                 "identity_min_confidence": _runtime_opt(hass, entry, "identity_min_confidence", 0.45),
                 "ollama_num_ctx": _runtime_opt(hass, entry, "ollama_num_ctx", 8192),
+                "ollama_keep_alive": str(_runtime_opt(hass, entry, "ollama_keep_alive", "30m") or "30m"),
                 "fast_chat_enabled": bool(_runtime_opt(hass, entry, "fast_chat_enabled", False)),
                 "fast_model": str(_runtime_opt(hass, entry, "fast_model", "") or ""),
                 "fast_provider": str(_runtime_opt(hass, entry, "fast_provider", "") or ""),
@@ -1748,6 +1749,7 @@ PANEL_WRITABLE_KEYS = {
     "appliance_power_guessing",     # bool: announce fingerprint/auto-discovered guesses
     "identity_min_confidence",      # float: face-match threshold below which a person is 'unknown'
     "ollama_num_ctx",               # int: Ollama context window for local models
+    "ollama_keep_alive",            # str/int: how long Ollama holds the model in VRAM (30m, -1=forever, 0=unload)
     "fast_chat_enabled",            # bool: route simple conversational turns to a small/fast model (latency)
     "fast_model",                   # str: the small model for the fast-chat tier (e.g. gemma3n:e4b)
     "fast_provider",                # str: provider for the fast model (blank = same as Main Agent)

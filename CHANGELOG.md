@@ -1,3 +1,14 @@
+## [9.153.0] — Choose how long Ollama keeps your model loaded (#567)
+
+A local Ollama model unloads from VRAM after an idle window, and JARVIS fixed
+that window at 30 minutes — so a model you wanted kept warm would still get
+evicted, and the next turn paid the cold-load cost again.
+
+There's now an **OLLAMA keep_alive** box in Settings → AI Models (next to
+num_ctx). Set a duration (`30m`, `1h`), a number of seconds, `0` to unload
+immediately, or `-1` to keep the model resident indefinitely. Leave it blank for
+the 30-minute default.
+
 ## [9.152.0] — JARVIS still answers on a model that can't call tools (#557)
 
 If your reasoning model doesn't support function/tool calling, JARVIS used to

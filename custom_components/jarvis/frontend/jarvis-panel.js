@@ -5765,6 +5765,12 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
             data-cfg-key="ollama_num_ctx" value="${d.config?.ollama_num_ctx ?? ''}" placeholder="8192"
             title="Context window for local Ollama models. Larger = more context, but more VRAM and slower. Default 8192."/>
         </div>
+        <div class="llm-url-row">
+          <span class="llm-url-label">OLLAMA keep_alive</span>
+          <input class="cfg-field cfg-text" type="text"
+            data-cfg-key="ollama_keep_alive" value="${this._esc(d.config?.ollama_keep_alive ?? '')}" placeholder="30m"
+            title="How long Ollama keeps the model in VRAM between turns: a duration (30m, 1h), seconds, 0 to unload immediately, or -1 to keep it loaded indefinitely. Default 30m."/>
+        </div>
       </div>
 
       <!-- NOTIFICATIONS -->
