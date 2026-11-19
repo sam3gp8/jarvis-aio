@@ -86,6 +86,9 @@ _ALLOWED_SITES: dict[tuple[str, str], str] = {
     # ESPHome fallback that starts a voice satellite listening — a voice-pipeline
     # trigger, not a home device state change.
     ("voice_confirm.py", "_start_listening"): "voice-satellite start action (communication)",
+    # user-requested calendar write: creates a calendar entry via
+    # calendar.create_event — calendar data, not a physical device state change.
+    ("comms.py", "create_event"): "calendar data write — calendar.create_event (#554)",
 }
 
 

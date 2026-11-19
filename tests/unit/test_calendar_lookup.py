@@ -150,3 +150,70 @@ async def test_exec_calendar_lookup_tool(load, fake_hass, monkeypatch):
     assert out["count"] == 1 and out["events"][0]["title"] == "Meeting"
     # registered in the dispatch map
     assert "calendar_lookup" in agent._TOOL_MAP
+
+
+# ── create (#554 PR2): calendar_create_event / comms.create_event ─────────────
+# The default FakeHass records service calls into .service_calls, so these assert
+# the exact calendar.create_event payload without a stub.
+async def test_create_event_timed(comms, fake_hass):
+    fake_hass.states.set("calendar.home", "off", friendly_name="Home")
+    res = await comms.create_event(fake_hass, summary="Dentist",
+                                   start="2026-11-20 15:00:00")
+    assert res["ok"] is True and res["calendar"] == "calendar.home"
+    assert res["all_day"] is False
+    dom, svc, data = fake_hass.service_calls[-1]
+    assert (dom, svc) == ("calendar", "create_event")
+    assert data["entity_id"] == "calendar.home" and data["summary"] == "Dentist"
+    assert data["start_date_time"] == "2026-11-20 15:00:00"
+    assert data["end_date_time"] == "2026-11-20 16:00:00"      # default +1h
+    assert "start_date" not in data
+
+
+async def test_create_event_all_day(comms, fake_hass):
+    fake_hass.states.set("calendar.home", "off")
+    res = await comms.create_event(fake_hass, summary="Holiday",
+                                   start="2026-12-25", all_day=True)
+    assert res["ok"] is True and res["all_day"] is True
+    _, _, data = fake_hass.service_calls[-1]
+    assert data["start_date"] == "2026-12-25"
+    assert data["end_date"] == "2026-12-26"                    # exclusive end
+    assert "start_date_time" not in data
+
+
+async def test_create_event_bare_date_is_all_day(comms, fake_hass):
+    fake_hass.states.set("calendar.home", "off")
+    res = await comms.create_event(fake_hass, summary="Birthday", start="2027-03-01")
+    assert res["ok"] is True and res["all_day"] is True
+    _, _, data = fake_hass.service_calls[-1]
+    assert data["start_date"] == "2027-03-01" and data["end_date"] == "2027-03-02"
+
+
+async def test_create_event_requires_summary_and_start(comms, fake_hass):
+    fake_hass.states.set("calendar.home", "off")
+    assert (await comms.create_event(fake_hass, summary="",
+                                     start="2026-11-20 15:00:00"))["ok"] is False
+    assert (await comms.create_event(fake_hass, summary="X", start=""))["ok"] is False
+    assert fake_hass.service_calls == []                       # nothing written
+
+
+async def test_create_event_no_calendar(comms, fake_hass):
+    res = await comms.create_event(fake_hass, summary="X", start="2026-11-20 15:00:00")
+    assert res["ok"] is False and "error" in res
+
+
+async def test_create_event_target_resolution(comms, fake_hass):
+    fake_hass.states.set("calendar.home", "off", friendly_name="Home")
+    fake_hass.states.set("calendar.work", "off", friendly_name="Work Cal")
+    res = await comms.create_event(fake_hass, summary="Standup",
+                                   start="2026-11-20 09:00:00", entity_id="work")
+    assert res["calendar"] == "calendar.work"
+    assert fake_hass.service_calls[-1][2]["entity_id"] == "calendar.work"
+
+
+async def test_exec_calendar_create_event_tool(load, fake_hass):
+    agent = load("agent")
+    fake_hass.states.set("calendar.home", "off")
+    out = json.loads(await agent._exec_calendar_create_event(fake_hass, {
+        "summary": "Meeting", "start": "2026-11-21 10:00:00"}))
+    assert out["ok"] is True
+    assert "calendar_create_event" in agent._TOOL_MAP

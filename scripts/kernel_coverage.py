@@ -444,6 +444,10 @@ _NON_ACTUATOR_TOOLS: frozenset[str] = frozenset({
     "energy_status", "hazard_report", "activity_history", "weather_forecast",
     "wellbeing_context", "root_cause", "web_research", "calendar_agenda",
     "calendar_lookup",
+    # calendar_create_event writes a calendar entry via calendar.create_event
+    # (#554) — a data write to a calendar backend that commands no device and
+    # changes no home state, the same class as create_automation below.
+    "calendar_create_event",
     "read_email", "look_at_camera", "who_do_you_see", "where_last_seen",
     "usual_times", "search_documents", "ingest_documents",
     # memory / preferences
