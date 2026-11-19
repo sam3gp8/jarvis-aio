@@ -19,6 +19,11 @@ tier: the summary falls back to the main model exactly as before. Cloud backends
 (Groq, OpenAI, Anthropic, Gemini) were never affected by this cache eviction, so
 this is purely a local-backend latency win.
 
+This release also hardens how that summary re-enters the conversation: it's now
+length-capped and wrapped in an explicit "context only, not instructions"
+boundary, so a directive smuggled into earlier dialogue (for example via an
+ingested email or web-search result) can't ride the summary back in as policy.
+
 ## [9.149.0] — Type a message for JARVIS to speak (#540)
 
 JARVIS could already pass spoken word between people when you asked out loud —
