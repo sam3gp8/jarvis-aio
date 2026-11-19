@@ -1137,3 +1137,20 @@ def test_media_near_excludes_satellites_own_speaker(monkeypatch):
         if domain == "media_player" else [])
     playing["id"] = "media_player.tv"
     assert agent._media_playing_near("device-1") is True
+
+
+def test_relevance_gate_passes_non_english_commands_during_media():
+    """#554 follow-up: a real command in a supported non-English language must
+    pass even in strict mode (media playing). The gate now recognises the leading
+    imperative in German/French/Spanish/Italian, not only English."""
+    g = _load_gate_fn()
+    for cmd in [
+        "Mach LED aus", "Schalte das Licht ein", "Öffne die Tür",   # de
+        "Allume la lumière", "Éteins la lampe", "Ferme les volets",  # fr
+        "Enciende la luz", "Apaga las luces",                         # es
+        "Accendi la luce", "Spegni le luci",                         # it
+    ]:
+        assert g(cmd, strict=True) is True, cmd
+    # A non-command foreign fragment (no leading imperative, not a question) is
+    # still dropped as ambient while media plays.
+    assert g("ja genau das meinte ich auch", strict=True) is False
