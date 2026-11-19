@@ -1092,3 +1092,48 @@ def test_local_first_still_default_when_direct_reasoning_off(monkeypatch):
 
     assert local_calls == [False], "try_local must be consulted first by default"
     assert "Handled locally." in result.response.speech
+
+
+def test_media_near_excludes_satellites_own_speaker(monkeypatch):
+    """#554: JARVIS casting its own reply onto the satellite's OWN speaker must
+    not count as ambient media (which would flip the relevance gate to strict and
+    drop the user's next turn); a different speaker in the area still does."""
+    import sys
+    import types
+
+    mod = _load_conversation_module(monkeypatch)
+    cc = sys.modules[f"{mod.__package__}.continued_conversation"]
+    ar = sys.modules[f"{mod.__package__}.audio_routing"]
+    cc.satellite_for_device = lambda hass, device_id: "assist_satellite.room"
+    ar.entity_area = lambda hass, entity_id: "living_room"
+
+    class FS:
+        def __init__(self, s):
+            self.state = s
+
+    playing = {"id": None}
+
+    class FakeHass:
+        def __init__(self):
+            self.data = {}
+            self.states = types.SimpleNamespace(
+                get=lambda e: FS("playing") if e == playing["id"] else None)
+
+    agent = object.__new__(mod.JarvisAgent)
+    agent.hass = FakeHass()
+    agent.entry = types.SimpleNamespace(entry_id="e1")
+    agent._rt_opt = lambda key, default=None: default          # no movie player
+    agent._satellite_speaker = lambda device_id: "media_player.saschaball"
+
+    # Only the satellite's OWN speaker is playing (JARVIS speaking) → not ambient.
+    ar._entities_by_domain = lambda hass, domain: (
+        ["media_player.saschaball"] if domain == "media_player" else [])
+    playing["id"] = "media_player.saschaball"
+    assert agent._media_playing_near("device-1") is False
+
+    # A different speaker in the area playing (a real TV) → still ambient.
+    ar._entities_by_domain = lambda hass, domain: (
+        ["media_player.saschaball", "media_player.tv"]
+        if domain == "media_player" else [])
+    playing["id"] = "media_player.tv"
+    assert agent._media_playing_near("device-1") is True

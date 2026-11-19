@@ -445,8 +445,19 @@ class JarvisAgent(conversation.ConversationEntity):
             from . import audio_routing, continued_conversation as _cc
             sat = _cc.satellite_for_device(hass, device_id)
             area = audio_routing.entity_area(hass, sat) if sat else None
+            # #554: JARVIS casting its own reply or follow-up prompt onto the
+            # satellite's OWN speaker is not ambient TV. Counting it flipped the
+            # relevance gate to strict for the user's very next turn — so a reply
+            # (or an answer to JARVIS's own question) that carried no English
+            # keyword was dropped as "media playing", the follow-up stalled, and
+            # only a satellite restart (which resets its media_player to idle)
+            # recovered it. Exclude that speaker so only genuinely external media
+            # tightens the gate.
+            own = self._satellite_speaker(device_id)
             if area:
                 for e in audio_routing._entities_by_domain(hass, "media_player"):
+                    if e == own:
+                        continue
                     if audio_routing.entity_area(hass, e) != area:
                         continue
                     st = hass.states.get(e)
