@@ -12821,7 +12821,12 @@ ${this._renderExcludedEntities(d)}
   /* Identity-source selector row on the Faces tab (mirrors Settings → Cameras). */
   .faces-src-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
   .faces-src-row label { font-size: 12px; color: var(--text, #cfe); }
-  .faces-src-row select { min-width: 180px; }
+  /* #548: the Identity-source dropdown is the only .cfg-field select in a flex
+     row (every other one sits in a width-constraining grid cell), so nothing
+     capped its native width — Firefox/Edge sized it to the longest option
+     ("Both (Double Take + Frigate)") and it overflowed the panel. Cap it to the
+     row and include padding in the box so it fits like the grid ones. */
+  .faces-src-row select { min-width: 0; max-width: 100%; box-sizing: border-box; }
   /* Phase 3: best-effort LLM recognition controls */
   .faces-llm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
   .faces-llm-row label { font-size: 12px; color: var(--text, #cfe); display: flex; align-items: center; gap: 6px; }
