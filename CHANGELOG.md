@@ -1,3 +1,23 @@
+## [9.146.0] — KV-cache-friendly prompt ordering for local models (#561)
+
+On a local OpenAI-compatible backend (llama.cpp / vLLM / Ollama), JARVIS was
+re-evaluating roughly its entire ~12k-token prompt on every voice turn — about
+4.7s of prompt processing — even when nothing but the clock had changed. Local
+engines reuse their KV-cache by longest common prefix, and JARVIS injected the
+live context (the per-minute `Current time`, presence, home state) near the top
+of the system prompt, so the changing minute invalidated the cache for all the
+static persona, rules and tool schemas that followed it, every 60 seconds.
+
+The static prompt is now a byte-stable prefix. The persona, reasoning rules and
+tool schemas stay identical from turn to turn, and all per-turn dynamic context
+(time, presence, weather, home state, situation, recollections, cognitive-core
+status, recalled memory and curated knowledge) is delivered at the end of the
+request — merged into the user's own turn — right where the model needs it most.
+Local backends keep the whole static prefix hot in VRAM across turns and minute
+boundaries, so a follow-up turn only has to process the new tail. (Cloud
+providers that auto-cache prompt prefixes benefit the same way.) No behaviour
+changes: the model sees exactly the same information, just positioned for reuse.
+
 ## [9.145.0] — The relevance gate understands commands in your language (#554)
 
 Follow-up to 9.143.0. When a real TV is actually playing nearby, JARVIS tightens
