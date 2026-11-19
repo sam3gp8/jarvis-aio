@@ -783,6 +783,29 @@ OLLAMA_NUM_CTX = 8192
 OLLAMA_TIMEOUT = 120.0  # seconds
 
 
+def _normalize_keep_alive(raw) -> object:
+    """Normalise an ``ollama_keep_alive`` config value for the Ollama request.
+
+    Ollama accepts ``keep_alive`` as a duration string ("30m", "1h", "0") or a
+    number of seconds, where ``-1`` means "keep the model resident indefinitely"
+    and ``0`` "unload immediately". Users set this to stop the model unloading
+    between turns — e.g. ``-1`` so a local model stays warm (#567). Returns the
+    default when unset or blank; passes a bare integer (incl. ``-1`` / ``0``)
+    through as an int, and any other string (a duration) through unchanged.
+    """
+    if raw is None or isinstance(raw, bool):   # bool is an int subclass — skip
+        return OLLAMA_KEEP_ALIVE
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    s = str(raw).strip()
+    if not s:
+        return OLLAMA_KEEP_ALIVE
+    try:
+        return int(s)                          # "-1" / "0" / "600" → int seconds
+    except ValueError:
+        return s                               # "30m" / "1h" → duration string
+
+
 class OllamaProvider(OpenAIProvider):
     """Ollama via its OpenAI-compatible API, tuned for local/self-hosted use."""
     name = "ollama"
@@ -831,15 +854,21 @@ class OllamaProvider(OpenAIProvider):
         # non-reasoning models either way.
         # num_ctx is configurable (ollama_num_ctx) so a larger local model can
         # use a bigger context window; falls back to the default.
+        # keep_alive is configurable (ollama_keep_alive) so a user can stop the
+        # model unloading between turns — e.g. -1 to hold it in VRAM (#567);
+        # falls back to the 30m default.
         num_ctx = OLLAMA_NUM_CTX
+        keep_alive = OLLAMA_KEEP_ALIVE
         try:
             from . import jarvis_config
             num_ctx = int(jarvis_config.get("ollama_num_ctx", OLLAMA_NUM_CTX) or OLLAMA_NUM_CTX)
             if num_ctx < 512:
                 num_ctx = OLLAMA_NUM_CTX
+            keep_alive = _normalize_keep_alive(jarvis_config.get("ollama_keep_alive"))
         except Exception:
             num_ctx = OLLAMA_NUM_CTX
-        return {"keep_alive": OLLAMA_KEEP_ALIVE, "think": bool(thinking),
+            keep_alive = OLLAMA_KEEP_ALIVE
+        return {"keep_alive": keep_alive, "think": bool(thinking),
                 "options": {"num_ctx": num_ctx}}
 
     def supports_thinking(self) -> bool:
