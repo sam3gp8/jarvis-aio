@@ -1,3 +1,15 @@
+## [9.151.0] — "Say Something" now appears under Voice & Audio (#577)
+
+Last release's **Say Something** TTS box was reachable only through the settings
+filter — it didn't show when you browsed to the Voice & Audio sub-tab. The
+Settings page sorts each card into a sub-tab, and this one was missing from that
+map, so it fell back to the General group and hid from the Audio tab it belongs
+to.
+
+It's now grouped with the rest of Voice & Audio (Announcement Speakers, Satellite
+→ Speaker, Voice Confirmation), so it shows where you'd look for it — and a test
+guards the whole audio cluster against the same slip.
+
 ## [9.150.0] — Faster replies on local models: summarize on the small tier (#575)
 
 When a conversation runs long, JARVIS compresses the older turns into a short
