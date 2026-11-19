@@ -259,11 +259,31 @@ def get_presence_summary(hass: HomeAssistant) -> dict:
     their HA area). ``room_details`` adds occupant count + illuminance per room
     where a radar count / illuminance sensor exists in that area.
     """
+    # Respect the user's excluded_entities for people too — entity_filter drops
+    # exclusions everywhere JARVIS enumerates entities, presence included, so an
+    # excluded person must not be announced as home/away (#581). Hoisted here so
+    # the room-detection block below reuses the same _excl.
+    try:
+        from .entity_filter import is_excluded as _excl
+    except Exception:
+        _excl = lambda _h, _e: False
+
     people = []
+    _seen_trackers: set = set()
     for state in hass.states.async_all("person"):
+        if _excl(hass, state.entity_id):
+            continue
+        # De-duplicate two person.* entities that track an IDENTICAL set of
+        # device_trackers (the same human on the same phone), so they aren't
+        # double-counted even without an explicit exclusion (#581).
+        _trk = frozenset(state.attributes.get("device_trackers") or [])
+        if _trk and _trk in _seen_trackers:
+            continue
         info = _person_state(hass, state.entity_id)
         if info:
             people.append(info)
+            if _trk:
+                _seen_trackers.add(_trk)
 
     home_count = sum(1 for p in people if p.get("state") == "home")
     away_count = len(people) - home_count
@@ -276,10 +296,6 @@ def get_presence_summary(hass: HomeAssistant) -> dict:
     rooms: dict[str, list[str]] = {}
     room_details: dict[str, dict] = {}
     _area_to_room: dict[str, str] = {}   # area_id -> room, for occupied areas only
-    try:
-        from .entity_filter import is_excluded as _excl
-    except Exception:
-        _excl = lambda _h, _e: False
     try:
         from .entity_filter import is_nonperson_object_sensor as _nonperson
     except Exception:

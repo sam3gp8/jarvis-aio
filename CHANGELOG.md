@@ -1,3 +1,22 @@
+## [9.154.0] — Briefings never read internal notes aloud; excluded people stay excluded (#581)
+
+Two morning-briefing fixes, from a precise report:
+
+- **Internal directives no longer get spoken.** Some facts carry a bracketed note
+  meant only for the model — e.g. "Dryer Door is open [read-only sensor: report as
+  open only…]". When the model returned nothing and JARVIS fell back to reading the
+  raw facts, that bracketed note was read aloud. The fallback now strips bracketed
+  annotations, and the model is explicitly told never to speak them.
+- **Excluded people are honoured, and duplicates aren't double-counted.** The
+  presence summary now applies your excluded-entities list to `person.*` entities
+  (it only filtered sensors before), so a `person.*` you've excluded no longer shows
+  up as home/away. It also de-duplicates two people that track the same phone, so
+  the same human isn't announced twice.
+
+Also: when the model returns an empty briefing, JARVIS logs a redacted reason (the
+provider's finish-reason, never the content) so a fallback that fires often is
+diagnosable.
+
 ## [9.153.0] — Choose how long Ollama keeps your model loaded (#567)
 
 A local Ollama model unloads from VRAM after an idle window, and JARVIS fixed
