@@ -1,3 +1,16 @@
+## [9.152.0] — JARVIS still answers on a model that can't call tools (#557)
+
+If your reasoning model doesn't support function/tool calling, JARVIS used to
+fail the whole turn — the provider rejected the request ("tool calling is not
+supported with this model") and you heard "I'm experiencing connectivity issues
+with my reasoning systems." It was never a connectivity problem; the model simply
+can't call tools.
+
+Now JARVIS recognises that specific rejection, drops the tools, and re-asks the
+same model so it can at least answer in words. You'll still want a tool-capable
+model for JARVIS to actually control the house (switch lights, read cameras), but
+a plain question no longer dies with a misleading connectivity error.
+
 ## [9.151.0] — "Say Something" now appears under Voice & Audio (#577)
 
 Last release's **Say Something** TTS box was reachable only through the settings
