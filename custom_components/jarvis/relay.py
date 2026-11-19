@@ -148,7 +148,9 @@ async def async_relay(hass, to_name: str, message: str,
 
     try:
         from .websocket import jarvis_log
-        jarvis_log("AGENT", f"relay → {to_name or 'everyone'} "
+        # Record the operation, not the recipient — the debug log is readable by
+        # non-admins, so keep the user-named recipient out of it (GHSA #574).
+        jarvis_log("AGENT", f"relay ({'broadcast' if not to_name else 'targeted'}) "
                             f"on {len(speakers)} speaker(s)")
     except Exception:
         pass

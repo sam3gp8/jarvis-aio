@@ -6176,6 +6176,19 @@ ${this._renderExcludedEntities(d)}
         </div>
       </div>
 
+      <!-- SAY SOMETHING (TTS compose, #540) -->
+      <div class="panel">
+        <div class="head">
+          <span>Say Something</span>
+          <span class="side">ANNOUNCE</span>
+        </div>
+        <div class="rule-list">
+          <div class="mode-bind-row"><label>To <span class="mode-bind-sub">optional &mdash; a person ("Dad"); blank announces to everyone</span></label><input class="cfg-field cfg-text" id="announce-to" type="text" placeholder="(optional) who it's for"></div>
+          <textarea class="cfg-field cfg-text" id="announce-msg" rows="2" placeholder="Type a message for JARVIS to speak on the household speakers&hellip;"></textarea>
+          <div class="announce-send-row"><button class="btn" id="announce-send">Speak</button></div>
+        </div>
+      </div>
+
       <!-- ANNOUNCEMENT SPEAKERS -->
       <div class="panel">
         <div class="head">
@@ -7684,6 +7697,28 @@ ${this._renderExcludedEntities(d)}
       arr.splice(parseInt(b.getAttribute("data-i")), 1);
       this._annSpeakersSave(arr);
     }));
+
+    // #540: "Say Something" — type a message and have JARVIS speak it on the
+    // household speakers (person-framed with a recipient, a broadcast without).
+    const _annSendBtn = this.shadowRoot.getElementById("announce-send");
+    if (_annSendBtn) _annSendBtn.addEventListener("click", async () => {
+      if (!this._hass) return;
+      const msgEl = this.shadowRoot.getElementById("announce-msg");
+      const toEl = this.shadowRoot.getElementById("announce-to");
+      const message = (msgEl && msgEl.value || "").trim();
+      const to = (toEl && toEl.value || "").trim();
+      if (!message) { this._toast("Type a message first", "err"); return; }
+      _annSendBtn.disabled = true;
+      try {
+        const res = await this._hass.callWS({ type: "jarvis/announce", message, to });
+        this._toast(res && res.note ? `✓ spoken — ${res.note}` : "✓ spoken", "ok");
+        if (msgEl) msgEl.value = "";
+      } catch (err) {
+        this._toast(`✗ ${err?.message || err}`, "err");
+      } finally {
+        _annSendBtn.disabled = false;
+      }
+    });
 
     // Arrival-greeting doors: a dropdown of door / entry / lock / cover entities
     // + removable chips, saved as a JSON list (#60). The toggle / hours / cooldown
@@ -12910,6 +12945,9 @@ ${this._renderExcludedEntities(d)}
   .guest-add-row #guest-add-name { width: 38%; }
   .guest-add-row #guest-add-note { flex: 1; min-width: 0; }
   .guest-btn { white-space: nowrap; cursor: pointer; }
+  .announce-send-row { margin-top: 8px; display: flex; justify-content: flex-end; }
+  #announce-msg { width: 100%; box-sizing: border-box; margin-top: 8px; }
+  #announce-to { width: 100%; box-sizing: border-box; }
   /* Phase 3: best-effort LLM recognition controls */
   .faces-llm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
   .faces-llm-row label { font-size: 12px; color: var(--text, #cfe); display: flex; align-items: center; gap: 6px; }

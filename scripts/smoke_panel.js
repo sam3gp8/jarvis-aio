@@ -1343,6 +1343,32 @@ setTimeout(async () => {
       && /data-unmute-entity="binary_sensor\.lounge_window"/.test(_mutesBody)],
   );
 
+  // #540: "Say Something" TTS compose box + jarvis/announce round-trip.
+  let _announceCall = null;
+  const _origCW_ann = el._hass.callWS.bind(el._hass);
+  el._hass.callWS = async (m) => {
+    if (m && m.type === "jarvis/announce") { _announceCall = m; return { success: true, spoken: "Message for Dad: dinner's ready", note: "" }; }
+    return _origCW_ann(m);
+  };
+  const _annMsg = el.shadowRoot.getElementById("announce-msg");
+  const _annTo = el.shadowRoot.getElementById("announce-to");
+  const _annSend = el.shadowRoot.getElementById("announce-send");
+  if (_annMsg && _annTo && _annSend) {
+    _annMsg.value = "dinner's ready";
+    _annTo.value = "Dad";
+    _annSend.click();
+    await new Promise(r => setTimeout(r, 15));
+  }
+  el._hass.callWS = _origCW_ann;
+  checks.push(
+    ["#540 Say Something compose box renders (message + to + speak)",
+      !!_annMsg && !!_annTo && !!_annSend],
+    ["#540 Speak sends jarvis/announce with the message + recipient",
+      !!_announceCall && _announceCall.message === "dinner's ready" && _announceCall.to === "Dad"],
+    ["#540 the message field clears after a successful announce",
+      !!_annMsg && _annMsg.value === ""],
+  );
+
   // #209: global search box over entities + panel sections.
   const _gsInput = el.shadowRoot.getElementById("gsearch-input");
   const _gsSectionHtml = (() => { el._runGlobalSearch("excluded"); return el.shadowRoot.getElementById("gsearch-results")?.innerHTML || ""; })();
