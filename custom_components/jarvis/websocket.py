@@ -3642,7 +3642,9 @@ async def ws_announce(
             str(msg.get("from", "")).strip() or None,
         )
         if res.get("success"):
-            jarvis_log("AGENT", f"panel announce → {msg.get('to') or 'everyone'}")
+            # Don't log the user-typed recipient — the debug log is readable by
+            # non-admins (jarvis/get_debug_log), so keep household names out of it.
+            jarvis_log("AGENT", "panel announce sent")
             connection.send_result(msg["id"], res)
         else:
             connection.send_error(msg["id"], "announce_failed",
