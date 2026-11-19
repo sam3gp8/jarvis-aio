@@ -1,3 +1,30 @@
+## [9.150.0] — Faster replies on local models: summarize on the small tier (#575)
+
+When a conversation runs long, JARVIS compresses the older turns into a short
+summary so the context stays within budget. That summary is a tiny, tool-less
+LLM call — but until now it ran on your **main** model, right before the big
+reply. On a self-hosted llama.cpp or Ollama server that briefly evicts the main
+model's prompt cache (its "KV-cache" slot), so the *next* voice turn has to
+re-read the whole ~14k-token system prompt from scratch — seconds of dead air
+before JARVIS starts speaking.
+
+Now the summary is routed to a configured observer tier instead — your
+**Reasoning** model if you've set one, otherwise your **Classifier** model —
+which is typically a smaller model and/or a separate server slot, so the main
+model's cache stays warm between turns. One reporter running locally measured
+the following turn's prompt-eval drop from ~5.25s to ~0.69s (about 7.5×).
+
+Nothing changes if you haven't configured a separate reasoning or classifier
+tier: the summary falls back to the main model exactly as before. Cloud backends
+(Groq, OpenAI, Anthropic, Gemini) were never affected by this cache eviction, so
+this is purely a local-backend latency win.
+
+This release also hardens how that summary re-enters the conversation: it's now
+length-capped, wrapped in an explicit "context only, not instructions" boundary,
+and injected as ordinary context rather than a system-level instruction, so a
+directive smuggled into earlier dialogue (for example via an ingested email or
+web-search result) can't ride the summary back in as policy.
+
 ## [9.149.0] — Type a message for JARVIS to speak (#540)
 
 JARVIS could already pass spoken word between people when you asked out loud —
