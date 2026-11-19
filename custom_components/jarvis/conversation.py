@@ -522,11 +522,20 @@ class JarvisAgent(conversation.ConversationEntity):
         return get_directive(preset, custom)
 
     def _persona(self) -> str:
-        """Build the full system prompt.
+        """Build the STATIC system prompt — prime directive + persona only.
 
-        Order matters: prime directive FIRST (unrelenting core purpose),
-        then character/style, then live context. The directive appears
-        at the top of every single LLM call.
+        Order matters: prime directive FIRST (unrelenting core purpose), then
+        character/style. This prefix is byte-identical from one turn to the
+        next.
+
+        v9.146.0 (#561): the per-turn live context (time, presence, weather,
+        home snapshot) is NOT glued on here any more — ``_live_context()``
+        returns it separately and the agent delivers it at the END of the
+        request, right before the user's turn. Keeping the persona (and the
+        tool schemas that follow it) byte-stable lets local inference backends
+        (llama.cpp / vLLM / Ollama) reuse the KV-cache for the whole static
+        prefix instead of re-evaluating ~10k tokens every time the clock
+        minute changes.
         """
         base = JARVIS_PERSONA
         cached = _persona_cache.get("text")
@@ -536,7 +545,16 @@ class JarvisAgent(conversation.ConversationEntity):
         # Prime directive always comes first
         directive = self._directive()
         base = f"{directive}\n\n---\n\n{base}"
+        return base.replace("{honorific}", self._honorific())
 
+    def _live_context(self) -> str:
+        """Per-turn dynamic context — time, presence, recent recognitions,
+        weather, and the home-state snapshot.
+
+        Delivered at the TAIL of the request (merged into the user turn by the
+        agent), never in the system prompt, so the static prefix stays
+        KV-cache-stable across turns and minute boundaries (#561).
+        """
         # Inject live context — time, presence, weather summary
         import datetime as _dt
         ctx_parts = [f"Current time: {_dt.datetime.now().strftime('%A %B %-d, %-I:%M %p')}."]
@@ -590,7 +608,7 @@ class JarvisAgent(conversation.ConversationEntity):
             _LOGGER.debug("JARVIS: home state summary error: %s", exc)
 
         context_block = "\n\n## Current context (live data)\n" + "\n".join(ctx_parts)
-        return (base + context_block).replace("{honorific}", self._honorific())
+        return context_block.replace("{honorific}", self._honorific())
 
     # ── Conversation history ──────────────────────────────────────────────────
 
@@ -929,6 +947,13 @@ class JarvisAgent(conversation.ConversationEntity):
         # Warm persona cache (reads file in executor) before sync _persona()
         await _ensure_persona_loaded(self.hass)
         persona   = self._persona()
+        # v9.146.0 (#561): per-turn dynamic context (time/presence/weather/home
+        # snapshot, plus the memory + knowledge blocks below) is accumulated
+        # separately and delivered at the TAIL of the request — never glued onto
+        # the static system prompt — so the persona + tool-schema prefix stays
+        # KV-cache-stable across turns.
+        live_context = self._live_context()
+        turn_extra: list[str] = []
         history   = self._history(cid)
         await self._maybe_seed_history(cid, history)
 
@@ -942,12 +967,13 @@ class JarvisAgent(conversation.ConversationEntity):
                 lambda: store_memory(user_input.text, role="user",
                     device_id=user_input.device_id or "", conversation_id=cid)
             )
-            # Retrieve relevant past context and inject into persona
+            # Retrieve relevant past context and carry it in the per-turn tail
+            # (not the system prompt) so the cache-stable prefix is preserved.
             mem_context = await self.hass.async_add_executor_job(
                 get_conversation_context, user_input.text, 3,
             )
             if mem_context:
-                persona = persona + "\n\n" + mem_context
+                turn_extra.append(mem_context)
         except Exception as exc:
             _LOGGER.debug("Memory store/retrieve: %s", exc)
 
@@ -969,9 +995,16 @@ class JarvisAgent(conversation.ConversationEntity):
                 self.hass, user_input.text, subjects=subjects,
                 requester=subjects[0])
             if kn_block:
-                persona = persona + "\n\n" + kn_block
+                turn_extra.append(kn_block)
         except Exception as exc:
             _LOGGER.debug("Knowledge inject: %s", exc)
+
+        # v9.146.0 (#561): assemble the per-turn tail — live context first, then
+        # recalled memory + curated knowledge. The agent appends this to the
+        # user's turn so the static system prompt + tool schemas stay cached.
+        turn_context = live_context
+        if turn_extra:
+            turn_context = turn_context + "\n\n" + "\n\n".join(turn_extra)
 
         hass_api = await self._get_hass_api(user_input) if self._use_hass_api() else None
 
@@ -1184,6 +1217,7 @@ class JarvisAgent(conversation.ConversationEntity):
                             user_input=user_input,
                             temperature=0.7,
                             config=eff_config,
+                            turn_context=turn_context,
                         )
                         # Agent returns a connectivity sentinel string on total
                         # failure; treat that as a breaker failure + salvage.

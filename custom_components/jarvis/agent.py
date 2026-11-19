@@ -4115,6 +4115,45 @@ def _strip_home_state(system_text: str) -> str:
     return system_text[:i] + note + tail
 
 
+def _append_live_context(messages: list[dict], live_block: str) -> list[dict]:
+    """Return a copy of ``messages`` with ``live_block`` merged into the LAST
+    user turn (#561).
+
+    Delivering the per-turn dynamic context (time, presence, home state, …)
+    here — after the system prompt and tool schemas in the token stream —
+    rather than inside the system prompt keeps that whole static prefix
+    byte-identical across turns, so local inference backends (llama.cpp /
+    vLLM / Ollama) reuse its KV-cache by longest-common-prefix instead of
+    re-evaluating ~10k tokens every time the clock minute changes.
+
+    The original message dicts are never mutated (the caller may own the live
+    conversation history). If there is no user turn to attach to — unusual —
+    the block is appended to the system message as a fallback.
+    """
+    if not live_block:
+        return messages
+    out = list(messages)
+    for i in range(len(out) - 1, -1, -1):
+        if out[i].get("role") == "user":
+            m = dict(out[i])
+            c = m.get("content")
+            if isinstance(c, str):
+                m["content"] = f"{c}\n\n{live_block}" if c else live_block
+            elif isinstance(c, list):
+                # Multimodal content — add the context as a trailing text part.
+                m["content"] = list(c) + [{"type": "text", "text": live_block}]
+            else:
+                m["content"] = live_block
+            out[i] = m
+            return out
+    # No user turn present — fall back to the system message.
+    if out and out[0].get("role") == "system":
+        s = dict(out[0])
+        s["content"] = f"{s.get('content', '')}\n\n{live_block}"
+        out[0] = s
+    return out
+
+
 # ── Ephemeral sub-agents (delegate_task, v6.83.0) ────────────────────────────
 # JARVIS can spin up a scoped, single-purpose sub-agent for a complex slice of a
 # request: a nested run_agent invocation — in-process, no separate process —
@@ -4887,6 +4926,7 @@ async def run_agent(
     max_iterations: Optional[int] = None,
     depth: int = 0,
     extra_directive: Optional[str] = None,
+    turn_context: Optional[str] = None,
 ) -> str:
     """
     Run the JARVIS agentic LLM loop (v5.7.07).
@@ -4966,14 +5006,15 @@ async def run_agent(
     # DE+RU household. Falls back to the global language when there's no request.
     req_lang = getattr(user_input, "language", None) if user_input else None
 
+    # v9.146.0 (#561): the system prompt is the STATIC persona + guidance +
+    # (template-rendered) tool schemas — byte-identical from turn to turn. All
+    # per-turn dynamic context (language steer, home state, situation,
+    # awareness, cognitive-core status, plus the caller's turn_context) rides at
+    # the TAIL of the request instead (see live_block below), so local backends
+    # reuse the KV-cache for the whole static prefix.
     system_prompt = (
         f"{persona}\n\n"
         f"{profile_block}"
-        f"{_language_directive(hass, req_lang)}"
-        f"## Current home state\n{home_context}\n\n"
-        f"{situation_block}"
-        f"{awareness_block}"
-        f"{cog_status}\n\n"
         f"## Tools\n"
         f"You have tools to control devices, query states, search entities, "
         f"manage areas, activate scenes, learn user preferences, look things "
@@ -5088,12 +5129,37 @@ async def run_agent(
         f"{_banter_guidance()}"
     )
 
+    # v9.146.0 (#561): assemble the per-turn dynamic context that used to be
+    # interleaved into the system prompt. Order is language steer → home state →
+    # situation → awareness → cognitive core → caller turn_context (live
+    # time/presence/weather snapshot + recalled memory + curated knowledge),
+    # i.e. the most query-relevant signals sit closest to the user's turn.
+    _live_parts: list[str] = []
+    _lang = _language_directive(hass, req_lang)
+    if _lang.strip():
+        _live_parts.append(_lang.strip())
+    _live_parts.append(f"## Current home state\n{home_context}")
+    if situation_block.strip():
+        _live_parts.append(situation_block.strip())
+    if awareness_block.strip():
+        _live_parts.append(awareness_block.strip())
+    if cog_status.strip():
+        _live_parts.append(cog_status.strip())
+    if turn_context and turn_context.strip():
+        _live_parts.append(turn_context.strip())
+    live_block = "\n\n".join(p for p in _live_parts if p).strip()
+
     full_messages = [{"role": "system", "content": system_prompt}] + messages
 
     # Summarize if needed
     full_messages = await _maybe_summarize(
         hass, full_messages, provider_name, api_key, model, base_url,
     )
+
+    # Deliver the live context at the tail of the request — after the system
+    # prompt and the tool schemas in the token stream — by merging it into the
+    # final user turn, so the static prefix stays KV-cache-stable (#561).
+    full_messages = _append_live_context(full_messages, live_block)
 
     # Build tool list: custom JARVIS tools + HA LLM API tools. A scoped
     # sub-agent (allowed_tools set) gets only its curated subset and no HA API
@@ -5231,10 +5297,14 @@ async def run_agent(
                 # search_entities, so a simple query stops dropping to offline.
                 slim_retried = True
                 tools = _scoped_tool_list(_SLIM_TOOLS)
-                if working and working[0].get("role") == "system":
-                    working = ([{**working[0],
-                                 "content": _strip_home_state(working[0]["content"])}]
-                               + working[1:])
+                # The home-state block now rides in the final user turn (#561),
+                # not the system message, so strip it wherever it sits. This is
+                # a no-op on messages that don't carry the marker.
+                working = [
+                    ({**m, "content": _strip_home_state(m["content"])}
+                     if isinstance(m.get("content"), str) else m)
+                    for m in working
+                ]
                 _LOGGER.info(
                     "Agent iter %d: request too large (413) — retrying slim "
                     "(dropped HA tools + home-state block)", iteration,
