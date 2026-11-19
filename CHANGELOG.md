@@ -1,3 +1,20 @@
+## [9.149.0] — Type a message for JARVIS to speak (#540)
+
+JARVIS could already pass spoken word between people when you asked out loud —
+"tell Dad dinner's ready", "let Mum know I'm leaving" — broadcast to the whole
+house, and hold a message for the next time it sees someone ("let me know when
+you next see Dad"). This adds the one piece that was still voice-only: a **Say
+Something** box on the Voice & Audio settings page.
+
+Type a message, optionally name who it's for, and JARVIS speaks it on your
+announcement speakers — framed as a message for that person ("Message for Dad:
+…"), or a plain announcement to everyone when you leave the recipient blank. It
+runs through the same relay as the spoken command, so a recipient who's out gets
+the same "they may not hear this until they're home" heads-up.
+
+(Still to come, as the relay module has always noted: room-precise routing to
+the speaker nearest a person, and a two-way ESPHome intercom.)
+
 ## [9.148.0] — Known guests & friends, with notes JARVIS keeps in mind (#549)
 
 The Faces tab already told a household **resident** from an anonymous visitor.

@@ -84,6 +84,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_diagnostics)
         websocket_api.async_register_command(hass, ws_download_diagnostics)
         websocket_api.async_register_command(hass, ws_voice_confirm_test)
+        websocket_api.async_register_command(hass, ws_announce)
         websocket_api.async_register_command(hass, ws_intrusion)
         websocket_api.async_register_command(hass, ws_faces)
         websocket_api.async_register_command(hass, ws_face_reference)
@@ -3608,6 +3609,47 @@ async def ws_voice_confirm_test(
     except Exception as exc:
         _LOGGER.exception("ws_voice_confirm_test failed: %s", exc)
         connection.send_error(msg["id"], "test_failed", str(exc))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/announce",
+    vol.Required("message"): str,
+    vol.Optional("to"): str,       # person/room; blank = broadcast to all (#540)
+    vol.Optional("from"): str,
+})
+@websocket_api.async_response
+async def ws_announce(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """#540: speak a typed message on the household speakers — the panel's TTS
+    compose box. With a recipient it's a person-framed relay ("Message for
+    Dad: …"); with none it's a plain broadcast ("Announcement: …"). Wraps the
+    same relay backend the relay_message agent tool uses."""
+    if _deny_non_admin(connection, msg):
+        return
+    text = str(msg.get("message", "")).strip()
+    if not text:
+        connection.send_error(msg["id"], "empty_message", "message is required")
+        return
+    try:
+        from . import relay
+        res = await relay.async_relay(
+            hass,
+            str(msg.get("to", "")).strip(),
+            text,
+            str(msg.get("from", "")).strip() or None,
+        )
+        if res.get("success"):
+            jarvis_log("AGENT", f"panel announce → {msg.get('to') or 'everyone'}")
+            connection.send_result(msg["id"], res)
+        else:
+            connection.send_error(msg["id"], "announce_failed",
+                                  res.get("error", "announcement failed"))
+    except Exception as exc:
+        _LOGGER.exception("ws_announce failed: %s", exc)
+        connection.send_error(msg["id"], "announce_failed", str(exc))
 
 
 @websocket_api.websocket_command({

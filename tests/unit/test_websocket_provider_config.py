@@ -2630,3 +2630,78 @@ async def test_download_diagnostics_denied_for_non_admin(fake_hass):
     await websocket.ws_download_diagnostics(fake_hass, nonadmin, {"id": 4})
     assert nonadmin.result is None
     assert nonadmin.error is not None and nonadmin.error[1] == "unauthorized"
+
+
+# ── #540: ws_announce — the panel "Say Something" / TTS compose command ────────
+
+def _fake_relay(monkeypatch, result):
+    calls = []
+    relay = types.ModuleType("jc.relay")
+
+    async def _async_relay(hass, to_name, message, from_name=None):
+        calls.append((to_name, message, from_name))
+        return result
+
+    relay.async_relay = _async_relay
+    _install_jc_module(monkeypatch, "relay", relay)
+    return calls
+
+
+async def test_ws_announce_relays_to_a_person(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    monkeypatch.setattr(websocket, "jarvis_log", lambda *a, **k: None, raising=False)
+    calls = _fake_relay(monkeypatch, {"success": True, "spoken": "Message for Dad: hi", "note": ""})
+
+    conn = _Conn()
+    await websocket.ws_announce(fake_hass, conn, {"id": 1, "message": "dinner's ready", "to": "Dad"})
+
+    assert calls == [("Dad", "dinner's ready", None)]
+    assert conn.error is None
+    assert conn.result is not None and conn.result[0] == 1 and conn.result[1]["success"] is True
+
+
+async def test_ws_announce_broadcasts_without_recipient(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    monkeypatch.setattr(websocket, "jarvis_log", lambda *a, **k: None, raising=False)
+    calls = _fake_relay(monkeypatch, {"success": True, "spoken": "Announcement: come eat", "note": ""})
+
+    conn = _Conn()
+    await websocket.ws_announce(fake_hass, conn, {"id": 2, "message": "come eat"})
+
+    assert calls == [("", "come eat", None)]          # blank recipient → broadcast
+    assert conn.result[1]["success"] is True
+
+
+async def test_ws_announce_rejects_empty_message(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    calls = _fake_relay(monkeypatch, {"success": True})
+
+    conn = _Conn()
+    await websocket.ws_announce(fake_hass, conn, {"id": 3, "message": "   "})
+
+    assert calls == []                                 # relay never reached
+    assert conn.result is None
+    assert conn.error is not None and conn.error[1] == "empty_message"
+
+
+async def test_ws_announce_requires_admin(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    calls = _fake_relay(monkeypatch, {"success": True})
+
+    conn = _Conn(is_admin=False)
+    await websocket.ws_announce(fake_hass, conn, {"id": 4, "message": "secret"})
+
+    assert calls == []                                 # admin gate blocks the relay
+    assert conn.error is not None and conn.error[1] == "unauthorized"
+
+
+async def test_ws_announce_surfaces_relay_failure(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    monkeypatch.setattr(websocket, "jarvis_log", lambda *a, **k: None, raising=False)
+    _fake_relay(monkeypatch, {"success": False, "error": "no announcement speakers are configured"})
+
+    conn = _Conn()
+    await websocket.ws_announce(fake_hass, conn, {"id": 5, "message": "hi", "to": "Dad"})
+
+    assert conn.result is None
+    assert conn.error is not None and conn.error[1] == "announce_failed"
