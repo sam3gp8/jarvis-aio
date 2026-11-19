@@ -258,3 +258,61 @@ async def list_events(hass, days_ahead: int = 31, query: Optional[str] = None,
             "location": e.get("location"),
         })
     return {"events": events, "count": len(events)}
+
+
+async def create_event(hass, summary: str, start: str, end: Optional[str] = None,
+                       all_day: bool = False, entity_id: Optional[str] = None,
+                       description: Optional[str] = None,
+                       location: Optional[str] = None) -> dict:
+    """Create an event on a household calendar via the ``calendar.create_event``
+    service (#554). ``start``/``end`` are ``'YYYY-MM-DD HH:MM:SS'`` (timed) or
+    ``'YYYY-MM-DD'`` (all-day); a missing end defaults to +1h (timed) or the next
+    day (all-day). Writes to the named calendar, else the only one, else the
+    first — the chosen calendar is returned so the caller can confirm it. Returns
+    ``{ok, calendar, summary, start, end}`` or ``{ok: False, error}``. This is a
+    calendar data write: it creates a calendar entry and commands no device.
+    Never raises."""
+    if hass is None:
+        return {"ok": False, "error": "no hass"}
+    summary = str(summary or "").strip()
+    start = str(start or "").strip()
+    if not summary or not start:
+        return {"ok": False, "error": "summary and start are required"}
+    ents = _calendar_entities(hass, entity_id)
+    if not ents:
+        return {"ok": False,
+                "error": ("no calendar matches %r" % entity_id) if entity_id
+                         else "no calendar entity found to write to"}
+    target = ents[0]
+    data: dict = {"entity_id": target, "summary": summary}
+    if description:
+        data["description"] = str(description)
+    if location:
+        data["location"] = str(location)
+    if all_day or _is_all_day(start):
+        s = _parse(start)
+        data["start_date"] = s.strftime("%Y-%m-%d") if s else start[:10]
+        if end:
+            e = _parse(end)
+            data["end_date"] = e.strftime("%Y-%m-%d") if e else str(end)[:10]
+        else:
+            # HA treats end_date as exclusive — a one-day event ends next day.
+            data["end_date"] = ((s + timedelta(days=1)).strftime("%Y-%m-%d")
+                                if s else start[:10])
+    else:
+        s = _parse(start)
+        if s is None:
+            return {"ok": False, "error": "could not parse start %r" % start}
+        data["start_date_time"] = s.strftime("%Y-%m-%d %H:%M:%S")
+        e = _parse(end) if end else None
+        data["end_date_time"] = (e or (s + timedelta(hours=1))).strftime(
+            "%Y-%m-%d %H:%M:%S")
+    try:
+        await hass.services.async_call("calendar", "create_event", data,
+                                       blocking=True)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "calendar": target}
+    return {"ok": True, "calendar": target, "summary": summary,
+            "all_day": bool(all_day or _is_all_day(start)),
+            "start": data.get("start_date") or data.get("start_date_time"),
+            "end": data.get("end_date") or data.get("end_date_time")}

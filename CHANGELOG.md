@@ -1,3 +1,20 @@
+## [9.142.0] — JARVIS can add events to the calendar now (#554)
+
+The other half of #554's calendar gap: JARVIS could read the calendar but not
+write to it — asked to "put a dentist appointment on Thursday at 3", it said it
+could only read, not add.
+
+The new `calendar_create_event` tool → `comms.create_event` calls Home
+Assistant's `calendar.create_event` service. Timed events
+(`YYYY-MM-DD HH:MM:SS`, defaulting to a one-hour slot) and all-day events
+(`YYYY-MM-DD`, ending the next day) both work, with optional notes and location,
+written to the named calendar or the primary one — and JARVIS reports back the
+title, date and calendar so you can confirm. The model resolves "tomorrow" /
+"next Friday" to a real date before calling.
+
+It's a calendar data write — it creates an entry and commands no device —
+classified as such in the kernel coverage and bypass gates.
+
 ## [9.141.0] — JARVIS reads the whole calendar now, not just the next event (#554)
 
 Asked "is the waste collected next week?" or "what's on the 26th?", JARVIS would
