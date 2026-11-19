@@ -122,6 +122,24 @@ _COMMAND_VERBS = {
     "increase", "decrease", "switch", "enable", "disable", "start", "resume",
     "lower", "raise", "toggle", "cancel", "snooze", "remind", "ignore",
     "tell", "show", "give", "list", "check", "read", "announce", "make",
+    # #554: other supported languages' leading imperatives. The gate was
+    # English-only, so during media (strict mode) a real command in another
+    # language — "Mach LED aus" — carried no positive signal and was dropped as
+    # ambient. Checked as the FIRST word, like the English set, so it stays
+    # bounded; mirrors the local engine's own localized command verbs (#511).
+    # German
+    "schalte", "schalt", "mach", "mache", "stelle", "stell", "dimme", "dimm",
+    "öffne", "schließe", "schließ", "verriegele", "entriegele", "starte",
+    "aktiviere", "deaktiviere", "spiele", "pausiere", "zeige",
+    # French
+    "allume", "éteins", "ouvre", "ferme", "active", "désactive", "joue",
+    "verrouille", "déverrouille", "règle",
+    # Spanish
+    "enciende", "apaga", "abre", "cierra", "activa", "desactiva", "reproduce",
+    "bloquea", "pon",
+    # Italian
+    "accendi", "spegni", "apri", "chiudi", "attiva", "disattiva", "suona",
+    "blocca", "metti",
 }
 _QUESTION_STARTS = {
     "what", "what's", "whats", "when", "when's", "where", "where's", "who",

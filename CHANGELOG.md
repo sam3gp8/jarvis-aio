@@ -1,3 +1,16 @@
+## [9.145.0] — The relevance gate understands commands in your language (#554)
+
+Follow-up to 9.143.0. When a real TV is actually playing nearby, JARVIS tightens
+its "is this addressed to me?" filter so it doesn't act on movie dialogue — but
+that filter only recognised English command words, so a genuine command in
+another language ("Mach LED aus") carried no signal and was dropped as ambient.
+
+The gate now recognises the leading imperative in the other supported languages
+too — German, French, Spanish and Italian (mach/schalte, allume/éteins,
+enciende/apaga, accendi/spegni, …) — checked as the first word, the same bounded
+way as the English set. So a real command in your language gets through even with
+the TV on, while rambling dialogue is still filtered out.
+
 ## [9.144.0] — Faces tab: the "Identity source" dropdown fits again (#548)
 
 On the Faces tab in Firefox and Edge, the "Identity source" dropdown overflowed
