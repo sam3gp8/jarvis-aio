@@ -73,6 +73,7 @@ let _intrCalledOff = false;
 let _intrAck = false;
 const _residents = ["Sam"];
 const _guests = [{ name: "Bob", note: "best friend; fine here alone" }];   // #549
+let _guestNotesInContext = true;                                          // #549 privacy toggle
 const _faceRefs = [];
 const _mutedEntities = ["binary_sensor.lounge_window"];
 const _intrSnap = { url: "/local/jarvis/intrusion/intrusion_dining_room_1730000000.jpg", camera: "camera.dining_room", ts: 1730000000, path: "/config/www/jarvis/intrusion/x.jpg" };
@@ -241,6 +242,7 @@ const hass = {
       return {
         residents: _residents.slice(),
         guests: _guests.slice(),
+        guest_notes_in_context: _guestNotesInContext,
         references: _faceRefs.slice(),
         llm_face_recognition: true,
         recent: [
@@ -257,6 +259,10 @@ const hass = {
       if (m.action === "unmute" && m.entity_id) { const i = _mutedEntities.indexOf(m.entity_id); if (i >= 0) _mutedEntities.splice(i, 1); }
       if (m.action === "clear") _mutedEntities.length = 0;
       return { entities: _mutedEntities.slice(), categories: [], all: false };
+    }
+    if (m.type === "jarvis/update_config") {
+      if (m.key === "guest_notes_in_context") _guestNotesInContext = m.value;   // #549
+      return { ok: true };
     }
     return {};
   },
@@ -1136,11 +1142,18 @@ setTimeout(async () => {
 
   // ── #549 Known guests & friends: curated list + notes, round-tripped ──
   let _guestCall = null;
+  let _guestCfgCall = null;
   const _origCallWSg = el._hass.callWS.bind(el._hass);
   el._hass.callWS = async (m) => {
     if (m && m.type === "jarvis/faces" && (m.action === "set_guest" || m.action === "remove_guest")) _guestCall = m;
+    if (m && m.type === "jarvis/update_config" && m.key === "guest_notes_in_context") _guestCfgCall = m;
     return _origCallWSg(m);
   };
+  // Privacy toggle starts ON and flips OFF via update_config.
+  const _gNotesToggle = el.shadowRoot.querySelector("[data-guest-notes-toggle]");
+  const _gNotesWasOn = !!_gNotesToggle && /\bon\b/.test(_gNotesToggle.className);
+  if (_gNotesToggle) { _gNotesToggle.click(); await new Promise(r => setTimeout(r, 15)); }
+  const _gNotesNowOff = (el.shadowRoot.querySelector("[data-guest-notes-toggle]")?.className || "").includes("off");
   // Edit the seeded guest's note and Save → set_guest carries the new note.
   const _bobNote = el.shadowRoot.querySelector('input.guest-note[data-guest-note="Bob"]');
   const _bobSave = el.shadowRoot.querySelector('button[data-guest-save="Bob"]');
@@ -1179,6 +1192,11 @@ setTimeout(async () => {
       !!_guestAddCall && _guestAddCall.name === "Nina"
       && _guestAddCall.note === "neighbour, has a key"],
     ["the newly added guest appears in the list", /data-guest-save="Nina"/.test(_facesBodyG)],
+    ["known-guests privacy toggle present and defaults ON",
+      !!_gNotesToggle && _gNotesWasOn],
+    ["toggling guest-notes sends update_config(guest_notes_in_context=false)",
+      !!_guestCfgCall && _guestCfgCall.value === false],
+    ["after toggling off, the control reflects OFF", _gNotesNowOff],
   );
 
   // #140: on-the-fly labeling — build the reference dataset straight from

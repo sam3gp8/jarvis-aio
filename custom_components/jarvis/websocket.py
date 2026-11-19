@@ -1648,6 +1648,7 @@ PANEL_WRITABLE_KEYS = {
     "recognition_source",        # str: both | doubletake | frigate (v6.64.1)
     "llm_face_recognition",      # bool: best-effort resident recognition via the local vision LLM, opt-in (#140 Phase 3)
     "llm_face_autotrain",        # bool: auto-enroll LLM reference photos from confident Frigate/Double Take recognitions, opt-in (#140 Phase 3 training, v9.86.0)
+    "guest_notes_in_context",    # bool: include known-guest notes in the agent's live context (default on; privacy opt-out, #549)
     "output_language",           # str: ISO code (e.g. "de") or ""/"auto" to follow HA; steers JARVIS's spoken/written output (#148)
     "voice_confirm_enabled",      # bool: voice-confirm sensitive actions (v6.67.0)
     "voice_confirm_mode",         # str: native | gated | auto
@@ -3393,6 +3394,9 @@ async def ws_faces(
             "recent": recent,
             "residents": face_roster.residents(),
             "guests": guests,
+            # Privacy toggle: are guest notes shared with the agent's context? (#549)
+            "guest_notes_in_context": bool(
+                _runtime_opt(hass, entry, "guest_notes_in_context", True)),
             # Normalized names that have an enrolled reference photo (Phase 3).
             "references": refs,
             # Of those, the ones auto-enrolled from a backend recognition

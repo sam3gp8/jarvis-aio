@@ -9629,8 +9629,10 @@ ${this._renderExcludedEntities(d)}
     // how the household wants them treated. Distinct from Section 2, which is
     // whatever the backend happened to recognize recently.
     const guests = Array.isArray(f.guests) ? f.guests : [];
+    const notesOn = f.guest_notes_in_context !== false;   // default on
     html += `<div class="faces-section">
-      <div class="faces-section-head"><span>Known Guests &amp; Friends</span><span class="faces-section-sub">recurring visitors &mdash; and how JARVIS should treat them</span></div>`;
+      <div class="faces-section-head"><span>Known Guests &amp; Friends</span><span class="faces-section-sub">recurring visitors &mdash; and how JARVIS should treat them</span></div>
+      <div class="faces-src-row"><label>Share these notes with JARVIS's reasoning <span class="mode-bind-sub">off &rarr; the guest is still recognized, but the note text isn't sent to the model</span></label><button class="toggle-btn ${notesOn ? 'on' : 'off'}" data-guest-notes-toggle data-next="${notesOn ? 'false' : 'true'}">${notesOn ? 'ON' : 'OFF'}</button></div>`;
     if (guests.length) {
       html += `<div class="guests-list">` + guests.map(g => {
         const nm = g.name || "";
@@ -9717,6 +9719,19 @@ ${this._renderExcludedEntities(d)}
       gName?.addEventListener("keydown", e => { if (e.key === "Enter") addGuest(); });
       gNote?.addEventListener("keydown", e => { if (e.key === "Enter") addGuest(); });
     }
+    // Privacy toggle: whether guest notes are shared with the agent context.
+    const gNotesToggle = body.querySelector("[data-guest-notes-toggle]");
+    gNotesToggle?.addEventListener("click", async () => {
+      if (!this._hass) return;
+      const next = gNotesToggle.getAttribute("data-next") === "true";
+      try {
+        await this._hass.callWS({ type: "jarvis/update_config", key: "guest_notes_in_context", value: next });
+        this._toast(`✓ guest notes in context → ${next}`, "ok");
+        await this._fetchFaces();
+      } catch (err) {
+        this._toast(`✗ ${err?.message || err}`, "err");
+      }
+    });
     // Fill each card's snapshot from the camera that saw the subject.
     body.querySelectorAll("img[data-faces-cam]").forEach(img =>
       this._loadFaceSnap(img.getAttribute("data-faces-cam"), img));
