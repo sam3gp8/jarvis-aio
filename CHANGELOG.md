@@ -1,3 +1,16 @@
+## [9.155.1] — Claude works again on newer `anthropic` SDKs (`temperature` TypeError)
+
+Every Claude call — conversation, camera vision, the observer classifier — failed
+with `Messages.create() got an unexpected keyword argument 'temperature'`. Newer
+`anthropic` Python SDK releases drop `temperature` from `Messages.create()`, so the
+call fails client-side with a `TypeError` before any request is sent. The existing
+retry-without-`temperature` fallback only recognised the API's "deprecated" wording,
+so it never fired; two failures then opened the connectivity breaker and JARVIS
+answered "I'm experiencing connectivity issues with my reasoning systems".
+
+The fallback now also recognises the SDK's "unexpected keyword argument" error for
+`temperature` (and only `temperature` — any other bad keyword still raises).
+
 ## [9.155.0] — Summaries run on the Classifier tier, keeping Reasoning free (#582)
 
 A refinement to the #575 KV-cache fix, from the same reporter's multi-node setup:
