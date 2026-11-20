@@ -70,21 +70,22 @@ def _install_fake_llm_provider(monkeypatch, *, tier_raises=()):
 # ── _summarizer_provider: tier selection ─────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_prefers_reasoning_tier_when_configured(agent, fake_hass, monkeypatch):
+async def test_prefers_classifier_tier_when_configured(agent, fake_hass, monkeypatch):
     rec = _install_fake_llm_provider(monkeypatch)
     config = {"reasoning_provider": "groq", "classifier_provider": "ollama"}
 
     prov = await agent._summarizer_provider(
         fake_hass, config, "openai", "mainkey", "gpt-oss-120b", "http://main")
 
-    # reasoning wins over classifier, and the main factory is never touched
-    assert prov.label == "tier:reasoning:groq"
-    assert [t["tier"] for t in rec["tier"]] == ["reasoning"]
+    # classifier wins over reasoning (#582: summarizing is light grunt work, so
+    # keep the reasoning tier free for heavy jobs); main factory never touched
+    assert prov.label == "tier:classifier:ollama"
+    assert [t["tier"] for t in rec["tier"]] == ["classifier"]
     assert rec["main"] == []
 
 
 @pytest.mark.asyncio
-async def test_falls_back_to_classifier_when_only_classifier_set(agent, fake_hass, monkeypatch):
+async def test_uses_classifier_when_only_classifier_set(agent, fake_hass, monkeypatch):
     rec = _install_fake_llm_provider(monkeypatch)
     config = {"classifier_provider": "ollama"}  # no reasoning tier
 
@@ -93,6 +94,19 @@ async def test_falls_back_to_classifier_when_only_classifier_set(agent, fake_has
 
     assert prov.label == "tier:classifier:ollama"
     assert [t["tier"] for t in rec["tier"]] == ["classifier"]
+    assert rec["main"] == []
+
+
+@pytest.mark.asyncio
+async def test_falls_back_to_reasoning_when_only_reasoning_set(agent, fake_hass, monkeypatch):
+    rec = _install_fake_llm_provider(monkeypatch)
+    config = {"reasoning_provider": "groq"}  # no classifier tier → reasoning used
+
+    prov = await agent._summarizer_provider(
+        fake_hass, config, "openai", "mainkey", "gpt-oss-120b", "http://main")
+
+    assert prov.label == "tier:reasoning:groq"
+    assert [t["tier"] for t in rec["tier"]] == ["reasoning"]
     assert rec["main"] == []
 
 
@@ -125,15 +139,15 @@ async def test_none_config_uses_main_provider(agent, fake_hass, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reasoning_build_failure_degrades_to_classifier(agent, fake_hass, monkeypatch):
-    # reasoning is configured but its build raises; classifier is next in line
-    rec = _install_fake_llm_provider(monkeypatch, tier_raises={"reasoning"})
+async def test_classifier_build_failure_degrades_to_reasoning(agent, fake_hass, monkeypatch):
+    # classifier is first in line but its build raises; reasoning is next
+    rec = _install_fake_llm_provider(monkeypatch, tier_raises={"classifier"})
     config = {"reasoning_provider": "groq", "classifier_provider": "ollama"}
 
     prov = await agent._summarizer_provider(
         fake_hass, config, "openai", "mainkey", "gpt-oss-120b", "http://main")
 
-    assert prov.label == "tier:classifier:ollama"
+    assert prov.label == "tier:reasoning:groq"
     assert rec["main"] == []
 
 
