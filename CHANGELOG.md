@@ -1,3 +1,25 @@
+## [9.158.0] — Briefings stay grounded: no invented facts, no "all secure" while a door is open (#590)
+
+A briefing could confidently narrate things that never happened — a thermostat it
+never adjusted, a message from a person who doesn't exist, "the perimeter is
+secure" while the garage was open. Three fixes:
+
+- **The briefing now sees open garage / gate / door *covers*.** It previously
+  checked only contact sensors and locks, so a garage that exists only as a
+  `cover` entity was invisible to the briefing — and "the perimeter is secure"
+  went unchallenged. Open perimeter covers are now part of the gathered facts.
+- **The briefing prompt is grounded.** It now states only facts present in the
+  gathered context, never claims an action it didn't take, never invents people,
+  names, messages, appointments or entity states, and treats "anticipate" as a
+  lens on real facts rather than licence to fill gaps with plausible fiction.
+- **"All secure" is gated on reality.** If anything is actually open or unlocked,
+  any "the perimeter is secure" / "everything is locked up" statement is stripped
+  from the briefing deterministically — a safety-relevant claim no longer rides on
+  the model's goodwill. (When nothing is open, such statements are left alone.)
+
+Thanks to the detailed report that pinned each invented detail to its actual
+entity state.
+
 ## [9.157.0] — JARVIS runs VoIP/SIP intercom calls full-duplex (#554)
 
 If you reach JARVIS over a **VoIP/SIP call** — Home Assistant's built-in `voip`
