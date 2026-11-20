@@ -915,6 +915,15 @@ class JarvisAgent(conversation.ConversationEntity):
                 conversation_id=user_input.conversation_id or device_id or "default",
             )
 
+        # #554: a turn arriving over a VoIP/SIP call (HA's built-in `voip`
+        # integration, or a configured call integration) is a caller speaking TO
+        # JARVIS over an open, full-duplex line — not ambient room audio from an
+        # always-listening satellite. The presence/relevance ambient gates and the
+        # wake-word mic-reopen are satellite concerns that only gatekeep a call and
+        # stall it; over a call JARVIS runs full-duplex. Resolve it once here.
+        from . import call_mode
+        _is_call = call_mode.is_call(self.hass, device_id)
+
         # ── v5.7.01: Presence gate — only the occupied room responds ─────
         # Uses mmWave / occupancy sensors to determine if anyone is in the
         # satellite's area. If the area is NOT occupied, suppress this
@@ -923,8 +932,9 @@ class JarvisAgent(conversation.ConversationEntity):
         # to whenever that room's presence sensor hasn't registered you yet (or
         # is flaky), which reads as "voice stopped working". The multi-wake
         # dedup above already stops several satellites answering at once, so the
-        # gate is opt-in for homes with reliable per-room presence.
-        if device_id and self._opt("presence_gate", False):
+        # gate is opt-in for homes with reliable per-room presence. A call is
+        # never presence-gated — the caller is on the line regardless of room.
+        if device_id and not _is_call and self._opt("presence_gate", False):
             try:
                 from .audio_routing import entity_area, is_area_occupied
                 from homeassistant.helpers import (
@@ -1108,7 +1118,7 @@ class JarvisAgent(conversation.ConversationEntity):
         # "(JARVIS returned no text.)". The presence gate above is voice-only
         # (``if device_id``) for the same reason.
         _media_near = self._media_playing_near(device_id)
-        if (device_id and self._opt("relevance_gate", True)
+        if (device_id and not _is_call and self._opt("relevance_gate", True)
                 and not _is_addressed_to_jarvis(user_input.text, strict=_media_near)):
             jarvis_log("GATE", f"ignored ambient input{' (media playing)' if _media_near else ''}: '{user_input.text.strip()[:60]}'")
             _LOGGER.info("JARVIS relevance gate: ignored '%s' (media_near=%s)", user_input.text.strip()[:80], _media_near)
@@ -1463,7 +1473,14 @@ class JarvisAgent(conversation.ConversationEntity):
         # older HA cores may not carry the field.
         try:
             from . import continued_conversation as _cc
-            if (_cc.enabled() and _cc.should_continue(response_text)
+            if _is_call:
+                # #554: a VoIP/SIP call is a full-duplex, open line — keep it
+                # listening for the caller's next turn (HA's voip pipeline re-arms
+                # on continue_conversation) and never run the wake-word satellite
+                # mic-reopen, which doesn't apply to a call and is exactly what
+                # stalled the intercom follow-ups.
+                result.continue_conversation = True
+            elif (_cc.enabled() and _cc.should_continue(response_text)
                     and not self._media_playing_near(reopen_device)):
                 sat_ent = (_cc.satellite_for_device(self.hass, reopen_device)
                            if reopen_device else None)
