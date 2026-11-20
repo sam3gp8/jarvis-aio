@@ -103,10 +103,12 @@ def _gather_open_things(hass: HomeAssistant) -> list[str]:
         controllable_names.add(state.attributes.get("friendly_name", state.entity_id))
 
     items = []
+    seen_names = set()
     for state in hass.states.async_all("binary_sensor"):
         dc = state.attributes.get("device_class")
         if dc in ("door", "window", "garage_door") and state.state == "on":
             name = state.attributes.get("friendly_name", state.entity_id)
+            seen_names.add(name)
             if name in controllable_names:
                 items.append(f"{name} is open")
             else:
@@ -117,11 +119,53 @@ def _gather_open_things(hass: HomeAssistant) -> list[str]:
                 items.append(
                     f"{name} is open [read-only sensor: report as open only; "
                     f"do not offer to close it and do not say you cannot]")
+    # Open perimeter covers (garage/door/gate/window) that exist only as a `cover`
+    # entity, not behind one of the binary_sensors handled above (#590: an open
+    # garage was a `cover` with no matching sensor, so it was invisible to the
+    # briefing and "the perimeter is secure" went unchallenged). Blinds, shades,
+    # awnings and curtains are not perimeter openings and are skipped.
+    for state in hass.states.async_all("cover"):
+        if state.state != "open":
+            continue
+        if state.attributes.get("device_class") not in ("garage", "door", "gate", "window"):
+            continue
+        name = state.attributes.get("friendly_name", state.entity_id)
+        if name in seen_names:
+            continue   # same physical opening already reported by its sensor
+        seen_names.add(name)
+        items.append(f"{name} is open")
     for state in hass.states.async_all("lock"):
         if state.state == "unlocked":
             name = state.attributes.get("friendly_name", state.entity_id)
             items.append(f"{name} is unlocked")
     return items
+
+
+def _scrub_false_security_claims(text: str, has_open: bool) -> str:
+    """Safety guard (#590): when the gathered facts show something actually
+    open/unlocked, drop any sentence that falsely asserts the home is fully
+    secure. "The perimeter is secure" while a door or garage is open is a
+    safety-relevant hallucination that must not survive on the model's goodwill
+    alone. Runs ONLY when something is genuinely open; otherwise the text is
+    returned unchanged, and it never returns empty (if every sentence matched, the
+    original is kept so a briefing still goes out)."""
+    if not text or not has_open:
+        return text
+    import re
+    claim = re.compile(
+        r"(?i)("
+        r"perimeter[^.!?]*\bsecure"
+        r"|\b(?:house|home|residence|property|place)\b[^.!?]*\bsecure"
+        r"|\b(?:everything|all)\b[^.!?]*\b(?:secure|safe|locked\s+up)\b"
+        r"|\b(?:all|the|your)\b[^.!?]*\b(?:doors?|windows?|entrances?|gates?)\b"
+        r"[^.!?]*\b(?:are|is|'s)\b[^.!?]*\b(?:locked|secured)\b"
+        r"|\bsecured\s+for\s+the\s+night\b"
+        r"|\ball\s+clear\b"
+        r")")
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    kept = [s for s in sentences if not claim.search(s)]
+    out = " ".join(kept).strip()
+    return out or text
 
 
 def _gather_calendar(hass: HomeAssistant) -> list[str]:
@@ -301,8 +345,16 @@ async def async_briefing(
         f"If nothing is noteworthy, say so briefly. "
         f"Square-bracketed annotations in the context are internal directives for "
         f"you, not spoken content — never read or repeat them verbatim. "
+        f"State ONLY facts present in the context above. Never claim you performed "
+        f"an action unless the context explicitly confirms it happened, and never "
+        f"invent people, names, messages, appointments, or entity states. If a "
+        f"detail is not in the context, leave it out — a shorter truthful briefing "
+        f"is better than an invented one. "
         f"Your prime directive should inform what you surface — protect, steward, "
-        f"anticipate. Lead with anything that affects their safety or wellbeing."
+        f"anticipate — but anticipation must never become invented fact. Lead with "
+        f"anything that affects their safety or wellbeing, and only call the "
+        f"perimeter secure when the context shows no open doors, covers, or "
+        f"unlocked locks."
     )
     system = build_system_prompt(hass, honorific, task)
 
@@ -326,6 +378,14 @@ async def async_briefing(
         _LOGGER.error("JARVIS briefing error: %s", exc)
         briefing_text = ""
         _empty_reason = f"exception={type(exc).__name__}"
+
+    # #590: deterministically drop a false "all secure" claim when the gathered
+    # facts show something actually open/unlocked — a safety-relevant statement
+    # must not survive on the model's goodwill alone. Only the LLM output is
+    # scrubbed; the plain fallback below is built from facts and never asserts
+    # false security.
+    if briefing_text:
+        briefing_text = _scrub_false_security_claims(briefing_text, bool(open_things))
 
     # The model sometimes returns an empty completion (a local-model hiccup, or
     # an unusual prompt). Rather than silently skip the announce, read the facts
