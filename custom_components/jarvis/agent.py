@@ -3830,16 +3830,20 @@ async def _summarizer_provider(
     byte-stable static prefix (#561) has to be re-evaluated from scratch on the
     next voice turn — measured at seconds of prompt-eval latency.
 
-    Route it instead to a configured observer tier — reasoning first, then
-    classifier — which is typically a smaller model and/or a separate server
-    slot, leaving the main agent's slot warm. Only when neither tier is
-    configured (or a tier fails to build) do we fall back to the main provider,
+    Route it instead to a configured observer tier — the classifier first, then
+    reasoning — which is typically a smaller model and/or a separate server slot,
+    leaving the main agent's slot warm. Classifier before reasoning (#582):
+    compressing a few turns into 2-3 sentences is light "grunt work" a tiny
+    classifier model (e.g. a 270M local model, ~100ms) handles fine, and keeping
+    it off the reasoning tier reserves that tier for the jobs that actually need
+    intelligence — web_research synthesis, rich_reasoning. Only when neither tier
+    is configured (or a tier fails to build) do we fall back to the main provider,
     so behaviour is unchanged for anyone who hasn't set up observer tiers. Never
     raises on a tier build — it degrades to the main provider.
     """
     from .llm_provider import create_provider, create_tier_provider
     if isinstance(config, dict):
-        for tier in ("reasoning", "classifier"):
+        for tier in ("classifier", "reasoning"):
             if config.get(f"{tier}_provider"):
                 try:
                     p = await hass.async_add_executor_job(

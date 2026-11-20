@@ -1,3 +1,18 @@
+## [9.155.0] — Summaries run on the Classifier tier, keeping Reasoning free (#582)
+
+A refinement to the #575 KV-cache fix, from the same reporter's multi-node setup:
+conversation summarization is light "grunt work" best handled by the smallest,
+fastest model. JARVIS now routes the summary to your **Classifier** tier first
+(then Reasoning, then the main model), instead of Reasoning first.
+
+Why it helps: on a local/hybrid setup you can point the Classifier tier at a tiny
+270M model (~100 ms on an iGPU/CPU) for both classification and summarization,
+while reserving the Reasoning tier for the jobs that actually need it (web
+research, complex anomaly judgment). Cloud users spend fewer tokens on the
+heavier Reasoning model for routine compression. Nothing changes if you haven't
+configured a Classifier tier — it falls through to Reasoning, then the main model,
+exactly as before.
+
 ## [9.154.0] — Briefings never read internal notes aloud; excluded people stay excluded (#581)
 
 Two morning-briefing fixes, from a precise report:
