@@ -1,3 +1,23 @@
+## [9.159.0] — Local models that "speak" a tool call now actually run it (#567)
+
+Some local models post-trained from Gemma 4 — notably `nvidia-nemotron-3.5-bolt` —
+occasionally print a tool call as plain text (e.g. `search_web{query:<|"|>…<|"|>}`)
+instead of returning a structured tool call. JARVIS treated that as an ordinary
+reply and **spoke the raw `toolname{…}` string to you** instead of acting on it —
+the "JARVIS answers with the command instead of doing it" behaviour.
+
+JARVIS now recognises a tool call a model emitted as text, converts it into a real
+call — normalising Gemma 4's `<|"|>` string delimiter and JS-style unquoted keys —
+and executes it, with the raw string stripped from what's spoken. It is
+deliberately conservative: it only triggers when the text leads with the name of a
+tool JARVIS actually offered and the arguments parse as a JSON object, so an
+ordinary reply that happens to contain braces is never affected. A larger or more
+tool-reliable model is still the better long-term fix, but small local models no
+longer leak raw calls into chat and TTS.
+
+Thanks to the reporter for catching the exact leak in the debug logs and
+suggesting the fix.
+
 ## [9.158.0] — Briefings stay grounded: no invented facts, no "all secure" while a door is open (#590)
 
 A briefing could confidently narrate things that never happened — a thermostat it
