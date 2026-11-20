@@ -58,6 +58,43 @@ def test_retries_without_temperature_on_deprecation_error(provider):
     assert "temperature" not in calls[1]       # retry dropped it
 
 
+def test_retries_without_temperature_when_sdk_rejects_the_kwarg(provider):
+    """Newer `anthropic` SDKs removed `temperature` from Messages.create(), so
+    the call raises a client-side TypeError instead of an API deprecation
+    error. That must take the same retry-without-temperature path."""
+    class _SdkWithoutTemperature(_FakeMessages):
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            if "temperature" in kwargs:
+                raise TypeError(
+                    "Messages.create() got an unexpected keyword argument "
+                    "'temperature'"
+                )
+            return _Resp()
+
+    provider._client = _FakeClient()
+    provider._client.messages = _SdkWithoutTemperature()
+    result = provider.chat([{"role": "user", "content": "hi"}], max_tokens=5, temperature=0.7)
+    assert result["text"] == "ok"
+    calls = provider._client.messages.calls
+    assert len(calls) == 2
+    assert "temperature" in calls[0]
+    assert "temperature" not in calls[1]
+
+
+def test_does_not_retry_on_unrelated_typeerror(provider):
+    class _BadKwarg(_FakeMessages):
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            raise TypeError("Messages.create() got an unexpected keyword argument 'foo'")
+
+    provider._client = _FakeClient()
+    provider._client.messages = _BadKwarg()
+    with pytest.raises(TypeError, match="'foo'"):
+        provider.chat([{"role": "user", "content": "hi"}], max_tokens=5, temperature=0.7)
+    assert len(provider._client.messages.calls) == 1
+
+
 def test_does_not_retry_on_unrelated_error(provider):
     class _AlwaysFails(_FakeMessages):
         def create(self, **kwargs):

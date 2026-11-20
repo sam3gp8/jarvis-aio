@@ -1332,8 +1332,13 @@ class AnthropicProvider(LLMProvider):
             # outright ("temperature is deprecated for this model") rather
             # than just clamping it — retry once without it instead of
             # hardcoding a model list that will always be out of date.
+            # Newer `anthropic` SDK releases go further and drop the parameter
+            # from Messages.create() entirely, so the call fails client-side
+            # with a TypeError ("got an unexpected keyword argument
+            # 'temperature'") before any request is sent. Same remedy.
             msg = str(exc).lower()
-            if "temperature" in kwargs and "temperature" in msg and "deprecated" in msg:
+            if "temperature" in kwargs and "temperature" in msg and (
+                    "deprecated" in msg or "unexpected keyword argument" in msg):
                 kwargs.pop("temperature", None)
                 resp = self._client.messages.create(**kwargs)
             else:
