@@ -1,4 +1,4 @@
-## [9.155.1] — Claude works again on newer `anthropic` SDKs (`temperature` TypeError)
+## [9.156.1] — Claude works again on newer `anthropic` SDKs (`temperature` TypeError)
 
 Every Claude call — conversation, camera vision, the observer classifier — failed
 with `Messages.create() got an unexpected keyword argument 'temperature'`. Newer
@@ -10,6 +10,22 @@ answered "I'm experiencing connectivity issues with my reasoning systems".
 
 The fallback now also recognises the SDK's "unexpected keyword argument" error for
 `temperature` (and only `temperature` — any other bad keyword still raises).
+## [9.156.0] — "What's open?" now includes doors & windows the camera watch sees (#530)
+
+The vision-based open/closed watch (shipped earlier for #530) reads sensor-less
+doors and windows from your cameras on a throttled schedule and remembers each
+one's state. Until now that state only surfaced in the Home panel — the on-demand
+"is anything open?" answer still counted contact sensors and covers only.
+
+Now the home-summary the agent reads to answer "is anything open?" folds those
+camera-seen openings into its open-doors-and-windows list, each tagged **"(seen on
+camera)"** so it's clear the reading came from vision rather than a contact sensor.
+So a shed window or interior door that has no sensor — but sits in a camera's
+sightline — is finally included when you ask.
+
+Only applies when you've turned the watch on (`opening_watch_enabled`); with it off,
+nothing changes. A frame the model couldn't read ("unknown") is never reported as
+open — only a confident OPEN is surfaced.
 
 ## [9.155.0] — Summaries run on the Classifier tier, keeping Reasoning free (#582)
 
