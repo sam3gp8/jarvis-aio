@@ -4420,6 +4420,55 @@ def _scoped_tool_list(allowed_tools: Optional[set]) -> list:
             if t.get("function", {}).get("name") in allowed_tools]
 
 
+def _salvage_inline_tool_call(text: str, tools) -> tuple:
+    """Recover a tool call a model emitted as PLAIN TEXT instead of a structured
+    ``tool_calls`` entry (#567).
+
+    Some local models post-trained from Gemma 4 — notably
+    ``nvidia-nemotron-3.5-bolt`` — occasionally print a call like
+    ``toolname{arg:<|"|>value<|"|>}`` into ``message.content`` (Gemma 4 uses
+    ``<|"|>`` as its string delimiter) while returning NO structured tool_calls.
+    Without this, JARVIS treats that string as a normal reply and speaks the raw
+    ``toolname{...}`` to TTS instead of acting on it.
+
+    Returns ``(tool_calls, cleaned_text)``: a one-element tool_calls list in
+    JARVIS's internal ``{"id", "name", "args"}`` shape plus the text with the raw
+    call removed, or ``([], text)`` when there is nothing safe to salvage.
+    Conservative: it only fires when the token before the ``{...}`` is a DECLARED
+    tool name, so an ordinary reply that merely contains braces is untouched, and
+    a body that does not parse to a JSON object is left alone. Never raises.
+
+    Credit: diagnosed with a reproducing log and a suggested patch by the #567
+    reporter.
+    """
+    try:
+        if not text or "{" not in text or not tools:
+            return [], text
+        valid = set()
+        for t in tools:
+            if isinstance(t, dict):
+                name = (t.get("function") or {}).get("name") or t.get("name")
+                if name:
+                    valid.add(name)
+        if not valid:
+            return [], text
+        import re
+        m = re.search(r"([A-Za-z0-9_.:\-]+)\s*(\{.*\})", text, re.DOTALL)
+        if not m or m.group(1) not in valid:
+            return [], text
+        # Normalise Gemma 4's <|"|> string delimiter and unquoted JS-style object
+        # keys ({query: ...} -> {"query": ...}) so the body parses as JSON.
+        body = m.group(2).replace('<|"|>', '"')
+        body = re.sub(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:', r'\1"\2":', body)
+        args = json.loads(body)
+        if not isinstance(args, dict):
+            return [], text
+        cleaned = (text[:m.start()] + text[m.end():]).strip()
+        return [{"id": "call_inline_0", "name": m.group(1), "args": args}], cleaned
+    except Exception:
+        return [], text
+
+
 # Minimal tool set for the 413 slim retry. The full JARVIS_TOOLS schema is on the
 # order of ~6–7K tokens on its own, so a retry that keeps all of it can still
 # exceed a size-limited request even after the HA per-entity tools are dropped.
@@ -5537,6 +5586,21 @@ async def run_agent(
 
         text = result.get("text", "")
         tool_calls = result.get("tool_calls", [])
+
+        # #567: some local models (nemotron-3.5-bolt and other Gemma-4 derivatives)
+        # print a tool call as PLAIN TEXT — `toolname{arg:<|"|>val<|"|>}` — with no
+        # structured tool_calls, which would otherwise be spoken to TTS verbatim.
+        # Recover it into a real call (and strip it from the spoken text) so it
+        # executes. Conservative: only a declared tool name triggers it.
+        if not tool_calls and text:
+            tool_calls, text = _salvage_inline_tool_call(text, tools)
+            if tool_calls:
+                try:
+                    from .websocket import jarvis_log
+                    jarvis_log("AGENT", "recovered an inline tool call the model "
+                               "emitted as text instead of calling it (#567)")
+                except Exception:
+                    pass
 
         if not tool_calls:
             # A model (notably a small local one) can return no tool call AND empty
