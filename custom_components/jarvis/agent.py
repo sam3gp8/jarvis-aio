@@ -1889,6 +1889,19 @@ async def _exec_home_summary(hass: HomeAssistant, args: dict) -> str:
     for s in wm.devices(domain="cover"):
         if s["state"] == "open":
             open_items.append(s["attributes"].get("friendly_name", s["entity_id"]))
+    # Sensor-less openings the vision watch reads from cameras (#530): fold any
+    # currently-seen-OPEN one into the on-demand answer, tagged so it reads as
+    # camera-sourced rather than a contact sensor. Only while the watch is on, so
+    # a stale cached verdict from a disabled watch is never reported as live.
+    try:
+        from . import opening_watch
+        if opening_watch.is_enabled(hass):
+            for rec in opening_watch.get_states().values():
+                if rec.get("state") == "open":
+                    label = rec.get("label") or rec.get("type") or "opening"
+                    open_items.append(f"{label} (seen on camera)")
+    except Exception:
+        pass
     summary["open_doors_windows"] = open_items
 
     # Climate
