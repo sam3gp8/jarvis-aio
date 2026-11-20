@@ -1,3 +1,23 @@
+## [9.157.0] — JARVIS runs VoIP/SIP intercom calls full-duplex (#554)
+
+If you reach JARVIS over a **VoIP/SIP call** — Home Assistant's built-in `voip`
+integration, or a SIP intercom / door-station wired to an Assist pipeline — JARVIS
+now recognises the call and handles it as a **full-duplex, open line** instead of
+treating it like an always-listening wake-word satellite.
+
+In a call every word is spoken *to* JARVIS, so the ambient filters built for room
+satellites no longer apply: the relevance gate that drops "overheard" speech, the
+presence gate, and the wake-word mic-reopen are all skipped — they only gatekeep a
+caller and stall the conversation. A follow-up question ("which light did you
+mean?") keeps the line open for your answer with no new wake word. This sidesteps
+the intercom "stuck / won't listen on a follow-up" behaviour for the call path.
+
+JARVIS does **not** provision or configure your ESP32 device — it rides the SIP
+bridge you already run and acts as the brain on the call. Home Assistant's `voip`
+integration is recognised out of the box; if your SIP intercom is wired through a
+different integration, add its domain to the new `call_integration_domains`
+setting (comma-separated) and calls from it are treated the same way.
+
 ## [9.156.1] — Claude works again on newer `anthropic` SDKs (`temperature` TypeError)
 
 Every Claude call — conversation, camera vision, the observer classifier — failed

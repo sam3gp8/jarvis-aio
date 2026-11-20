@@ -1182,3 +1182,54 @@ def test_llm_api_ids_defaults_to_assist_and_merges_extras(monkeypatch):
     for junk in ("", None, []):
         agent._opt = lambda key, default=None, _j=junk: (_j if key == "extra_llm_apis" else default)
         assert agent._llm_api_ids() == "assist"
+
+
+def test_voip_call_turn_bypasses_ambient_gate_and_stays_full_duplex(monkeypatch):
+    """#554: a voice turn arriving over a VoIP/SIP call is a caller speaking TO
+    JARVIS over an open line — the ambient relevance gate must NOT drop it (even
+    text that would be gated as ambient on an always-listening satellite), and the
+    call is kept listening full-duplex (continue_conversation). The satellite path
+    is unchanged: the same text is still gated there.
+    """
+    import asyncio
+    import sys
+
+    mod = _load_conversation_module(monkeypatch)
+    # call_mode is a fresh module (the loader doesn't stub it) — stub it so one
+    # device reads as a VoIP call and another as a wake-word satellite.
+    cm = types.ModuleType(f"{mod.__package__}.call_mode")
+    cm.is_call = lambda hass, device_id: device_id == "voip-phone"
+    sys.modules[f"{mod.__package__}.call_mode"] = cm
+
+    agent = _make_dispatch_agent(mod)   # defaults → relevance_gate True, no media
+
+    # Spy on the local engine: a gated turn returns BEFORE it; a heard turn reaches
+    # it. (`response.speech` can't distinguish — a device_id turn routes its reply
+    # to a speaker and silences the satellite either way.)
+    local_engine = sys.modules[f"{mod.__package__}.local_engine"]
+    seen = []
+
+    async def spy_local(hass, text, honorific, force=False, lang=None):
+        seen.append(text)
+        return types.SimpleNamespace(handled=True, text=f"Handled: {text}")
+
+    local_engine.try_local = spy_local
+
+    ambient = "um so"   # fails _is_addressed_to_jarvis → ambient filler
+
+    # Wake-word satellite: ambient text is gated → never reaches the engine.
+    mod._dedup_cache.clear()
+    sat = types.SimpleNamespace(text=ambient, device_id="sat-voice",
+                                conversation_id="sat", language="en", context={})
+    sat_result = asyncio.run(agent._handle_message_impl(sat))
+    assert sat_result.response.speech == ""
+    assert seen == [], "satellite ambient turn must be gated before the engine"
+
+    # VoIP call: the SAME text bypasses the gate → the caller is heard, and the
+    # line is kept open for the next turn.
+    mod._dedup_cache.clear()
+    call = types.SimpleNamespace(text=ambient, device_id="voip-phone",
+                                 conversation_id="call", language="en", context={})
+    call_result = asyncio.run(agent._handle_message_impl(call))
+    assert seen == [ambient], "call turn must bypass the ambient gate and be heard"
+    assert call_result.continue_conversation is True, "call stays full-duplex"

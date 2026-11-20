@@ -1752,6 +1752,7 @@ PANEL_WRITABLE_KEYS = {
     "ollama_keep_alive",            # str/int: how long Ollama holds the model in VRAM (30m, -1=forever, 0=unload)
     "fast_chat_enabled",            # bool: route simple conversational turns to a small/fast model (latency)
     "fast_model",                   # str: the small model for the fast-chat tier (e.g. gemma3n:e4b)
+    "call_integration_domains",     # str: extra integration domains to treat as VoIP/SIP calls, full-duplex, no ambient gate (#554; HA `voip` is built in)
     "fast_provider",                # str: provider for the fast model (blank = same as Main Agent)
     "fast_chat_max_complexity",     # int: complexity score below which a turn uses the fast model (default 70)
     # ── Config-flow parity (9.19.0): every non-secret options-flow field is now
