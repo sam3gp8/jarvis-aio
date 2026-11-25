@@ -2734,6 +2734,24 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     }
   }
 
+  // Parse a comma-separated settings field into a clean list — trimmed, blanks
+  // dropped (settings-audit list overrides, 9.166.0). "a, b , ,c" -> ["a","b","c"].
+  _cfgCsv(raw) {
+    return String(raw == null ? '' : raw)
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  // Parse a settings field holding a JSON object/array (settings-audit map
+  // overrides, 9.166.0). Empty = {} (an empty map, the usual default). Throws on
+  // invalid JSON so the caller can abort the save and warn instead of storing junk.
+  _cfgJson(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    if (!s) return {};
+    return JSON.parse(s);
+  }
+
   // Wire every config on/off toggle (a button carrying both data-cfg-key and
   // data-cfg-val) under `root`. Extracted from the main wiring pass so cards
   // rendered lazily — the Intrusion tab is populated after that pass runs —
@@ -5360,6 +5378,7 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
 
     <div class="settings-grid">
       ${this._renderConfigParity(d)}
+      ${this._renderAuditedSettings(d)}
       <!-- RESIDENCE / HOME -->
       <div class="panel">
         <div class="head">
@@ -6300,6 +6319,14 @@ ${this._renderExcludedEntities(d)}
           <button class="btn" data-svc="jarvis.test_routing">Run</button>
         </div>
         <div class="diag-row">
+          <div class="label">Announcements — resume (cancel any Nap/Shush)</div>
+          <button class="btn" data-svc="jarvis.unshush">Run</button>
+        </div>
+        <div class="diag-row">
+          <div class="label">Backup — snapshot JARVIS data now</div>
+          <button class="btn" data-svc="jarvis.backup">Run</button>
+        </div>
+        <div class="diag-row">
           <div class="label">Camera — analyze now (vision → reasoning)</div>
           <select class="notify-select diag-camera-select">${this._renderCameraOptions(d)}</select>
           <button class="btn diag-camera-run">Run</button>
@@ -6678,6 +6705,142 @@ ${this._renderExcludedEntities(d)}
     `;
   }
 
+  // ── Settings audit (9.166.0) ──────────────────────────────────────────────
+  // Surfaces 38 previously UI-less writable keys as real controls. Each card's
+  // heading is mapped to a sub-section in _stampSettingsSections(); every control
+  // uses a literal data-cfg-key (writable-parity) and reads d.config?.<key>
+  // (read-back parity) so it reflects the stored value instead of a default.
+  // List fields use data-cfg-parse="csv"; map fields use data-cfg-parse="json".
+  _renderAuditedSettings(d) {
+    const esc = (v) => this._esc(String(v == null ? '' : v));
+    const csvV = (v) => esc((Array.isArray(v) ? v : []).join(', '));
+    const jsnV = (v) => esc(JSON.stringify((v && typeof v === 'object') ? v : {}, null, 2));
+    // Booleans precomputed with each key's canonical default (opt-in vs opt-out).
+    const b = {
+      opening_watch_enabled:           !!(d.config?.opening_watch_enabled),
+      intrusion_require_corroboration: d.config?.intrusion_require_corroboration !== false,
+      lockdown_auto_on_arm:            d.config?.lockdown_auto_on_arm !== false,
+      observer_proactive:              d.config?.observer_proactive !== false,
+      arrival_push_enabled:            !!(d.config?.arrival_push_enabled),
+      proactive_questions_interactive: d.config?.proactive_questions_interactive !== false,
+      quiet_hours_push_critical_only:  !!(d.config?.quiet_hours_push_critical_only),
+      briefing_include_presence:       d.config?.briefing_include_presence !== false,
+      ollama_keep_warm:                d.config?.ollama_keep_warm !== false,
+      goals_kernel_authoritative:      d.config?.goals_kernel_authoritative !== false,
+    };
+    return `
+      <!-- OPENING WATCH (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Opening Watch</span><span class="side">CAMERAS</span></div>
+        <div class="mem-sub">Periodically re-check doors &amp; windows left open via camera vision (issue #530).</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Opening watch <span class="mode-bind-sub">periodic open-cover vision sweep</span></label><button class="toggle-btn ${b.opening_watch_enabled ? 'on' : 'off'}" data-cfg-key="opening_watch_enabled" data-cfg-val="${b.opening_watch_enabled ? 'false' : 'true'}">${b.opening_watch_enabled ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Sweep interval <span class="cfg-sub">minutes</span></label><input class="cfg-field cfg-num" type="number" min="1" max="1440" step="1" data-cfg-key="opening_watch_interval_min" value="${d.config?.opening_watch_interval_min ?? ''}" placeholder="30"></div>
+        </div>
+      </div>
+
+      <!-- SENTINEL ZONES & LOCKDOWN (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Sentinel Zones &amp; Lockdown</span><span class="side">INTRUSION</span></div>
+        <div class="mem-sub">Fine-tune intrusion corroboration and the indoor/outdoor zone model the Sentinel reasons over.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Require corroboration <span class="mode-bind-sub">a second signal before escalating</span></label><button class="toggle-btn ${b.intrusion_require_corroboration ? 'on' : 'off'}" data-cfg-key="intrusion_require_corroboration" data-cfg-val="${b.intrusion_require_corroboration ? 'false' : 'true'}">${b.intrusion_require_corroboration ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Auto-lockdown on arm <span class="mode-bind-sub">run the sweep when the alarm arms</span></label><button class="toggle-btn ${b.lockdown_auto_on_arm ? 'on' : 'off'}" data-cfg-key="lockdown_auto_on_arm" data-cfg-val="${b.lockdown_auto_on_arm ? 'false' : 'true'}">${b.lockdown_auto_on_arm ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Inward depth <span class="cfg-sub">rooms deep a breach must reach</span></label><input class="cfg-field cfg-num" type="number" min="1" max="10" step="1" data-cfg-key="intrusion_inward_depth" value="${d.config?.intrusion_inward_depth ?? ''}" placeholder="2"></div>
+          <div class="cfg-row"><label>Spread zones <span class="cfg-sub">motion across N zones ⇒ moving through</span></label><input class="cfg-field cfg-num" type="number" min="1" max="10" step="1" data-cfg-key="intrusion_spread_zones" value="${d.config?.intrusion_spread_zones ?? ''}" placeholder="2"></div>
+          <div class="cfg-row"><label>Outdoor areas <span class="mode-bind-sub">comma-separated area ids</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="outdoor_areas" data-cfg-parse="csv" value="${csvV(d.config?.outdoor_areas)}" placeholder="back_yard, driveway"></div>
+          <div class="cfg-row"><label>Outdoor entities <span class="mode-bind-sub">comma-separated entity ids</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="outdoor_entities" data-cfg-parse="csv" value="${csvV(d.config?.outdoor_entities)}" placeholder="binary_sensor.gate_motion"></div>
+          <div class="cfg-row"><label>Indoor entities <span class="mode-bind-sub">comma-separated entity ids</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="indoor_entities" data-cfg-parse="csv" value="${csvV(d.config?.indoor_entities)}" placeholder="binary_sensor.hall_motion"></div>
+        </div>
+      </div>
+
+      <!-- HAZARD, ENERGY & APPLIANCES (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Hazard, Energy &amp; Appliances</span><span class="side">MONITORS</span></div>
+        <div class="mem-sub">Disaster watch radius, energy-mode escalation list, intercom call domains and declared appliance sensors.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Disaster radius <span class="cfg-sub">km from home (EONET)</span></label><input class="cfg-field cfg-num" type="number" min="0" max="20000" step="10" data-cfg-key="hazard_disaster_radius_km" value="${d.config?.hazard_disaster_radius_km ?? ''}" placeholder="300"></div>
+          <div class="cfg-row"><label>Energy mode bump <span class="mode-bind-sub">comma-separated modes</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="energy_mode_bump" data-cfg-parse="csv" value="${csvV(d.config?.energy_mode_bump)}" placeholder="eco, away"></div>
+          <div class="cfg-row"><label>Call integration domains <span class="mode-bind-sub">extra VoIP/SIP domains (#554)</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="call_integration_domains" value="${esc(d.config?.call_integration_domains || '')}" placeholder="voip, sip_custom"></div>
+          <div class="cfg-row"><label>Appliance sensors <span class="mode-bind-sub">JSON map: appliance → sensor entity</span></label><textarea class="cfg-field cfg-text" data-cfg-key="appliance_sensors" data-cfg-parse="json" rows="3" placeholder="{}">${jsnV(d.config?.appliance_sensors)}</textarea></div>
+        </div>
+      </div>
+
+      <!-- OBSERVER & ROUTINE LEARNING (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Observer &amp; Routine Learning</span><span class="side">COGNITION</span></div>
+        <div class="mem-sub">Thresholds for the Observer's proactive salience and the routine-pattern learner.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Observer proactive remarks</label><button class="toggle-btn ${b.observer_proactive ? 'on' : 'off'}" data-cfg-key="observer_proactive" data-cfg-val="${b.observer_proactive ? 'false' : 'true'}">${b.observer_proactive ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Cognition threshold <span class="cfg-sub">0–1 salience bar</span></label><input class="cfg-field cfg-num" type="number" min="0" max="1" step="0.01" data-cfg-key="cognition_threshold" value="${d.config?.cognition_threshold ?? ''}" placeholder="0.6"></div>
+          <div class="cfg-row"><label>Pattern min occurrences <span class="cfg-sub">repeats before learning</span></label><input class="cfg-field cfg-num" type="number" min="1" max="100" step="1" data-cfg-key="pattern_min_occurrences" value="${d.config?.pattern_min_occurrences ?? ''}" placeholder="4"></div>
+          <div class="cfg-row"><label>Pattern confidence <span class="cfg-sub">0–1 threshold</span></label><input class="cfg-field cfg-num" type="number" min="0" max="1" step="0.01" data-cfg-key="pattern_confidence" value="${d.config?.pattern_confidence ?? ''}" placeholder="0.55"></div>
+        </div>
+      </div>
+
+      <!-- ANTICIPATION & PRESENCE (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Anticipation &amp; Presence</span><span class="side">ARRIVALS</span></div>
+        <div class="mem-sub">Arrival anticipation, interactive proactive questions, quiet-hours push policy and presence-only entities.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Arrival push <span class="mode-bind-sub">also push the "heading home" alert</span></label><button class="toggle-btn ${b.arrival_push_enabled ? 'on' : 'off'}" data-cfg-key="arrival_push_enabled" data-cfg-val="${b.arrival_push_enabled ? 'false' : 'true'}">${b.arrival_push_enabled ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Interactive questions <span class="mode-bind-sub">open the mic for proactive questions</span></label><button class="toggle-btn ${b.proactive_questions_interactive ? 'on' : 'off'}" data-cfg-key="proactive_questions_interactive" data-cfg-val="${b.proactive_questions_interactive ? 'false' : 'true'}">${b.proactive_questions_interactive ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Quiet-hours: critical push only</label><button class="toggle-btn ${b.quiet_hours_push_critical_only ? 'on' : 'off'}" data-cfg-key="quiet_hours_push_critical_only" data-cfg-val="${b.quiet_hours_push_critical_only ? 'false' : 'true'}">${b.quiet_hours_push_critical_only ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Min away minutes <span class="cfg-sub">before an arrival counts</span></label><input class="cfg-field cfg-num" type="number" min="0" max="1440" step="1" data-cfg-key="arrival_min_away_minutes" value="${d.config?.arrival_min_away_minutes ?? ''}" placeholder="10"></div>
+          <div class="cfg-row"><label>Presence-only entities <span class="mode-bind-sub">seen for presence, never announced</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="presence_only_entities" data-cfg-parse="csv" value="${csvV(d.config?.presence_only_entities)}" placeholder="device_tracker.guest_phone"></div>
+        </div>
+      </div>
+
+      <!-- ANNOUNCEMENT & TTS ENGINES (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Announcement &amp; TTS Engines</span><span class="side">SPEECH</span></div>
+        <div class="mem-sub">TTS engine selection, a premium engine for chosen contexts, local-model warmth and briefing presence context.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Keep model warm <span class="mode-bind-sub">hold the local model in VRAM</span></label><button class="toggle-btn ${b.ollama_keep_warm ? 'on' : 'off'}" data-cfg-key="ollama_keep_warm" data-cfg-val="${b.ollama_keep_warm ? 'false' : 'true'}">${b.ollama_keep_warm ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Briefing presence context</label><button class="toggle-btn ${b.briefing_include_presence ? 'on' : 'off'}" data-cfg-key="briefing_include_presence" data-cfg-val="${b.briefing_include_presence ? 'false' : 'true'}">${b.briefing_include_presence ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>TTS engine <span class="mode-bind-sub">"auto" picks per install</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="tts_engine" value="${esc(d.config?.tts_engine || '')}" placeholder="auto"></div>
+          <div class="cfg-row"><label>Premium TTS engine <span class="mode-bind-sub">blank = none</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="tts_premium_engine" value="${esc(d.config?.tts_premium_engine || '')}" placeholder="tts.elevenlabs"></div>
+          <div class="cfg-row"><label>Premium TTS contexts <span class="mode-bind-sub">comma-separated contexts</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="tts_premium_contexts" data-cfg-parse="csv" value="${csvV(d.config?.tts_premium_contexts)}" placeholder="briefing, alert"></div>
+        </div>
+      </div>
+
+      <!-- VOICE IDENTITY & CONFIRMATION (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Voice Identity &amp; Confirmation</span><span class="side">IDENTITY</span></div>
+        <div class="mem-sub">Local speaker-ID thresholds, confirm-before-acting entities and per-satellite audio/start overrides.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Trust threshold <span class="cfg-sub">cosine ≥ this ⇒ trusted</span></label><input class="cfg-field cfg-num" type="number" min="0" max="1" step="0.01" data-cfg-key="voice_local_trust_threshold" value="${d.config?.voice_local_trust_threshold ?? ''}" placeholder="0.75"></div>
+          <div class="cfg-row"><label>Guess threshold <span class="cfg-sub">cosine ≥ this ⇒ panel guess</span></label><input class="cfg-field cfg-num" type="number" min="0" max="1" step="0.01" data-cfg-key="voice_local_guess_threshold" value="${d.config?.voice_local_guess_threshold ?? ''}" placeholder="0.55"></div>
+          <div class="cfg-row"><label>Min samples <span class="cfg-sub">enrolled before trusting</span></label><input class="cfg-field cfg-num" type="number" min="1" max="50" step="1" data-cfg-key="voice_local_min_samples" value="${d.config?.voice_local_min_samples ?? ''}" placeholder="2"></div>
+          <div class="cfg-row"><label>Voice-confirm entities <span class="mode-bind-sub">comma-separated entity ids</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="voice_confirm_entities" data-cfg-parse="csv" value="${csvV(d.config?.voice_confirm_entities)}" placeholder="lock.front_door"></div>
+          <div class="cfg-row"><label>Satellite audio-out <span class="mode-bind-sub">JSON map: satellite → media_player</span></label><textarea class="cfg-field cfg-text" data-cfg-key="satellite_audio_out" data-cfg-parse="json" rows="3" placeholder="{}">${jsnV(d.config?.satellite_audio_out)}</textarea></div>
+          <div class="cfg-row"><label>Satellite start action <span class="mode-bind-sub">JSON map: satellite → service/data</span></label><textarea class="cfg-field cfg-text" data-cfg-key="satellite_start_action" data-cfg-parse="json" rows="3" placeholder="{}">${jsnV(d.config?.satellite_start_action)}</textarea></div>
+        </div>
+      </div>
+
+      <!-- DOCUMENT EMBEDDINGS (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Document Embeddings</span><span class="side">LIBRARY</span></div>
+        <div class="mem-sub">Embedding model and endpoint used to index your document library for semantic recall.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Embed model</label><input class="cfg-field cfg-text" type="text" data-cfg-key="embed_model" value="${esc(d.config?.embed_model || '')}" placeholder="nomic-embed-text"></div>
+          <div class="cfg-row"><label>Embed base URL <span class="mode-bind-sub">blank = Ollama base URL</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="embed_base_url" value="${esc(d.config?.embed_base_url || '')}" placeholder="http://localhost:11434"></div>
+        </div>
+      </div>
+
+      <!-- GOALS, WELLBEING & MODES (settings audit) -->
+      <div class="panel">
+        <div class="head"><span>Goals, Wellbeing &amp; Modes</span><span class="side">ADVANCED</span></div>
+        <div class="mem-sub">Kernel goal authority, biometric wellbeing entities and custom operational-mode definitions.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Goals kernel authoritative <span class="mode-bind-sub">kernel Plan owns goal step state</span></label><button class="toggle-btn ${b.goals_kernel_authoritative ? 'on' : 'off'}" data-cfg-key="goals_kernel_authoritative" data-cfg-val="${b.goals_kernel_authoritative ? 'false' : 'true'}">${b.goals_kernel_authoritative ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>Biometric entities <span class="mode-bind-sub">JSON map: metric → sensor entity</span></label><textarea class="cfg-field cfg-text" data-cfg-key="biometric_entities" data-cfg-parse="json" rows="3" placeholder="{}">${jsnV(d.config?.biometric_entities)}</textarea></div>
+          <div class="cfg-row"><label>Custom modes <span class="mode-bind-sub">JSON map: mode name → definition</span></label><textarea class="cfg-field cfg-text" data-cfg-key="custom_modes" data-cfg-parse="json" rows="3" placeholder="{}">${jsnV(d.config?.custom_modes)}</textarea></div>
+        </div>
+      </div>
+    `;
+  }
+
   _stampSettingsSections() {
     // Assign each Settings card to a sub-section and record it on the element as
     // data-section. Runs while headings are still their original English text, so
@@ -6708,6 +6871,17 @@ ${this._renderExcludedEntities(d)}
       "Doorbell Training": "cameras",
       "Floor Plan Editor": "home", "Wellbeing Context": "home",
       "JARVIS Character & Research": "home", "Document Library": "home",
+      // ── Settings audit (9.166.0): new cards grouped into existing sub-sections.
+      // Keys use literal '&' because textContent decodes the HTML '&amp;' entity.
+      "Opening Watch": "cameras",
+      "Sentinel Zones & Lockdown": "safety",
+      "Hazard, Energy & Appliances": "safety",
+      "Observer & Routine Learning": "learning",
+      "Anticipation & Presence": "learning",
+      "Announcement & TTS Engines": "voice",
+      "Voice Identity & Confirmation": "voice",
+      "Document Embeddings": "home",
+      "Goals, Wellbeing & Modes": "general",
     };
     // Inline stroke icons per sub-section (stroke:currentColor so they inherit
     // the button's active/hover colour). floorplan/governance have no grid cards
@@ -7568,7 +7742,19 @@ ${this._renderExcludedEntities(d)}
         // selection (#55).
         if (key === "ui_language") return;
         let value = el.value;
-        if (el.type === "number") value = (value === "" ? null : Number(value));
+        // Optional parse mode (settings-audit list/map overrides, 9.166.0):
+        //   data-cfg-parse="csv"  -> trimmed non-empty comma items as a list
+        //   data-cfg-parse="json" -> parsed object/array (invalid JSON aborts
+        //                            the save with a toast instead of writing junk)
+        const parse = el.getAttribute("data-cfg-parse");
+        if (parse === "csv") {
+          value = this._cfgCsv(value);
+        } else if (parse === "json") {
+          try { value = this._cfgJson(value); }
+          catch (_) { this._toast(`✗ ${key} — invalid JSON, not saved`, "err"); return; }
+        } else if (el.type === "number") {
+          value = (value === "" ? null : Number(value));
+        }
         await this._saveConfig(key, value);
         await this._fetchAndRender();
       });

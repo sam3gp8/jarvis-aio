@@ -1,3 +1,32 @@
+## [9.166.0] — Settings audit: 38 backend settings get real panel controls
+
+A cross-check of every writable backend key against the panel found **38 settings
+that were configurable in the backend but had no control in the JARVIS panel** —
+some with cameras/sentinel/voice behaviour you could only change by editing
+`config.json` by hand. This surfaces all of them.
+
+- **29 keys** that were already panel-writable but had no UI (e.g.
+  `opening_watch_enabled`, `cognition_threshold`, `intrusion_inward_depth`,
+  `voice_local_trust_threshold`, `satellite_audio_out`) now have controls.
+- **9 keys** that weren't even writable from the panel (`ollama_keep_warm`,
+  `tts_engine`, `tts_premium_engine`, `tts_premium_contexts`, `observer_proactive`,
+  `lockdown_auto_on_arm`, `intrusion_require_corroboration`, `intrusion_spread_zones`,
+  `appliance_sensors`) are now writable **and** have controls.
+- New cards are grouped into the existing Settings sub-tabs (Cameras, Safety &
+  Energy, Learning, Voice & Audio, Home & Extras). Every control echoes its stored
+  value through `ws_get_panel_data`, so nothing snaps back to a default on
+  re-render. List fields accept a comma-separated value and map fields accept JSON
+  (invalid JSON is rejected with a toast rather than saved).
+- **Diagnostics** gains quick-run buttons for `jarvis.unshush` (resume
+  announcements) and `jarvis.backup` (snapshot JARVIS data), alongside the existing
+  routing test.
+- **Bug fix:** `arrival_greeting_enabled` was emitted twice in `ws_get_panel_data`
+  with conflicting defaults; it's now surfaced once, with its canonical opt-in
+  default (off).
+
+All 38 defaults shown in the panel were verified against each key's real backend
+reader (not assumed), so a control reflects what the integration actually does.
+
 ## [9.165.0] — "Say Something" moves to the Chat tab, with a speaker picker (#552)
 
 The **Say Something** TTS compose box moves out of Settings → Voice & Audio and

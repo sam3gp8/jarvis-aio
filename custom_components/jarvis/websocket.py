@@ -833,7 +833,9 @@ async def ws_get_panel_data(
                 "bedroom_areas": list(bedroom_areas or []),
                 "broadcast_group": broadcast_group,
                 # ── Issue #400 settings ──
-                "arrival_greeting_enabled": bool(_runtime_opt(hass, entry, "arrival_greeting_enabled", True)),
+                # (arrival_greeting_enabled is surfaced once, with its canonical
+                # opt-in default False, below — the earlier duplicate here that
+                # emitted True was removed in the 9.166.0 panel settings audit.)
                 "arrival_min_away_minutes": int(_runtime_opt(hass, entry, "arrival_min_away_minutes", 10) or 0),
                 "quiet_hours_push_critical_only": bool(_runtime_opt(hass, entry, "quiet_hours_push_critical_only", False)),
                 "presence_only_entities": list(_runtime_opt(hass, entry, "presence_only_entities", []) or []),
@@ -1016,6 +1018,44 @@ async def ws_get_panel_data(
                 "nighttime_lockdown_enabled": bool(_runtime_opt(hass, entry, "nighttime_lockdown_enabled", True)),
                 # Goals: kernel Plan authoritative over goal step state (H4b, 9.40.0)
                 "goals_kernel_authoritative": bool(_runtime_opt(hass, entry, "goals_kernel_authoritative", True)),
+                # ── Panel settings audit (9.166.0) ──────────────────────────────
+                # Previously UI-less writable keys, now surfaced here so their new
+                # panel controls reflect the stored value instead of snapping back
+                # to a default on every re-render. Each default mirrors the key's
+                # canonical backend reader (verified, not the audit doc's guesses).
+                "opening_watch_enabled": bool(_runtime_opt(hass, entry, "opening_watch_enabled", False)),
+                "opening_watch_interval_min": int(_runtime_opt(hass, entry, "opening_watch_interval_min", 30) or 30),
+                "briefing_include_presence": bool(_runtime_opt(hass, entry, "briefing_include_presence", True)),
+                "cognition_threshold": _runtime_opt(hass, entry, "cognition_threshold", 0.6),
+                "observer_proactive": bool(_runtime_opt(hass, entry, "observer_proactive", True)),
+                "pattern_min_occurrences": int(_runtime_opt(hass, entry, "pattern_min_occurrences", 4) or 4),
+                "pattern_confidence": _runtime_opt(hass, entry, "pattern_confidence", 0.55),
+                "outdoor_areas": _get_runtime_json(hass, entry, "outdoor_areas", []),
+                "outdoor_entities": _get_runtime_json(hass, entry, "outdoor_entities", []),
+                "indoor_entities": _get_runtime_json(hass, entry, "indoor_entities", []),
+                "intrusion_inward_depth": int(_runtime_opt(hass, entry, "intrusion_inward_depth", 2) or 2),
+                "intrusion_spread_zones": int(_runtime_opt(hass, entry, "intrusion_spread_zones", 2) or 2),
+                "intrusion_require_corroboration": bool(_runtime_opt(hass, entry, "intrusion_require_corroboration", True)),
+                "lockdown_auto_on_arm": bool(_runtime_opt(hass, entry, "lockdown_auto_on_arm", True)),
+                "hazard_disaster_radius_km": _runtime_opt(hass, entry, "hazard_disaster_radius_km", 300.0),
+                "energy_mode_bump": _get_runtime_json(hass, entry, "energy_mode_bump", []),
+                "call_integration_domains": str(_runtime_opt(hass, entry, "call_integration_domains", "") or ""),
+                "embed_model": str(_runtime_opt(hass, entry, "embed_model", "nomic-embed-text") or "nomic-embed-text"),
+                "embed_base_url": str(_runtime_opt(hass, entry, "embed_base_url", "") or ""),
+                "voice_confirm_entities": _get_runtime_json(hass, entry, "voice_confirm_entities", []),
+                "satellite_audio_out": _get_runtime_json(hass, entry, "satellite_audio_out", {}),
+                "satellite_start_action": _get_runtime_json(hass, entry, "satellite_start_action", {}),
+                "voice_local_trust_threshold": _runtime_opt(hass, entry, "voice_local_trust_threshold", 0.75),
+                "voice_local_guess_threshold": _runtime_opt(hass, entry, "voice_local_guess_threshold", 0.55),
+                "voice_local_min_samples": int(_runtime_opt(hass, entry, "voice_local_min_samples", 2) or 2),
+                "biometric_entities": _get_runtime_json(hass, entry, "biometric_entities", {}),
+                "custom_modes": _get_runtime_json(hass, entry, "custom_modes", {}),
+                "ollama_keep_warm": bool(_runtime_opt(hass, entry, "ollama_keep_warm", True)),
+                "tts_engine": str(_runtime_opt(hass, entry, "tts_engine", "auto") or "auto"),
+                "tts_premium_engine": str(_runtime_opt(hass, entry, "tts_premium_engine", "") or ""),
+                "tts_premium_contexts": _get_runtime_json(hass, entry, "tts_premium_contexts", []),
+                "appliance_sensors": _get_runtime_json(hass, entry, "appliance_sensors", {}),
+                # ── end panel settings audit (9.166.0) ──────────────────────────
                 # Scheduled briefings (v6.78.0)
                 "briefing_morning_enabled": bool(_runtime_opt(hass, entry, "briefing_morning_enabled", False)),
                 "briefing_evening_enabled": bool(_runtime_opt(hass, entry, "briefing_evening_enabled", False)),
@@ -1793,6 +1833,17 @@ PANEL_WRITABLE_KEYS = {
     "quiet_hours_push_critical_only",  # bool: during quiet hours, push only critical (#4)
     "presence_only_entities",       # list[entity_id]: visible to presence, never escalated/announced (#4)
     "proactive_questions_interactive",  # bool: open the mic for proactive questions (#6)
+    # ── Panel settings audit (9.166.0): high-value keys read across backend
+    # modules that had no panel control and weren't writable from the panel. ──
+    "ollama_keep_warm",             # bool: keep the local model warm in VRAM between turns
+    "tts_engine",                   # str: TTS engine override ("auto" = pick per install)
+    "tts_premium_engine",           # str: premium TTS engine for selected contexts (blank = none)
+    "tts_premium_contexts",         # list|csv: contexts that use the premium TTS engine
+    "observer_proactive",           # bool: let the Observer surface proactive remarks
+    "lockdown_auto_on_arm",         # bool: run the lockdown sweep automatically when the alarm arms
+    "intrusion_require_corroboration",  # bool: require a second signal before escalating an intrusion
+    "intrusion_spread_zones",       # int: motion across this many zones ⇒ someone moving through
+    "appliance_sensors",            # dict: map of appliance -> power/contact sensor entity_id
 }
 
 # ── Debug log ring buffer ────────────────────────────────────────────────────
