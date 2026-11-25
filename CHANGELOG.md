@@ -1,3 +1,23 @@
+## [9.162.0] — Memory panel TEACH now tells you what happened (#596)
+
+The Memory tab's **TEACH** silently swallowed input: typing one sentence into a
+single field (the easy "Sindy is my wife" mistake) left the other field blank, and
+the handler's `if (!key || !value) return;` did **nothing** — no fact, no error, no
+hint. Any backend or unauthorized failure was swallowed the same way, so a real
+failure looked identical to success.
+
+TEACH now gives feedback at every step:
+
+- It stays **disabled until both fields are filled**, and an empty submit shows an
+  inline hint naming the two-field format instead of doing nothing.
+- A stored fact shows a **confirmation** and clears the inputs; a fact the backend
+  declines keeps your text so you can reword it.
+- A failure — an unauthorized (non-admin) session or a backend error — now
+  **surfaces the actual error** and preserves what you typed for a retry.
+
+Thanks to the reporter for the precise write-up, including the exact
+`_teachKnowledge()` no-op and the swallowed websocket error.
+
 ## [9.161.0] — "Say Something" actually speaks now (#595)
 
 The panel's **Say Something** box (and JARVIS's spoken relay — "tell Sam dinner's

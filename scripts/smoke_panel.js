@@ -1273,6 +1273,53 @@ setTimeout(async () => {
     ["latest briefing is marked as such (#232)", /brief-latest/.test(_briefBody) && /latest/.test(_briefBody)],
   );
 
+  // ── #596: Memory TEACH must never silently discard input ──
+  const _memStatus = () => el.shadowRoot.getElementById("mem-status");
+  const _memKeyEl  = () => el.shadowRoot.getElementById("mem-key");
+  const _memValEl  = () => el.shadowRoot.getElementById("mem-val");
+  const _memBtn    = () => el.shadowRoot.getElementById("mem-add");
+  checks.push(
+    ["Memory TEACH has a status line (#596)", !!_memStatus()],
+    ["TEACH starts disabled while both fields are empty (#596)", _memBtn()?.disabled === true],
+  );
+  // empty-field submit -> a visible hint, not a silent no-op
+  _memKeyEl().value = ""; _memValEl().value = "";
+  await el._teachKnowledge();
+  checks.push(
+    ["empty TEACH shows a 'fill both fields' hint, not nothing (#596)",
+      /both fields/i.test(_memStatus()?.textContent || "")],
+  );
+  // a stored fact -> confirmation + inputs cleared
+  const _cwMem = hass.callWS;
+  hass.callWS = async (m) => {
+    if (m.type === "jarvis/add_knowledge")
+      return { ok: true, facts: [{ id: 1, key: m.key, value: m.value, subject: m.subject }] };
+    return _cwMem(m);
+  };
+  _memKeyEl().value = "trash day"; _memValEl().value = "Tuesday";
+  el._syncMemTeachBtn();
+  checks.push(["TEACH enables once both fields are filled (#596)", _memBtn()?.disabled === false]);
+  await el._teachKnowledge();
+  checks.push(
+    ["a stored fact shows a success confirmation (#596)", /learned/i.test(_memStatus()?.textContent || "")],
+    ["inputs clear after a successful teach (#596)",
+      (_memKeyEl()?.value || "") === "" && (_memValEl()?.value || "") === ""],
+  );
+  // a backend/unauthorized failure -> real error surfaced, inputs kept for retry
+  hass.callWS = async (m) => {
+    if (m.type === "jarvis/add_knowledge") throw { code: "unauthorized", message: "Unauthorized" };
+    return _cwMem(m);
+  };
+  _memKeyEl().value = "door code"; _memValEl().value = "1234";
+  await el._teachKnowledge();
+  checks.push(
+    ["a failed teach surfaces the real error, not silence (#596)",
+      /unauthorized/i.test(_memStatus()?.textContent || "")],
+    ["a failed teach keeps the typed input for retry (#596)",
+      _memKeyEl()?.value === "door code" && _memValEl()?.value === "1234"],
+  );
+  hass.callWS = _cwMem;
+
   el._currentTab = "settings";
   el._render();
 
