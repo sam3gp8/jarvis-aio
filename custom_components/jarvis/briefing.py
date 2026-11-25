@@ -155,12 +155,62 @@ def _scrub_false_security_claims(text: str, has_open: bool) -> str:
     claim = re.compile(
         r"(?i)("
         r"perimeter[^.!?]*\bsecure"
-        r"|\b(?:house|home|residence|property|place)\b[^.!?]*\bsecure"
+        # #590 follow-up: cover the grander phrasings a model reaches for — "the
+        # estate remains secure", "the premises are secure" — and a bare
+        # "sensors are secure" that omits the word "perimeter".
+        r"|\b(?:house|home|residence|property|place|estate|premises|building"
+        r"|grounds|compound|apartment|flat)\b[^.!?]*\bsecure"
+        r"|\b(?:all\s+)?(?:perimeter\s+)?sensors?\b[^.!?]*\bsecure\b"
         r"|\b(?:everything|all)\b[^.!?]*\b(?:secure|safe|locked\s+up)\b"
         r"|\b(?:all|the|your)\b[^.!?]*\b(?:doors?|windows?|entrances?|gates?)\b"
         r"[^.!?]*\b(?:are|is|'s)\b[^.!?]*\b(?:locked|secured)\b"
         r"|\bsecured\s+for\s+the\s+night\b"
         r"|\ball\s+clear\b"
+        r")")
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    kept = [s for s in sentences if not claim.search(s)]
+    out = " ".join(kept).strip()
+    return out or text
+
+
+def _scrub_unconfirmed_action_claims(text: str) -> str:
+    """Safety guard (#590 follow-up): the briefing composer only gathers context
+    and speaks — it never calls a Home Assistant service. So any sentence that
+    claims JARVIS performed a device action ("I've routed the playlist", "I
+    adjusted the climate", "the lights have been turned on", "climate controls
+    have adjusted") is a hallucination, however confident — and prompt grounding
+    alone did not hold. Drop such sentences deterministically.
+
+    Verbs are device-control verbs only, never report/cognition verbs like noted
+    or reviewed, in a claiming voice: first person with the verb close behind the
+    subject (so "I noted the door is open" is NOT read as "I opened it"), or a
+    device subject in a completed/passive frame ("the lights have been turned
+    on"). "play"/"start" are deliberately excluded — "the music has been playing"
+    reports a state, it does not claim JARVIS started it. Never returns empty: if
+    every sentence matched, the original is kept so a briefing still goes out."""
+    if not text:
+        return text
+    import re
+    core = (
+        r"(?:adjust|re-?rout|rout|illuminat|dimm?|brighten|preheat|warm|cool|"
+        r"lock|unlock|secur|arm|disarm|activat|deactivat|enabl|disabl|engag|"
+        r"disengag|queu|cue|resum|paus|lower|rais|clos|open|dispatch|set|shut|"
+        r"turn(?:ed|ing)?\s+(?:on|off|up|down)|switch(?:ed|ing)?\s+(?:on|off))"
+    )
+    fp_verb = core + r"(?:ed|ing|s|d)?"      # first person: past OR gerund
+    dev_verb = core + r"(?:ed|d)?"           # device subject: completed only
+    claim = re.compile(
+        r"(?i)(?:"
+        # First person, verb immediately behind the subject + connectives.
+        r"\b(?:i|we)(?:['’]ve|\s+(?:have|had|then|also|just|already|recently"
+        r"|now|proceeded\s+to|gone\s+ahead\s+and|taken\s+the\s+liberty\s+of))*"
+        r"\s*" + fp_verb + r"\b"
+        r"|"
+        # Device subject in a completed/passive action frame.
+        r"\b(?:the\s+)?(?:climate|thermostat|heating|cooling|lights?|lamps?|"
+        r"blinds?|shades?|curtains?|music|playlist|audio|speakers?|scenes?|"
+        r"controls?)\b[^.!?]*?\b(?:have|has|been|were|was)\b[^.!?]*?"
+        + dev_verb + r"\b"
         r")")
     sentences = re.split(r"(?<=[.!?])\s+", text.strip())
     kept = [s for s in sentences if not claim.search(s)]
@@ -347,7 +397,9 @@ async def async_briefing(
         f"you, not spoken content — never read or repeat them verbatim. "
         f"State ONLY facts present in the context above. Never claim you performed "
         f"an action unless the context explicitly confirms it happened, and never "
-        f"invent people, names, messages, appointments, or entity states. If a "
+        f"invent people, names, messages, appointments, or entity states. This "
+        f"briefing never performs actions, so never say you routed music, adjusted "
+        f"the climate, turned on lights, or locked anything. If a "
         f"detail is not in the context, leave it out — a shorter truthful briefing "
         f"is better than an invented one. "
         f"Your prime directive should inform what you surface — protect, steward, "
@@ -386,6 +438,10 @@ async def async_briefing(
     # false security.
     if briefing_text:
         briefing_text = _scrub_false_security_claims(briefing_text, bool(open_things))
+        # #590 follow-up: the composer performs no actions, so strip any claim
+        # that it did (routed music, adjusted climate, turned on lights, locked
+        # up). Unconditional — prompt grounding alone did not hold on 9.161.0.
+        briefing_text = _scrub_unconfirmed_action_claims(briefing_text)
 
     # The model sometimes returns an empty completion (a local-model hiccup, or
     # an unusual prompt). Rather than silently skip the announce, read the facts
