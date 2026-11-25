@@ -4675,6 +4675,31 @@ dotLabel.textContent = lightBtn.classList.contains("adl")
     }).join('');
     return '<option value="">\u2014 none \u2014</option>' + opts;
   }
+  _announceSpeakerOptions(selected) {
+    // Options for the Chat-tab "Say Something" speaker picker (#552/panel):
+    // every media_player, configured announcement speakers (★) first, then
+    // A→Z by friendly name. Blank value = broadcast to all.
+    const states = this._hass?.states || {};
+    const configured = Array.isArray(this._data()?.config?.announcement_speakers)
+      ? this._data().config.announcement_speakers
+      : [];
+    const eids = Object.keys(states).filter(e => e.startsWith('media_player.')).sort((a, b) => {
+      const ac = configured.includes(a) ? 0 : 1;
+      const bc = configured.includes(b) ? 0 : 1;
+      if (ac !== bc) return ac - bc;
+      const an = (states[a]?.attributes?.friendly_name || a).toLowerCase();
+      const bn = (states[b]?.attributes?.friendly_name || b).toLowerCase();
+      return an.localeCompare(bn);
+    });
+    if (selected && !eids.includes(selected)) eids.unshift(selected);
+    const opts = eids.map(e => {
+      const st = states[e];
+      const fn = (st && st.attributes && st.attributes.friendly_name) || e;
+      const tag = configured.includes(e) ? ' ★' : '';
+      return '<option value="' + this._esc(e) + '"' + (e === selected ? ' selected' : '') + '>' + this._esc(fn + tag) + '</option>';
+    }).join('');
+    return '<option value="">All announcement speakers (broadcast)</option>' + opts;
+  }
   _renderModeBindings(d) {
     const areas = d.areasGrid || [];
     const labAreas = Array.isArray(d.config?.lab_areas) ? d.config.lab_areas : [];
@@ -6233,19 +6258,6 @@ ${this._renderExcludedEntities(d)}
         </div>
       </div>
 
-      <!-- SAY SOMETHING (TTS compose, #540) -->
-      <div class="panel">
-        <div class="head">
-          <span>Say Something</span>
-          <span class="side">ANNOUNCE</span>
-        </div>
-        <div class="rule-list">
-          <div class="mode-bind-row"><label>To <span class="mode-bind-sub">optional &mdash; a person ("Dad"); blank announces to everyone</span></label><input class="cfg-field cfg-text" id="announce-to" type="text" placeholder="(optional) who it's for"></div>
-          <textarea class="cfg-field cfg-text" id="announce-msg" rows="2" placeholder="Type a message for JARVIS to speak on the household speakers&hellip;"></textarea>
-          <div class="announce-send-row"><button class="btn" id="announce-send">Speak</button></div>
-        </div>
-      </div>
-
       <!-- ANNOUNCEMENT SPEAKERS -->
       <div class="panel">
         <div class="head">
@@ -6459,6 +6471,26 @@ ${this._renderExcludedEntities(d)}
       </div>
       <div class="chat-hint">Same brain as voice &amp; the HA Assist box — it can answer questions and control the home. History clears on reload. <button id="chat-clear" class="chat-clear">clear</button></div>
     </div>
+
+    <!-- SAY SOMETHING (TTS compose, moved to the Chat tab with speaker selection) -->
+    <div class="panel chat-announce-panel" style="margin-top:14px;">
+      <div class="head">
+        <span>Say Something</span>
+        <span class="side">ANNOUNCE</span>
+      </div>
+      <div class="rule-list">
+        <div class="mode-bind-row">
+          <label>Speaker <span class="mode-bind-sub">broadcast to all announcement speakers, or pick one specific speaker</span></label>
+          <select class="cfg-field" id="announce-speaker">${this._announceSpeakerOptions(this._announceSpeaker || '')}</select>
+        </div>
+        <div class="mode-bind-row">
+          <label>To <span class="mode-bind-sub">optional &mdash; a person ("Dad"); blank announces to everyone</span></label>
+          <input class="cfg-field cfg-text" id="announce-to" type="text" placeholder="(optional) who it's for">
+        </div>
+        <textarea class="cfg-field cfg-text" id="announce-msg" rows="2" placeholder="Type a message for JARVIS to speak on the selected speaker(s)&hellip;"></textarea>
+        <div class="announce-send-row"><button class="btn" id="announce-send">Speak</button></div>
+      </div>
+    </div>
   </div>
   ` : ''}
 
@@ -6664,7 +6696,7 @@ ${this._renderExcludedEntities(d)}
       "Sub-Agents & Automation": "general",
       "Operational Mode": "general", "System Diagnostics": "general",
       "AI Models": "voice", "Briefings": "voice", "Voice Confirmation": "voice",
-      "Satellite → Speaker": "voice", "Say Something": "voice",
+      "Satellite → Speaker": "voice",
       "Announcement Speakers": "voice",
       "Anticipation & Memory": "learning", "Memory": "learning",
       "Observer Tuning": "learning", "Routine Learning": "learning",
@@ -7766,20 +7798,30 @@ ${this._renderExcludedEntities(d)}
       this._annSpeakersSave(arr);
     }));
 
-    // #540: "Say Something" — type a message and have JARVIS speak it on the
-    // household speakers (person-framed with a recipient, a broadcast without).
+    // #540/#552: "Say Something" (Chat tab) — type a message and have JARVIS
+    // speak it (person-framed with a recipient, a broadcast without). The speaker
+    // picker targets one media_player, or all announcement speakers when blank.
+    const _annSpeakerSel = this.shadowRoot.getElementById("announce-speaker");
+    if (_annSpeakerSel) _annSpeakerSel.addEventListener("change", () => {
+      this._announceSpeaker = _annSpeakerSel.value || "";
+    });
     const _annSendBtn = this.shadowRoot.getElementById("announce-send");
     if (_annSendBtn) _annSendBtn.addEventListener("click", async () => {
       if (!this._hass) return;
       const msgEl = this.shadowRoot.getElementById("announce-msg");
       const toEl = this.shadowRoot.getElementById("announce-to");
+      const spkEl = this.shadowRoot.getElementById("announce-speaker");
       const message = (msgEl && msgEl.value || "").trim();
       const to = (toEl && toEl.value || "").trim();
+      const speaker = (spkEl && spkEl.value || "").trim();
       if (!message) { this._toast("Type a message first", "err"); return; }
       _annSendBtn.disabled = true;
       try {
-        const res = await this._hass.callWS({ type: "jarvis/announce", message, to });
-        this._toast(res && res.note ? `✓ spoken — ${res.note}` : "✓ spoken", "ok");
+        const payload = { type: "jarvis/announce", message, to };
+        if (speaker) payload.speakers = [speaker];
+        const res = await this._hass.callWS(payload);
+        const targetNote = speaker ? ` (${speaker})` : "";
+        this._toast(res && res.note ? `✓ spoken${targetNote} — ${res.note}` : `✓ spoken${targetNote}`, "ok");
         if (msgEl) msgEl.value = "";
       } catch (err) {
         this._toast(`✗ ${err?.message || err}`, "err");

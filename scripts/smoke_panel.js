@@ -79,7 +79,7 @@ const _mutedEntities = ["binary_sensor.lounge_window"];
 const _intrSnap = { url: "/local/jarvis/intrusion/intrusion_dining_room_1730000000.jpg", camera: "camera.dining_room", ts: 1730000000, path: "/config/www/jarvis/intrusion/x.jpg" };
 const hass = {
   config: { location_name: "Springfield IL", latitude: 39.78, longitude: -89.65 },
-  states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } } },
+  states: { "assist_satellite.a": { state: "idle", attributes: {} }, "camera.front": { attributes: { access_token: "tok123" } }, "camera.back": { attributes: { access_token: "tok456" } }, "media_player.kitchen": { state: "idle", attributes: { friendly_name: "Kitchen" } } },
   callWS: async (m) => {
     if (m.type === "jarvis/get_panel_data") return PANEL;
     if (m.type === "jarvis/get_activity_log") return { entries: [
@@ -1390,7 +1390,9 @@ setTimeout(async () => {
       && /data-unmute-entity="binary_sensor\.lounge_window"/.test(_mutesBody)],
   );
 
-  // #540: "Say Something" TTS compose box + jarvis/announce round-trip.
+  // #540/#552: "Say Something" moved to the Chat tab, with a speaker picker.
+  el._currentTab = "chat";
+  el._render();
   let _announceCall = null;
   const _origCW_ann = el._hass.callWS.bind(el._hass);
   el._hass.callWS = async (m) => {
@@ -1400,18 +1402,25 @@ setTimeout(async () => {
   const _annMsg = el.shadowRoot.getElementById("announce-msg");
   const _annTo = el.shadowRoot.getElementById("announce-to");
   const _annSend = el.shadowRoot.getElementById("announce-send");
-  if (_annMsg && _annTo && _annSend) {
+  const _annSpk = el.shadowRoot.getElementById("announce-speaker");
+  if (_annMsg && _annTo && _annSpk && _annSend) {
     _annMsg.value = "dinner's ready";
     _annTo.value = "Dad";
+    _annSpk.value = "media_player.kitchen";
+    _annSpk.dispatchEvent(new window.Event("change"));
     _annSend.click();
     await new Promise(r => setTimeout(r, 15));
   }
   el._hass.callWS = _origCW_ann;
   checks.push(
-    ["#540 Say Something compose box renders (message + to + speak)",
-      !!_annMsg && !!_annTo && !!_annSend],
+    ["#552 Say Something lives in the Chat tab (message + to + speaker + speak)",
+      !!_annMsg && !!_annTo && !!_annSpk && !!_annSend],
+    ["#552 speaker picker offers a broadcast-to-all default + the media_player",
+      !!_annSpk && /All announcement speakers/.test(_annSpk.innerHTML) && /media_player\.kitchen/.test(_annSpk.innerHTML)],
     ["#540 Speak sends jarvis/announce with the message + recipient",
       !!_announceCall && _announceCall.message === "dinner's ready" && _announceCall.to === "Dad"],
+    ["#552 a chosen speaker is sent as an explicit speakers list",
+      !!_announceCall && Array.isArray(_announceCall.speakers) && _announceCall.speakers[0] === "media_player.kitchen"],
     ["#540 the message field clears after a successful announce",
       !!_annMsg && _annMsg.value === ""],
   );

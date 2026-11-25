@@ -3623,6 +3623,8 @@ async def ws_voice_confirm_test(
     vol.Required("message"): str,
     vol.Optional("to"): str,       # person/room; blank = broadcast to all (#540)
     vol.Optional("from"): str,
+    vol.Optional("speakers"): [str],  # explicit media_player entity_ids; blank/omitted = all (#552/panel)
+    vol.Optional("speaker"): str,     # single media_player entity_id convenience
 })
 @websocket_api.async_response
 async def ws_announce(
@@ -3632,14 +3634,23 @@ async def ws_announce(
 ) -> None:
     """#540: speak a typed message on the household speakers — the panel's TTS
     compose box. With a recipient it's a person-framed relay ("Message for
-    Dad: …"); with none it's a plain broadcast ("Announcement: …"). Wraps the
-    same relay backend the relay_message agent tool uses."""
+    Dad: …"); with none it's a plain broadcast ("Announcement: …"). Optional
+    ``speakers`` / ``speaker`` target specific media_player(s) instead of
+    broadcasting to all (#552/panel). Wraps the same relay backend the
+    relay_message agent tool uses."""
     if _deny_non_admin(connection, msg):
         return
     text = str(msg.get("message", "")).strip()
     if not text:
         connection.send_error(msg["id"], "empty_message", "message is required")
         return
+    # Explicit speaker selection from the Chat-tab picker: a list, a single
+    # convenience "speaker", or neither (broadcast to all announcement speakers).
+    raw_speakers = msg.get("speakers") or []
+    single_speaker = str(msg.get("speaker", "") or "").strip()
+    target_speakers = [str(s).strip() for s in raw_speakers if str(s).strip()]
+    if single_speaker and single_speaker not in target_speakers:
+        target_speakers.append(single_speaker)
     try:
         from . import relay
         res = await relay.async_relay(
@@ -3647,6 +3658,7 @@ async def ws_announce(
             str(msg.get("to", "")).strip(),
             text,
             str(msg.get("from", "")).strip() or None,
+            speakers=target_speakers or None,
         )
         if res.get("success"):
             # Don't log the user-typed recipient — the debug log is readable by

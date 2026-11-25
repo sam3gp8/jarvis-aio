@@ -1,3 +1,16 @@
+## [9.165.0] — "Say Something" moves to the Chat tab, with a speaker picker (#552)
+
+The **Say Something** TTS compose box moves out of Settings → Voice & Audio and
+into the **Chat tab**, where you talk to JARVIS — a more natural home for typing
+something for it to speak. It gains a **speaker picker**: broadcast to all your
+announcement speakers (the default), or target one specific `media_player`.
+Configured announcement speakers are listed first (★).
+
+Under the hood, `relay.async_relay` and the `jarvis/announce` websocket command
+take an optional explicit speaker list; when none is chosen they still resolve the
+configured announcement speakers and TTS engine exactly as before (the 9.161.0
+fix) and honour the delivery result, so nothing regresses for the broadcast case.
+
 ## [9.164.0] — Briefings stop claiming actions they never took (#590)
 
 The #590 fixes in 9.158.0 grounded the briefing prompt and added a false-security

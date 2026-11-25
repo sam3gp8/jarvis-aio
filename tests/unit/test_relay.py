@@ -185,3 +185,16 @@ async def test_async_relay_reports_failed_delivery(relay, fake_hass, monkeypatch
     res = await relay.async_relay(fake_hass, "Sam", "hi")
     assert res["success"] is False
     assert "deliver" in res["error"].lower()
+
+
+async def test_async_relay_uses_explicit_speakers_and_drops_satellites(relay, fake_hass, stubbed):
+    # #552/panel: an explicit speaker selection (from the Chat-tab picker)
+    # overrides the broadcast target, with listen-only satellites filtered out;
+    # the TTS engine is still resolved via announcement_targets.
+    res = await relay.async_relay(
+        fake_hass, "", "hello", None,
+        speakers=["media_player.den", "assist_satellite.office", "  "])
+    assert res["success"] is True
+    assert res["speakers"] == ["media_player.den"]     # explicit, satellite + blank dropped
+    assert stubbed["speakers"] == ["media_player.den"]
+    assert stubbed["tts_entity"] == "tts.piper"        # engine still resolved

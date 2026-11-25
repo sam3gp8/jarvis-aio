@@ -107,8 +107,10 @@ def presence_note(person: Optional[dict]) -> str:
 
 
 async def async_relay(hass, to_name: str, message: str,
-                      from_name: Optional[str] = None) -> dict:
-    """Announce a message for ``to_name`` on the household speakers.
+                      from_name: Optional[str] = None,
+                      speakers: Optional[list[str]] = None) -> dict:
+    """Announce a message for ``to_name`` on the household speakers, or on the
+    explicit ``speakers`` (media_player entity_ids) chosen from the panel.
 
     Returns a result dict for the tool layer: ``{success, spoken, speakers,
     recipient_state, note}`` on success, or ``{success: False, error}``. Never
@@ -128,16 +130,22 @@ async def async_relay(hass, to_name: str, message: str,
     except Exception:
         recipient = None
 
-    # House broadcast speakers + the TTS engine, through JARVIS's own routing.
-    # (#595: previously called broadcast_target(hass) with no args — so it never
-    # saw the configured announcement_speakers — and announced with tts_entity
-    # None, which async_announce rejects immediately; the None return was ignored
-    # and the tool reported "spoken" with no audio.)
+    # Resolve the TTS engine (and the default broadcast speakers) through JARVIS's
+    # own routing. (#595: announcement_targets resolves BOTH the speakers and the
+    # TTS engine, and the delivery result below is honoured — a null engine or a
+    # non-delivery is a clear error, never a false "spoken".) An explicit panel
+    # speaker selection overrides the broadcast target; satellites are ears, never
+    # output, so they are dropped either way.
     try:
         from . import audio_routing
-        speakers, tts_entity = audio_routing.announcement_targets(hass)
+        resolved, tts_entity = audio_routing.announcement_targets(hass)
     except Exception as exc:
         return {"success": False, "error": f"could not resolve speakers: {exc}"}
+    if speakers:
+        speakers = [str(s).strip() for s in speakers
+                    if str(s).strip() and not str(s).strip().startswith("assist_satellite.")]
+    else:
+        speakers = resolved
     if not speakers:
         return {"success": False,
                 "error": ("no announcement speakers are configured — set a "
