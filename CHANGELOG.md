@@ -1,3 +1,26 @@
+## [9.164.0] — Briefings stop claiming actions they never took (#590)
+
+The #590 fixes in 9.158.0 grounded the briefing prompt and added a false-security
+scrub, but on 9.161.0 briefings still produced confident hallucinations: invented
+**action claims** ("I have routed his playlist and illuminated the hallway",
+"internal climate controls have adjusted") and grander all-clear phrasings the
+scrub missed ("the estate remains secure"). Prompt grounding alone doesn't hold —
+a model can ignore it — so this adds deterministic post-processing:
+
+- **Action-claim scrub.** The briefing composer gathers context and speaks; it
+  never calls a Home Assistant service. So any sentence claiming JARVIS performed
+  a device action (routed music, adjusted the climate, turned on lights, locked
+  up) is now stripped. It targets device-control verbs in a claiming voice and
+  leaves state facts alone — "the music has been playing" and "the garage door is
+  open" survive.
+- **Broader false-security scrub.** `_scrub_false_security_claims` now also catches
+  "the estate/premises/building/grounds is secure" and a bare "sensors are secure".
+
+Both are safety nets behind the existing prompt grounding, not replacements.
+
+Thanks to the reporter for the follow-up with exact 9.161.0 briefing transcripts
+and the specific scrub gaps.
+
 ## [9.163.0] — Opt out of the autonomous nighttime lockdown sweep (#599)
 
 JARVIS's nighttime sweep secures the house while residents sleep — and it
