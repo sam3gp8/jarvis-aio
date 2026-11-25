@@ -30,7 +30,6 @@ def _settings_map() -> str:
 # Every card rendered in the Voice & Audio settings section — these must all map
 # to "voice" so they appear together under that sub-tab, not scattered to General.
 _VOICE_CLUSTER = [
-    "Say Something",            # #540 TTS compose box — the #577 regression
     "Announcement Speakers",
     "Satellite → Speaker",
     "Voice Confirmation",
@@ -39,14 +38,23 @@ _VOICE_CLUSTER = [
 ]
 
 
-def test_say_something_is_under_the_voice_subtab():
-    # the specific #577 fix: the TTS compose box must be browsable under Audio,
-    # not hidden in General and reachable only via the filter box.
+def test_say_something_is_in_chat_tab_with_speaker_selector():
+    # #552/panel: "Say Something" moved from Settings → Voice & Audio into the
+    # Chat tab, with a speaker picker (#announce-speaker) to target one speaker
+    # or broadcast to all. It must NOT remain in the settings section MAP.
+    js = _PANEL.read_text()
     body = _settings_map()
-    assert re.search(r'"Say Something"\s*:\s*"voice"', body), (
-        '"Say Something" must map to the "voice" sub-tab in _stampSettingsSections — '
-        "otherwise it falls to the General fallback and disappears from Voice & Audio "
-        "(reachable only through the settings filter), the #577 regression."
+    assert not re.search(r'"Say Something"\s*:', body), (
+        '"Say Something" should live in the Chat tab, not the Settings section MAP'
+    )
+    chat_block = re.search(r"this\._currentTab === 'chat' \? `(.*?)` : ''", js, re.S)
+    assert chat_block, "Chat tab block not found in jarvis-panel.js"
+    chat_html = chat_block.group(1)
+    assert "<span>Say Something</span>" in chat_html, (
+        '"Say Something" card must be rendered inside the Chat tab'
+    )
+    assert 'id="announce-speaker"' in chat_html, (
+        '"Say Something" in the Chat tab must include the #announce-speaker selector'
     )
 
 
