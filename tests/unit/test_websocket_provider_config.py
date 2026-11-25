@@ -2638,8 +2638,8 @@ def _fake_relay(monkeypatch, result):
     calls = []
     relay = types.ModuleType("jc.relay")
 
-    async def _async_relay(hass, to_name, message, from_name=None):
-        calls.append((to_name, message, from_name))
+    async def _async_relay(hass, to_name, message, from_name=None, speakers=None):
+        calls.append((to_name, message, from_name, speakers))
         return result
 
     relay.async_relay = _async_relay
@@ -2655,7 +2655,7 @@ async def test_ws_announce_relays_to_a_person(fake_hass, monkeypatch):
     conn = _Conn()
     await websocket.ws_announce(fake_hass, conn, {"id": 1, "message": "dinner's ready", "to": "Dad"})
 
-    assert calls == [("Dad", "dinner's ready", None)]
+    assert calls == [("Dad", "dinner's ready", None, None)]   # no explicit speakers
     assert conn.error is None
     assert conn.result is not None and conn.result[0] == 1 and conn.result[1]["success"] is True
 
@@ -2668,7 +2668,24 @@ async def test_ws_announce_broadcasts_without_recipient(fake_hass, monkeypatch):
     conn = _Conn()
     await websocket.ws_announce(fake_hass, conn, {"id": 2, "message": "come eat"})
 
-    assert calls == [("", "come eat", None)]          # blank recipient → broadcast
+    assert calls == [("", "come eat", None, None)]    # blank recipient → broadcast
+    assert conn.result[1]["success"] is True
+
+
+async def test_ws_announce_passes_explicit_speakers(fake_hass, monkeypatch):
+    # #552/panel: a "speakers" list and a single "speaker" convenience are merged
+    # into one explicit list and handed to the relay (blank/omitted = broadcast).
+    websocket = _load_websocket_module()
+    monkeypatch.setattr(websocket, "jarvis_log", lambda *a, **k: None, raising=False)
+    calls = _fake_relay(monkeypatch, {"success": True, "spoken": "x", "note": ""})
+
+    conn = _Conn()
+    await websocket.ws_announce(fake_hass, conn, {
+        "id": 6, "message": "hi", "speakers": ["media_player.kitchen"],
+        "speaker": "media_player.den"})
+
+    assert len(calls) == 1
+    assert calls[0][3] == ["media_player.kitchen", "media_player.den"]
     assert conn.result[1]["success"] is True
 
 
