@@ -1871,6 +1871,24 @@ class JarvisPanel extends HTMLElement {
     });
   }
 
+  _setMemStatus(text, kind) {
+    const el = this.shadowRoot?.getElementById("mem-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "mem-status" + (text && kind ? " " + kind : "");
+  }
+
+  // #596: TEACH is live-disabled until both fields are filled, so the common
+  // "typed a whole sentence into one box" mistake can't silently no-op.
+  _syncMemTeachBtn() {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const key = (root.getElementById("mem-key")?.value || "").trim();
+    const value = (root.getElementById("mem-val")?.value || "").trim();
+    const btn = root.getElementById("mem-add");
+    if (btn) btn.disabled = !(key && value);
+  }
+
   async _teachKnowledge() {
     const root = this.shadowRoot;
     if (!root || !this._hass) return;
@@ -1880,17 +1898,38 @@ class JarvisPanel extends HTMLElement {
     const key = (keyEl?.value || "").trim();
     const value = (valEl?.value || "").trim();
     const subject = subjEl?.value || "household";
-    if (!key || !value) return;
+    // #596: never discard input silently — say what's missing and focus it.
+    if (!key || !value) {
+      this._setMemStatus("Enter both fields — a “what” and an “is” (e.g. “trash day” / “Tuesday”).", "warn");
+      (!key ? keyEl : valEl)?.focus();
+      return;
+    }
+    const btn = root.getElementById("mem-add");
+    if (btn) btn.disabled = true;
+    this._setMemStatus("Saving…", null);
     try {
       const res = await this._hass.callWS({
         type: "jarvis/add_knowledge", key, value, subject,
         kind: subject === "primary" ? "preference" : "fact",
       });
-      this._knowledge = { facts: res?.facts || [], stats: this._knowledge.stats };
-      if (keyEl) keyEl.value = "";
-      if (valEl) valEl.value = "";
-      if (keyEl) keyEl.focus();
-    } catch (err) { /* keep inputs; nothing intrusive */ }
+      if (res && res.ok === false) {
+        // The call succeeded but nothing was stored (e.g. rejected input) —
+        // keep what was typed so it can be reworded and retried.
+        this._setMemStatus("Couldn’t save that — try rewording the fact.", "err");
+      } else {
+        this._knowledge = { facts: res?.facts || [], stats: this._knowledge?.stats };
+        if (keyEl) keyEl.value = "";
+        if (valEl) valEl.value = "";
+        this._setMemStatus(`Learned: ${key} → ${value}`, "ok");
+        if (keyEl) keyEl.focus();
+      }
+    } catch (err) {
+      // #596: surface the real error (unauthorized, backend failure) instead of
+      // swallowing it, and keep the inputs so nothing the user typed is lost.
+      const detail = (err && (err.message || err.error || err.code)) || "";
+      this._setMemStatus(detail ? `Couldn’t save: ${detail}` : "Couldn’t save — unknown error.", "err");
+    }
+    this._syncMemTeachBtn();
     this._knowledgeLoaded = true;
     this._renderKnowledgeList();
   }
@@ -6371,7 +6410,7 @@ ${this._renderExcludedEntities(d)}
         <span>What JARVIS Knows</span>
         <span class="side" id="mem-count">— FACTS</span>
       </div>
-      <div class="mem-sub">Durable facts &amp; preferences JARVIS recalls in conversation. Teach it something, or forget anything with ✕.</div>
+      <div class="mem-sub">Durable facts &amp; preferences JARVIS recalls in conversation. Give it a <b>what</b> and an <b>is</b> — both fields — then TEACH, or forget anything with ✕.</div>
       <div class="mem-teach">
         <input id="mem-key" class="mem-input" placeholder="what  (e.g. trash day)" autocomplete="off" />
         <input id="mem-val" class="mem-input" placeholder="is  (e.g. Tuesday)" autocomplete="off" />
@@ -6379,8 +6418,9 @@ ${this._renderExcludedEntities(d)}
           <option value="household">Household</option>
           <option value="primary">About me</option>
         </select>
-        <button id="mem-add" class="mem-btn">TEACH</button>
+        <button id="mem-add" class="mem-btn" disabled title="Fill in both the “what” and the “is” fields">TEACH</button>
       </div>
+      <div id="mem-status" class="mem-status" role="status" aria-live="polite"></div>
       <div id="memory-list" class="mem-list"><div class="mem-empty">Loading…</div></div>
     </div>
 
@@ -6849,10 +6889,19 @@ ${this._renderExcludedEntities(d)}
       memAdd.addEventListener("click", () => this._teachKnowledge());
       ["mem-key", "mem-val"].forEach(id => {
         const el = this.shadowRoot.getElementById(id);
-        if (el) el.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") { e.preventDefault(); this._teachKnowledge(); }
-        });
+        if (el) {
+          el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") { e.preventDefault(); this._teachKnowledge(); }
+          });
+          // #596: enable TEACH only when both fields are filled, and clear a
+          // stale hint/error the moment the user starts correcting it.
+          el.addEventListener("input", () => {
+            this._syncMemTeachBtn();
+            this._setMemStatus("", null);
+          });
+        }
       });
+      this._syncMemTeachBtn();            // #596: initial disabled state (both empty)
       // first paint of the tab renders whatever we already have, then refresh
       this._renderKnowledgeList();
       this._renderPersonRoutines();
@@ -13547,6 +13596,19 @@ ${this._renderExcludedEntities(d)}
     background: rgba(0, 242, 254, 0.2);
     box-shadow: 0 0 12px rgba(0, 242, 254, 0.25);
   }
+  .mem-btn:disabled {
+    opacity: 0.4; cursor: not-allowed;
+    border-color: var(--line); color: var(--text-faint);
+    background: transparent; box-shadow: none;
+  }
+  .mem-status {
+    min-height: 15px; margin: -8px 2px 14px; padding: 0 2px;
+    font-family: var(--font-body); font-size: 12px; line-height: 1.3;
+    color: var(--text-dim); transition: color 0.2s;
+  }
+  .mem-status.ok   { color: var(--green, #3fb950); }
+  .mem-status.err  { color: var(--red, #ff5c6c); }
+  .mem-status.warn { color: var(--amber, #e3b341); }
   .mem-list { display: flex; flex-direction: column; gap: 14px; }
   .mem-empty {
     color: var(--text-dim); font-size: 13px; text-align: center;
