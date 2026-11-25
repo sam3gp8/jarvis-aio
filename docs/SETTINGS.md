@@ -251,7 +251,8 @@ Booleans are on/off toggles; defaults are JARVIS's out‑of‑the‑box behaviou
 | --- | --- |
 | `sentinel_enabled` | The security watch (door/window/lock sentinel). |
 | `door_window_alerts_enabled` | Announce open‑at‑unusual‑time (awareness kept either way). |
-| `nighttime_lockdown_covers` | Bound autonomous nighttime cover‑closing: `secure` (default) / `all` / `off`. |
+| `nighttime_lockdown_enabled` | Master switch for the autonomous nighttime sweep (locks **and** covers); default on. Turn off to keep JARVIS strictly advisory overnight — it then locks nothing and closes nothing while residents sleep. Independent of the alarm‑triggered lockdown, which still responds to a real threat. |
+| `nighttime_lockdown_covers` | Bound autonomous nighttime cover‑closing: `secure` (default) / `all` / `off`. Only applies while `nighttime_lockdown_enabled` is on. |
 | `intrusion_breach_only` | Interior motion never alarms; only a breach or camera‑confirmed person (default on). |
 | `intrusion_vision_confirm`, `intrusion_vision_veto` | Verify person detection with vision before escalating; a clear "no person" vetoes low‑confidence alerts. |
 | `intrusion_inward_depth`, `intrusion_requires_confinement`, `intrusion_response_timeout` | Intrusion‑confirmation tuning + escalation timeout. |

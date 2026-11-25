@@ -70,6 +70,12 @@ LOCKDOWN_DOOR_COVER_CLASSES = {"door", "garage", "garage_door"}
 # contract) are ALWAYS honored on top of whichever mode is chosen.
 NIGHTTIME_COVER_SECURE_CLASSES = {"door", "garage", "garage_door", "gate"}
 NIGHTTIME_COVER_MODE_DEFAULT = "secure"       # secure | all | off
+# #599: the whole nighttime sweep (locks AND covers) is a convenience/butler
+# action, yet it actuates locks through the unblockable safety seam. Operators
+# who want JARVIS strictly advisory overnight disable it here; default True keeps
+# existing behaviour. Independent of the alarm-triggered LockdownManager, which is
+# an active-threat response and is unaffected by this switch.
+NIGHTTIME_LOCKDOWN_ENABLED_DEFAULT = True
 COVER_FEATURE_CLOSE = 2                        # homeassistant CoverEntityFeature.CLOSE bit
 LOCKDOWN_BREACH_COOLDOWN = 120  # seconds between repeat breach announcements
 LOCKDOWN_SECURE_VERIFY_DELAY = 25  # seconds to wait before confirming a close actually took (slow covers)
@@ -390,8 +396,10 @@ class SafetyManager:
                 actions.append(intrusion)
 
         # ── Nighttime lockdown ──────────────────────────────────────
-        # Skipped when a formal lockdown is already active (it handles securing).
-        if (sleeping and not is_lockdown()
+        # Skipped when a formal lockdown is already active (it handles securing),
+        # or when the operator has opted out of the whole sweep (#599).
+        if (self.config.get("nighttime_lockdown_enabled", NIGHTTIME_LOCKDOWN_ENABLED_DEFAULT)
+                and sleeping and not is_lockdown()
                 and (now - self._last_lockdown_check) > LOCKDOWN_CHECK_INTERVAL):
             self._last_lockdown_check = now
             lockdown = await self._nighttime_lockdown()
@@ -1543,6 +1551,12 @@ class SafetyManager:
         advertise a CLOSE service, mirroring the intrusion path's rigor.
         """
         from .entity_filter import is_excluded
+        # #599: enforce the operator opt-out at the actuation source, so no caller
+        # (tick, a manual call, any future path) auto-locks or auto-closes against
+        # it. Default on; independent of the alarm-triggered LockdownManager.
+        if not self.config.get("nighttime_lockdown_enabled",
+                               NIGHTTIME_LOCKDOWN_ENABLED_DEFAULT):
+            return []
         actions = []
         honorific = self.config.get("honorific", "sir")
 

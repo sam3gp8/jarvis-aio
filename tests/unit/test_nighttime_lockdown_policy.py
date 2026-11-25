@@ -163,3 +163,41 @@ async def test_cover_without_close_feature_is_skipped(cc):
     await mgr._nighttime_lockdown()
     await hass.drain()
     assert _closed(hass) == {"cover.garage"}
+
+
+# ── #599: an explicit opt-out disables the WHOLE sweep (locks + covers) ───────
+
+async def test_disabled_sweep_locks_nothing_and_closes_nothing(cc):
+    # nighttime_lockdown_covers=off only bounds covers; this master switch makes
+    # JARVIS strictly advisory overnight — it actuates nothing.
+    hass = FakeHass()
+    hass.states.set("lock.front", "unlocked", friendly_name="Front Door")
+    hass.states.set("cover.garage", "open", device_class="garage")
+    mgr = cc.SafetyManager(hass, {"nighttime_lockdown_enabled": False})
+    out = await mgr._nighttime_lockdown()
+    await hass.drain()
+    assert out == []
+    assert _locked(hass) == set()          # locks left alone — no unblockable auto-lock
+    assert _closed(hass) == set()          # covers left alone too
+
+
+async def test_default_sweep_still_runs(cc):
+    # No key -> default True: #599 is strictly opt-OUT, so existing installs are
+    # unchanged and the sweep still secures while residents sleep.
+    hass = FakeHass()
+    hass.states.set("lock.front", "unlocked")
+    hass.states.set("cover.garage", "open", device_class="garage")
+    mgr = cc.SafetyManager(hass, {})
+    await mgr._nighttime_lockdown()
+    await hass.drain()
+    assert _locked(hass) == {"lock.front"}
+    assert _closed(hass) == {"cover.garage"}
+
+
+async def test_explicit_enabled_true_still_runs(cc):
+    hass = FakeHass()
+    hass.states.set("lock.front", "unlocked")
+    mgr = cc.SafetyManager(hass, {"nighttime_lockdown_enabled": True})
+    await mgr._nighttime_lockdown()
+    await hass.drain()
+    assert _locked(hass) == {"lock.front"}
