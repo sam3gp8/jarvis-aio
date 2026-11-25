@@ -128,23 +128,35 @@ async def async_relay(hass, to_name: str, message: str,
     except Exception:
         recipient = None
 
-    # House broadcast speakers through JARVIS's own routing.
+    # House broadcast speakers + the TTS engine, through JARVIS's own routing.
+    # (#595: previously called broadcast_target(hass) with no args — so it never
+    # saw the configured announcement_speakers — and announced with tts_entity
+    # None, which async_announce rejects immediately; the None return was ignored
+    # and the tool reported "spoken" with no audio.)
     try:
         from . import audio_routing
-        speakers = [s for s in audio_routing.broadcast_target(hass)
-                    if not str(s).startswith("assist_satellite.")]
+        speakers, tts_entity = audio_routing.announcement_targets(hass)
     except Exception as exc:
         return {"success": False, "error": f"could not resolve speakers: {exc}"}
     if not speakers:
         return {"success": False,
                 "error": ("no announcement speakers are configured — set a "
                           "broadcast group in JARVIS Settings → Audio")}
+    if not tts_entity:
+        return {"success": False,
+                "error": ("no TTS engine is available — set a TTS engine in "
+                          "JARVIS Settings → Audio")}
 
     try:
         from .tts_helper import async_announce
-        await async_announce(hass, text, None, speakers, context="announcement")
+        delivered = await async_announce(hass, text, tts_entity, speakers,
+                                         context="announcement")
     except Exception as exc:
         return {"success": False, "error": f"announcement failed: {exc}"}
+    if not delivered:
+        return {"success": False,
+                "error": ("announcement could not be delivered to the "
+                          "configured speakers")}
 
     try:
         from .websocket import jarvis_log

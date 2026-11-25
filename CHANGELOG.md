@@ -1,3 +1,27 @@
+## [9.161.0] — "Say Something" actually speaks now (#595)
+
+The panel's **Say Something** box (and JARVIS's spoken relay — "tell Sam dinner's
+ready") reported success but produced **no audio**. Two defects in the shared
+announce path:
+
+- It asked `audio_routing.broadcast_target()` for speakers **without passing your
+  configured announcement speakers or broadcast group**, so it resolved *nothing*
+  and showed the misleading "no announcement speakers are configured" even when
+  several were.
+- When speakers *did* resolve, it rendered through a **null TTS engine**, which the
+  TTS layer rejects immediately — and the relay and notify queue ignored that
+  rejection and still reported "spoken".
+
+Both paths now go through one `audio_routing.announcement_targets()` helper that
+resolves your announcement speakers **and** the TTS engine together, drops
+listen-only satellites, and the callers now honour the delivery result — so a real
+failure surfaces as a clear error instead of a silent false "spoken". The same fix
+covers the notify queue's held-message delivery, and announcements are now a
+recognised TTS context so they can be routed to a premium engine like any other.
+
+Thanks to the reporters for pinpointing the exact `broadcast_target()` / `None`-TTS
+defects in `relay.py`.
+
 ## [9.160.0] — Flapping network trackers no longer fabricate person routines (#594)
 
 A router-backed `device_tracker` that flips home/away dozens of times an hour
