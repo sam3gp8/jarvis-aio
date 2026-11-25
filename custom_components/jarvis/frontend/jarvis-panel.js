@@ -1761,12 +1761,24 @@ class JarvisPanel extends HTMLElement {
             <div class="proutine-meta">
               <span class="sug-conf"><i style="width:${pct}%"></i></span>
               <span class="sug-pct">${pct}% · ×${r.occurrences || '?'}</span>
+              ${r.id != null ? `<button class="proutine-forget" data-rid="${esc(r.id)}" title="Forget this routine" style="background:none;border:none;color:var(--secondary-text-color,#888);cursor:pointer;font-size:0.9em;padding:0 2px;margin-left:6px;line-height:1;">✕</button>` : ""}
             </div>
           </div>`;
         }).join("");
       const label = esc(person.replace(/_/g, " ")).replace(/\b\w/g, c => c.toUpperCase());
       return `<div class="mem-group"><div class="mem-group-head">${label}</div>${items}</div>`;
     }).join("");
+    list.querySelectorAll(".proutine-forget").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const rid = Number(btn.getAttribute("data-rid"));
+        if (!Number.isFinite(rid)) return;
+        btn.disabled = true;
+        try {
+          await this._hass.callWS({ type: "jarvis/forget_person_routine", routine_id: rid });
+        } catch (err) { /* re-fetch below reflects the true state regardless */ }
+        this._fetchPersonRoutines();
+      });
+    });
   }
 
   async _fetchBriefings() {

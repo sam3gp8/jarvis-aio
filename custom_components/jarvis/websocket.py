@@ -73,6 +73,7 @@ def async_register(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_compose_automation)
         websocket_api.async_register_command(hass, ws_goal_action)
         websocket_api.async_register_command(hass, ws_get_person_routines)
+        websocket_api.async_register_command(hass, ws_forget_person_routine)
         websocket_api.async_register_command(hass, ws_get_area_sparklines)
         websocket_api.async_register_command(hass, ws_camera_snapshot)
         websocket_api.async_register_command(hass, ws_camera_diagnostics)
@@ -4105,3 +4106,31 @@ async def ws_get_person_routines(
     except Exception as exc:
         _LOGGER.exception("get_person_routines failed: %s", exc)
         connection.send_error(msg["id"], "person_routines_failed", str(exc))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "jarvis/forget_person_routine",
+    vol.Required("routine_id"): int,
+})
+@websocket_api.async_response
+async def ws_forget_person_routine(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete one learned per-person routine by id, then return the refreshed list
+    (#594 — a supported way to clear a routine learned from noise).
+
+    The id is carried as ``routine_id``: ``id`` is reserved by the HA WebSocket
+    protocol for the message sequence number, so using it here would delete
+    nothing (same gotcha as forget_knowledge)."""
+    try:
+        from . import person_patterns
+        removed = await hass.async_add_executor_job(
+            person_patterns.delete, int(msg["routine_id"]))
+        routines = await hass.async_add_executor_job(_get_person_routines)
+        connection.send_result(msg["id"], {"removed": removed, "routines": routines})
+    except Exception as exc:
+        _LOGGER.exception("forget_person_routine failed: %s", exc)
+        connection.send_error(msg["id"], "forget_routine_failed", str(exc))

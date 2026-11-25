@@ -118,3 +118,21 @@ def read(person: Optional[str] = None, db_path: str = DB_PATH) -> list[dict]:
     except Exception as exc:
         _LOGGER.debug("person_patterns read failed: %s", exc)
         return []
+
+
+def delete(pattern_id: int, db_path: str = DB_PATH) -> bool:
+    """Delete one stored routine by its row id — the ``id`` column `read()`
+    returns and the Memory panel shows. Returns True when a row was removed, False
+    if the id was absent or on error. Never raises.
+
+    (#594: users need a supported way to clear a routine learned from noise; the
+    panel's suggestion 'dismiss' never touched the person_patterns table.)
+    """
+    try:
+        with sqlite3.connect(db_path, factory=ClosingConnection) as conn:
+            cur = conn.execute(
+                "DELETE FROM person_patterns WHERE id = ?", (int(pattern_id),))
+            return (cur.rowcount or 0) > 0
+    except Exception as exc:
+        _LOGGER.debug("person_patterns delete failed: %s", exc)
+        return False
