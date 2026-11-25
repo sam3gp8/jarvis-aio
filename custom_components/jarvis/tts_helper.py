@@ -37,6 +37,7 @@ KNOWN_CONTEXTS = {
     "summary",     # conversation summary
     "appliance",   # appliance cycle complete (v5.7.00)
     "reply",       # direct conversation reply (v5.7.00)
+    "announcement",# "Say Something" relay + notify-queue house broadcast (#595)
 }
 
 

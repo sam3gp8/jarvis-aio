@@ -226,11 +226,14 @@ def announce(monkeypatch):
 
     async def _announce(hass, text, tts_entity, speakers, **k):
         cap["text"] = text
+        cap["tts_entity"] = tts_entity
         cap["speakers"] = list(speakers)
+        return True                      # delivered
 
+    # #595: announcement_targets resolves speakers (satellites already dropped)
+    # AND the TTS engine; _announce's bool return is now honoured by the queue.
     _stub_sibling(monkeypatch, "audio_routing",
-                  broadcast_target=lambda hass, **k: ["media_player.kitchen",
-                                                      "assist_satellite.office"])
+                  announcement_targets=lambda hass: (["media_player.kitchen"], "tts.piper"))
     _stub_sibling(monkeypatch, "tts_helper", async_announce=_announce)
     _stub_sibling(monkeypatch, "websocket", jarvis_log=lambda *a, **k: None)
     return cap
@@ -241,7 +244,8 @@ async def test_async_deliver_held_announces(nq, fake_hass, announce):
     n = await nq.async_deliver_for(fake_hass, "Dad", "home")
     assert n == 1
     assert announce["text"] == "Dad — a message for you: your order is in."
-    assert announce["speakers"] == ["media_player.kitchen"]   # satellite dropped
+    assert announce["speakers"] == ["media_player.kitchen"]   # resolved targets
+    assert announce["tts_entity"] == "tts.piper"              # a real engine (#595)
     assert nq.pending_for("Dad") == []                        # consumed
 
 
@@ -269,12 +273,29 @@ async def test_async_maybe_deliver_short_circuits(nq, fake_hass, announce):
 
 
 async def test_async_deliver_failure_keeps_pending(nq, fake_hass, monkeypatch):
-    _stub_sibling(monkeypatch, "audio_routing", broadcast_target=lambda hass, **k: [])
+    _stub_sibling(monkeypatch, "audio_routing",
+                  announcement_targets=lambda hass: ([], None))   # none configured
     _stub_sibling(monkeypatch, "websocket", jarvis_log=lambda *a, **k: None)
     nq.enqueue("Dad", "hi")
     n = await nq.async_deliver_for(fake_hass, "Dad", "home")
     assert n == 0
     assert len(nq.pending_for("Dad")) == 1       # not lost — re-tries on next sighting
+
+
+async def test_async_deliver_silent_failure_keeps_pending(nq, fake_hass, monkeypatch):
+    # #595: speakers + TTS resolve, but async_announce reports no delivery -> the
+    # message must NOT be marked delivered (previously _announce returned True
+    # unconditionally, consuming the message with no audio).
+    async def _announce(hass, text, tts_entity, speakers, **k):
+        return False
+    _stub_sibling(monkeypatch, "audio_routing",
+                  announcement_targets=lambda hass: (["media_player.kitchen"], "tts.piper"))
+    _stub_sibling(monkeypatch, "tts_helper", async_announce=_announce)
+    _stub_sibling(monkeypatch, "websocket", jarvis_log=lambda *a, **k: None)
+    nq.enqueue("Dad", "hi")
+    n = await nq.async_deliver_for(fake_hass, "Dad", "home")
+    assert n == 0
+    assert len(nq.pending_for("Dad")) == 1       # kept for the next sighting
 
 
 async def test_async_deliver_nothing_queued(nq, fake_hass, announce):

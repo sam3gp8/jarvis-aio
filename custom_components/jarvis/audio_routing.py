@@ -725,6 +725,53 @@ def broadcast_target(
     return []
 
 
+def announcement_targets(hass: HomeAssistant) -> tuple[list[str], Optional[str]]:
+    """``(speakers, tts_entity)`` for a house-wide spoken announcement, resolved
+    from ``hass`` alone — for callers that hold no config entry (the relay /
+    "Say Something" tool and the notify queue).
+
+    Speakers mirror :func:`broadcast_target` and the proactive/sentinel paths:
+    the panel's live ``announcement_speakers`` first, else the configured
+    ``broadcast_group`` (silent-until-configured; ``assist_satellite`` entities
+    are ears, never output, so they are dropped). ``tts_entity`` is the
+    configured regular engine, auto-discovered when left on ``auto``.
+
+    Either part may be empty/None when nothing is configured — the caller MUST
+    check both before speaking, so a missing engine or speaker never becomes a
+    false "spoken" with no audio (#595: ``broadcast_target(hass)`` was called
+    with no arguments and ``async_announce`` with ``tts_entity=None``, which
+    returns False immediately — relay/notify ignored that and reported success).
+    """
+    from . import jarvis_config
+    from .const import (CONF_BROADCAST_GROUP, CONF_TTS_ENGINE,
+                        DEFAULT_TTS_ENGINE, DOMAIN)
+    from .tts_helper import resolve_tts_entity
+
+    speakers: list[str] = []
+    # Panel-live announcement_speakers (written by the panel for no-reload changes).
+    for data in hass.data.get(DOMAIN, {}).values():
+        rc = data.get("runtime_config", {}) if isinstance(data, dict) else {}
+        spk = rc.get("announcement_speakers") if isinstance(rc, dict) else None
+        if spk:
+            valid = [s for s in spk if hass.states.get(s)]
+            if valid:
+                speakers = valid
+                break
+
+    group = ""
+    tts_cfg = DEFAULT_TTS_ENGINE
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        group = group or (jarvis_config.runtime_get(
+            hass, entry, CONF_BROADCAST_GROUP, "") or "")
+        tts_cfg = jarvis_config.runtime_get(
+            hass, entry, CONF_TTS_ENGINE, tts_cfg) or tts_cfg
+
+    if not speakers:
+        speakers = broadcast_target(hass, broadcast_group=group or None)
+    speakers = [s for s in speakers if not str(s).startswith("assist_satellite.")]
+    return speakers, resolve_tts_entity(hass, tts_cfg)
+
+
 # ─── Bedroom / sleep detection helpers ───────────────────────────────────────
 
 def is_any_bedroom_occupied(

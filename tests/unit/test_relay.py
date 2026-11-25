@@ -104,29 +104,33 @@ def _stub_sibling(monkeypatch, name: str, **attrs):
 
 @pytest.fixture
 def stubbed(monkeypatch):
-    """Stub relay.py's lazily-imported siblings; capture the announce call."""
+    """Stub relay.py's lazily-imported siblings; capture the announce call.
+    announcement_targets (#595) resolves BOTH the speakers and the TTS engine,
+    and async_announce now returns True/False for whether a speaker got it."""
     captured = {}
 
     async def _announce(hass, text, tts_entity, speakers, **k):
         captured["text"] = text
+        captured["tts_entity"] = tts_entity
         captured["speakers"] = list(speakers)
+        return True                      # delivered to a speaker
 
     _stub_sibling(monkeypatch, "presence",
                   get_presence_summary=lambda hass: {"people": _PEOPLE})
     _stub_sibling(monkeypatch, "audio_routing",
-                  broadcast_target=lambda hass, **k: ["media_player.kitchen",
-                                                      "assist_satellite.office"])
+                  announcement_targets=lambda hass: (["media_player.kitchen"], "tts.piper"))
     _stub_sibling(monkeypatch, "tts_helper", async_announce=_announce)
     _stub_sibling(monkeypatch, "websocket", jarvis_log=lambda *a, **k: None)
     return captured
 
 
-async def test_async_relay_announces_and_drops_satellites(relay, fake_hass, stubbed):
+async def test_async_relay_announces_on_resolved_targets(relay, fake_hass, stubbed):
     res = await relay.async_relay(fake_hass, "dad", "dinner's ready", "Sam")
     assert res["success"] is True
     assert res["spoken"] == "Sam asked me to tell dad: dinner's ready."
-    # listen-only satellite is excluded from the announce targets
-    assert stubbed["speakers"] == ["media_player.kitchen"]
+    assert res["speakers"] == ["media_player.kitchen"]
+    # #595: a real TTS engine is resolved and passed, never None
+    assert stubbed["tts_entity"] == "tts.piper"
     assert stubbed["text"] == res["spoken"]
 
 
@@ -147,8 +151,37 @@ async def test_async_relay_errors_with_no_speakers(relay, fake_hass, monkeypatch
     _stub_sibling(monkeypatch, "presence",
                   get_presence_summary=lambda hass: {"people": _PEOPLE})
     _stub_sibling(monkeypatch, "audio_routing",
-                  broadcast_target=lambda hass, **k: [])   # none configured
+                  announcement_targets=lambda hass: ([], "tts.piper"))   # none configured
     _stub_sibling(monkeypatch, "websocket", jarvis_log=lambda *a, **k: None)
     res = await relay.async_relay(fake_hass, "Sam", "hi")
     assert res["success"] is False
     assert "speaker" in res["error"].lower()
+
+
+async def test_async_relay_errors_with_no_tts_engine(relay, fake_hass, monkeypatch):
+    # #595: speakers resolve but no TTS engine -> an honest error, not a false
+    # "spoken" (async_announce(tts_entity=None) returns False immediately).
+    _stub_sibling(monkeypatch, "presence",
+                  get_presence_summary=lambda hass: {"people": _PEOPLE})
+    _stub_sibling(monkeypatch, "audio_routing",
+                  announcement_targets=lambda hass: (["media_player.kitchen"], None))
+    _stub_sibling(monkeypatch, "websocket", jarvis_log=lambda *a, **k: None)
+    res = await relay.async_relay(fake_hass, "Sam", "hi")
+    assert res["success"] is False
+    assert "tts" in res["error"].lower()
+
+
+async def test_async_relay_reports_failed_delivery(relay, fake_hass, monkeypatch):
+    # #595 core: async_announce reports no delivery -> relay must NOT claim
+    # success. Previously the False return was ignored and it returned "spoken".
+    async def _announce(hass, text, tts_entity, speakers, **k):
+        return False
+    _stub_sibling(monkeypatch, "presence",
+                  get_presence_summary=lambda hass: {"people": _PEOPLE})
+    _stub_sibling(monkeypatch, "audio_routing",
+                  announcement_targets=lambda hass: (["media_player.kitchen"], "tts.piper"))
+    _stub_sibling(monkeypatch, "tts_helper", async_announce=_announce)
+    _stub_sibling(monkeypatch, "websocket", jarvis_log=lambda *a, **k: None)
+    res = await relay.async_relay(fake_hass, "Sam", "hi")
+    assert res["success"] is False
+    assert "deliver" in res["error"].lower()

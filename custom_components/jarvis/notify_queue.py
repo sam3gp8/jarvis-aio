@@ -337,19 +337,22 @@ def reset_for_tests() -> None:
 # ── delivery (async) ─────────────────────────────────────────────────────────
 async def _announce(hass, text: str) -> bool:
     """Speak ``text`` on the household broadcast speakers (same routing as the
-    relay). Returns True on success. Never raises."""
+    relay). Returns True only when a speaker actually received it. Never raises.
+
+    (#595: previously called broadcast_target(hass) with no args, announced with
+    tts_entity None, and returned True unconditionally — so a silent non-delivery
+    looked like a success.)"""
     try:
         from . import audio_routing
-        speakers = [s for s in audio_routing.broadcast_target(hass)
-                    if not str(s).startswith("assist_satellite.")]
+        speakers, tts_entity = audio_routing.announcement_targets(hass)
     except Exception:
-        speakers = []
-    if not speakers:
+        speakers, tts_entity = [], None
+    if not speakers or not tts_entity:
         return False
     try:
         from .tts_helper import async_announce
-        await async_announce(hass, text, None, speakers, context="announcement")
-        return True
+        return bool(await async_announce(hass, text, tts_entity, speakers,
+                                         context="announcement"))
     except Exception as exc:
         _LOGGER.debug("notify_queue announce failed: %s", exc)
         return False
