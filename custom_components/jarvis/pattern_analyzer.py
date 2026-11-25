@@ -49,6 +49,13 @@ _NOISE_ROUTINE_DOMAINS = frozenset({"event", "update"})
 KNOWLEDGE_FACT_CONFIDENCE = 0.75  # routines/commands above this also become observed facts
 PERSON_DOMINANCE_RATIO = 0.8      # a person must account for this share of a
                                    # pattern's occurrences to own it, vs. household
+# (#594) Above this many same-hour changes to the SAME state per ACTIVE day, an
+# entity is flapping (e.g. a router-type device_tracker with a short consider-home
+# timeout, flipping dozens of times an hour), not following a once-a-day time
+# routine. A genuine time routine fires ~once per active day in its hour, so this
+# keeps real routines while discarding the noise that produced false "turns
+# not_home around 10:00" rows.
+_FLAP_EVENTS_PER_DAY = 8
 
 
 def set_thresholds(min_occurrences: int | None = None,
@@ -1595,6 +1602,14 @@ class PatternAnalyzer:
                   AND timestamp > datetime('now', '-30 days')
             """, (entity, state, hour)).fetchone()[0] or 0
 
+            # #594: discard a flapping entity before it becomes a "routine". A
+            # router-type device_tracker with a short consider-home timeout can
+            # change to the same state dozens of times an hour, so a high same-hour
+            # count recurs every active day with no real once-a-day anchor — that
+            # is noise, not a schedulable routine.
+            if positive_days > 0 and (count / positive_days) > _FLAP_EVENTS_PER_DAY:
+                continue
+
             # Coverage weighs the negative evidence: a routine on 42 of 45 days
             # (0.93) is far stronger than one on 42 of 120 days (0.35), even
             # though both were "seen 42 times".
@@ -2272,18 +2287,24 @@ class PatternAnalyzer:
 
         if not rows:
             return None
-        # Ignore the unknown bucket rather than aborting on it: previously a
-        # dominant 'unknown' killed the whole pattern, so multi-occupant houses
-        # (where sole-occupancy rarely holds) never produced per-person routines.
+        # The `unknown` bucket does not *choose* the owner — that stays among the
+        # named people, so multi-occupant houses still learn per-person routines —
+        # but #594 it is no longer discarded outright. A named top that is itself
+        # outweighed by the unattributed `unknown` events is a sliver, not an owner
+        # (e.g. 19 'Sindy' events beside 189 'unknown' ones), so it must weigh at
+        # least as much as the unknown bucket or the pattern stays household-wide.
         named = [r for r in rows if r["person"] and r["person"] != "unknown"]
         if not named:
             return None
+        unknown_wt = sum(float(r["wt"] or 0.0) for r in rows
+                         if not r["person"] or r["person"] == "unknown")
         total = sum(float(r["wt"] or 0.0) for r in named)
         top = named[0]
         top_wt = float(top["wt"] or 0.0)
         if total <= 0:
             return None
         if (top_wt / total >= PERSON_DOMINANCE_RATIO
+                and top_wt >= unknown_wt
                 and top["cnt"] >= MIN_OCCURRENCES):
             return top["person"]
         return None

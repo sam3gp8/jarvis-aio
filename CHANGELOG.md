@@ -1,3 +1,23 @@
+## [9.160.0] — Flapping network trackers no longer fabricate person routines (#594)
+
+A router-backed `device_tracker` that flips home/away dozens of times an hour
+could flood the Memory panel with bogus per-person "routines" — the same entity
+appearing to "recur" every day only because it never stopped toggling. Three guards:
+
+- **Flap gate.** The time-routine detector now discards an entity whose same-hour
+  events-per-day far exceed any once-a-day anchor (more than 8 a day), so a tracker
+  that fired 200+ times across 8 days is read as noise rather than a schedule.
+- **Sliver vs. the crowd.** When attributing a routine to one household member, a
+  named person who is themselves outweighed by the unattributed `unknown` events is
+  no longer promoted to "owner" — the pattern stays household-wide. Genuine
+  sole-occupant and multi-occupant owners are unaffected.
+- **Forget a routine.** The Memory panel gains a ✕ on each learned routine and a
+  `jarvis/forget_person_routine` command, so a routine learned from noise can be
+  cleared from the UI instead of editing the database by hand.
+
+Thanks to the reporter for the diagnosis and the sample counts that pinned the
+flap threshold.
+
 ## [9.159.0] — Local models that "speak" a tool call now actually run it (#567)
 
 Some local models post-trained from Gemma 4 — notably `nvidia-nemotron-3.5-bolt` —
