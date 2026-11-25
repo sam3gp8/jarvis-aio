@@ -1,3 +1,23 @@
+## [9.163.0] — Opt out of the autonomous nighttime lockdown sweep (#599)
+
+JARVIS's nighttime sweep secures the house while residents sleep — and it
+**auto-locks every unlocked lock** through the safety seam, a path that by design
+can't be blocked. The only existing control, `nighttime_lockdown_covers`, bounds
+*cover*-closing; nothing turned off the lock actuation, so an operator who wants
+JARVIS strictly advisory overnight had no supported way to say so (short of
+removing every lock from JARVIS's awareness).
+
+New **`nighttime_lockdown_enabled`** (default **on** — existing behaviour is
+unchanged) is a master switch for the whole sweep. Turned off, JARVIS locks
+nothing and closes nothing overnight; it stays advisory. The opt-out is enforced
+at the actuation source, so no path can auto-secure against it, and it is
+toggleable from the panel and documented in `docs/SETTINGS.md`. It is independent
+of the alarm-triggered lockdown, which remains an active-threat response and keeps
+working regardless.
+
+Thanks to the reporter for the detailed write-up pinpointing the unconditional
+lock branch in `_nighttime_lockdown()`.
+
 ## [9.162.0] — Memory panel TEACH now tells you what happened (#596)
 
 The Memory tab's **TEACH** silently swallowed input: typing one sentence into a
