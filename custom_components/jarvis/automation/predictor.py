@@ -34,10 +34,30 @@ DEFAULT_BUCKET_MINUTES = 30
 DEFAULT_THRESHOLD = 0.90
 DEFAULT_LEAD_MINUTES = 7          # how far ahead "pre-emptive" looks (5–10 min)
 MAX_EVENTS = 5000
+# Minimum distinct observed days (of the matching weekday/weekend class) before a
+# probability is trusted. Without this floor a single Day-1 event scores 1.0 and
+# would pre-empt on no real evidence.
+DEFAULT_MIN_DAYS = 7
 
 
 def _day_key(ts: float) -> str:
     return _dt.date.fromtimestamp(ts).isoformat()
+
+
+def _is_weekend(ts: float) -> bool:
+    return _dt.date.fromtimestamp(ts).weekday() >= 5
+
+
+def _event_is_weekend(e: dict) -> bool:
+    """Weekend flag for a stored event, derived from its ts for legacy records
+    written before the flag existed."""
+    w = e.get("weekend")
+    if isinstance(w, bool):
+        return w
+    try:
+        return _is_weekend(float(e.get("ts")))
+    except (TypeError, ValueError):
+        return False
 
 
 class PredictiveHabitMatrix:
@@ -90,7 +110,8 @@ class PredictiveHabitMatrix:
         """Record that ``key`` (e.g. 'office_entry' or 'office_hvac_on')
         occurred at ``ts`` (defaults to now)."""
         when = time.time() if ts is None else float(ts)
-        event = {"key": str(key), "ts": when, "slot": self._slot(when), "day": _day_key(when)}
+        event = {"key": str(key), "ts": when, "slot": self._slot(when),
+                 "day": _day_key(when), "weekend": _is_weekend(when)}
         with self._lock:
             events = self._load()
             events.append(event)
@@ -100,30 +121,49 @@ class PredictiveHabitMatrix:
         return event
 
     # ── Probability ───────────────────────────────────────────────────────
-    def probability(self, key: str, at_ts: float) -> float:
-        """P(key occurs in the time bucket containing ``at_ts``), as the share of
-        distinct observed days on which it did. 0.0 when there's no history."""
-        slot = self._slot(at_ts)
-        with self._lock:
-            events = self._load()
+    def _probability_from_events(
+        self, events: list[dict], key: str, at_ts: float, *,
+        min_days: int = DEFAULT_MIN_DAYS,
+    ) -> float:
+        """Pure probability over an ALREADY-LOADED event list, so a batch caller
+        (``due_preemptions``) reads the matrix once instead of once per key.
+
+        Scopes to the weekday/weekend class of ``at_ts`` — a Saturday habit is not
+        evidence for a Tuesday — and returns 0.0 until at least ``min_days``
+        distinct days of that class have been observed, so a single Day-1 event
+        can't score 1.0 and pre-empt on no real evidence."""
         if not events:
             return 0.0
-        observed_days = {e.get("day") for e in events if e.get("day")}
-        if not observed_days:
+        slot = self._slot(at_ts)
+        want_weekend = _is_weekend(at_ts)
+        scoped = [e for e in events if _event_is_weekend(e) == want_weekend]
+        observed_days = {e.get("day") for e in scoped if e.get("day")}
+        if len(observed_days) < max(0, int(min_days)) or not observed_days:
             return 0.0
         key_days = {
             e.get("day")
-            for e in events
+            for e in scoped
             if e.get("key") == key and e.get("slot") == slot and e.get("day")
         }
         return round(len(key_days) / len(observed_days), 4)
 
+    def probability(
+        self, key: str, at_ts: float, *, min_days: int = DEFAULT_MIN_DAYS
+    ) -> float:
+        """P(key occurs in the time bucket containing ``at_ts``), as the share of
+        distinct observed days of the same weekday/weekend class on which it did.
+        0.0 with no history or fewer than ``min_days`` observed days of that class."""
+        with self._lock:
+            events = self._load()
+        return self._probability_from_events(events, key, at_ts, min_days=min_days)
+
     def should_preempt(
-        self, key: str, at_ts: float, *, threshold: float = DEFAULT_THRESHOLD
+        self, key: str, at_ts: float, *, threshold: float = DEFAULT_THRESHOLD,
+        min_days: int = DEFAULT_MIN_DAYS,
     ) -> bool:
         """True if ``key``'s recurrence probability for ``at_ts``'s bucket meets
         the confidence threshold."""
-        return self.probability(key, at_ts) >= threshold
+        return self.probability(key, at_ts, min_days=min_days) >= threshold
 
     def due_preemptions(
         self,
@@ -131,10 +171,12 @@ class PredictiveHabitMatrix:
         *,
         lead_minutes: int = DEFAULT_LEAD_MINUTES,
         threshold: float = DEFAULT_THRESHOLD,
+        min_days: int = DEFAULT_MIN_DAYS,
     ) -> list[dict]:
         """Keys whose probability in the bucket ``lead_minutes`` ahead meets the
         threshold — i.e. actions worth taking a few minutes early. Returns a list
-        of {"key", "probability", "lead_minutes"}."""
+        of {"key", "probability", "lead_minutes"}. Reads the matrix ONCE for all
+        keys (no N+1 disk reads on the event loop)."""
         now = time.time() if now_ts is None else float(now_ts)
         target = now + lead_minutes * 60
         with self._lock:
@@ -142,7 +184,7 @@ class PredictiveHabitMatrix:
         keys = {e.get("key") for e in events if e.get("key")}
         out: list[dict] = []
         for key in keys:
-            prob = self.probability(key, target)
+            prob = self._probability_from_events(events, key, target, min_days=min_days)
             if prob >= threshold:
                 out.append({"key": key, "probability": prob, "lead_minutes": lead_minutes})
         out.sort(key=lambda d: d["probability"], reverse=True)
