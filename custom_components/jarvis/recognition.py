@@ -579,7 +579,13 @@ async def capture_face_snapshot(hass, camera: str, name: str,
         content = None
         try:
             from .camera import _fetch_frigate_image
-            content = await _fetch_frigate_image(hass, camera_entity)
+            # Prefer the face-cropped frame so the pinned card / reference photo
+            # shows the person, not a tiny silhouette. Retry without the kwarg
+            # for minimal stub signatures (tests mock a 2-arg _fetch_frigate_image).
+            try:
+                content = await _fetch_frigate_image(hass, camera_entity, crop=True)
+            except TypeError:
+                content = await _fetch_frigate_image(hass, camera_entity)
         except Exception:
             content = None
         if not content:

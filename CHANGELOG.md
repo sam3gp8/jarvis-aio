@@ -1,3 +1,42 @@
+## [9.179.0] — Facial recognition Phase 1b: camera-layer Tier-1 hint fix, Tier-3 presence guard & cropped snapshots
+
+The second tranche of the facial-recognition cleanup (#41), carrying the Tier-1
+fixes up into the camera vision/reasoning layer and adding a presence-aware guard
+so an unlabelled resident indoors is no longer narrated — or announced — as a
+stranger.
+
+- **Tier-1 camera hint fires off the live cache.** `_recognition_hint()` now
+  defaults its confidence gate from the reading itself
+  (`last.get("is_confident", confidence ≥ 60)`), so the per-camera "name the
+  person" path works with the real `last_seen_at()` instead of only with a mocked
+  `is_confident` flag — the dead-code gate that kept Tier 1 from ever firing in
+  production is gone. An explicit sub-threshold reading is still respected.
+- **Tier-3 presence guard.** When no face backend has a match, the hint consults
+  the camera's indoor/outdoor placement and household presence: on an **indoor**
+  camera with residents tracked home (and not armed-away) it adds a soft "do not
+  call this person a stranger" context line naming who is home; **outdoor** and
+  unplaced cameras keep full stranger vigilance **except** within 120 s of a
+  resident arrival/departure, when a person at an entry is most likely them. An
+  `armed_away` / `armed_vacation` posture disables the softening entirely.
+- **Scene reasoning sees presence & placement.** `_reason_about_scene()` now
+  receives `Camera location: indoor/outdoor`, `Household presence: …`, and
+  `Face recognition: …` lines, and `_SCENE_SEVERITY_RUBRIC` gains a clause: on an
+  indoor camera with residents home and no alarm/breach, an unlabelled person is
+  routine unless clearly behaving suspiciously.
+- **Cropped Frigate snapshots.** `_fetch_frigate_image(…, crop=True)` requests
+  Frigate's face-cropped `snapshot.jpg?crop=1` first (falling back to the
+  uncropped frame on a non-200/empty response), and `capture_face_snapshot()`
+  passes it defensively — so pinned face cards and reference photos show the
+  actual person rather than a tiny silhouette in a wide-angle room shot.
+
+New tests for the defensive Tier-1 gate, the Tier-3 indoor/outdoor/armed-away
+branches, the `_armed_away` and `_recent_person_change` helpers, the
+presence/recognition/placement lines reaching the reasoning prompt, and the
+crop-first-with-fallback snapshot fetch. Intrusion stand-down stays strictly
+Tier-1 (`resident_present()`); the presence guard only softens narration.
+Remaining #41 work: roster aliases + blueprint suppression (§4–5) and Phase 2
+multi-sample training + graduated LLM assist (§6–9).
+
 ## [9.178.0] — Facial recognition Phase 1a: Tier-1 cache correctness + no false stranger alerts
 
 The first tranche of the facial-recognition cleanup (#41), fixing the
