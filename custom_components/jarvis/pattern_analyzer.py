@@ -1127,18 +1127,73 @@ def _numeric_trigger_from(occ: list, baseline: list) -> Optional[dict]:
     return None
 
 
-def _numeric_condition(times: list, sensor_hist: dict) -> Optional[dict]:
+def _same_area_numeric_ok(sensor: str, action: str, entity_area: dict) -> bool:
+    """Whether a numeric sensor may be correlated with an action entity (#40 §7D).
+
+    A `cover` or `climate` action (garage door, thermostat) legitimately responds
+    to whole-home / outdoor conditions, so any sensor is allowed. Otherwise the two
+    must NOT be in two different KNOWN areas — a living-room lamp must never learn
+    off a basement humidity sensor. When either area is unknown (many setups don't
+    assign areas), the crossing + scorer guards carry the anti-spurious load, so
+    the pair is allowed rather than silently dropping numeric triggers. Pure."""
+    dom = (action or "").split(".", 1)[0]
+    if dom in ("cover", "climate"):
+        return True
+    ea = entity_area or {}
+    sa, aa = ea.get(sensor), ea.get(action)
+    if sa and aa and sa != aa:
+        return False
+    return True
+
+
+def _crossed_into(epochs: list, values: list, op: str, T: float, t: float,
+                  window: float = 1800.0) -> bool:
+    """True when the sensor genuinely CROSSED threshold ``T`` into the triggered
+    side (``op`` is 'below'/'above') within ``window`` seconds before action time
+    ``t`` — i.e. it was on the non-triggered side at some point in the window and
+    was on the triggered side by ``t``. Distinguishes a real crossing from a sensor
+    that merely sits on one side the whole time. Pure; never raises."""
+    import bisect
+    if not epochs:
+        return False
+    hi = bisect.bisect_right(epochs, t)
+    if hi <= 0:
+        return False
+    lo_i = bisect.bisect_left(epochs, t - window)
+    start = max(0, lo_i - 1)   # include the reading just before the window edge
+    vals = values[start:hi]
+    if len(vals) < 2:
+        return False
+
+    def _triggered(v):
+        return v < T if op == "below" else v > T
+
+    return any(not _triggered(v) for v in vals) and _triggered(vals[-1])
+
+
+def _numeric_condition(times: list, sensor_hist: dict, *,
+                       action_entity: Optional[str] = None,
+                       entity_area: Optional[dict] = None) -> Optional[dict]:
     """Best numeric_state *condition* for an action whose occurrences (``times``)
     consistently coincide with a sensor sitting on one side of a threshold — e.g.
     "…and only while the temperature is below 62". Returns a self-describing HA
     condition dict, or None. Reuses the same scorer as the numeric trigger, so it
     shares the anti-spurious guards. ``sensor_hist`` maps sensor_id -> ``[(epoch,
-    float)]``."""
+    float)]``.
+
+    When ``action_entity`` + ``entity_area`` are given, candidate sensors are
+    area-scoped to the action (#40 §7D), and the winner is the one with the best
+    *separation* (how far the occurrence median sits from the sensor's baseline,
+    normalized by its range) rather than merely the most readings — so a sensor
+    that actually discriminates the action beats one that just has more data."""
     if not sensor_hist or len(times) < MIN_OCCURRENCES:
         return None
+    import statistics
     best = None
-    best_cover = 0
+    best_score = 0.0
     for s_ent, events in sensor_hist.items():
+        if action_entity and not _same_area_numeric_ok(s_ent, action_entity, entity_area):
+            continue
         ev = sorted((e, v) for e, v in events if isinstance(v, (int, float)))
         if len(ev) < 10:
             continue
@@ -1152,9 +1207,17 @@ def _numeric_condition(times: list, sensor_hist: dict) -> Optional[dict]:
         if not trig:
             continue
         op, T = next(iter(trig.items()))
-        # Prefer the sensor whose readings cover the most occurrences.
-        if len(occ) > best_cover:
-            best_cover = len(occ)
+        # Separation quality: |occ median − baseline median| / baseline range,
+        # weighted by how many occurrences the sensor actually covered.
+        try:
+            base_s = sorted(values)
+            rng = base_s[int(0.9 * (len(base_s) - 1))] - base_s[int(0.1 * (len(base_s) - 1))]
+            sep = abs(statistics.median(occ) - statistics.median(base_s)) / rng if rng > 0 else 0.0
+        except Exception:
+            sep = 0.0
+        score = sep * (len(occ) / max(1, len(times)))
+        if score > best_score:
+            best_score = score
             best = {"condition": "numeric_state", "entity_id": s_ent, op: T}
     return best
 
@@ -1858,7 +1921,8 @@ class PatternAnalyzer:
             tw = _sun_condition(times, lat, lon) or _time_window_condition(times)
             if tw:
                 conds.append(tw)
-            nc = _numeric_condition(times, sensor_hist or {})
+            nc = _numeric_condition(times, sensor_hist or {}, action_entity=eb,
+                                    entity_area=(occ_ctx or {}).get("entity_area"))
             if nc:
                 conds.append(nc)
             # Phase 1: gate the action on room occupancy when the action's area
@@ -1967,6 +2031,7 @@ class PatternAnalyzer:
         if not prepared:
             return patterns
 
+        entity_area = (occ_ctx or {}).get("entity_area") or {}
         # Most active actions only — bounds the sensor×action correlation work.
         ranked = sorted(action_times.items(), key=lambda kv: len(kv[1]),
                         reverse=True)[:20]
@@ -1974,6 +2039,11 @@ class PatternAnalyzer:
             if len(times) < MIN_OCCURRENCES:
                 continue
             for s_ent, (epochs, values) in prepared.items():
+                # Area scoping (#40 §7D): never correlate an action with a sensor
+                # in a different KNOWN area (a living-room lamp vs a basement
+                # humidity sensor); cover/climate actions are exempt.
+                if not _same_area_numeric_ok(s_ent, a_ent, entity_area):
+                    continue
                 occ = []
                 for t in times:
                     v = _numeric_value_at(epochs, values, t)
@@ -1985,6 +2055,14 @@ class PatternAnalyzer:
                 if not trig:
                     continue
                 op, T = next(iter(trig.items()))
+                # Require a genuine RECENT crossing (#40 §7D): the sensor must have
+                # crossed T into the triggered side within 30 min before the action
+                # in ≥60% of occurrences (and at least MIN_OCCURRENCES). This drops
+                # evening lights spuriously matching a slowly drifting indoor temp
+                # that merely sits below a threshold without ever crossing it.
+                crossed = sum(1 for t in times if _crossed_into(epochs, values, op, T, t))
+                if crossed < MIN_OCCURRENCES or crossed < 0.6 * len(occ):
+                    continue
                 # Phase 1: only while the room is occupied (example: lumens drop
                 # -> lights on, but only if someone is actually in the room).
                 oc = _occupancy_condition(a_ent, times, occ_ctx or {})
@@ -2206,6 +2284,19 @@ class PatternAnalyzer:
             for dom in ("light", "switch", "fan", "cover", "climate", "lock",
                         "media_player"):
                 for st in hass.states.async_all(dom):
+                    area = _area_of(st.entity_id)
+                    if area:
+                        ctx["entity_area"][st.entity_id] = area
+        except Exception:
+            pass
+
+        # Numeric sensors that drive triggers/conditions get an area too, so the
+        # area scoping in _find_numeric_triggers / _numeric_condition can reject a
+        # cross-room correlation (#40 §7D) when both areas are known.
+        try:
+            for st in hass.states.async_all("sensor"):
+                if st.attributes.get("device_class") in (
+                        "temperature", "humidity", "illuminance"):
                     area = _area_of(st.entity_id)
                     if area:
                         ctx["entity_area"][st.entity_id] = area

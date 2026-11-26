@@ -158,3 +158,23 @@ def test_normalize_migrates_sole_legacy_sun_condition(pa):
     assert norm["installable"] is True
     assert norm["condition"] == [
         {"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}]
+
+
+def test_numeric_condition_area_scoped(pa):
+    base = datetime.now() - timedelta(days=12)
+    times = [(base + timedelta(days=d, hours=6, seconds=137)).timestamp()
+             for d in range(8)]
+    hist = {"sensor.basement_temperature": _series(base, cold=61.0, cold_at=times)}
+    ea = {"sensor.basement_temperature": "basement", "switch.lr_lamp": "living_room"}
+    # Cross-room action → the sensor is rejected as a condition candidate (§7D).
+    assert pa._numeric_condition(times, hist, action_entity="switch.lr_lamp",
+                                 entity_area=ea) is None
+    # Same area → it is accepted.
+    ea["sensor.basement_temperature"] = "living_room"
+    cond = pa._numeric_condition(times, hist, action_entity="switch.lr_lamp",
+                                 entity_area=ea)
+    assert cond and cond["entity_id"] == "sensor.basement_temperature"
+    # A cover/climate action is exempt from same-area scoping.
+    ea["sensor.basement_temperature"] = "basement"
+    assert pa._numeric_condition(times, hist, action_entity="climate.thermostat",
+                                 entity_area=ea) is not None

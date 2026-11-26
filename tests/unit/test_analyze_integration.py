@@ -109,8 +109,12 @@ async def test_analyze_wires_numeric_trigger_from_sensor_history(pa, tmp_path, m
         action_eps.append(t.timestamp())
     conn.commit(); conn.close()
 
-    series = [(base.timestamp() - 3600 + i * 900, 72.0 + (i % 5)) for i in range(200)]
-    series += [(ep - 1, 61.0) for ep in action_eps]           # cold right before each
+    # Continuous warm run-up into each heater-on, then a cold dip just before it —
+    # a genuine warm→cold crossing (the §7D detector requires an observable one).
+    series = [(base.timestamp() - 7200 + i * 900, 72.0 + (i % 5)) for i in range(40)]
+    for ep in action_eps:
+        series += [(ep - k, 72.0) for k in (1800, 1500, 1200, 900, 600, 300)]
+        series.append((ep - 1, 61.0))
 
     async def _fake_fetch(hass):
         return {"sensor.living_room_temperature": series}

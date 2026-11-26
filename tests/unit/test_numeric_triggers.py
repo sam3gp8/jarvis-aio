@@ -93,13 +93,15 @@ def test_detector_learns_cold_then_heater(pa, tmp_path):
                       t.hour, t.weekday(), "unknown"))
         action_epochs.append(t.timestamp())
     conn.commit()
-    # synthetic temp history: mostly warm, but low right at each heater-on
+    # synthetic temp history: a continuous warm run-up into each heater-on, then a
+    # cold dip right before it — a genuine warm→cold CROSSING the detector requires.
     series = []
-    warm_t = base - timedelta(hours=1)
-    for i in range(200):                                    # baseline warm ~72
+    warm_t = base - timedelta(hours=2)
+    for i in range(40):                                     # baseline warm ~72 (high side)
         series.append((warm_t.timestamp() + i * 900, 72.0 + (i % 5)))
-    for ep in action_epochs:                                # dip cold just before
-        series.append((ep - 1, 61.0))
+    for ep in action_epochs:
+        series += [(ep - k, 72.0) for k in (1800, 1500, 1200, 900, 600, 300)]
+        series.append((ep - 1, 61.0))                       # cold crossing just before
     hist = {"sensor.living_room_temperature": series}
     pats = pa.PatternAnalyzer()._find_numeric_triggers(conn, hist)
     m = [p for p in pats if p.details["action"]["entity"] == "switch.space_heater"]
@@ -144,3 +146,87 @@ def test_generate_numeric_state_automation(pa):
     assert auto["trigger"]["platform"] == "numeric_state"
     assert auto["trigger"]["entity_id"] == "sensor.living_room_temperature"
     assert auto["trigger"]["below"] == 65.0
+
+
+# ── §7D: area scoping + genuine-crossing requirement ────────────────────────────
+
+def test_same_area_numeric_ok(pa):
+    ea = {"sensor.lr_temp": "living_room", "switch.lr_lamp": "living_room",
+          "sensor.bsmt_hum": "basement", "cover.garage": "garage"}
+    assert pa._same_area_numeric_ok("sensor.lr_temp", "switch.lr_lamp", ea) is True
+    assert pa._same_area_numeric_ok("sensor.bsmt_hum", "switch.lr_lamp", ea) is False  # cross-room
+    assert pa._same_area_numeric_ok("sensor.bsmt_hum", "cover.garage", ea) is True     # cover exempt
+    assert pa._same_area_numeric_ok("sensor.bsmt_hum", "climate.thermo", ea) is True   # climate exempt
+    assert pa._same_area_numeric_ok("sensor.unknown", "switch.lr_lamp", ea) is True    # unknown → allow
+    assert pa._same_area_numeric_ok("sensor.lr_temp", "switch.lr_lamp", {}) is True     # no map → allow
+
+
+def test_crossed_into(pa):
+    # warm (72) then dips below 65 by t → a genuine crossing
+    assert pa._crossed_into([0., 600., 1200., 1799.], [72., 72., 72., 61.],
+                            "below", 65.0, 1800.0) is True
+    # always below → no untriggered reading in the window → not a crossing
+    assert pa._crossed_into([0., 600., 1200., 1799.], [61., 61., 61., 61.],
+                            "below", 65.0, 1800.0) is False
+    # crosses down then back up → ends untriggered → not a crossing INTO at t
+    assert pa._crossed_into([0., 600., 1799.], [61., 61., 72.],
+                            "below", 65.0, 1800.0) is False
+    # above direction
+    assert pa._crossed_into([0., 600., 1799.], [60., 60., 80.],
+                            "above", 71.0, 1800.0) is True
+    # too few readings in the window
+    assert pa._crossed_into([0.0], [61.0], "below", 65.0, 1800.0) is False
+
+
+def test_detector_rejects_cross_room_sensor(pa, tmp_path):
+    conn = _conn(tmp_path / "xr.db")
+    base = datetime.now() - timedelta(days=12)
+    action_epochs = []
+    for d in range(8):
+        t = base + timedelta(days=d, hours=6, seconds=137)
+        conn.execute("INSERT INTO state_changes (timestamp, entity_id, domain, "
+                     "old_state, new_state, hour, day_of_week, person) "
+                     "VALUES (?,?,?,?,?,?,?,?)",
+                     (t.isoformat(), "switch.living_room_lamp", "switch", "off", "on",
+                      t.hour, t.weekday(), "unknown"))
+        action_epochs.append(t.timestamp())
+    conn.commit()
+    series = [(base.timestamp() - 7200 + i * 900, 72.0 + (i % 5)) for i in range(40)]
+    for ep in action_epochs:
+        series += [(ep - k, 72.0) for k in (1800, 1500, 1200, 900, 600, 300)]
+        series.append((ep - 1, 61.0))
+    hist = {"sensor.basement_temperature": series}
+    # The sensor is in a DIFFERENT known area than the lamp → rejected.
+    occ_ctx = {"entity_area": {"sensor.basement_temperature": "basement",
+                               "switch.living_room_lamp": "living_room"}}
+    pats = pa.PatternAnalyzer()._find_numeric_triggers(conn, hist, occ_ctx)
+    assert not [p for p in pats if p.details["action"]["entity"] == "switch.living_room_lamp"]
+    # Same area → the same correlation IS learned.
+    occ_ctx["entity_area"]["sensor.basement_temperature"] = "living_room"
+    pats2 = pa.PatternAnalyzer()._find_numeric_triggers(conn, hist, occ_ctx)
+    assert [p for p in pats2 if p.details["action"]["entity"] == "switch.living_room_lamp"]
+    conn.close()
+
+
+def test_detector_rejects_passive_below_without_crossing(pa, tmp_path):
+    conn = _conn(tmp_path / "pb.db")
+    base = datetime.now() - timedelta(days=12)
+    action_epochs = []
+    for d in range(8):
+        t = base + timedelta(days=d, hours=6, seconds=137)
+        conn.execute("INSERT INTO state_changes (timestamp, entity_id, domain, "
+                     "old_state, new_state, hour, day_of_week, person) "
+                     "VALUES (?,?,?,?,?,?,?,?)",
+                     (t.isoformat(), "switch.space_heater", "switch", "off", "on",
+                      t.hour, t.weekday(), "unknown"))
+        action_epochs.append(t.timestamp())
+    conn.commit()
+    # Warm history far in the past gives a clear high side, but near every action
+    # the sensor has ALREADY been cold for 2h — so it never crosses in-window.
+    series = [(base.timestamp() - 300000 + i * 900, 75.0 + (i % 4)) for i in range(300)]
+    for ep in action_epochs:
+        series += [(ep - k, 61.0) for k in range(0, 7200, 600)]
+    hist = {"sensor.temp": series}
+    pats = pa.PatternAnalyzer()._find_numeric_triggers(conn, hist, {})
+    assert not [p for p in pats if p.details["action"]["entity"] == "switch.space_heater"]
+    conn.close()
