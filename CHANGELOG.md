@@ -1,3 +1,44 @@
+## [9.172.0] — Automation drafter: schema enforcement, closed validation bypass & fail-safe writes
+
+The second tranche of the automation-drafter cleanup, hardening the core
+`create_automation` path so a confidently-wrong draft can no longer install a
+broken automation — or quietly destroy the ones you already have.
+
+- **Structural schema, always on.** `trigger` and `action` must normalize to a
+  non-empty `list[dict]` (a single dict is wrapped; a bare string, an empty list,
+  or a list with a non-mapping step is rejected up front). A corrupted tool call
+  that hands over a string where a step list belongs now returns a clean error
+  instead of rendering as invalid YAML that silently never runs. `condition`
+  normalizes the same way (empty → omitted), and `mode` is checked against
+  HA's `single/restart/queued/parallel` (rejected when validating, else defaulted).
+- **Closed validation bypass.** `_collect_refs` used to *silently ignore* any
+  non-dotted name, so a hallucinated `"Living Room Light"` or a bare `"turn_on"`
+  sailed through as `ok=True`. Those are now **flagged** as invalid entities /
+  services (with a nearest-real-name hint), while a `data:`/`response_variable:`
+  payload — where `action` is a mobile-notification button id, not a service — is
+  correctly left alone.
+- **Semantic sanity checks.** Validation now also rejects the structurally-valid
+  but nonsensical: an always-false `sun` window (`after:sunset` **and**
+  `before:sunrise`), a type-less trigger, an impossible `binary_sensor` state
+  (`to:"open"`), a service aimed at the wrong domain (`light.turn_on` →
+  `switch.*`; universal `homeassistant.*` services still allowed anywhere), and an
+  action step with no action key.
+- **Fail-safe, atomic `automations.yaml` writes.** An unparseable file (a hand-edit
+  typo, or HA `!secret`/`!include` tags) or a non-list document now **aborts the
+  write** instead of silently resetting to `[]` and wiping every automation you
+  have. The write itself goes through a temp file + `fsync` + `os.replace`, so a
+  crash mid-write can never truncate the real file.
+- **Modern plural keys & no reasoning-scraping.** `_coerce_automation` accepts
+  HA's `triggers`/`conditions`/`actions` keys (normalizing to singular) and
+  rejects a string/empty step list; the drafter no longer lifts an automation out
+  of a model's private *reasoning* channel (discarded scratch work it never
+  committed to). Alias branding is stripped before re-applying `JARVIS · ` once,
+  and the automation id is strictly slugified.
+
+Pure, deterministic validation with new structural/semantic/coercion tests. No
+behavioural change for a well-formed draft; the Gemma parser and provider-arg
+guard from 9.171.0 remain the first line of defence.
+
 ## [9.171.0] — Automation drafter: Gemma nested tool-call parser + robust arg decoding
 
 The first tranche of the automation-drafter cleanup, fixing the quietest and most

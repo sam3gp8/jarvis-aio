@@ -146,8 +146,12 @@ async def test_create_replaces_duplicate_id_and_preserves_other_automations(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("existing_yaml", ["not: [valid", "{not: a list}"])
-async def test_create_recovers_from_invalid_or_nonlist_existing_yaml(
+async def test_create_refuses_to_overwrite_unparseable_or_nonlist_yaml(
         creator, tmp_path, existing_yaml):
+    """Data-loss guard (spec #40, 2B): an unparseable automations.yaml (a syntax
+    error, or HA !secret/!include tags) or a non-list document must ABORT the
+    write, not silently reset to [] and wipe every automation the user has. The
+    original file is left byte-for-byte untouched."""
     path = tmp_path / "automations.yaml"
     path.write_text(existing_yaml)
     hass = FakeHass(path)
@@ -156,10 +160,10 @@ async def test_create_recovers_from_invalid_or_nonlist_existing_yaml(
         hass, alias="Recovered", trigger={"platform": "state"},
         action={"service": "light.turn_on"})
 
-    assert result["success"] is True
-    saved = yaml.safe_load(path.read_text())
-    assert len(saved) == 1
-    assert saved[0]["id"] == "jarvis_auto_recovered"
+    assert result["success"] is False
+    # the user's file is preserved exactly — nothing overwritten, nothing reloaded
+    assert path.read_text() == existing_yaml
+    assert hass.services.calls == []
 
 
 @pytest.mark.asyncio
@@ -212,3 +216,76 @@ async def test_reload_failure_returns_error_after_file_is_written(creator, tmp_p
     assert yaml.safe_load(path.read_text())[0]["id"] == "jarvis_auto_reload_failure"
     assert hass.services.calls == [
         ("automation", "reload", {"blocking": True})]
+
+
+# ── structural schema enforcement (spec #40, 2A) ──────────────────────────────
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger,action,bad_field", [
+    ("state", [{"action": "light.turn_on"}], "trigger"),          # string trigger
+    ([{"trigger": "state"}], "light.turn_on", "action"),          # string action
+    ([{"trigger": "state"}], ["light.turn_on"], "action"),        # non-dict step
+])
+async def test_non_listdict_trigger_or_action_is_rejected_without_io(
+        creator, tmp_path, trigger, action, bad_field):
+    hass = FakeHass(tmp_path / "automations.yaml")
+    result = await creator.create_automation(
+        hass, alias="x", trigger=trigger, action=action)
+    assert result["success"] is False
+    assert bad_field in result["error"]
+    assert hass.executor_calls == 0           # a corrupted shape never reaches disk
+    assert hass.services.calls == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_mode_is_rejected_when_validating(creator, tmp_path):
+    hass = FakeHass(tmp_path / "automations.yaml")
+    result = await creator.create_automation(
+        hass, alias="x", trigger=[{"trigger": "state"}],
+        action=[{"action": "light.turn_on"}], mode="turbo", validate=True)
+    assert result["success"] is False and "mode" in result["error"]
+    assert hass.executor_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_mode_falls_back_to_single_without_validate(creator, tmp_path):
+    path = tmp_path / "automations.yaml"
+    hass = FakeHass(path)
+    result = await creator.create_automation(
+        hass, alias="x", trigger={"trigger": "state"},
+        action={"action": "light.turn_on"}, mode="turbo")
+    assert result["success"] is True
+    assert yaml.safe_load(path.read_text())[0]["mode"] == "single"
+
+
+# ── alias de-branding + strict id slug (spec #40, 2A) ─────────────────────────
+
+@pytest.mark.asyncio
+async def test_learned_prefix_is_stripped_and_id_is_strictly_slugified(creator, tmp_path):
+    path = tmp_path / "automations.yaml"
+    hass = FakeHass(path)
+    result = await creator.create_automation(
+        hass, alias="JARVIS Learned: Porch @ Dusk!!",
+        trigger={"trigger": "state", "entity_id": "binary_sensor.d"},
+        action={"action": "light.turn_on"})
+    assert result["success"] is True
+    # branded exactly once, from the user's real name; id strictly slugified
+    assert result["alias"] == "JARVIS · Porch @ Dusk!!"
+    assert result["automation_id"] == "jarvis_auto_porch_dusk"
+    saved = yaml.safe_load(path.read_text())[0]
+    assert saved["alias"] == "JARVIS · Porch @ Dusk!!"
+    assert saved["id"] == "jarvis_auto_porch_dusk"
+
+
+@pytest.mark.asyncio
+async def test_existing_valid_automations_are_preserved_on_write(creator, tmp_path):
+    # The atomic write must keep other automations intact (no silent wipe).
+    path = tmp_path / "automations.yaml"
+    path.write_text(yaml.safe_dump([{"id": "keep_me", "alias": "Hand-written"}]))
+    hass = FakeHass(path)
+    result = await creator.create_automation(
+        hass, alias="New One", trigger={"trigger": "state"},
+        action={"action": "light.turn_on"})
+    assert result["success"] is True
+    ids = [a["id"] for a in yaml.safe_load(path.read_text())]
+    assert ids == ["keep_me", "jarvis_auto_new_one"]

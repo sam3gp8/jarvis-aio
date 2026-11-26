@@ -15,7 +15,9 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import os
 import re
+import tempfile
 import yaml
 from typing import Any
 
@@ -32,27 +34,206 @@ _LOGGER = logging.getLogger(__name__)
 _DOTTED_RE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z0-9_]+$")
 
 
-def _collect_refs(obj: Any, entities: set, services: set) -> None:
+# Automation execution modes HA accepts.
+_VALID_MODES = {"single", "restart", "queued", "parallel"}
+# The only states a binary_sensor can ever report.
+_BINARY_SENSOR_STATES = {"on", "off", "unavailable", "unknown"}
+# Domains whose turn_on/off/toggle-style services only make sense aimed at an
+# entity of the SAME domain (light.turn_on → light.*, never switch.*). The
+# universal homeassistant.* services are deliberately excluded (they're allowed
+# on any domain), as are read-only domains like sensor/binary_sensor.
+_STRICT_ACTUATABLE_DOMAINS = {
+    "light", "switch", "fan", "lock", "cover", "climate", "media_player",
+    "humidifier", "vacuum", "siren", "input_boolean",
+}
+# Keys that make a mapping a real HA action step.
+_VALID_ACTION_KEYS = {
+    "action", "service", "delay", "wait_template", "wait_for_trigger", "choose",
+    "if", "repeat", "parallel", "stop", "event", "scene", "variables", "device_id",
+}
+# Branding prefixes to strip before (re)applying "JARVIS · " exactly once, so a
+# learned-suggestion alias ("JARVIS Learned: …") or an already-branded one doesn't
+# compound into "JARVIS · JARVIS Learned: …".
+_ALIAS_PREFIX_RE = re.compile(
+    r"^(?:JARVIS\s*·\s*)+|^(?:JARVIS\s+Learned(?:\s*\(review\))?\s*:\s*)+", re.I)
+
+
+def _clean_alias(alias: str) -> str:
+    """Strip any leading JARVIS branding so the caller's real name is recovered."""
+    s = (alias or "").strip()
+    prev = None
+    while prev != s:
+        prev = s
+        s = _ALIAS_PREFIX_RE.sub("", s, count=1).strip()
+    return s or "automation"
+
+
+def _slug_alias(clean_alias: str) -> str:
+    """Strict, collision-resistant automation id from a cleaned alias."""
+    slug = re.sub(r"[^a-z0-9]+", "_", clean_alias.lower()).strip("_")[:40] or "unnamed"
+    return f"jarvis_auto_{slug}"
+
+
+def _normalize_steps(value: Any, *, field: str):
+    """Coerce a trigger/condition/action into a non-empty ``list[dict]``.
+    Wraps a single dict; rejects strings, empty lists, and lists holding any
+    non-dict item. Returns ``(steps, None)`` or ``(None, error_message)``."""
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list) or not value:
+        return None, f"{field} must be a non-empty list of steps (got {type(value).__name__})"
+    if any(not isinstance(item, dict) for item in value):
+        return None, f"every {field} step must be a mapping, not a bare string or value"
+    return value, None
+
+
+def _is_step_or_steps(v: Any) -> bool:
+    """True when ``v`` is a dict or a non-empty list of dicts."""
+    if isinstance(v, dict):
+        return True
+    return isinstance(v, list) and bool(v) and all(isinstance(it, dict) for it in v)
+
+
+def _csv_split(val: Any) -> list:
+    """Split a comma-separated entity_id string; pass anything else through as [v]."""
+    if isinstance(val, str) and "," in val:
+        return [p.strip() for p in val.split(",")]
+    return [val]
+
+
+def _classify_entity(e: Any, entities: set, bad_entities: set | None) -> None:
+    if not isinstance(e, str):
+        return
+    s = e.strip()
+    if not s or "{{" in s or s in ("all", "none"):
+        return
+    if _DOTTED_RE.match(s):
+        entities.add(s)
+    elif bad_entities is not None:
+        bad_entities.add(s)
+
+
+def _classify_service(val: str, services: set, bad_services: set | None) -> None:
+    s = val.strip()
+    if "{{" in s:
+        return
+    if _DOTTED_RE.match(s):
+        services.add(s)
+    elif s and bad_services is not None:
+        bad_services.add(s)
+
+
+def _collect_refs(obj: Any, entities: set, services: set,
+                  bad_entities: set | None = None, bad_services: set | None = None,
+                  *, in_data: bool = False) -> None:
     """Walk a trigger/condition/action config and collect the entity_ids and
-    service names it references. Skips templates ({{ … }}) and the sentinel
-    values ("all"/"none"); only dotted, HA-shaped names are collected so free
-    text can't masquerade as a reference. Pure; never raises."""
+    service names it references. Dotted, HA-shaped names land in ``entities`` /
+    ``services``; non-dotted ones (a hallucinated ``"Living Room Light"`` or
+    ``"turn_on"``) land in the optional ``bad_*`` sets so a free-text name can be
+    *flagged* instead of silently ignored. Templates (``{{ … }}``) and the
+    sentinels ``all``/``none`` are skipped. ``service``/``action`` keys are only
+    read as services at config level — never inside a ``data``/``response_variable``
+    payload, where ``action`` can be a mobile-notification button id. Pure; never
+    raises."""
     if isinstance(obj, dict):
         for key, val in obj.items():
             if key == "entity_id":
-                for e in (val if isinstance(val, list) else [val]):
-                    if isinstance(e, str) and _DOTTED_RE.match(e):
-                        entities.add(e)
-            elif key in ("service", "action") and isinstance(val, str) \
-                    and "{{" not in val and _DOTTED_RE.match(val):
-                # action step service: old "service: light.turn_on" or new
-                # HA "action: light.turn_on". Only a dotted value is a service.
-                services.add(val)
+                for e in (val if isinstance(val, list) else _csv_split(val)):
+                    _classify_entity(e, entities, bad_entities)
+            elif key in ("service", "action") and not in_data and isinstance(val, str):
+                _classify_service(val, services, bad_services)
             else:
-                _collect_refs(val, entities, services)
+                _collect_refs(val, entities, services, bad_entities, bad_services,
+                              in_data=in_data or key in ("data", "response_variable"))
     elif isinstance(obj, list):
         for item in obj:
-            _collect_refs(item, entities, services)
+            _collect_refs(item, entities, services, bad_entities, bad_services,
+                          in_data=in_data)
+
+
+def _as_list(v: Any) -> list:
+    """Normalize a trigger/condition/action section to a list for iteration."""
+    if isinstance(v, list):
+        return v
+    if not v:
+        return []
+    return [v]
+
+
+def _walk_dicts(obj: Any):
+    """Yield every dict nested anywhere inside ``obj`` (depth-first)."""
+    if isinstance(obj, dict):
+        yield obj
+        for v in obj.values():
+            yield from _walk_dicts(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            yield from _walk_dicts(item)
+
+
+def _target_entities(d: dict) -> list:
+    """Dotted entity_ids an action step points at — top-level, ``target``, or
+    ``data`` (legacy service-data form)."""
+    out: list = []
+    srcs = [d.get("entity_id")]
+    for holder in ("target", "data"):
+        sub = d.get(holder)
+        if isinstance(sub, dict):
+            srcs.append(sub.get("entity_id"))
+    for src in srcs:
+        for e in (src if isinstance(src, list) else [src]):
+            if isinstance(e, str) and _DOTTED_RE.match(e):
+                out.append(e)
+    return out
+
+
+def _semantic_errors(trigger, condition, action) -> list[str]:
+    """Structurally-valid-but-nonsensical mistakes a name check can't catch: an
+    always-false sun window, a type-less trigger, an impossible binary_sensor
+    state, a service aimed at the wrong domain, an action step with no action.
+    Pure; fail-open (never raises)."""
+    errors: list[str] = []
+    try:
+        for t in _as_list(trigger):
+            if isinstance(t, dict) and not (t.get("trigger") or t.get("platform")):
+                errors.append("a trigger is missing its 'trigger'/'platform' type")
+        for d in list(_walk_dicts(trigger)) + list(_walk_dicts(condition)):
+            eids = d.get("entity_id")
+            if any(isinstance(e, str) and e.startswith("binary_sensor.")
+                   for e in (eids if isinstance(eids, list) else [eids])):
+                for k in ("to", "from", "state"):
+                    v = d.get(k)
+                    for vv in (v if isinstance(v, list) else [v]):
+                        if (isinstance(vv, str) and vv and "{{" not in vv
+                                and vv not in _BINARY_SENSOR_STATES):
+                            errors.append(
+                                f"binary_sensor {k}:'{vv}' is not a valid state "
+                                "(use on/off/unavailable/unknown)")
+        for d in _walk_dicts(condition):
+            if (d.get("condition") == "sun" and d.get("after") == "sunset"
+                    and d.get("before") == "sunrise"):
+                errors.append(
+                    "a sun condition with after:sunset AND before:sunrise is always "
+                    "false (same-day AND); use {\"condition\":\"state\",\"entity_id\":"
+                    "\"sun.sun\",\"state\":\"below_horizon\"}")
+        for a in _as_list(action):
+            if isinstance(a, dict) and not (set(a.keys()) & _VALID_ACTION_KEYS):
+                errors.append("an action step has no valid action key "
+                              "(action/service/delay/choose/…)")
+        for d in _walk_dicts(action):
+            svc = d.get("action") or d.get("service")
+            if isinstance(svc, str) and "{{" not in svc and _DOTTED_RE.match(svc):
+                sdom = svc.split(".")[0]
+                if sdom in _STRICT_ACTUATABLE_DOMAINS:
+                    for e in _target_entities(d):
+                        edom = e.split(".")[0]
+                        if edom != sdom:
+                            errors.append(
+                                f"action '{svc}' targets '{e}' in a different domain "
+                                f"({edom} ≠ {sdom})")
+    except Exception as exc:  # pragma: no cover - defensive, fail-open
+        _LOGGER.debug("semantic validation error (ignored): %s", exc)
+    return list(dict.fromkeys(errors))
 
 
 def _known_services(hass: HomeAssistant) -> set:
@@ -80,8 +261,10 @@ def validate_automation_config(
     try:
         entities: set = set()
         services: set = set()
+        bad_entities: set = set()
+        bad_services: set = set()
         for section in (trigger, condition, action):
-            _collect_refs(section, entities, services)
+            _collect_refs(section, entities, services, bad_entities, bad_services)
 
         known_entities = {s.entity_id for s in hass.states.async_all()}
         known_services = _known_services(hass)
@@ -91,21 +274,33 @@ def validate_automation_config(
             if e not in known_entities:
                 match = difflib.get_close_matches(e, known_entities, n=1, cutoff=0.6)
                 invalid_entities[e] = match[0] if match else None
+        # Non-dotted strings that tried to be an entity ("Living Room Light") are
+        # invalid by construction — flag them (best-effort nearest real id).
+        for e in sorted(bad_entities):
+            match = difflib.get_close_matches(
+                e.lower().replace(" ", "_"), known_entities, n=1, cutoff=0.5)
+            invalid_entities[e] = match[0] if match else None
 
         invalid_services: dict = {}
         for s in sorted(services):
             if s not in known_services:
                 match = difflib.get_close_matches(s, known_services, n=1, cutoff=0.6)
                 invalid_services[s] = match[0] if match else None
+        # Non-dotted service/action strings ("turn_on") can never name a service.
+        for s in sorted(bad_services):
+            match = difflib.get_close_matches(s, known_services, n=1, cutoff=0.5)
+            invalid_services[s] = match[0] if match else None
 
         return {
             "ok": not invalid_entities and not invalid_services,
             "invalid_entities": invalid_entities,
             "invalid_services": invalid_services,
+            "semantic_errors": _semantic_errors(trigger, condition, action),
         }
     except Exception as exc:  # pragma: no cover - defensive, fail-open
         _LOGGER.debug("automation validation error (fail-open): %s", exc)
-        return {"ok": True, "invalid_entities": {}, "invalid_services": {}}
+        return {"ok": True, "invalid_entities": {}, "invalid_services": {},
+                "semantic_errors": []}
 
 
 async def create_automation(
@@ -138,44 +333,67 @@ async def create_automation(
     if not trigger or not action:
         return {"success": False, "error": "Both trigger and action are required"}
 
-    # Normalize to lists
-    if isinstance(trigger, dict):
-        trigger = [trigger]
-    if isinstance(action, dict):
-        action = [action]
-    if condition and isinstance(condition, dict):
-        condition = [condition]
+    # Structural schema (always on, even without validate): a corrupted tool call
+    # can hand us a string where a list[dict] belongs — reject it here instead of
+    # letting it render as invalid YAML that silently never runs.
+    trigger, err = _normalize_steps(trigger, field="trigger")
+    if err:
+        return {"success": False, "error": err}
+    action, err = _normalize_steps(action, field="action")
+    if err:
+        return {"success": False, "error": err}
+    if condition:
+        condition, err = _normalize_steps(condition, field="condition")
+        if err:
+            return {"success": False, "error": err}
+    else:
+        condition = None  # empty list / None → no conditions block
+
+    # Mode must be one HA accepts. When validating, reject a bad one; otherwise
+    # (back-compat for service callers) fall back to the safe default.
+    if mode not in _VALID_MODES:
+        if validate:
+            return {"success": False,
+                    "error": f"mode '{mode}' is invalid (use one of "
+                             f"{', '.join(sorted(_VALID_MODES))})"}
+        mode = "single"
 
     # Validate every referenced entity_id and service against the live HA
-    # instance before writing anything (opt-in). An LLM can confidently emit a
-    # plausible-but-wrong name; installing that produces an automation that
-    # silently never fires. Refuse up front and hand back the closest real name
-    # so the caller can correct and retry. Off by default, so existing callers
-    # (the HA service + the learned-suggestion installer) are unchanged.
+    # instance before writing anything (opt-in), plus semantic sanity (an
+    # impossible sun window, a cross-domain service, a bogus binary_sensor
+    # state). An LLM can confidently emit a plausible-but-wrong name or shape;
+    # installing that produces an automation that silently never fires. Refuse up
+    # front and hand back the closest real name. Off by default, so existing
+    # callers (the HA service + the learned-suggestion installer) are unchanged.
     if validate:
         report = validate_automation_config(
             hass, trigger=trigger, condition=condition, action=action)
-        if not report["ok"]:
+        semantic = report.get("semantic_errors") or []
+        if not report["ok"] or semantic:
             parts = []
             for bad, near in report["invalid_entities"].items():
                 parts.append(f"entity '{bad}'" + (f" (did you mean '{near}'?)" if near else " (no close match)"))
             for bad, near in report["invalid_services"].items():
                 parts.append(f"service '{bad}'" + (f" (did you mean '{near}'?)" if near else " (no close match)"))
+            parts.extend(semantic)
             return {
                 "success": False,
-                "error": "Validation failed — these names don't exist in Home "
-                         "Assistant: " + "; ".join(parts) + ". Use search_entities "
-                         "to find the real entity_id, then retry.",
+                "error": "Validation failed: " + "; ".join(parts)
+                         + ". Fix these (use search_entities for real ids) and retry.",
                 "invalid_entities": report["invalid_entities"],
                 "invalid_services": report["invalid_services"],
+                "semantic_errors": semantic,
             }
 
-    # Build the automation config
-    automation_id = f"jarvis_auto_{alias.lower().replace(' ', '_')[:40]}"
+    # Build the automation config. Strip any existing JARVIS branding so the id
+    # and display alias are derived once, cleanly, from the user's real name.
+    clean_alias = _clean_alias(alias)
+    display_alias = f"JARVIS · {clean_alias}"
+    automation_id = _slug_alias(clean_alias)
     auto_config = {
         "id": automation_id,
-        "alias": f"JARVIS · {alias}",
-        "description": description or f"Created by JARVIS: {alias}",
+        "alias": display_alias,
+        "description": description or f"Created by JARVIS: {clean_alias}",
         "mode": mode,
         "triggers": trigger,
         "actions": action,
@@ -199,7 +417,7 @@ async def create_automation(
             "success": True,
             "preview": True,
             "automation_id": automation_id,
-            "alias": f"JARVIS · {alias}",
+            "alias": display_alias,
             "config": auto_config,
             "yaml": yaml_str,
         }
@@ -207,40 +425,58 @@ async def create_automation(
     # Write to automations.yaml
     try:
         automations_path = hass.config.path("automations.yaml")
+        parent = os.path.dirname(automations_path) or "."
 
         def _write_automation():
-            # Read existing
-            try:
+            # Read existing. A missing file is a fresh start, but an UNPARSEABLE
+            # one (HA !secret/!include tags, hand-edit syntax error) or a non-list
+            # is NOT: silently resetting it to [] and writing would wipe every
+            # automation the user already has. Abort instead — the file is theirs.
+            if os.path.exists(automations_path):
                 with open(automations_path) as f:
-                    existing = yaml.safe_load(f) or []
-            except FileNotFoundError:
-                existing = []
-            except Exception:
+                    existing = yaml.safe_load(f)
+                if existing is None:
+                    existing = []
+                elif not isinstance(existing, list):
+                    raise ValueError(
+                        "automations.yaml did not parse to a list of automations; "
+                        "refusing to overwrite it (fix or back it up first)")
+            else:
                 existing = []
 
-            if not isinstance(existing, list):
-                existing = []
-
-            # Check for duplicate ID
-            existing = [a for a in existing if a.get("id") != automation_id]
-
-            # Append new
+            # Drop any prior automation with this id, then append the new one.
+            existing = [a for a in existing
+                        if not (isinstance(a, dict) and a.get("id") == automation_id)]
             existing.append(auto_config)
 
-            # Write back
-            with open(automations_path, "w") as f:
-                yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
+            # Write atomically: a temp file in the same dir, fsync'd, then an
+            # os.replace swap — so a crash mid-write can never truncate the real
+            # file. Clean the temp up on any error.
+            fd, tmp_path = tempfile.mkstemp(
+                prefix=".automations.", suffix=".tmp", dir=parent)
+            try:
+                with os.fdopen(fd, "w") as f:
+                    yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, automations_path)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
 
         await hass.async_add_executor_job(_write_automation)
 
         # Reload automations
         await hass.services.async_call("automation", "reload", blocking=True)
 
-        _LOGGER.info("JARVIS created automation: %s (id=%s)", alias, automation_id)
+        _LOGGER.info("JARVIS created automation: %s (id=%s)", display_alias, automation_id)
         return {
             "success": True,
             "automation_id": automation_id,
-            "alias": f"JARVIS · {alias}",
+            "alias": display_alias,
         }
 
     except Exception as exc:
@@ -546,16 +782,19 @@ def _corrections_for(hass: HomeAssistant, preview: dict) -> str:
 def _automation_from_result(res: dict) -> dict | None:
     """Pull the automation out of a one-shot reply, in order of preference:
     a NATIVE create_automation tool call (a function-calling model's strength —
-    Gemma 4 is built for this), then a JSON object in the visible content, then
-    one in the reasoning channel (a thinking model can leave content empty). The
-    Ollama provider already recovers Gemma's native call format into tool_calls."""
+    Gemma 4 is built for this), then a JSON object in the visible content. The
+    Ollama provider already recovers Gemma's native call format into tool_calls.
+
+    The private reasoning channel is deliberately NOT scraped: a thinking model's
+    scratchpad holds discarded drafts and half-formed JSON, and lifting an
+    automation out of it installs something the model never actually committed to.
+    An empty visible reply is surfaced to the user as such, not silently salvaged."""
     for tc in (res or {}).get("tool_calls") or []:
         if (tc or {}).get("name") in ("create_automation", "create"):
             auto = _coerce_automation(tc.get("args") or {})
             if auto:
                 return auto
-    raw = (res or {}).get("text") or ""
-    return _first_automation(raw) or _first_automation((res or {}).get("reasoning") or "")
+    return _first_automation((res or {}).get("text") or "")
 
 
 async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, Any]:
@@ -720,12 +959,23 @@ def _bad_names(preview: dict) -> str:
 
 def _coerce_automation(data: dict) -> dict | None:
     """Pull an automation object out of a model's JSON action — either a wrapped
-    ``{"automation":{...}}`` or a bare ``{alias,trigger,action}``. Returns None
-    when it carries no usable trigger+action."""
+    ``{"automation":{...}}`` or a bare ``{alias,trigger,action}``. Accepts Home
+    Assistant's modern PLURAL keys (``triggers``/``conditions``/``actions``) and
+    normalizes them to the singular forms the rest of the drafter expects.
+    Returns None unless it carries a usable trigger AND action (a dict or a
+    non-empty list of dicts — not a corrupted string)."""
     if not isinstance(data, dict):
         return None
     if isinstance(data.get("automation"), dict):
         data = data["automation"]
-    if data.get("trigger") and data.get("action"):
-        return data
+    out = dict(data)
+    for plural, singular in (("triggers", "trigger"),
+                             ("conditions", "condition"),
+                             ("actions", "action")):
+        if plural in out:
+            if singular not in out:
+                out[singular] = out[plural]
+            out.pop(plural, None)
+    if _is_step_or_steps(out.get("trigger")) and _is_step_or_steps(out.get("action")):
+        return out
     return None
