@@ -405,3 +405,13 @@ async def test_fetch_frigate_image_no_crop_requests_plain_only(cam, monkeypatch)
     out = await cam._fetch_frigate_image(None, "camera.front")   # crop defaults False
     assert out == _BIG
     assert requested == ["http://ha/api/frigate/notifications/evt1/snapshot.jpg"]
+
+
+# ── §8A: person-mention cue for the Tier-2 LLM assist / unknown pin ──────────────
+def test_mentions_person(cam):
+    assert cam._mentions_person("A person is standing at the door.") is True
+    assert cam._mentions_person("Someone walks up the path.") is True
+    assert cam._mentions_person("A man and a woman chatting.") is True
+    assert cam._mentions_person("An empty driveway at dusk.") is False
+    assert cam._mentions_person("A delivery van drives past.") is False
+    assert cam._mentions_person("") is False

@@ -371,6 +371,26 @@ def who_do_you_see(hass) -> dict:
                 "source": "recent_cache",
             })
 
+    # 3. Graduated Tier-2 LLM assist — only a graduated, fresh (≤5m), ≥75% guess on
+    #    a camera Tier 1 missed, and only for a person no backend already named.
+    #    Tagged `llm_match`; never read by the intrusion stand-down (#41 §8B).
+    try:
+        for cam in list(_LLM_GUESS_CACHE.keys()):
+            g = _graduated_llm_guess(hass, cam)
+            if not g:
+                continue
+            nm = g.get("name", "")
+            if not nm or nm in seen:
+                continue
+            seen.append(nm)
+            detail.append({
+                "camera_entity": cam, "name": nm,
+                "confidence": g.get("confidence", 0.0),
+                "source": "llm_match", "llm_match": True,
+            })
+    except Exception:
+        pass
+
     return {"seen": seen, "detail": detail, "any": bool(seen)}
 
 
@@ -620,6 +640,15 @@ async def capture_face_snapshot(hass, camera: str, name: str,
         try:
             await _maybe_auto_enroll_reference(hass, name, confidence, content,
                                                camera=camera_entity)
+        except Exception:
+            pass
+        # Shadow-calibrate the best-effort LLM matcher against this confident
+        # backend recognition (opt-in, throttled, never touches intrusion). #41 §7B
+        try:
+            from . import llm_recognition
+            hass.async_create_task(
+                llm_recognition.shadow_calibrate(hass, camera_entity, name,
+                                                 confidence, content))
         except Exception:
             pass
         return rec
@@ -1197,6 +1226,46 @@ def last_llm_guess_at(hass, camera_entity: str, *, graduated_only: bool = True,
         return None
 
 
+# ── Tier-2 assist surfacing for chat context / who_do_you_see (#41 §8B) ─────────
+_LLM_ASSIST_MIN_CONF = 75.0
+_LLM_ASSIST_MAX_AGE = 300.0   # 5 minutes
+
+
+def _has_fresh_tier1_identity(camera_entity: str) -> bool:
+    """Whether the trusted cache has a fresh, NAMED (non-unknown) identity for this
+    camera — so Tier-2 assist defers and doesn't double-list it. Never raises."""
+    try:
+        rec = _RECOGNITION_CACHE.get(camera_entity)
+        if not rec:
+            return False
+        nm = rec.get("name", "")
+        if not nm or _is_unknown(nm):
+            return False
+        ts = rec.get("ts")
+        if not ts:
+            return True
+        return (datetime.now(timezone.utc).replace(tzinfo=None) - ts) <= CACHE_MAX_AGE
+    except Exception:
+        return False
+
+
+def _graduated_llm_guess(hass, camera_entity: str) -> Optional[dict]:
+    """A fresh (≤5 min), ≥75%, GRADUATED LLM guess for this camera, used as Tier-2
+    ASSIST context when Tier 1 has no identity here. Returns {name, confidence,
+    age_seconds} or None. Never stands intrusion down (resident_present ignores the
+    guess cache); best-effort, never raises."""
+    try:
+        if _has_fresh_tier1_identity(camera_entity):
+            return None
+        g = last_llm_guess_at(hass, camera_entity, graduated_only=True,
+                              max_age_secs=int(_LLM_ASSIST_MAX_AGE))
+        if g and float(g.get("confidence", 0.0) or 0.0) >= _LLM_ASSIST_MIN_CONF:
+            return g
+        return None
+    except Exception:
+        return None
+
+
 def remember_llm_guess(camera_name: str, name: str, confidence: float) -> None:
     """Record a BEST-EFFORT LLM resident guess (#140 Phase 3) in a cache kept
     strictly separate from the trusted recognition cache. This is deliberately
@@ -1684,6 +1753,27 @@ def recognition_context_string(hass: HomeAssistant) -> str:
                 bits.append(f"{nm} ({_roster_role(nm)}) recognized at {friendly_cam}{tail}")
                 seen_names.add(nm.lower())
                 recognized_display.setdefault(nm.lower(), nm)
+    except Exception:
+        pass
+
+    # Graduated Tier-2 LLM assist (#41 §8B): a trustworthy guess on a camera Tier 1
+    # missed, clearly tagged `LLM match` so the model treats it as softer than a
+    # backend recognition. Skipped where a backend already named the same person.
+    # Never from the intrusion path — resident_present ignores the guess cache.
+    try:
+        for cam in list(_LLM_GUESS_CACHE.keys()):
+            g = _graduated_llm_guess(hass, cam)
+            if not g:
+                continue
+            nm = g.get("name", "")
+            if not nm or nm.lower() in seen_names:
+                continue
+            friendly_cam = cam.replace("camera.", "").replace("_", " ")
+            conf = float(g.get("confidence", 0.0) or 0.0)
+            bits.append(f"{nm} ({_roster_role(nm)}, LLM match ~{conf:.0f}%) "
+                        f"seen at {friendly_cam}")
+            seen_names.add(nm.lower())
+            recognized_display.setdefault(nm.lower(), nm)
     except Exception:
         pass
 

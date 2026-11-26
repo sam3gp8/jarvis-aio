@@ -111,3 +111,162 @@ async def test_identify_and_store_no_match_records_nothing(mods, fake_hass, monk
     monkeypatch.setattr(mods.llm, "identify", _none)
     assert await mods.llm.identify_and_store(fake_hass, "ZnJhbWU=", "camera.front") is None
     assert mods.rec._LLM_GUESS_CACHE == {}
+
+
+# ── §7A: thinking=False, multi-sample lighting refs, Tier-1 short-circuit ────────
+
+class _ThinkingClient:
+    def __init__(self, text):
+        self._text = text
+        self.thinking = "unset"
+
+    def chat(self, *, thinking=None, **kwargs):
+        self.thinking = thinking
+        return {"text": self._text}
+
+
+class _NoThinkingClient:
+    """A minimal stub whose chat() rejects a `thinking` kwarg (raises TypeError)."""
+    def __init__(self, text):
+        self._text = text
+        self.called = False
+
+    def chat(self, **kwargs):
+        if "thinking" in kwargs:
+            raise TypeError("unexpected keyword argument 'thinking'")
+        self.called = True
+        return {"text": self._text}
+
+
+class _CountClient:
+    def __init__(self, text):
+        self._text = text
+        self.images = 0
+
+    def chat(self, *, messages, **kwargs):
+        content = messages[-1]["content"]
+        self.images = sum(1 for p in content if p.get("type") == "image_url")
+        return {"text": self._text}
+
+
+def test_match_sync_passes_thinking_false(mods):
+    mods.fr.add_resident("Sam")
+    mods.rec.set_face_reference("Sam", b"\xff\xd8ref")
+    client = _ThinkingClient('{"name":"Sam","confidence":80}')
+    out = mods.llm._match_sync(client, "m", "ZnJhbWU=")
+    assert client.thinking is False
+    assert out["name"] == "Sam"
+
+
+def test_match_sync_falls_back_when_thinking_unsupported(mods):
+    mods.fr.add_resident("Sam")
+    mods.rec.set_face_reference("Sam", b"\xff\xd8ref")
+    client = _NoThinkingClient('{"name":"Sam","confidence":80}')
+    out = mods.llm._match_sync(client, "m", "ZnJhbWU=")
+    assert client.called is True          # retried without the kwarg
+    assert out["name"] == "Sam"
+
+
+def test_match_sync_sends_multiple_lighting_refs(mods, monkeypatch):
+    import jc.recognition as _r
+    mods.fr.add_resident("Sam")
+    mods.rec.set_face_reference("Sam", b"\xff\xd8manual")
+    t = [5_000_000.0]
+    monkeypatch.setattr(_r._time, "time", lambda: t[0])
+    mods.rec._auto_enroll_reference_sync("Sam", b"\xff\xd8g1", bucket="day", camera="camera.a")
+    client = _CountClient('{"name":"Sam","confidence":80}')
+    out = mods.llm._match_sync(client, "m", "ZnJhbWU=")
+    # Up to 2 reference frames for Sam (manual + 1 gallery) + the current frame.
+    assert client.images == 3
+    assert out["name"] == "Sam"
+
+
+async def test_identify_and_store_skips_when_tier1_fresh(mods, fake_hass, monkeypatch):
+    from datetime import datetime, timezone
+    mods.fr.add_resident("Sam")
+    monkeypatch.setitem(mods.rec._RECOGNITION_CACHE, "camera.front", {
+        "name": "Sam", "confidence": 95.0,
+        "ts": datetime.now(timezone.utc).replace(tzinfo=None), "unknown_count": 0})
+    called = {"id": False}
+
+    async def _spy(hass, image_b64, camera_entity, **k):
+        called["id"] = True
+        return {"name": "Sam", "confidence": 80.0}
+    monkeypatch.setattr(mods.llm, "identify", _spy)
+    assert await mods.llm.identify_and_store(fake_hass, "ZnJhbWU=", "camera.front") is None
+    assert called["id"] is False          # Tier 1 leads → no vision tokens
+    assert mods.rec._LLM_GUESS_CACHE == {}
+
+
+# ── §7B: shadow calibration ─────────────────────────────────────────────────────
+
+def _calib_env(mods, tmp_path, monkeypatch, *, flags=True):
+    mods.llm._last_shadow_cal.clear()
+    monkeypatch.setattr(mods.rec, "CALIBRATION_PATH", str(tmp_path / "cal.json"))
+    mods.rec._CALIBRATION = {}
+    mods.rec._calibration_loaded = False
+    monkeypatch.setattr(mods.jc, "get", lambda k, d=None: flags)
+
+
+async def test_shadow_calibrate_agreed(mods, fake_hass, tmp_path, monkeypatch):
+    mods.fr.add_resident("Sam")
+    _calib_env(mods, tmp_path, monkeypatch)
+
+    async def _m(hass, b64, cam, **k):
+        return {"name": "Sam", "confidence": 88.0}
+    monkeypatch.setattr(mods.llm, "identify", _m)
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Sam", 90.0, b"img")
+    recs = mods.rec._calibration_records("Sam")
+    assert len(recs) == 1 and recs[0]["outcome"] == "agreed"
+
+
+async def test_shadow_calibrate_wrong_person(mods, fake_hass, tmp_path, monkeypatch):
+    mods.fr.add_resident("Sam")
+    mods.fr.add_resident("Lee")
+    _calib_env(mods, tmp_path, monkeypatch)
+
+    async def _m(hass, b64, cam, **k):
+        return {"name": "Lee", "confidence": 70.0}   # named the wrong resident
+    monkeypatch.setattr(mods.llm, "identify", _m)
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Sam", 90.0, b"img")
+    assert mods.rec._calibration_records("Sam")[0]["outcome"] == "wrong_person"
+
+
+async def test_shadow_calibrate_abstained_when_no_match(mods, fake_hass, tmp_path, monkeypatch):
+    mods.fr.add_resident("Sam")
+    _calib_env(mods, tmp_path, monkeypatch)
+
+    async def _none(hass, b64, cam, **k):
+        return None
+    monkeypatch.setattr(mods.llm, "identify", _none)
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Sam", 90.0, b"img")
+    assert mods.rec._calibration_records("Sam")[0]["outcome"] == "abstained"
+
+
+async def test_shadow_calibrate_gated_and_throttled(mods, fake_hass, tmp_path, monkeypatch):
+    mods.fr.add_resident("Sam")
+
+    async def _m(hass, b64, cam, **k):
+        return {"name": "Sam", "confidence": 88.0}
+    monkeypatch.setattr(mods.llm, "identify", _m)
+
+    # Autotrain off → nothing recorded.
+    _calib_env(mods, tmp_path, monkeypatch, flags=False)
+    monkeypatch.setattr(mods.jc, "get",
+                        lambda k, d=None: k == "llm_face_recognition")  # recog on, autotrain off
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Sam", 90.0, b"img")
+    assert mods.rec._calibration_records("Sam") == []
+
+    # Both flags on: low backend confidence (<85) → nothing.
+    monkeypatch.setattr(mods.jc, "get", lambda k, d=None: True)
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Sam", 70.0, b"img")
+    assert mods.rec._calibration_records("Sam") == []
+
+    # Non-resident expected name → nothing.
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Quentin", 90.0, b"img")
+    assert mods.rec._calibration_records("Quentin") == []
+
+    # A valid call records once; a second within the throttle window does not.
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Sam", 90.0, b"img")
+    await mods.llm.shadow_calibrate(fake_hass, "camera.front", "Sam", 90.0, b"img")
+    assert len(mods.rec._calibration_records("Sam")) == 1
