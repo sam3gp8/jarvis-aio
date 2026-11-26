@@ -22,9 +22,11 @@ the identity. Helpers answer 'who was last seen at the front door?' in chat.
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
+import threading
 import time as _time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -616,7 +618,8 @@ async def capture_face_snapshot(hass, camera: str, name: str,
         # best-effort LLM matcher's reference set (opt-in; never overwrites a
         # manual reference; never feeds intrusion). Reuses this same frame.
         try:
-            await _maybe_auto_enroll_reference(hass, name, confidence, content)
+            await _maybe_auto_enroll_reference(hass, name, confidence, content,
+                                               camera=camera_entity)
         except Exception:
             pass
         return rec
@@ -720,7 +723,13 @@ def list_face_references() -> list[str]:
 # reference feeds ONLY the best-effort LLM matcher, whose output goes to
 # ``_LLM_GUESS_CACHE`` — which ``resident_present`` never reads — so a bad
 # auto-enroll can at worst mislabel a Faces card, never disable an intrusion alert.
-_AUTO_REF_MIN_CONFIDENCE = 80.0   # higher bar than the 60% stand-down threshold
+_AUTO_REF_MIN_CONFIDENCE = 85.0   # higher bar than the 60% stand-down threshold (#41 §6A)
+# A per-resident gallery <config>/jarvis/faces_ref/<norm>/ holds up to this many
+# auto-enrolled, lighting-diverse frames alongside the (sticky) manual reference,
+# so the LLM matcher sees daytime, indoor and night/IR appearances rather than 4
+# identical frames from one walk-by (#41 §6A).
+_MAX_AUTO_REFS = 4
+_AUTO_REF_MIN_SPACING = 1800.0    # ≥30 min between auto frames of the same camera+bucket
 
 
 def _auto_ref_marker_path(name: str) -> Optional[str]:
@@ -748,38 +757,224 @@ def list_auto_references() -> list[str]:
         return []
 
 
-def _auto_enroll_reference_sync(name: str, jpeg: bytes) -> bool:
-    """Enroll an auto LLM reference from a backend frame, but ONLY when none exists
-    yet — never overwrite a manual (or earlier auto) reference. Writes the jpg via
-    :func:`set_face_reference` then re-adds the ``.auto`` marker that call cleared.
-    Executor / sync only (file I/O); never raises."""
+# ── Multi-sample reference gallery (#41 §6A) ────────────────────────────────────
+# Legacy single-file refs stay valid: <config>/jarvis/faces_ref/<norm>.jpg is the
+# manual reference (slot 0) when it has no sidecar <norm>.auto marker, or a single
+# auto reference when it does. Additional auto frames live in a per-resident
+# directory <config>/jarvis/faces_ref/<norm>/ as `auto-<ts>-<bucket>-<cam>.jpg`,
+# so lighting (day/night) and camera are recoverable from the filename for
+# diversity spacing and lighting-matched selection.
+
+
+def _lighting_bucket(hass) -> str:
+    """'night' when the sun is below the horizon (or, failing that, the local hour
+    is 20:00–05:59), else 'day'. Best-effort; defaults to 'day'. Never raises."""
     try:
-        if face_reference_path(name):
+        st = hass.states.get("sun.sun") if hass is not None else None
+        if st is not None and str(getattr(st, "state", "")).strip():
+            return "night" if str(st.state).lower() == "below_horizon" else "day"
+    except Exception:
+        pass
+    try:
+        hour = datetime.now().hour
+        return "night" if (hour >= 20 or hour < 6) else "day"
+    except Exception:
+        return "day"
+
+
+def _gallery_dir(name: str) -> Optional[str]:
+    key = _face_norm(name)
+    return os.path.join(FACE_REF_DIR, key) if key else None
+
+
+def _has_manual_reference(name: str) -> bool:
+    """A <norm>.jpg with NO .auto marker — a user upload, sticky forever."""
+    p = face_reference_path(name)
+    return bool(p and not is_auto_reference(name))
+
+
+def _legacy_auto_reference(name: str) -> Optional[str]:
+    """The legacy single-file <norm>.jpg when it IS an auto reference, else None."""
+    p = face_reference_path(name)
+    return p if (p and is_auto_reference(name)) else None
+
+
+def _parse_auto_frame(fname: str) -> Optional[dict]:
+    """`auto-<ts>-<bucket>-<cam>.jpg` → {ts, bucket, camera}; None if it doesn't fit."""
+    if not fname.startswith("auto-") or not fname.endswith(".jpg"):
+        return None
+    core = fname[len("auto-"):-len(".jpg")]
+    parts = core.split("-", 2)   # ts, bucket, cam (cam may be empty)
+    if len(parts) < 2:
+        return None
+    try:
+        ts = float(parts[0])
+    except (TypeError, ValueError):
+        return None
+    bucket = parts[1] if parts[1] in ("day", "night") else "day"
+    camera = parts[2] if len(parts) > 2 else ""
+    return {"ts": ts, "bucket": bucket, "camera": camera}
+
+
+def _gallery_auto_frames(name: str) -> list[dict]:
+    """Auto frames in the per-resident gallery dir, each {path, ts, bucket, camera},
+    oldest first. Excludes the legacy single-file reference. Never raises."""
+    gdir = _gallery_dir(name)
+    out: list[dict] = []
+    try:
+        if gdir and os.path.isdir(gdir):
+            for f in os.listdir(gdir):
+                meta = _parse_auto_frame(f)
+                if meta is not None:
+                    out.append({**meta, "path": os.path.join(gdir, f)})
+    except Exception:
+        return []
+    out.sort(key=lambda m: m["ts"])
+    return out
+
+
+def _last_auto_meta(name: str) -> Optional[dict]:
+    """The most recent auto frame's {ts, bucket, camera} — gallery frames (ts from
+    the filename) and the legacy auto reference (ts from its mtime) considered."""
+    frames = list(_gallery_auto_frames(name))
+    legacy = _legacy_auto_reference(name)
+    if legacy:
+        try:
+            frames.append({"ts": os.path.getmtime(legacy), "bucket": "", "camera": "",
+                           "path": legacy})
+        except Exception:
+            pass
+    if not frames:
+        return None
+    return max(frames, key=lambda m: m["ts"])
+
+
+def _reference_count(name: str) -> int:
+    """How many enrolled reference photos exist for ``name`` — the manual/legacy
+    single file (if any) plus gallery auto frames. Resolves a backend alias to the
+    canonical resident so split spellings count as one. Used by graduation (§6B)."""
+    name = _canonical_name(name) or name
+    base = 1 if face_reference_path(name) else 0
+    return base + len(_gallery_auto_frames(name))
+
+
+def face_reference_paths(name: str, *, prefer_night: Optional[bool] = None,
+                         limit: int = 3) -> list[str]:
+    """Up to ``limit`` reference-photo paths for ``name``: the manual/legacy single
+    file first, then auto gallery frames. When ``prefer_night`` is set, auto frames
+    whose lighting bucket matches (night when True, day when False) are ordered
+    first, so the LLM matcher is shown lighting-appropriate references. Newest auto
+    frames win within a bucket. Never raises."""
+    try:
+        name = _canonical_name(name) or name   # unify a backend alias's references
+        paths: list[str] = []
+        base = face_reference_path(name)
+        if base:
+            paths.append(base)
+        frames = _gallery_auto_frames(name)
+        if prefer_night is not None:
+            want = "night" if prefer_night else "day"
+            frames.sort(key=lambda m: (0 if m["bucket"] == want else 1, -m["ts"]))
+        else:
+            frames.sort(key=lambda m: -m["ts"])
+        for m in frames:
+            if m["path"] not in paths:
+                paths.append(m["path"])
+        return paths[:max(1, int(limit or 1))] if paths else []
+    except Exception:
+        return [p] if (p := face_reference_path(name)) else []
+
+
+def _write_auto_marker(name: str) -> None:
+    marker = _auto_ref_marker_path(name)
+    if marker:
+        try:
+            with open(marker, "w") as f:
+                f.write("auto")
+        except Exception:
+            pass
+
+
+def _evict_oldest_gallery_frame(name: str) -> None:
+    """Drop the oldest gallery auto frame (FIFO), to keep at most _MAX_AUTO_REFS."""
+    frames = _gallery_auto_frames(name)
+    if frames:
+        try:
+            os.remove(frames[0]["path"])
+        except Exception:
+            pass
+
+
+def _auto_enroll_reference_sync(name: str, jpeg: bytes, *, bucket: str = "day",
+                                camera: str = "") -> bool:
+    """Enroll an auto LLM reference frame from a confident backend recognition into
+    the resident's gallery. A manual reference is never overwritten; the legacy
+    single-file slot is bootstrapped only when nothing is enrolled yet (so
+    ``face_reference_path`` keeps working for single-ref consumers), and further
+    frames go into the per-resident gallery, capped at ``_MAX_AUTO_REFS`` with FIFO
+    eviction. Diversity-gated: a new frame is skipped when it is within
+    ``_AUTO_REF_MIN_SPACING`` of the last auto frame AND from the same camera AND
+    the same lighting bucket. Executor / sync only (file I/O); never raises."""
+    try:
+        name = _canonical_name(name) or name   # fold a backend alias onto one identity
+        key = _face_norm(name)
+        if not key or not jpeg:
             return False
-        if not set_face_reference(name, jpeg):
+        # Normalize the camera the same way the gallery filename encodes it, so the
+        # diversity comparison below matches (a raw "camera.a" and a parsed
+        # "camera_a" are the same camera).
+        cam_key = _face_norm(camera) or "cam"
+        legacy_auto = _legacy_auto_reference(name)
+        gallery = _gallery_auto_frames(name)
+        # Diversity spacing: too similar to the most recent auto frame → skip.
+        last = _last_auto_meta(name)
+        if last is not None:
+            recent = (_time.time() - float(last.get("ts") or 0)) < _AUTO_REF_MIN_SPACING
+            same_cam = (last.get("camera") or "") == cam_key
+            same_bucket = (last.get("bucket") or "") == bucket
+            if recent and same_cam and same_bucket:
+                return False
+        # Bootstrap the legacy single-file slot when nothing is enrolled at all, so
+        # existing single-reference consumers (face_reference_path) keep working.
+        if not face_reference_path(name) and not gallery:
+            if set_face_reference(name, jpeg):
+                _write_auto_marker(name)
+                _LOGGER.info("JARVIS: auto-enrolled first LLM reference for %s "
+                             "(Phase 3 training)", name)
+                return True
             return False
-        marker = _auto_ref_marker_path(name)
-        if marker:
-            try:
-                with open(marker, "w") as f:
-                    f.write("auto")
-            except Exception:
-                pass
-        _LOGGER.info("JARVIS: auto-enrolled an LLM reference photo for %s from a "
-                     "confident backend recognition (Phase 3 training)", name)
+        # Otherwise add to the gallery, capped (legacy auto counts toward the cap).
+        gdir = _gallery_dir(name)
+        if not gdir:
+            return False
+        total_auto = len(gallery) + (1 if legacy_auto else 0)
+        while total_auto >= _MAX_AUTO_REFS and gallery:
+            _evict_oldest_gallery_frame(name)
+            gallery = _gallery_auto_frames(name)
+            total_auto = len(gallery) + (1 if legacy_auto else 0)
+        if total_auto >= _MAX_AUTO_REFS:
+            return False   # only the legacy auto remains and we're at the cap
+        os.makedirs(gdir, exist_ok=True)
+        fname = f"auto-{int(_time.time())}-{bucket}-{cam_key}.jpg"
+        tmp = os.path.join(gdir, fname + ".tmp")
+        path = os.path.join(gdir, fname)
+        with open(tmp, "wb") as f:
+            f.write(jpeg)
+        os.replace(tmp, path)
+        _LOGGER.info("JARVIS: auto-enrolled a %s gallery reference for %s (Phase 3)",
+                     bucket, name)
         return True
     except Exception:
         return False
 
 
 async def _maybe_auto_enroll_reference(hass, name: str, confidence: float,
-                                       jpeg: bytes) -> None:
+                                       jpeg: bytes, camera: str = "") -> None:
     """If auto-training is enabled and this is a CONFIDENT recognition of a flagged
-    resident, enroll the frame as their best-effort LLM reference — bootstrapping
-    the matcher from Frigate / Double Take with no manual upload. Opt-in, never
-    overwrites an existing reference (the executor job re-checks), and never
-    raises. The existence check runs off-loop inside the executor job so no file
-    I/O touches the event loop here."""
+    resident, enroll the frame into their best-effort LLM reference gallery —
+    bootstrapping the matcher from Frigate / Double Take with no manual upload.
+    Opt-in, never overwrites a manual reference, diversity- and cap-gated (the
+    executor job re-checks), and never raises. All file I/O runs off-loop."""
     try:
         if not jpeg or _is_unknown(name) or float(confidence or 0.0) < _AUTO_REF_MIN_CONFIDENCE:
             return
@@ -789,9 +984,217 @@ async def _maybe_auto_enroll_reference(hass, name: str, confidence: float,
         from . import face_roster
         if not face_roster.is_resident(name):
             return
-        await hass.async_add_executor_job(_auto_enroll_reference_sync, name, jpeg)
+        bucket = _lighting_bucket(hass)
+        await hass.async_add_executor_job(
+            functools.partial(_auto_enroll_reference_sync, name, jpeg,
+                              bucket=bucket, camera=camera or ""))
     except Exception:
         pass
+
+
+# ── Rolling-window shadow calibration & graduation (#41 §6B) ────────────────────
+# Each resident accrues a rolling window of shadow comparisons — the LLM matcher
+# run on a frame a backend already named, recorded as 'agreed' / 'wrong_person' /
+# 'abstained' — persisted to <config>/jarvis/faces_ref/calibration.json. A
+# resident GRADUATES (is trusted to ASSIST narration/chat, Tier 2) only with
+# enough refs, enough samples, high agreement and almost no wrong-person errors;
+# because graduation is evaluated live over the window, drift (or a Faces-tab user
+# correction) auto-demotes them back to shadow-only. This NEVER touches
+# _RECOGNITION_CACHE or intrusion monitoring (which stays strictly Tier-1).
+CALIBRATION_PATH = config_path_str("jarvis", "faces_ref", "calibration.json")
+_CALIBRATION_WINDOW = 30
+_GRAD_MIN_REFS = 3
+_GRAD_MIN_SAMPLES = 15
+_GRAD_MIN_AGREEMENT = 0.90
+_GRAD_MAX_WRONG = 1
+_CALIBRATION_OUTCOMES = ("agreed", "wrong_person", "abstained")
+_calibration_lock = threading.RLock()
+_CALIBRATION: dict[str, list] = {}   # {canonical_norm_name: [record, ...]}
+_calibration_loaded = False
+
+
+def _canonical_name(name) -> str:
+    """The resident's canonical display name (folding backend aliases like
+    ``"sam_g"`` → ``"Sam"``); passthrough when not a known resident. Never raises."""
+    try:
+        from . import face_roster
+        return face_roster.canonical_name(name)
+    except Exception:
+        return str(name or "")
+
+
+def _calibration_norm(name) -> str:
+    """Normalize to the resident's CANONICAL name so a backend alias ("sam_g") and
+    the display name ("Sam") share one calibration record. Never raises."""
+    return _face_norm(_canonical_name(name))
+
+
+def _calibration_load() -> None:
+    global _calibration_loaded, _CALIBRATION
+    if _calibration_loaded:
+        return
+    with _calibration_lock:
+        if _calibration_loaded:
+            return
+        data: dict[str, list] = {}
+        try:
+            if os.path.exists(CALIBRATION_PATH):
+                with open(CALIBRATION_PATH) as f:
+                    raw = json.load(f)
+                if isinstance(raw, dict):
+                    for k, recs in raw.items():
+                        if isinstance(recs, list):
+                            data[str(k)] = [r for r in recs
+                                            if isinstance(r, dict)][-_CALIBRATION_WINDOW:]
+        except Exception as exc:
+            _LOGGER.debug("calibration load failed: %s", exc)
+            data = {}
+        _CALIBRATION = data
+        _calibration_loaded = True
+
+
+def _calibration_save() -> None:
+    # Called with _calibration_lock held. Atomic tmp + os.replace.
+    try:
+        os.makedirs(os.path.dirname(CALIBRATION_PATH), exist_ok=True)
+        tmp = CALIBRATION_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(_CALIBRATION, f)
+        os.replace(tmp, CALIBRATION_PATH)
+    except Exception as exc:
+        _LOGGER.debug("calibration persist failed: %s", exc)
+
+
+def record_llm_calibration(name, outcome: str, backend_conf: float = 0.0,
+                           llm_conf: float = 0.0, source: str = "shadow") -> None:
+    """Append one shadow-comparison outcome for a resident to the rolling window and
+    persist. ``outcome`` is 'agreed' | 'wrong_person' | 'abstained', keyed by the
+    resident's canonical name. A 'user_correction' source (from the Faces tab)
+    records a 'wrong_person' and can trip auto-demotion. Executor / sync (file
+    I/O); best-effort; never raises."""
+    try:
+        key = _calibration_norm(name)
+        if not key or outcome not in _CALIBRATION_OUTCOMES:
+            return
+        _calibration_load()
+        rec = {
+            "ts": _time.time(),
+            "outcome": outcome,
+            "backend_conf": float(backend_conf or 0.0),
+            "llm_conf": float(llm_conf or 0.0),
+            "source": str(source or "shadow"),
+        }
+        with _calibration_lock:
+            lst = _CALIBRATION.setdefault(key, [])
+            lst.append(rec)
+            del lst[:-_CALIBRATION_WINDOW]   # keep only the rolling window
+            _calibration_save()
+    except Exception:
+        pass
+
+
+def _calibration_records(name) -> list:
+    _calibration_load()
+    return list(_CALIBRATION.get(_calibration_norm(name), []))[-_CALIBRATION_WINDOW:]
+
+
+def _calibration_counts(records) -> dict:
+    """Tally {agreed, wrong_person, abstained, total, agreement, precision} over a
+    record list. ``agreement`` = agreed/total (the graduation metric); ``precision``
+    = agreed/(agreed+wrong_person), excluding abstentions (for the HUD)."""
+    c = {"agreed": 0, "wrong_person": 0, "abstained": 0}
+    for r in records:
+        o = r.get("outcome")
+        if o in c:
+            c[o] += 1
+    total = c["agreed"] + c["wrong_person"] + c["abstained"]
+    decided = c["agreed"] + c["wrong_person"]
+    c["total"] = total
+    c["agreement"] = (c["agreed"] / total) if total else 0.0
+    c["precision"] = (c["agreed"] / decided) if decided else 0.0
+    return c
+
+
+def is_llm_graduated(name) -> bool:
+    """Whether the best-effort LLM matcher is trustworthy enough for ``name`` to
+    ASSIST camera narration / chat context (Tier 2) — evaluated LIVE over the
+    rolling window, so drift auto-demotes. Requires ≥3 enrolled refs, ≥15 shadow
+    comparisons, ≥90% agreement and ≤1 wrong-person error in the window. It never
+    stands intrusion monitoring down (that stays strictly Tier-1). Never raises."""
+    try:
+        if _reference_count(name) < _GRAD_MIN_REFS:
+            return False
+        c = _calibration_counts(_calibration_records(name))
+        if c["total"] < _GRAD_MIN_SAMPLES:
+            return False
+        if c["wrong_person"] > _GRAD_MAX_WRONG:
+            return False
+        return c["agreement"] >= _GRAD_MIN_AGREEMENT
+    except Exception:
+        return False
+
+
+def has_graduated_llm_residents() -> bool:
+    """True when at least one flagged resident's LLM matcher has graduated, so the
+    camera path knows a Tier-2 assist pass is worth running. Never raises."""
+    try:
+        from . import face_roster
+        return any(is_llm_graduated(n) for n in face_roster.residents())
+    except Exception:
+        return False
+
+
+def llm_calibration_summary() -> dict:
+    """``{canonical_norm: {name, refs, samples, agreed, wrong_person, abstained,
+    precision, graduated}}`` for the Faces HUD training panel (#41 §6B / §9).
+    Never raises."""
+    out: dict = {}
+    try:
+        from . import face_roster
+        _calibration_load()
+        names = list(face_roster.residents())
+        by_norm = {_calibration_norm(n): n for n in names}
+        keys = set(_CALIBRATION.keys()) | set(by_norm.keys())
+        for k in sorted(keys):
+            disp = by_norm.get(k, k)
+            c = _calibration_counts(list(_CALIBRATION.get(k, []))[-_CALIBRATION_WINDOW:])
+            out[k] = {
+                "name": disp,
+                "refs": _reference_count(disp),
+                "samples": c["total"],
+                "agreed": c["agreed"],
+                "wrong_person": c["wrong_person"],
+                "abstained": c["abstained"],
+                "precision": round(c["precision"], 3),
+                "graduated": is_llm_graduated(disp),
+            }
+    except Exception:
+        return out
+    return out
+
+
+def last_llm_guess_at(hass, camera_entity: str, *, graduated_only: bool = True,
+                      max_age_secs: int = 120) -> Optional[dict]:
+    """The freshest LLM guess for ``camera_entity`` within ``max_age_secs``, or None.
+    With ``graduated_only`` (default), only a guess whose resident has GRADUATED is
+    returned — so Tier-2 assist reads only trustworthy matches. Returns a copy with
+    ``age_seconds`` added. Never touches ``_RECOGNITION_CACHE``; never raises."""
+    try:
+        rec = _LLM_GUESS_CACHE.get(camera_entity)
+        if not rec:
+            return None
+        ts = rec.get("ts")
+        try:
+            age = (datetime.now(timezone.utc).replace(tzinfo=None) - ts).total_seconds()
+        except Exception:
+            return None
+        if age < 0 or age > max_age_secs:
+            return None
+        if graduated_only and not is_llm_graduated(rec.get("name", "")):
+            return None
+        return {**rec, "age_seconds": age}
+    except Exception:
+        return None
 
 
 def remember_llm_guess(camera_name: str, name: str, confidence: float) -> None:

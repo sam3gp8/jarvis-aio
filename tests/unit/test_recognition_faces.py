@@ -548,14 +548,19 @@ def test_auto_enroll_sync_writes_ref_and_marker(recog):
     assert "sam" in mod.list_auto_references()
 
 
-def test_auto_enroll_never_overwrites_existing_reference(recog):
+def test_auto_enroll_keeps_manual_sticky_but_fills_gallery(recog):
     mod, _ = recog
-    # A manual reference already exists → auto-train must not touch it, and the
-    # reference is not marked "auto".
+    # A manual reference exists → auto-train must never OVERWRITE it, but it now
+    # populates the gallery ALONGSIDE the manual (#41 §6A).
     assert mod.set_face_reference("Sam", b"\xff\xd8manual") is True
     assert mod.is_auto_reference("Sam") is False
-    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8auto") is False
-    assert mod.is_auto_reference("Sam") is False
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8auto", camera="camera.hall") is True
+    assert mod.is_auto_reference("Sam") is False           # manual slot untouched
+    with open(mod.face_reference_path("Sam"), "rb") as f:
+        assert f.read() == b"\xff\xd8manual"               # bytes unchanged
+    # face_reference_paths lists the manual first, then the gallery frame.
+    paths = mod.face_reference_paths("Sam")
+    assert len(paths) == 2 and paths[0] == mod.face_reference_path("Sam")
 
 
 def test_manual_upload_clears_auto_marker(recog):
@@ -762,3 +767,207 @@ def test_context_string_omits_unknown_keeps_resident(recog, fake_hass):
     s = mod.recognition_context_string(fake_hass)
     assert "Sam (resident) seen at" in s
     assert "unknown" not in s.lower()
+
+
+# ── §6A: multi-sample reference gallery, diversity & lighting selection ──────────
+
+def test_gallery_bootstraps_legacy_slot_then_fills_gallery(recog):
+    mod, _ = recog
+    # First auto frame bootstraps the legacy single-file slot (face_reference_path
+    # keeps working); it is marked auto.
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8a0", camera="camera.a") is True
+    assert mod.is_auto_reference("Sam") is True
+    assert mod.face_reference_path("Sam") is not None
+    assert mod._reference_count("Sam") == 1
+
+
+def test_gallery_diversity_spacing_skips_same_cam_and_bucket(recog, monkeypatch):
+    mod, _ = recog
+    import jc.recognition as _r
+    t = [1_000_000.0]
+    monkeypatch.setattr(_r._time, "time", lambda: t[0])
+    # A manual reference means auto frames go to the gallery (not the legacy slot),
+    # so every auto frame carries a filename timestamp the diversity check can read.
+    mod.set_face_reference("Sam", b"\xff\xd8manual")
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8a1", bucket="day", camera="camera.a") is True
+    # 1 minute later, same camera + bucket → too similar, skipped.
+    t[0] += 60
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8a2", bucket="day", camera="camera.a") is False
+    # Different lighting bucket → accepted even within the spacing window.
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8a3", bucket="night", camera="camera.a") is True
+    # Different camera → accepted too.
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8a4", bucket="day", camera="camera.b") is True
+    # Past the 30-min spacing, same cam+bucket is allowed again.
+    t[0] += mod._AUTO_REF_MIN_SPACING + 1
+    assert mod._auto_enroll_reference_sync("Sam", b"\xff\xd8a5", bucket="day", camera="camera.a") is True
+    assert len(mod._gallery_auto_frames("Sam")) == mod._MAX_AUTO_REFS       # gallery capped
+    assert mod._reference_count("Sam") == mod._MAX_AUTO_REFS + 1            # + manual slot 0
+
+
+def test_gallery_caps_and_evicts_oldest(recog, monkeypatch):
+    mod, _ = recog
+    import jc.recognition as _r
+    t = [2_000_000.0]
+    monkeypatch.setattr(_r._time, "time", lambda: t[0])
+    # Enroll 5 distinct frames (spaced), expect only _MAX_AUTO_REFS kept.
+    for i in range(6):
+        mod._auto_enroll_reference_sync("Sam", f"f{i}".encode(), bucket="day",
+                                        camera=f"camera.{i}")
+        t[0] += mod._AUTO_REF_MIN_SPACING + 1
+    assert mod._reference_count("Sam") == mod._MAX_AUTO_REFS
+
+
+def test_face_reference_paths_prefers_lighting_bucket(recog, monkeypatch):
+    mod, _ = recog
+    import jc.recognition as _r
+    t = [3_000_000.0]
+    monkeypatch.setattr(_r._time, "time", lambda: t[0])
+    mod.set_face_reference("Sam", b"\xff\xd8manual")          # manual slot 0
+    t[0] += 1
+    mod._auto_enroll_reference_sync("Sam", b"\xff\xd8day", bucket="day", camera="camera.a")
+    t[0] += mod._AUTO_REF_MIN_SPACING + 1
+    mod._auto_enroll_reference_sync("Sam", b"\xff\xd8night", bucket="night", camera="camera.a")
+    manual = mod.face_reference_path("Sam")
+    night_first = mod.face_reference_paths("Sam", prefer_night=True, limit=3)
+    assert night_first[0] == manual                          # manual always first
+    assert "night" in night_first[1]                         # night bucket ordered ahead
+    day_first = mod.face_reference_paths("Sam", prefer_night=False, limit=3)
+    assert "day" in day_first[1]
+
+
+def test_lighting_bucket_reads_sun(recog, fake_hass):
+    mod, _ = recog
+    fake_hass.states.set("sun.sun", "below_horizon")
+    assert mod._lighting_bucket(fake_hass) == "night"
+    fake_hass.states.set("sun.sun", "above_horizon")
+    assert mod._lighting_bucket(fake_hass) == "day"
+
+
+# ── §6B: shadow calibration, graduation & auto-demotion ─────────────────────────
+
+@pytest.fixture
+def calib(recog, tmp_path, monkeypatch):
+    mod, fr = recog
+    monkeypatch.setattr(mod, "CALIBRATION_PATH", str(tmp_path / "calibration.json"))
+    mod._CALIBRATION = {}
+    mod._calibration_loaded = False
+    return mod, fr
+
+
+def _give_refs(mod, name, n):
+    # Give a resident ``n`` enrolled references cheaply (manual + gallery frames).
+    import jc.recognition as _r
+    mod.set_face_reference(name, b"\xff\xd8m")
+    t = [9_000_000.0]
+    import unittest.mock as _m
+    for i in range(max(0, n - 1)):
+        with _m.patch.object(_r._time, "time", lambda: t[0]):
+            mod._auto_enroll_reference_sync(name, f"g{i}".encode(), bucket="day",
+                                            camera=f"camera.{i}")
+        t[0] += mod._AUTO_REF_MIN_SPACING + 1
+
+
+def test_record_and_counts(calib):
+    mod, fr = calib
+    fr.add_resident("Sam")
+    for _ in range(10):
+        mod.record_llm_calibration("Sam", "agreed", backend_conf=90, llm_conf=85)
+    mod.record_llm_calibration("Sam", "abstained")
+    recs = mod._calibration_records("Sam")
+    c = mod._calibration_counts(recs)
+    assert c["agreed"] == 10 and c["abstained"] == 1 and c["total"] == 11
+
+
+def test_not_graduated_below_thresholds(calib):
+    mod, fr = calib
+    fr.add_resident("Sam")
+    _give_refs(mod, "Sam", 3)
+    # Only 10 samples (< 15) → not graduated even at 100% agreement.
+    for _ in range(10):
+        mod.record_llm_calibration("Sam", "agreed")
+    assert mod.is_llm_graduated("Sam") is False
+    # Enough samples but only 2 refs → still not graduated.
+    for _ in range(6):
+        mod.record_llm_calibration("Sam", "agreed")
+    mod.remove_face_reference("Sam")   # drop below 3 refs
+    assert mod._reference_count("Sam") < mod._GRAD_MIN_REFS
+    assert mod.is_llm_graduated("Sam") is False
+
+
+def test_graduates_then_demotes_on_wrong_person(calib):
+    mod, fr = calib
+    fr.add_resident("Sam")
+    _give_refs(mod, "Sam", 3)
+    assert mod._reference_count("Sam") >= mod._GRAD_MIN_REFS
+    for _ in range(16):
+        mod.record_llm_calibration("Sam", "agreed")
+    assert mod.is_llm_graduated("Sam") is True          # ≥3 refs, ≥15 samples, 100%
+    assert mod.has_graduated_llm_residents() is True
+    # A second wrong-person error in the window trips auto-demotion (> _GRAD_MAX_WRONG).
+    mod.record_llm_calibration("Sam", "wrong_person")
+    mod.record_llm_calibration("Sam", "wrong_person", source="user_correction")
+    assert mod.is_llm_graduated("Sam") is False
+    assert mod.has_graduated_llm_residents() is False
+
+
+def test_graduation_canonicalizes_aliases(calib):
+    mod, fr = calib
+    fr.add_resident("Sam")
+    fr.add_alias("sam_g", "Sam")
+    _give_refs(mod, "Sam", 3)
+    # Backend logs calibration under the alias; it must fold onto the one resident.
+    for _ in range(16):
+        mod.record_llm_calibration("sam_g", "agreed")
+    assert mod.is_llm_graduated("Sam") is True
+    assert mod.is_llm_graduated("sam_g") is True
+
+
+def test_calibration_persists_and_summary(calib, tmp_path):
+    mod, fr = calib
+    fr.add_resident("Sam")
+    _give_refs(mod, "Sam", 3)
+    for _ in range(16):
+        mod.record_llm_calibration("Sam", "agreed")
+    mod.record_llm_calibration("Sam", "abstained")
+    # Reload from disk → window intact.
+    mod._CALIBRATION = {}
+    mod._calibration_loaded = False
+    summ = mod.llm_calibration_summary()
+    row = summ[mod._calibration_norm("Sam")]
+    assert row["name"] == "Sam"
+    assert row["samples"] == 17 and row["agreed"] == 16
+    assert row["graduated"] is True
+    assert row["refs"] >= mod._GRAD_MIN_REFS
+
+
+def test_last_llm_guess_at_graduated_only(calib):
+    mod, fr = calib
+    fr.add_resident("Sam")
+    mod._LLM_GUESS_CACHE["camera.hall"] = {
+        "name": "Sam", "confidence": 80.0, "ts": _now()}
+    # Ungraduated → withheld under the default graduated_only.
+    assert mod.last_llm_guess_at(None, "camera.hall") is None
+    # But visible when graduated_only is off.
+    g = mod.last_llm_guess_at(None, "camera.hall", graduated_only=False)
+    assert g and g["name"] == "Sam" and "age_seconds" in g
+    # Graduate Sam → now returned under the default.
+    _give_refs(mod, "Sam", 3)
+    for _ in range(16):
+        mod.record_llm_calibration("Sam", "agreed")
+    assert mod.last_llm_guess_at(None, "camera.hall")["name"] == "Sam"
+    # A stale guess is dropped regardless.
+    mod._LLM_GUESS_CACHE["camera.hall"]["ts"] = _now() - timedelta(seconds=999)
+    assert mod.last_llm_guess_at(None, "camera.hall", graduated_only=False) is None
+
+
+def test_calibration_never_touches_resident_present(calib, fake_hass):
+    # SAFETY: calibration/graduation must never stand intrusion down.
+    mod, fr = calib
+    fr.add_resident("Sam")
+    _give_refs(mod, "Sam", 3)
+    for _ in range(16):
+        mod.record_llm_calibration("Sam", "agreed")
+    assert mod.is_llm_graduated("Sam") is True
+    mod._LLM_GUESS_CACHE["camera.hall"] = {
+        "name": "Sam", "confidence": 99.0, "ts": _now()}
+    assert mod.resident_present(fake_hass) is None
