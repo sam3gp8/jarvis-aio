@@ -3043,6 +3043,22 @@ def _resolve_llm_client(hass: HomeAssistant):
     return None
 
 
+def _resolve_composer_client(hass: HomeAssistant):
+    """The provider the Suggestions-tab composer should draft with. Prefers the
+    REASONING tier (the model configured for structured, multi-step work) when the
+    observer is running, falling back to the main conversation client otherwise —
+    so a drafted automation is authored by the reasoning model, not whatever quick
+    chat model answers conversation turns."""
+    try:
+        from . import observer
+        rc = getattr(observer._STATE, "reasoning_provider", None)
+        if rc is not None:
+            return rc
+    except Exception:
+        pass
+    return _resolve_llm_client(hass)
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "jarvis/compose_automation",
@@ -3063,7 +3079,7 @@ async def ws_compose_automation(
     try:
         from .automation_creator import draft_automation, create_automation
         if msg["action"] == "draft":
-            client = _resolve_llm_client(hass)
+            client = _resolve_composer_client(hass)
             res = await draft_automation(hass, msg.get("text", ""), client=client)
             connection.send_result(msg["id"], res)
             return

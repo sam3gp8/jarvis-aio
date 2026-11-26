@@ -2722,3 +2722,29 @@ async def test_ws_announce_surfaces_relay_failure(fake_hass, monkeypatch):
 
     assert conn.result is None
     assert conn.error is not None and conn.error[1] == "announce_failed"
+
+
+# ── composer routes to the reasoning tier (spec #40, Phase 1, §4) ─────────────
+
+def _patch_observer(monkeypatch, websocket, reasoning_provider):
+    """Make `from . import observer` inside websocket resolve to a fake whose
+    _STATE.reasoning_provider is as given (patching the package attribute the
+    import actually reads, not just sys.modules)."""
+    fake_obs = types.SimpleNamespace(
+        _STATE=types.SimpleNamespace(reasoning_provider=reasoning_provider))
+    monkeypatch.setitem(sys.modules, "jc.observer", fake_obs)
+    pkg = sys.modules[websocket.__package__]      # the "jc" package
+    monkeypatch.setattr(pkg, "observer", fake_obs, raising=False)
+
+
+def test_resolve_composer_prefers_reasoning_tier(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    _patch_observer(monkeypatch, websocket, "REASONING_CLIENT")
+    assert websocket._resolve_composer_client(fake_hass) == "REASONING_CLIENT"
+
+
+def test_resolve_composer_falls_back_to_main_client(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    _patch_observer(monkeypatch, websocket, None)
+    monkeypatch.setattr(websocket, "_resolve_llm_client", lambda hass: "MAIN_CLIENT")
+    assert websocket._resolve_composer_client(fake_hass) == "MAIN_CLIENT"

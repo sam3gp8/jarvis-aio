@@ -720,7 +720,8 @@ async def _draft_agentic(hass: HomeAssistant, text: str, client) -> dict[str, An
         hass, client, system=system_native, user=text,
         tools=[_SEARCH_TOOL, _COMPOSER_TOOL], handlers=handlers,
         json_hint=json_hint, default_tool="create",
-        max_steps=_DRAFT_MAX_STEPS, temperature=0.2, native=True)
+        max_steps=_DRAFT_MAX_STEPS, max_tokens=_ONESHOT_MAX_TOKENS,
+        temperature=0.2, native=True)
 
     if isinstance(res.get("done"), dict):
         return res["done"]

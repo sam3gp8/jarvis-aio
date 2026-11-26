@@ -501,3 +501,95 @@ async def test_native_forced_skips_probe(td):
     assert res["used"] == "native"
     assert res["text"] == "hi there"
     assert client.calls == 1
+
+
+# ── run_state threading + max_tokens (spec #40, Phase 1, §3.1-3.2) ────────────
+
+@pytest.mark.asyncio
+async def test_native_threads_same_run_state_across_steps(td):
+    """A single run_state dict is passed through every native turn, so a provider
+    that keeps continuation state there (Gemini's previous_interaction_id) doesn't
+    lose the thread mid-chain."""
+    client = _Client([
+        {"tool_calls": [{"id": "s", "name": "look", "args": {}}]},
+        {"tool_calls": [{"id": "f", "name": "fin", "args": {}}]},
+    ], supports=True)
+
+    def _look(args):
+        return "r"
+
+    async def _fin(args):
+        return td.Done("ok")
+
+    res = await td.run_tool_loop(
+        _Hass(), client, system="s", user="u",
+        tools=[_tool("look"), _tool("fin")], handlers={"look": _look, "fin": _fin})
+    assert res["done"] == "ok"
+    assert "run_state" in client.seen[0]
+    assert client.seen[0]["run_state"] is client.seen[1]["run_state"]   # same object
+
+
+@pytest.mark.asyncio
+async def test_native_run_state_skipped_for_narrow_stub(td):
+    """A minimal client whose chat() signature can't take run_state must not get
+    it (no TypeError), and the loop still completes."""
+    class _Narrow:
+        def __init__(self):
+            self.calls = 0
+
+        def supports_tools(self):
+            return True
+
+        def chat(self, messages, tools=None, max_tokens=512, temperature=0.7):
+            self.calls += 1
+            return {"tool_calls": [{"id": "f", "name": "fin", "args": {}}]}
+
+    client = _Narrow()
+
+    async def _fin(args):
+        return td.Done("ok")
+
+    res = await td.run_tool_loop(
+        _Hass(), client, system="s", user="u", tools=[_tool("fin")],
+        handlers={"fin": _fin})
+    assert res["done"] == "ok" and client.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_is_forwarded(td):
+    client = _Client([{"text": "hi", "tool_calls": []}], supports=True)
+    await td.run_tool_loop(_Hass(), client, system="s", user="u",
+                           tools=[_tool("x")], handlers={}, max_tokens=2048)
+    assert client.seen[0]["max_tokens"] == 2048
+
+
+# ── duplicate-call block BEFORE dispatch (spec #40, Phase 1, §3.4) ────────────
+
+@pytest.mark.asyncio
+async def test_json_duplicate_call_is_not_dispatched(td):
+    client = _Client([
+        {"text": json.dumps({"tool": "look", "args": {"q": "a"}}), "tool_calls": []},
+        {"text": json.dumps({"tool": "look", "args": {"q": "a"}}), "tool_calls": []},
+        {"text": json.dumps({"tool": "final", "text": "done"}), "tool_calls": []},
+    ], supports=False)
+    hits = {"n": 0}
+
+    def _look(args):
+        hits["n"] += 1
+        return "nope"
+
+    res = await td.run_tool_loop(
+        _Hass(), client, system="s", user="u", tools=[_tool("look")],
+        handlers={"look": _look}, max_steps=5)
+    assert res["text"] == "done"
+    assert hits["n"] == 1           # the identical second call was blocked, not run
+
+
+# ── modern plural keys in _extract_json (spec #40, Phase 1, §3.3) ─────────────
+
+def test_extract_json_recognizes_plural_automation(td):
+    s = json.dumps({"triggers": [{"trigger": "state"}],
+                    "actions": [{"action": "light.turn_on"}]})
+    obj = td._extract_json("here you go: " + s + " done")
+    assert obj["triggers"][0]["trigger"] == "state"
+    assert obj["actions"][0]["action"] == "light.turn_on"

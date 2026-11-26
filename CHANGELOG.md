@@ -1,3 +1,31 @@
+## [9.173.0] — Automation drafter: tool-driver call-chain fixes + composer on the reasoning tier
+
+The third tranche of the automation-drafter cleanup, fixing the execution-layer
+leaks that quietly degraded multi-step drafting.
+
+- **Gemini continuation state preserved across a tool chain.** The native
+  function-calling loop now threads a single `run_state` dict through every turn,
+  so a provider that keeps server-side continuation there (`GeminiProvider`'s
+  `previous_interaction_id`) no longer loses the thread mid-chain. It's passed only
+  to clients whose `chat()` accepts it, so a minimal stub is never broken.
+- **Duplicate tool calls blocked before they execute.** The JSON-action loop
+  checked for a repeated call *after* already running it — so an identical call
+  fired its side effect twice before the repeat-guard kicked in. It now detects the
+  duplicate **before** dispatch and nudges the model instead of re-running it.
+- **Configurable token budget.** `run_tool_loop` (and both inner loops) take a
+  `max_tokens` argument; the agentic drafter passes its full `2048` one-shot budget
+  so a reasoning model isn't truncated mid-draft.
+- **Modern plural keys recognised.** `_extract_json` now accepts an automation
+  object keyed by HA's `triggers`/`actions` (not just the singular forms).
+- **Composer drafts on the reasoning tier.** The Suggestions-tab composer resolves
+  the reasoning-tier provider first (the model configured for structured,
+  multi-step work), falling back to the main conversation client only when the
+  observer isn't running — so a drafted automation is authored by the right model.
+
+New driver and resolver tests (run_state threading, narrow-stub safety, duplicate
+block, token forwarding, plural extraction, tier routing). No behavioural change
+for a single-step draft.
+
 ## [9.172.0] — Automation drafter: schema enforcement, closed validation bypass & fail-safe writes
 
 The second tranche of the automation-drafter cleanup, hardening the core
