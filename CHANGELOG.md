@@ -1,3 +1,32 @@
+## [9.177.0] — Suggestion engine: no sequence inflation, multi-day spread, causal-gate parity
+
+The second Phase-2 tranche, making the sequence finder's statistics honest so a
+single noisy afternoon can't mint a confident suggestion, and closing a gap that
+let the lowest-ranked patterns skip causal gating.
+
+- **Controllable-effect gating.** A learned "when X, do Y" pair is recorded only
+  when Y is actually actuatable (`service_for(Y)` is real) — a read-only telemetry
+  change (a sensor, a device_tracker) can no longer crowd real actuations out of
+  the top-15.
+- **Burst de-duplication.** Several identical trigger flickers inside one window,
+  before a single action, now count as **one** co-occurrence (the latest epoch per
+  `(entity, state)` wins) instead of multiplying the count toward a false 1.0.
+- **Multi-day spread required.** A pair must recur across at least
+  `max(3, MIN_OCCURRENCES//2)` distinct days, so one busy afternoon can't reach a
+  high-confidence suggestion.
+- **Upfront noise filter.** Dead states (`unavailable`/`unknown`/empty), the
+  `update` domain, and user-excluded entities are dropped before pairing (button
+  `event` presses are kept — they're valid triggers).
+- **Causal-gate parity.** `_CAUSAL_PARITY_CAP` is raised from 10 to 15 to match the
+  finder's `most_common(15)`, so patterns #11–#15 can no longer bypass Phase-L
+  causal gating; and `_causal_predict_enforce_on()` now checks the
+  `causal_predict_enforce` config key **first**, so the kill-switch actually works
+  (the module default only applies when the key is unset).
+
+New tests for burst de-dup, the single-day rejection, read-only-effect and
+excluded-entity filtering, and the config kill-switch precedence. Remaining
+Phase-2 work: `pattern_analyzer` §7D–H.
+
 ## [9.176.0] — Suggestion engine: night-only condition that actually fires + garage-close safety
 
 The first Phase-2 tranche of the automation cleanup, fixing the passive pattern

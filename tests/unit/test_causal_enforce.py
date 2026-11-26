@@ -48,6 +48,15 @@ def test_enforce_on_via_config(pa, cfg):
     assert pa._causal_predict_enforce_on() is True
 
 
+def test_config_false_overrides_module_default(pa, cfg, monkeypatch):
+    # §7C.5: the config kill-switch takes PRECEDENCE — an explicit False disables
+    # enforcement even when the module default CAUSAL_PREDICT_ENFORCE is True (the
+    # old order let the module default short-circuit, ignoring the config).
+    monkeypatch.setattr(pa, "CAUSAL_PREDICT_ENFORCE", True)
+    cfg["causal_predict_enforce"] = False
+    assert pa._causal_predict_enforce_on() is False
+
+
 def test_enforce_on_via_flag(pa, monkeypatch):
     monkeypatch.setattr(pa, "CAUSAL_PREDICT_ENFORCE", True)
     assert pa._causal_predict_enforce_on() is True

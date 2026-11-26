@@ -46,6 +46,10 @@ ANALYSIS_INTERVAL = 21600    # 6 hours between analyses
 # behaviour — an HA automatic backup's event.* firing "in_progress" at 05:00, an
 # update.* check — must never become a learned, pushed "routine".
 _NOISE_ROUTINE_DOMAINS = frozenset({"event", "update"})
+# Noise domains for the SEQUENCE finder: `update` is pure noise, but `event`
+# (button/remote presses) is a legitimate sequence TRIGGER, so it is kept — the
+# action side is gated by service_for() regardless.
+_SEQ_NOISE_DOMAINS = frozenset({"update"})
 KNOWLEDGE_FACT_CONFIDENCE = 0.75  # routines/commands above this also become observed facts
 PERSON_DOMINANCE_RATIO = 0.8      # a person must account for this share of a
                                    # pattern's occurrences to own it, vs. household
@@ -208,7 +212,8 @@ def _emit_causal_shadow(patterns: list) -> None:
 # (CAUSAL_PREDICT_ENFORCE gating a proactive path) stays owner-gated.
 CAUSAL_PREDICT_PARITY = True
 _CAUSAL_PARITY_WINDOW_S = 600.0   # match _find_sequence_patterns' pairing window
-_CAUSAL_PARITY_CAP = 10           # top sequence patterns to reconstruct per pass
+_CAUSAL_PARITY_CAP = 15           # ≥ the sequence finder's most_common(15), so
+                                  # patterns #11–#15 can't bypass Phase-L gating
 
 # ENFORCE (Phase L) — **owner-flipped ON (9.122.0)**, kill-switchable. A detected
 # SEQUENCE pattern is only stored as a proactive suggestion if the kernel causal
@@ -227,15 +232,20 @@ CAUSAL_PREDICT_ENFORCE = True
 
 
 def _causal_predict_enforce_on() -> bool:
-    """True when the Phase L enforce flip is active (module flag or the
-    `causal_predict_enforce` config key). Never raises."""
-    if CAUSAL_PREDICT_ENFORCE:
-        return True
+    """True when the Phase L enforce flip is active. The `causal_predict_enforce`
+    config key takes PRECEDENCE — an explicit False is a real kill-switch, an
+    explicit True forces it on — and only when it is unset/unreadable does the
+    module default ``CAUSAL_PREDICT_ENFORCE`` apply. (The old order let the
+    module default short-circuit to True, so the config kill-switch was ignored.)
+    Never raises."""
     try:
         from . import jarvis_config
-        return bool(jarvis_config.get("causal_predict_enforce", False))
+        val = jarvis_config.get("causal_predict_enforce", None)
+        if val is not None:
+            return bool(val)
     except Exception:
-        return False
+        pass
+    return bool(CAUSAL_PREDICT_ENFORCE)
 
 
 def _causal_gates_out(pattern) -> bool:
@@ -1736,7 +1746,8 @@ class PatternAnalyzer:
 
     def _find_sequence_patterns(self, conn: sqlite3.Connection,
                                 lat=None, lon=None,
-                                sensor_hist=None, occ_ctx=None) -> list[DetectedPattern]:
+                                sensor_hist=None, occ_ctx=None,
+                                excluded=None) -> list[DetectedPattern]:
         """Find state changes that consistently follow each other within 10 min.
 
         Single-pass sliding window. This replaced an O(N^2) SQL self-join whose
@@ -1767,24 +1778,47 @@ class PatternAnalyzer:
         pair_counts: Counter = Counter()
         pair_lag: dict = {}     # (ea,sa,eb,sb) -> [sum_seconds, count] for mean lag
         pair_times: dict = {}   # (ea,sa,eb,sb) -> [action epochs] (capped) for time window
+        pair_days: dict = {}    # (ea,sa,eb,sb) -> {date, …} distinct days of the pair
+        excluded = excluded or set()
+        _SKIP_STATES = ("unavailable", "unknown", "", None)
 
         for r in rows:
             try:
-                epoch = datetime.fromisoformat(r["timestamp"]).timestamp()
+                dt = datetime.fromisoformat(r["timestamp"])
             except (ValueError, TypeError):
                 continue
             ent = r["entity_id"]
             dom = r["domain"]
             st = r["new_state"]
+            # Skip noise upfront so it never enters the window or inflates a pair:
+            # dead states, non-routine domains, and user-excluded entities.
+            if st in _SKIP_STATES or dom in _SEQ_NOISE_DOMAINS or ent in excluded:
+                continue
+            epoch = dt.timestamp()
             cutoff = epoch - window_s
             while win and win[0][0] < cutoff:
                 win.popleft()
-            for a_epoch, a_ent, a_dom, a_st in win:
-                if a_ent != ent:                       # cross-domain allowed
+            # Only a controllable action can become a real automation step; a
+            # read-only telemetry change (sensor, device_tracker, …) as the effect
+            # can't, so don't let it crowd real actuations out of the top-15.
+            if service_for(ent, st):
+                day = dt.date()
+                # Dedupe triggers by (entity,state): a burst of identical flickers
+                # before this single action counts as ONE co-occurrence (keep the
+                # latest epoch in the window), so one noisy afternoon can't inflate
+                # the count to confidence 1.0.
+                latest: dict = {}
+                for a_epoch, a_ent, a_dom, a_st in win:
+                    if a_ent == ent:                   # cross-entity only
+                        continue
+                    k = (a_ent, a_st)
+                    if a_epoch > latest.get(k, -1.0):
+                        latest[k] = a_epoch
+                for (a_ent, a_st), a_epoch in latest.items():
                     key = (a_ent, a_st, ent, st)
                     pair_counts[key] += 1
-                    slot = pair_lag.get(key)
                     lag = epoch - a_epoch
+                    slot = pair_lag.get(key)
                     if slot is None:
                         pair_lag[key] = [lag, 1]
                     else:
@@ -1795,13 +1829,23 @@ class PatternAnalyzer:
                         pair_times[key] = [epoch]
                     elif len(tl) < 40:
                         tl.append(epoch)
+                    pd = pair_days.get(key)
+                    if pd is None:
+                        pair_days[key] = {day}
+                    else:
+                        pd.add(day)
             win.append((epoch, ent, dom, st))
             if len(win) > window_cap:
                 win.popleft()
 
+        # A real habit recurs across days — require a multi-day spread so a single
+        # busy afternoon can't mint a high-confidence suggestion.
+        _MIN_PAIR_DAYS = max(3, MIN_OCCURRENCES // 2)
         for (ea, sa, eb, sb), count in pair_counts.most_common(15):
             if count < MIN_OCCURRENCES:
                 break
+            if len(pair_days.get((ea, sa, eb, sb), ())) < _MIN_PAIR_DAYS:
+                continue
             slot = pair_lag.get((ea, sa, eb, sb), [0.0, 1])
             mean_lag = int(round(slot[0] / max(1, slot[1])))
             times = pair_times.get((ea, sa, eb, sb), [])
