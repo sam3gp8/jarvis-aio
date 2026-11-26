@@ -10,6 +10,12 @@ blueprint:
     `unknown` — plus the boolean `is_resident`, so your own automations can
     treat household and visitors differently (issue #388). Flag residents in the
     JARVIS panel → Faces.
+
+    It also carries best-effort `is_indoor` and `residents_home` booleans (the
+    camera's floor-plan placement, and whether a resident is tracked home while
+    the alarm is not armed away), which the "Suppress indoor unknown alerts while
+    residents are home" option below uses to avoid alerting on an unrecognised
+    resident indoors (#41).
   domain: automation
   input:
     target_camera:
@@ -27,6 +33,20 @@ blueprint:
     alert_unknown:
       name: Alert on unknown faces
       description: Announce and analyze when an unknown person is seen
+      default: true
+      selector:
+        boolean:
+    suppress_unknown_indoor_when_home:
+      name: Suppress indoor unknown alerts while residents are home
+      description: >-
+        When on (default), an unknown face on an INDOOR camera is NOT alerted on
+        while a household resident is tracked home — the common case of a
+        resident the backend simply failed to recognise, or an invited guest. It
+        relies on the event's `is_indoor` and `residents_home` flags (JARVIS sets
+        both; `residents_home` is false when the alarm is armed away), and falls
+        back to alerting whenever either is unknown. Outdoor cameras are
+        unaffected and always alert on an unknown face. Turn this off to alert on
+        every unknown face regardless of placement or presence.
       default: true
       selector:
         boolean:
@@ -51,6 +71,7 @@ variables:
   target_cam: !input target_camera
   greet: !input greet_known
   alert_unk: !input alert_unknown
+  suppress_indoor_home: !input suppress_unknown_indoor_when_home
 
 condition:
   - condition: template
@@ -77,7 +98,10 @@ action:
       - conditions:
           - condition: template
             value_template: >-
-              {{ trigger.event.data.is_unknown and alert_unk }}
+              {{ trigger.event.data.is_unknown and alert_unk
+                 and not (suppress_indoor_home
+                          and (trigger.event.data.is_indoor | default(false))
+                          and (trigger.event.data.residents_home | default(false))) }}
         sequence:
           - service: jarvis.analyze_on_event
             data:

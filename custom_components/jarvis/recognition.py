@@ -988,6 +988,40 @@ def _relationship_fields(name: str, is_unknown: bool) -> dict:
     }
 
 
+def _indoor_home_fields(hass, camera_entity: str) -> dict:
+    """Best-effort ``{"is_indoor": bool, "residents_home": bool}`` for the
+    ``jarvis_face_recognized`` event, so the blueprint's optional
+    ``suppress_unknown_indoor_when_home`` guard can hold back a stranger alert for
+    an unknown face on an INDOOR camera while residents are home (#41 §5).
+
+    ``residents_home`` counts a tracked resident at home — but NOT when an alarm
+    panel is armed away/vacation: a declared-empty home is exactly when an unknown
+    face must still alert. Each field is omitted when it can't be determined
+    (so the blueprint's ``| default(false)`` keeps vigilance), never guessed.
+    Never raises."""
+    out: dict = {}
+    try:
+        from .camera import _camera_is_indoor
+        ind = _camera_is_indoor(hass, camera_entity)
+        if ind is not None:
+            out["is_indoor"] = bool(ind)
+    except Exception:
+        pass
+    try:
+        from .presence import get_presence_summary
+        home = int((get_presence_summary(hass) or {}).get("home_count", 0) or 0) > 0
+        armed_away = False
+        try:
+            from .camera import _armed_away
+            armed_away = _armed_away(hass)
+        except Exception:
+            armed_away = False
+        out["residents_home"] = bool(home and not armed_away)
+    except Exception:
+        pass
+    return out
+
+
 def recent_faces(hass: HomeAssistant, limit: int = 20) -> list[dict]:
     """The most recent face recognition per camera, for the Household Faces panel
     (issue #140). Merges the MQTT-driven recognition cache with Frigate's
@@ -1350,6 +1384,7 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                 "is_unknown":  name_unknown,
                 "is_confident": (not name_unknown) and confidence >= CONFIDENCE_THRESHOLD,
                 **_relationship_fields(name, name_unknown),
+                **_indoor_home_fields(hass, _camera_entity_from_name(camera)),
             },
         )
         _LOGGER.info("JARVIS: face recognized — %s @ %s (%.1f%%)", name, camera, confidence)
@@ -1432,6 +1467,7 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                             "is_unknown": sub_unknown,
                             "is_confident": (not sub_unknown) and _sub_conf >= CONFIDENCE_THRESHOLD,
                             **_relationship_fields(_sub_name, sub_unknown),
+                            **_indoor_home_fields(hass, f"camera.{camera}"),
                             "source": "frigate",
                         })
                         _LOGGER.info(
@@ -1511,6 +1547,7 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                         "is_unknown": is_unknown,
                         "is_confident": (not is_unknown) and conf >= CONFIDENCE_THRESHOLD,
                         **_relationship_fields(name, is_unknown),
+                        **_indoor_home_fields(hass, f"camera.{camera}" if camera else ""),
                         "source": "frigate_tracked_object",
                     })
                     if not is_unknown:
