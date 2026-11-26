@@ -2748,3 +2748,62 @@ def test_resolve_composer_falls_back_to_main_client(fake_hass, monkeypatch):
     _patch_observer(monkeypatch, websocket, None)
     monkeypatch.setattr(websocket, "_resolve_llm_client", lambda hass: "MAIN_CLIENT")
     assert websocket._resolve_composer_client(fake_hass) == "MAIN_CLIENT"
+
+
+async def test_ws_faces_training_telemetry_and_corrections(fake_hass, monkeypatch):
+    # §9: the Faces payload carries calibration / aliases / unflagged_persons, and
+    # the correct_llm_guess + add_alias actions route to the right backend calls.
+    websocket = _load_websocket_module()
+    monkeypatch.setattr(websocket, "jarvis_log", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(websocket, "_deny_non_admin", lambda conn, msg: False, raising=False)
+    monkeypatch.setattr(websocket, "_get_entry", lambda hass: None, raising=False)
+    monkeypatch.setattr(websocket, "_runtime_opt",
+                        lambda hass, entry, key, default=None: default, raising=False)
+    corrections = []
+    added = []
+    _install_jc_module(monkeypatch, "recognition", types.SimpleNamespace(
+        recent_faces=lambda hass, limit=20: [],
+        list_face_references=lambda: ["sam"],
+        list_auto_references=lambda: [],
+        llm_calibration_summary=lambda: {
+            "sam": {"name": "Sam", "refs": 3, "samples": 16, "graduated": True}},
+        record_llm_calibration=lambda name, outcome, **k: corrections.append(
+            (name, outcome, k.get("source"))),
+        remove_face_reference=lambda name: True,
+    ))
+    _install_jc_module(monkeypatch, "face_roster", types.SimpleNamespace(
+        residents=lambda: ["Sam"],
+        aliases=lambda: {"sam_g": "Sam"},
+        unflagged_ha_persons=lambda hass: ["Max"],
+        add_alias=lambda alias, name: added.append((alias, name)) or True,
+        _load=lambda: None,
+    ))
+    _install_jc_module(monkeypatch, "guest_roster", types.SimpleNamespace(guests=lambda: []))
+
+    conn = _Conn()
+    await websocket.ws_faces(fake_hass, conn, {"id": 1, "action": "list"})
+    payload = conn.result[1]
+    assert payload["calibration"]["sam"]["graduated"] is True
+    assert payload["aliases"] == {"sam_g": "Sam"}
+    assert payload["unflagged_persons"] == ["Max"]
+
+    conn2 = _Conn()
+    await websocket.ws_faces(fake_hass, conn2,
+                             {"id": 2, "action": "correct_llm_guess", "name": "Sam"})
+    assert ("Sam", "wrong_person", "user_correction") in corrections
+
+    conn3 = _Conn()
+    await websocket.ws_faces(fake_hass, conn3,
+                             {"id": 3, "action": "add_alias", "name": "Sam", "alias": "sam_g"})
+    assert ("sam_g", "Sam") in added
+
+
+async def test_ws_faces_write_actions_require_admin(fake_hass, monkeypatch):
+    websocket = _load_websocket_module()
+    _install_jc_module(monkeypatch, "recognition", types.SimpleNamespace())
+    _install_jc_module(monkeypatch, "face_roster", types.SimpleNamespace())
+    _install_jc_module(monkeypatch, "guest_roster", types.SimpleNamespace())
+    conn = _Conn(is_admin=False)
+    await websocket.ws_faces(fake_hass, conn,
+                             {"id": 9, "action": "correct_llm_guess", "name": "Sam"})
+    assert conn.error is not None and conn.result is None

@@ -3410,8 +3410,9 @@ async def ws_intrusion(
     vol.Required("type"): "jarvis/faces",
     vol.Optional("action"): vol.In(
         ["list", "add_resident", "remove_resident", "set_reference", "remove_reference",
-         "set_guest", "remove_guest"]),
+         "set_guest", "remove_guest", "correct_llm_guess", "add_alias"]),
     vol.Optional("name"): str,
+    vol.Optional("alias"): str,   # a backend alias for `name` (#41 §4/§9)
     vol.Optional("note"): str,    # free-text note for a known guest (#549)
     vol.Optional("image"): str,   # base64 JPEG for set_reference (#140 Phase 3)
     vol.Optional("limit"): int,
@@ -3429,7 +3430,8 @@ async def ws_faces(
         from . import recognition, face_roster, guest_roster
         action = msg.get("action", "list")
         if action in ("add_resident", "remove_resident", "set_reference",
-                      "remove_reference", "set_guest", "remove_guest") \
+                      "remove_reference", "set_guest", "remove_guest",
+                      "correct_llm_guess", "add_alias") \
                 and _deny_non_admin(connection, msg):
             return
         # Roster file I/O happens on the executor; the read below then runs on the
@@ -3466,11 +3468,32 @@ async def ws_faces(
         elif action == "remove_guest" and msg.get("name"):
             await hass.async_add_executor_job(guest_roster.remove_guest, msg["name"])
             jarvis_log("CAMERA", f"Known guest removed: {msg['name']}")
+        elif action == "correct_llm_guess" and msg.get("name"):
+            # A human says the LLM matcher named the wrong person — record it as a
+            # wrong-person user correction, which can immediately demote the
+            # resident's matcher back to shadow-only (#41 §9). Never touches the
+            # trusted recognition cache.
+            await hass.async_add_executor_job(
+                lambda: recognition.record_llm_calibration(
+                    msg["name"], "wrong_person", source="user_correction"))
+            jarvis_log("CAMERA", f"LLM face guess corrected (wrong person): {msg['name']}")
+        elif action == "add_alias" and msg.get("name") and msg.get("alias"):
+            await hass.async_add_executor_job(
+                face_roster.add_alias, msg["alias"], msg["name"])
+            jarvis_log("CAMERA", f"Face alias added: {msg['alias']} → {msg['name']}")
         else:
             await hass.async_add_executor_job(face_roster._load)
         recent = recognition.recent_faces(hass, int(msg.get("limit", 20)))
         refs = await hass.async_add_executor_job(recognition.list_face_references)
         auto_refs = await hass.async_add_executor_job(recognition.list_auto_references)
+        # Phase-2 training telemetry (#41 §9): per-resident LLM calibration/graduation,
+        # the registered backend aliases, and HA person.* names not yet whitelisted.
+        calibration = await hass.async_add_executor_job(recognition.llm_calibration_summary)
+        alias_map = await hass.async_add_executor_job(face_roster.aliases)
+        try:
+            unflagged = face_roster.unflagged_ha_persons(hass)   # reads person.* on the loop
+        except Exception:
+            unflagged = []
         # Known guests + notes — read on the executor so the roster file isn't
         # touched on the event loop (#549).
         guests = await hass.async_add_executor_job(guest_roster.guests)
@@ -3493,6 +3516,10 @@ async def ws_faces(
                 _runtime_opt(hass, entry, "llm_face_autotrain", False)),
             "recognition_source": str(
                 _runtime_opt(hass, entry, "recognition_source", "both") or "both"),
+            # Per-resident LLM training progress / graduation for the Faces tab.
+            "calibration": calibration,
+            "aliases": alias_map,
+            "unflagged_persons": unflagged,
         })
     except Exception as exc:
         _LOGGER.exception("ws_faces failed: %s", exc)
