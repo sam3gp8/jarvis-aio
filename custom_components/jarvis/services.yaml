@@ -616,3 +616,40 @@ restore:
       example: "jarvis-state-20260818-120000.tar.gz"
       selector:
         text:
+
+camera_speak:
+  name: Speak through a camera
+  description: >-
+    Speak a message through a camera's two-way speaker via go2rtc's backchannel
+    (issue #552). Runs server-to-server on the LAN, so it works even remotely
+    over Nabu Casa where live browser WebRTC fails. Ships muted — turn on
+    "Camera audio" in Settings > Cameras first. Refuses on listen-only (recvonly)
+    cameras such as Nest.
+  fields:
+    entity_id:
+      name: Camera entity
+      description: The camera to speak through. Its go2rtc stream must expose a sendonly audio backchannel.
+      required: true
+      selector:
+        entity:
+          domain: camera
+    message:
+      name: Message
+      description: The text JARVIS speaks through the camera speaker.
+      required: true
+      example: "Delivery received, thank you."
+      selector:
+        text:
+    codec:
+      name: Backchannel codec
+      description: "Override the backchannel audio codec go2rtc transcodes to (default: pcma). Most cameras expect pcma, pcmu, or l16."
+      required: false
+      example: pcma
+      selector:
+        select:
+          options:
+            - pcma
+            - pcmu
+            - l16
+            - opus
+            - aac

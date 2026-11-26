@@ -1056,6 +1056,11 @@ async def ws_get_panel_data(
                 "tts_premium_contexts": _get_runtime_json(hass, entry, "tts_premium_contexts", []),
                 "appliance_sensors": _get_runtime_json(hass, entry, "appliance_sensors", {}),
                 # ── end panel settings audit (9.166.0) ──────────────────────────
+                # ── Two-way camera audio (talk half, #552, 9.167.0) ──
+                "camera_audio_enabled": bool(_runtime_opt(hass, entry, "camera_audio_enabled", False)),
+                "go2rtc_base_url": str(_runtime_opt(hass, entry, "go2rtc_base_url", "") or ""),
+                "camera_backchannel_map": _get_runtime_json(hass, entry, "camera_backchannel_map", {}),
+                "camera_backchannel_groups": _get_runtime_json(hass, entry, "camera_backchannel_groups", {}),
                 # Scheduled briefings (v6.78.0)
                 "briefing_morning_enabled": bool(_runtime_opt(hass, entry, "briefing_morning_enabled", False)),
                 "briefing_evening_enabled": bool(_runtime_opt(hass, entry, "briefing_evening_enabled", False)),
@@ -1844,6 +1849,11 @@ PANEL_WRITABLE_KEYS = {
     "intrusion_require_corroboration",  # bool: require a second signal before escalating an intrusion
     "intrusion_spread_zones",       # int: motion across this many zones ⇒ someone moving through
     "appliance_sensors",            # dict: map of appliance -> power/contact sensor entity_id
+    # ── Two-way camera audio (talk half, #552) ──
+    "camera_audio_enabled",         # bool: master gate — JARVIS may speak through camera speakers (ships off)
+    "go2rtc_base_url",              # str: go2rtc REST base URL (default http://127.0.0.1:1984)
+    "camera_backchannel_map",       # dict: camera entity/name -> go2rtc stream name for the 2-way backchannel
+    "camera_backchannel_groups",    # dict: camera entity/name -> NVR backchannel mutex group
 }
 
 # ── Debug log ring buffer ────────────────────────────────────────────────────

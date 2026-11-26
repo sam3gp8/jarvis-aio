@@ -84,6 +84,7 @@ JARVIS_SERVICE_NAMES = (
     "test_notify",
     "test_tts",
     "test_routing",
+    "camera_speak",
 )
 
 
@@ -1504,6 +1505,37 @@ def _register_services(
             vol.Required("entity_id"): cv.entity_id,
             vol.Optional("prompt"): cv.string,
             vol.Optional("announce", default=True): cv.boolean,
+        }),
+    )
+
+    # ── Two-way camera audio (talk half, #552) ─────────────────────────────────
+    async def _camera_speak(call: ServiceCall) -> None:
+        """Speak a message through a camera's go2rtc backchannel speaker. Ships
+        muted: does nothing until camera_audio_enabled is turned on. Raises so an
+        automation/Dev-Tools caller sees why a talkback was refused (listen-only
+        camera, no go2rtc, no TTS engine, etc.)."""
+        from . import camera_audio
+        from homeassistant.exceptions import HomeAssistantError
+        result = await camera_audio.speak_to_camera(
+            hass, entry,
+            call.data["entity_id"],
+            call.data["message"],
+            call.data.get("codec"),
+        )
+        if not result.get("success"):
+            _LOGGER.warning("JARVIS camera_speak refused (%s): %s",
+                            call.data.get("entity_id"), result.get("error"))
+            raise HomeAssistantError(result.get("error") or "camera_speak failed")
+        _LOGGER.info("JARVIS camera_speak → %s via stream %s",
+                     call.data.get("entity_id"), result.get("stream"))
+
+    _register_service(
+        "camera_speak",
+        _camera_speak,
+        schema=vol.Schema({
+            vol.Required("entity_id"): cv.entity_id,
+            vol.Required("message"): cv.string,
+            vol.Optional("codec"): cv.string,
         }),
     )
 
