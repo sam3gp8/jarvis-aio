@@ -503,7 +503,7 @@ class GroqProvider(LLMProvider):
                 tool_calls.append({
                     "id":   tc.id,
                     "name": tc.function.name,
-                    "args": json.loads(tc.function.arguments or "{}"),
+                    "args": _safe_parse_tool_args(tc.function.arguments),
                 })
         _log_call_latency(self.name, model_override or self.model,
                           _time.perf_counter() - _t0, bool(tools))
@@ -621,7 +621,7 @@ class OpenAIProvider(LLMProvider):
                 tool_calls.append({
                     "id":   tc.id,
                     "name": tc.function.name,
-                    "args": json.loads(tc.function.arguments or "{}"),
+                    "args": _safe_parse_tool_args(tc.function.arguments),
                 })
         _log_call_latency(self.name, model_override or self.model,
                           _time.perf_counter() - _t0, bool(tools))
@@ -662,17 +662,50 @@ class OpenAIProvider(LLMProvider):
 # a DECLARED tool, so ordinary prose can't masquerade as a call.
 
 # <|tool_call> … <tool_call|>, tolerating minor delimiter variants Ollama emits.
-_GEMMA_CALL_FULL = re.compile(
-    r"<\|?tool_call\|?>\s*call:(\w+)\s*\{(.*?)\}\s*<\|?/?tool_call\|?>", re.S)
-# Fallback once the special tokens have been stripped to plain text.
-_GEMMA_CALL_BARE = re.compile(r"(?:^|[\s>|])call:(\w+)\s*\{(.*?)\}", re.S)
-# key:<|"|>string<|"|>  |  key:"string"  |  key:bareword
-_GEMMA_ARG = re.compile(
-    r'(\w+)\s*:\s*(?:<\|"\|>(.*?)<\|"\|>|"([^"]*)"|([^,}]*))', re.S)
+def _safe_parse_tool_args(raw):
+    """Decode a provider tool-call's ``arguments`` into a dict without crashing the
+    turn. Accepts an already-parsed dict, parses a JSON string, falls back to the
+    first balanced ``{...}`` object in a noisy payload, and logs + returns ``{}``
+    on anything unparseable or non-dict (a malformed arg must not abort the call)."""
+    if isinstance(raw, dict):
+        return raw
+    if raw is None or raw == "":
+        return {}
+    try:
+        val = json.loads(raw)
+        return val if isinstance(val, dict) else {}
+    except Exception:
+        pass
+    try:
+        start = raw.index("{")
+        depth = 0
+        for k in range(start, len(raw)):
+            if raw[k] == "{":
+                depth += 1
+            elif raw[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    val = json.loads(raw[start:k + 1])
+                    return val if isinstance(val, dict) else {}
+    except Exception:
+        pass
+    _LOGGER.warning("tool-call args not a parseable JSON object; ignoring: %r",
+                    str(raw)[:120])
+    return {}
+
+
+# We match only the call PREFIX (up to the opening ``{``) and then balance-scan
+# the argument object with a recursive-descent parser below, so arbitrarily nested
+# ``{...}`` / ``[...]`` (a create_automation with nested trigger/action lists) parse
+# into real Python structures instead of truncating at the first ``}`` the way a
+# non-greedy ``\{(.*?)\}`` regex did. Tolerates the <|tool_call> wrapper, the bare
+# ``call:NAME{`` form, and the special-token-stripped form.
+_GEMMA_CALL_PREFIX = re.compile(r"(?:<\|?tool_call\|?>\s*)?call:(\w+)\s*\{")
+_GEMMA_STR = '<|"|>'
 
 
 def _gemma_cast(v: str):
-    """Cast a Gemma arg value the way Google's reference parser does."""
+    """Cast a Gemma bareword value the way Google's reference parser does."""
     s = (v or "").strip()
     low = s.lower()
     if low == "true":
@@ -692,44 +725,140 @@ def _gemma_cast(v: str):
     return s.strip("'\"")
 
 
-def _parse_gemma_args(blob: str) -> dict:
+def _gm_skip_ws(s: str, i: int) -> int:
+    n = len(s)
+    while i < n and s[i] in " \t\r\n":
+        i += 1
+    return i
+
+
+def _gm_string_json(s: str, i: int):
+    """Parse a ``"..."`` JSON string with escapes starting at ``s[i] == '"'``.
+    Returns (value, next_index); best-effort (never raises) on an unterminated
+    string."""
+    i += 1
+    n = len(s)
+    buf = []
+    while i < n:
+        c = s[i]
+        if c == "\\" and i + 1 < n:
+            buf.append({"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
+                       .get(s[i + 1], s[i + 1]))
+            i += 2
+            continue
+        if c == '"':
+            return "".join(buf), i + 1
+        buf.append(c)
+        i += 1
+    return "".join(buf), i
+
+
+def _gm_value(s: str, i: int):
+    """Parse one value (object, array, Gemma/JSON string, or scalar) starting at
+    ``i`` → (value, next_index)."""
+    i = _gm_skip_ws(s, i)
+    n = len(s)
+    if i >= n:
+        return None, i
+    if s.startswith(_GEMMA_STR, i):                 # <|"|>…<|"|> Gemma string
+        j = s.find(_GEMMA_STR, i + len(_GEMMA_STR))
+        if j == -1:
+            return s[i + len(_GEMMA_STR):], n
+        return s[i + len(_GEMMA_STR):j], j + len(_GEMMA_STR)
+    c = s[i]
+    if c == "{":
+        return _gm_object(s, i)
+    if c == "[":
+        return _gm_array(s, i)
+    if c == '"':
+        return _gm_string_json(s, i)
+    j = i                                           # bareword / number / bool / null
+    while j < n and s[j] not in ",}]":
+        j += 1
+    return _gemma_cast(s[i:j]), j
+
+
+def _gm_array(s: str, i: int):
+    i += 1                                          # past '['
+    n = len(s)
+    out = []
+    while True:
+        i = _gm_skip_ws(s, i)
+        if i >= n or s[i] == "]":
+            return out, (i + 1 if i < n else i)
+        if s[i] == ",":
+            i += 1
+            continue
+        val, i = _gm_value(s, i)
+        out.append(val)
+
+
+def _gm_object(s: str, i: int):
+    i += 1                                          # past '{'
+    n = len(s)
     out: dict = {}
-    for m in _GEMMA_ARG.finditer(blob or ""):
-        key = m.group(1)
-        quoted = m.group(2) if m.group(2) is not None else m.group(3)
-        if quoted is not None:
-            out[key] = quoted
+    while True:
+        i = _gm_skip_ws(s, i)
+        if i >= n or s[i] == "}":
+            return out, (i + 1 if i < n else i)
+        if s[i] == ",":
+            i += 1
+            continue
+        if s[i] == '"':
+            key, i = _gm_string_json(s, i)
+        elif s.startswith(_GEMMA_STR, i):
+            key, i = _gm_value(s, i)
         else:
-            out[key] = _gemma_cast(m.group(4) or "")
-    return out
+            j = i
+            while j < n and s[j] not in ":,}":
+                j += 1
+            key, i = s[i:j].strip(), j
+        i = _gm_skip_ws(s, i)
+        if i < n and s[i] == ":":
+            i += 1
+        val, i = _gm_value(s, i)
+        if key != "" and key is not None:
+            out[str(key)] = val
 
 
 def parse_gemma_tool_calls(text: str, tool_names: Optional[set] = None):
     """Recover Gemma-native function calls from model text. Returns
     ``(tool_calls, cleaned_text)`` — tool_calls in the standard
-    ``[{"id","name","args"}]`` shape, and the text with the call syntax removed.
-    Empty list (and the text unchanged) when none is found."""
+    ``[{"id","name","args"}]`` shape, ``args`` a real (possibly nested) dict, and
+    the text with the call syntax removed. Empty list (text unchanged) when none is
+    found. Never raises: a malformed or truncated call is skipped cleanly."""
     if not text:
         return [], text
-    matches = list(_GEMMA_CALL_FULL.finditer(text))
-    if not matches:
-        matches = list(_GEMMA_CALL_BARE.finditer(text))
     calls = []
     spans = []
-    for i, m in enumerate(matches):
+    last_end = -1
+    for m in _GEMMA_CALL_PREFIX.finditer(text):
+        if m.start() < last_end:
+            continue                                # inside an already-parsed call
         name = m.group(1)
+        brace = m.end() - 1                         # the opening '{'
+        try:
+            args, end = _gm_object(text, brace)
+        except Exception:                           # pragma: no cover - defensive
+            continue
+        if not isinstance(args, dict):
+            continue
         if tool_names and name not in tool_names:
             continue
-        calls.append({"id": f"gemma_call_{i}", "name": name,
-                      "args": _parse_gemma_args(m.group(2))})
-        spans.append(m.span())
+        tail = end
+        mt = re.match(r"\s*<\|?/?tool_call\|?>", text[end:])
+        if mt:
+            tail = end + mt.end()
+        calls.append({"id": f"gemma_call_{len(calls)}", "name": name, "args": args})
+        spans.append((m.start(), tail))
+        last_end = tail
     if not calls:
         return [], text
     cleaned = text
-    for s, e in reversed(spans):
+    for s, e in sorted(spans, reverse=True):
         cleaned = cleaned[:s] + cleaned[e:]
     # Drop any stray Gemma tool/turn markers left in the user-facing reply.
-    cleaned = re.sub(r"<\|?/?tool_(?:call|response)\|?>|<\|?/?turn\|?>|<\|\"\|>",
+    cleaned = re.sub(r'<\|?/?tool_(?:call|response)\|?>|<\|?/?turn\|?>|<\|"\|>',
                      "", cleaned).strip()
     return calls, cleaned
 
@@ -1518,6 +1647,12 @@ async def async_refresh_main_client(hass, entry) -> None:
         config.get("model", "openai/gpt-oss-120b"),
         resolve_provider_base_url(config, provider),
     )
+    # Preserve the telemetry tier so post-refresh calls aren't recorded as
+    # "unknown" (this rebuilds the Main Agent / conversation client).
+    try:
+        client.tier = "conversation"
+    except Exception:
+        pass
     runtime["client"] = client
     client_ref = runtime.get("client_ref")
     if isinstance(client_ref, dict):
