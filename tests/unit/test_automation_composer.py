@@ -458,3 +458,74 @@ async def test_reviewed_draft_installs_through_create_automation(creator, tmp_pa
     saved = yaml.safe_load((tmp_path / "automations.yaml").read_text())
     assert saved[0]["id"] == "jarvis_auto_porch_at_dusk"
     assert hass.services.calls == [("automation", "reload", {"blocking": True})]
+
+
+# ── §2F: prompt, thinking, tools-free fallback, retry memory ─────────────────
+
+@pytest.mark.asyncio
+async def test_oneshot_prompt_teaches_correct_sun_condition_and_branching(creator, tmp_path):
+    hass = _home(tmp_path)
+    client = _Client({"text": "", "tool_calls": [{"id": "c1", "name": "create_automation",
+        "args": {"alias": "Porch at dusk",
+                 "trigger": [{"trigger": "sun", "event": "sunset"}],
+                 "action": [{"action": "light.turn_on",
+                             "target": {"entity_id": "light.porch"}}]}}]},
+        supports=False, oneshot=True)
+    res = await creator.draft_automation(hass, "porch light at dusk", client=client)
+    assert res["ok"] is True
+    sysmsg = client.seen["messages"][0]["content"]
+    # teaches the correct night-only condition, not the always-false sun window
+    assert "sun.sun" in sysmsg and "below_horizon" in sysmsg
+    assert '"after":"sunset","before":"sunrise"' not in sysmsg
+    assert "choose" in sysmsg                      # bidirectional branching example
+    assert client.seen.get("thinking") is False    # passed defensively
+
+
+@pytest.mark.asyncio
+async def test_oneshot_falls_back_to_tools_free_on_tool_error(creator, tmp_path):
+    hass = _home(tmp_path)
+    jdoc = json.dumps({"alias": "Porch at dusk",
+                       "trigger": [{"trigger": "sun", "event": "sunset"}],
+                       "action": [{"action": "light.turn_on",
+                                   "target": {"entity_id": "light.porch"}}]})
+    seen = {"with_tools": 0, "without_tools": 0}
+
+    class _ToolBreaker:
+        def supports_tools(self):
+            return False
+
+        def prefers_oneshot_compose(self):
+            return True
+
+        def chat(self, **kw):
+            if "tools" in kw:
+                seen["with_tools"] += 1
+                raise RuntimeError("this model does not support tool calling")
+            seen["without_tools"] += 1
+            return {"text": jdoc, "tool_calls": []}
+
+    res = await creator.draft_automation(hass, "porch light at dusk", client=_ToolBreaker())
+    assert res["ok"] is True
+    assert "light.porch" in res["draft"]["yaml"]
+    # tried tools once, then dropped to raw-JSON mode instead of failing the draft
+    assert seen["with_tools"] == 1 and seen["without_tools"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_oneshot_retry_remembers_native_draft(creator, tmp_path):
+    hass = _home(tmp_path)   # has light.porch, not light.ghost
+    bad = {"alias": "Ghostly", "trigger": [{"trigger": "sun", "event": "sunset"}],
+           "action": [{"action": "light.turn_on", "target": {"entity_id": "light.ghost"}}]}
+    good = {"alias": "Ghostly", "trigger": [{"trigger": "sun", "event": "sunset"}],
+            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}]}
+    client = _ScriptClient([
+        {"text": "", "tool_calls": [{"id": "c1", "name": "create_automation", "args": bad}]},
+        {"text": "", "tool_calls": [{"id": "c2", "name": "create_automation", "args": good}]},
+    ], supports=False, oneshot=True)
+    res = await creator.draft_automation(hass, "turn on the ghost light at dusk", client=client)
+    assert res["ok"] is True
+    # the 2nd call's history carries the first (native, text-empty) draft — the
+    # serialized args — not a blank assistant turn the model would forget.
+    second_msgs = client.seen[1]["messages"]
+    assert any(m["role"] == "assistant" and "Ghostly" in (m.get("content") or "")
+               for m in second_msgs)

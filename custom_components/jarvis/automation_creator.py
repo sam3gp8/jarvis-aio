@@ -694,8 +694,14 @@ async def _draft_agentic(hass: HomeAssistant, text: str, client) -> dict[str, An
         if preview.get("success"):
             return Done(_draft_ok(preview, last_args))
         state["last_error"] = preview
-        return (f"Those names are not in the home: {_bad_names(preview) or preview.get('error')}. "
-                "Use search_entities to find the correct ids, then try again.")
+        bad = _bad_names(preview)
+        if bad:
+            return (f"Those names are not in the home: {bad}. "
+                    "Use search_entities to find the correct ids, then try again.")
+        # A semantic failure (impossible sun window, cross-domain service, bad
+        # binary_sensor state) isn't a lookup problem — don't send it searching.
+        return ((preview.get("error") or "That automation didn't validate.")
+                + " Revise the automation and call create_automation again.")
 
     handlers = {
         "search": _do_search, "search_entities": _do_search,
@@ -820,11 +826,21 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
         "('trigger', 'condition', 'action'). Item examples:\n"
         '  trigger:   {"trigger":"state","entity_id":"binary_sensor.x","to":"on"}\n'
         '             {"trigger":"sun","event":"sunset"}\n'
-        '  condition: {"condition":"sun","after":"sunset","before":"sunrise"}  '
-        "(use this for a dusk-to-dawn / night-only window — no entity needed)\n"
+        '  condition: {"condition":"state","entity_id":"sun.sun","state":"below_horizon"}  '
+        "(dusk-to-dawn / night-only window — NOT condition:sun with after/before, "
+        "which is always false)\n"
         '  action:    {"action":"light.turn_on","target":{"entity_id":"light.y"}}\n'
-        "Cover both directions if the request implies on AND off (e.g. a presence "
-        "sensor turning to 'on' and to 'off'). Call create_automation now.")
+        "If the request implies ON and OFF (e.g. a presence sensor going to 'on' "
+        "AND 'off'), DON'T emit one unconditional sequence — give each trigger an "
+        "id and branch with choose:\n"
+        '  trigger: [{"trigger":"state","entity_id":"binary_sensor.x","to":"on","id":"on"},\n'
+        '            {"trigger":"state","entity_id":"binary_sensor.x","to":"off","id":"off"}]\n'
+        '  action:  [{"choose":[\n'
+        '    {"conditions":[{"condition":"trigger","id":"on"}],'
+        '"sequence":[{"action":"light.turn_on","target":{"entity_id":"light.y"}}]},\n'
+        '    {"conditions":[{"condition":"trigger","id":"off"}],'
+        '"sequence":[{"action":"light.turn_off","target":{"entity_id":"light.y"}}]}]}]\n'
+        "Call create_automation now.")
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": text}]
     last_error: dict | None = None
@@ -833,13 +849,35 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
     last_finish: str | None = None
     saw_reasoning = False
 
+    use_tools = True
     for attempt in range(_ONESHOT_ATTEMPTS):
         def _call():
-            return client.chat(messages=messages, tools=[_COMPOSER_TOOL],
-                               max_tokens=_ONESHOT_MAX_TOKENS, temperature=0.1)
+            kwargs = dict(messages=messages,
+                          max_tokens=_ONESHOT_MAX_TOKENS, temperature=0.1)
+            if use_tools:
+                kwargs["tools"] = [_COMPOSER_TOOL]
+            # thinking=False keeps a reasoning model from spending its whole budget
+            # on hidden scratch-work; passed defensively so a minimal stub whose
+            # chat() lacks the kwarg still works.
+            try:
+                return client.chat(thinking=False, **kwargs)
+            except TypeError:
+                return client.chat(**kwargs)
         try:
             res = await hass.async_add_executor_job(_call)
         except Exception as exc:
+            # Some Ollama tool-call setups can't parse the tool schema and raise
+            # here. Don't fail the draft — drop to tools-free raw-JSON mode and
+            # retry within the remaining attempts.
+            if use_tools:
+                use_tools = False
+                _log_compose(hass, f"tool-calling unavailable ({exc}); "
+                             "retrying tools-free JSON", cands)
+                messages.append({"role": "user", "content":
+                    "Reply with ONE raw JSON object and nothing else: "
+                    '{"alias":"...","trigger":[...],"condition":[...],"action":[...]} '
+                    "— use only the real entity_ids listed above."})
+                continue
             _log_compose(hass, f"one-shot call failed: {exc}", cands)
             return _draft_fail({"error": f"Drafting failed: {exc}"}, last_args)
         raw = (res or {}).get("text") or ""
@@ -872,14 +910,19 @@ async def _compose_oneshot(hass: HomeAssistant, text: str, client) -> dict[str, 
             return _draft_ok(preview, last_args)
         last_error = preview
         corrections = _corrections_for(hass, preview)
-        messages.append({"role": "assistant", "content": raw[:1000]})
+        # A native tool call leaves `raw` (visible text) empty — serialize what the
+        # model actually drafted so the retry turn remembers it instead of a blank.
+        transcript = raw[:1000] if raw.strip() else json.dumps(last_args)[:1000]
+        messages.append({"role": "assistant", "content": transcript})
+        bad = _bad_names(preview)
         messages.append({"role": "user", "content":
-            f"These are NOT real devices and must be replaced: "
-            f"{_bad_names(preview) or preview.get('error')}.\n"
-            + (("Use one of these real ids instead:\n" + corrections + "\n")
-               if corrections else "")
-            + "Call create_automation again with the FULL automation, using only "
-              "real entity_ids from the list."})
+            (f"These are NOT real devices and must be replaced: {bad}.\n"
+             + (("Use one of these real ids instead:\n" + corrections + "\n")
+                if corrections else "")
+             if bad else
+             f"That automation didn't validate: {preview.get('error')}\n")
+            + "Call create_automation again with the FULL, corrected automation, "
+              "using only real entity_ids from the list."})
 
     # Distinguish an empty response (the model emitted no visible text at all —
     # typically a thinking model that spent its budget reasoning) from a non-empty
