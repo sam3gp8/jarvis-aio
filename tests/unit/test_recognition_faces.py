@@ -971,3 +971,83 @@ def test_calibration_never_touches_resident_present(calib, fake_hass):
     mod._LLM_GUESS_CACHE["camera.hall"] = {
         "name": "Sam", "confidence": 99.0, "ts": _now()}
     assert mod.resident_present(fake_hass) is None
+
+
+# ── §8B: graduated Tier-2 matches surface in chat context / who_do_you_see ──────
+
+def _graduate(mod, fr, name):
+    """Give ``name`` 3 refs + 16 agreed shadow samples → graduated."""
+    import jc.recognition as _r
+    import unittest.mock as _m
+    fr.add_resident(name)
+    mod.set_face_reference(name, b"\xff\xd8m")
+    t = [8_000_000.0]
+    for i in range(2):
+        with _m.patch.object(_r._time, "time", lambda: t[0]):
+            mod._auto_enroll_reference_sync(name, f"g{i}".encode(), bucket="day",
+                                            camera=f"camera.{i}")
+        t[0] += mod._AUTO_REF_MIN_SPACING + 1
+    for _ in range(16):
+        mod.record_llm_calibration(name, "agreed")
+
+
+@pytest.fixture
+def calib_paths(recog, tmp_path, monkeypatch):
+    mod, fr = recog
+    monkeypatch.setattr(mod, "CALIBRATION_PATH", str(tmp_path / "cal.json"))
+    mod._CALIBRATION = {}
+    mod._calibration_loaded = False
+    return mod, fr
+
+
+def test_who_do_you_see_surfaces_graduated_llm_match(calib_paths, fake_hass):
+    mod, fr = calib_paths
+    _graduate(mod, fr, "Sam")
+    assert mod.is_llm_graduated("Sam") is True
+    mod._LLM_GUESS_CACHE["camera.hall"] = {"name": "Sam", "confidence": 85.0, "ts": _now()}
+    out = mod.who_do_you_see(fake_hass)
+    assert "Sam" in out["seen"]
+    llm = [d for d in out["detail"] if d.get("llm_match")]
+    assert llm and llm[0]["name"] == "Sam"
+
+
+def test_who_do_you_see_hides_ungraduated_guess(calib_paths, fake_hass):
+    mod, fr = calib_paths
+    fr.add_resident("Sam")   # no refs / samples → not graduated
+    mod._LLM_GUESS_CACHE["camera.hall"] = {"name": "Sam", "confidence": 85.0, "ts": _now()}
+    out = mod.who_do_you_see(fake_hass)
+    assert out["seen"] == [] and out["any"] is False
+
+
+def test_context_string_tags_graduated_llm_match(calib_paths, fake_hass):
+    mod, fr = calib_paths
+    _graduate(mod, fr, "Sam")
+    mod._LLM_GUESS_CACHE["camera.hall"] = {"name": "Sam", "confidence": 85.0, "ts": _now()}
+    s = mod.recognition_context_string(fake_hass)
+    assert "Sam (resident, LLM match ~85%)" in s
+
+
+def test_context_string_omits_low_conf_or_stale_llm_guess(calib_paths, fake_hass):
+    mod, fr = calib_paths
+    _graduate(mod, fr, "Sam")
+    mod._LLM_GUESS_CACHE["camera.hall"] = {"name": "Sam", "confidence": 60.0, "ts": _now()}
+    assert "LLM match" not in mod.recognition_context_string(fake_hass)   # below 75%
+    mod._LLM_GUESS_CACHE["camera.hall"] = {
+        "name": "Sam", "confidence": 90.0, "ts": _now() - timedelta(seconds=400)}
+    assert "LLM match" not in mod.recognition_context_string(fake_hass)   # stale >5m
+
+
+def test_graduated_llm_guess_defers_to_tier1(calib_paths, fake_hass):
+    mod, fr = calib_paths
+    _graduate(mod, fr, "Sam")
+    _cache(mod, "camera.hall", "Sam", 95.0, age_seconds=5)   # fresh Tier-1 identity here
+    mod._LLM_GUESS_CACHE["camera.hall"] = {"name": "Sam", "confidence": 90.0, "ts": _now()}
+    assert mod._graduated_llm_guess(fake_hass, "camera.hall") is None
+
+
+def test_llm_assist_never_feeds_resident_present(calib_paths, fake_hass):
+    # SAFETY: a graduated Tier-2 match in the guess cache must not stand intrusion down.
+    mod, fr = calib_paths
+    _graduate(mod, fr, "Sam")
+    mod._LLM_GUESS_CACHE["camera.hall"] = {"name": "Sam", "confidence": 99.0, "ts": _now()}
+    assert mod.resident_present(fake_hass) is None

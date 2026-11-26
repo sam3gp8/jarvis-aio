@@ -1,3 +1,47 @@
+## [9.182.0] — Facial recognition Phase 2b: graduated LLM Tier-2 assist wiring
+
+The second Phase-2 tranche of the facial-recognition cleanup (#41), wiring the
+graduated matcher from 9.181.0 into the live pipeline: cheaper, lighting-aware
+vision calls; a shadow-calibration feedback loop; and a trustworthy LLM match
+that can steer camera narration (and chat) away from a false stranger call when
+the backends miss — all strictly outside the intrusion path.
+
+- **Cheaper, smarter matcher (§7A).** `llm_recognition.identify_and_store()` now
+  short-circuits with **no vision call** when Frigate/DoubleTake already has a
+  fresh confident named match on that camera (Tier 1 always leads).
+  `_match_sync()` sends up to **2 lighting-matched** reference frames per resident
+  (via `face_reference_paths`), capped at 8 images total, and passes
+  `thinking=False` defensively to suppress hidden reasoning tokens on models that
+  honour it (falling back for stubs that don't).
+- **Shadow calibration loop (§7B).** New `llm_recognition.shadow_calibrate()` runs
+  the matcher on a frame a backend already named confidently and records whether
+  it agreed — building the calibration window without ever touching the trusted
+  cache. It's fired (opt-in, throttled to once per resident per 15 min) from
+  `capture_face_snapshot()` and gated on `llm_face_recognition` +
+  `llm_face_autotrain` + an ≥85% backend confidence for a flagged resident.
+- **Tier-2 assist in camera reasoning (§8A).** When a person is on camera, Tier 1
+  has no identity there, and at least one resident has **graduated**,
+  `async_analyze_camera()` runs the matcher inline (4 s timeout, fail-open) before
+  the reasoning step; a graduated match ≥75% is handed to `_reason_about_scene()`
+  as `"LLM face matcher (graduated) identifies household resident '<name>'
+  (~<conf>%)"` so a known resident is triaged as routine. Otherwise the matcher
+  stays a background training pass, as before.
+- **Tier-2 assist in chat context (§8B).** `recognition_context_string()` and
+  `who_do_you_see()` surface a graduated, fresh (≤5 min), ≥75% guess on a camera
+  Tier 1 missed, clearly tagged `(resident, LLM match ~85%)` / `llm_match`, and
+  only for a person no backend already named.
+
+**Safety:** `resident_present()` still reads only the Tier-1 cache — a graduated
+match, however confident, can never stand intrusion monitoring down. Tests assert
+this for both the context surfacing and the guess cache.
+
+New tests for the Tier-1 short-circuit, `thinking=False` (and its fallback),
+multi-sample reference sending, the shadow-calibration outcomes (agreed /
+wrong-person / abstained) with gating + throttling, the graduated-match context
+tagging (and its low-confidence / stale / Tier-1-deferral exclusions), the
+`_mentions_person` cue, and the intrusion-safety boundary. Remaining #41 work:
+the Faces HUD training panel (§9 — `ws_faces` + `jarvis-panel.js`).
+
 ## [9.181.0] — Facial recognition Phase 2a: multi-sample training gallery + shadow calibration & graduation
 
 The first Phase-2 tranche of the facial-recognition cleanup (#41), building the

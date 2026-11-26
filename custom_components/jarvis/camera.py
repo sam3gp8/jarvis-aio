@@ -1986,6 +1986,20 @@ def _recognition_hint(hass: HomeAssistant, entity_id: str) -> str:
     return ""
 
 
+_PERSON_WORDS = re.compile(
+    r"\b(person|someone|somebody|individual|man|woman|men|women|people|child|"
+    r"children|boy|girl|human|face|intruder)\b")
+
+
+def _mentions_person(text: str) -> bool:
+    """Whether a vision description mentions a person — the cue to attempt a
+    best-effort / Tier-2 LLM face match or pin an unknown snapshot. Never raises."""
+    try:
+        return bool(_PERSON_WORDS.search((text or "").lower()))
+    except Exception:
+        return False
+
+
 async def async_analyze_camera(
     hass: HomeAssistant,
     call: ServiceCall,
@@ -2121,6 +2135,7 @@ async def async_analyze_camera(
     # Construct off the event loop — creating a provider does blocking SSL setup.
     vision_client = await async_make_client(
         hass, vision_provider, vision_model, groq_client)
+    _tier2_match = None   # a graduated Tier-2 LLM face match, if one is made (#41 §8A)
     try:
         vision_thinking = bool(_cfg_opt(hass, "vision_thinking_enabled", False))
         _vision_messages = [
@@ -2142,16 +2157,41 @@ async def async_analyze_camera(
         analysis = await _vision_describe(
             hass, vision_client, _vision_messages, vision_model,
             vision_thinking, camera_name)
-        # Best-effort LLM resident recognition (#140 Phase 3) — opt-in. Reuse the
-        # frame we already captured; fire-and-forget so it never delays or alters
-        # this analysis. The matcher self-gates on the config flag and on enrolled
-        # reference photos, and its result only reaches the Faces panel (never the
-        # intrusion stand-down).
+        # Best-effort LLM resident recognition (#140 Phase 3; Tier-2 assist #41 §8).
+        # Opt-in, reuses the frame we already captured, and NEVER feeds the
+        # intrusion stand-down. When a person is on camera, Tier 1 has no fresh
+        # named match here, and at least one resident's matcher has GRADUATED, run
+        # it inline (tight timeout, fail-open) so a graduated hit can steer the
+        # reasoning step away from a false stranger call. Otherwise keep the
+        # background fire-and-forget path so the Faces tab still trains.
         try:
             from . import llm_recognition
-            if images_b64:
-                hass.async_create_task(
-                    llm_recognition.identify_and_store(hass, images_b64[0], entity_id))
+            from . import recognition as _rec2
+            if (images_b64 and _cfg_opt(hass, "llm_face_recognition", False)
+                    and _mentions_person(analysis)):
+                _has_tier1 = False
+                try:
+                    _ls = last_seen_at(hass, entity_id)
+                    if _ls:
+                        _n = _ls.get("name", "")
+                        _c = float(_ls.get("confidence", 0) or 0)
+                        _a = _ls.get("age_seconds", 999)
+                        _has_tier1 = bool(
+                            _n and _n.lower() != "unknown" and _c >= 60
+                            and _a is not None and _a <= 60)
+                except Exception:
+                    _has_tier1 = False
+                if not _has_tier1 and _rec2.has_graduated_llm_residents():
+                    try:
+                        _tier2_match = await asyncio.wait_for(
+                            llm_recognition.identify_and_store(
+                                hass, images_b64[0], entity_id),
+                            timeout=4.0)
+                    except Exception:
+                        _tier2_match = None   # fail open — never stall analysis
+                elif not _has_tier1:
+                    hass.async_create_task(
+                        llm_recognition.identify_and_store(hass, images_b64[0], entity_id))
         except Exception:
             pass
     except Exception as exc:
@@ -2207,16 +2247,11 @@ async def async_analyze_camera(
     # fire-and-forget; its cache never feeds intrusion, and a named recognition
     # for this camera suppresses the unknown row (see recognition.recent_faces).
     try:
-        if images_b64 and _cfg_opt(hass, "llm_face_recognition", False):
-            import re as _re_person
-            if _re_person.search(
-                r"\b(person|someone|somebody|individual|man|woman|men|women|"
-                r"people|child|children|boy|girl|human|face|intruder)\b",
-                (analysis or "").lower(),
-            ):
-                from . import recognition as _rec_unknown
-                hass.async_create_task(
-                    _rec_unknown.capture_unknown_snapshot(hass, entity_id, images_b64[0]))
+        if (images_b64 and _cfg_opt(hass, "llm_face_recognition", False)
+                and _mentions_person(analysis)):
+            from . import recognition as _rec_unknown
+            hass.async_create_task(
+                _rec_unknown.capture_unknown_snapshot(hass, entity_id, images_b64[0]))
     except Exception:
         pass
     rsn_provider = _cfg_opt(hass, "camera_reasoning_provider", "groq") or "groq"
@@ -2242,6 +2277,17 @@ async def async_analyze_camera(
         _recog_line = recognition_context_string(hass) if _RECOGNITION_AVAILABLE else ""
     except Exception:
         _recog_line = ""
+    # A graduated Tier-2 LLM match on this frame (≥75%) is handed to the reasoning
+    # step as a soft, clearly-labelled identity so it classifies a known resident
+    # as routine rather than a stranger (#41 §8A). Never an intrusion signal.
+    try:
+        if _tier2_match and float(_tier2_match.get("confidence", 0) or 0) >= 75.0:
+            _t2 = (f"LLM face matcher (graduated) identifies household resident "
+                   f"'{_tier2_match.get('name', '')}' "
+                   f"(~{float(_tier2_match.get('confidence', 0) or 0):.0f}%)")
+            _recog_line = (f"{_recog_line} {_t2}".strip() if _recog_line else _t2)
+    except Exception:
+        pass
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,
         covered=cov_rooms, frigate_dets=frigate_dets,
