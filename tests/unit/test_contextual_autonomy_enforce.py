@@ -132,3 +132,12 @@ def test_guests_present_defensive_on_error(cc, fake_hass, monkeypatch):
         raise RuntimeError("recognition down")
     monkeypatch.setattr(recognition, "who_is_where", _boom)
     assert cc._guests_present(fake_hass) is False
+
+
+def test_guests_present_false_for_unknown_only(cc, fake_hass, monkeypatch):
+    # #41 Phase 3: a transient "unknown" sighting is NOT a guest signal (uses the
+    # real _is_unknown guard — defense-in-depth even if who_is_where leaks one).
+    from jc import recognition, face_roster
+    monkeypatch.setattr(recognition, "who_is_where", lambda h: {"camera.door": "unknown"})
+    monkeypatch.setattr(face_roster, "is_resident", lambda n: False)
+    assert cc._guests_present(fake_hass) is False

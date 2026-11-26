@@ -234,3 +234,18 @@ def test_who_do_you_see_tool_registered(load):
     names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
     assert "who_do_you_see" in names
     assert "who_do_you_see" in agent._TOOL_MAP
+
+
+def test_read_face_sensors_drops_stale_by_last_changed(rec):
+    # #41 Phase 1D: a Frigate face sensor holds the LAST recognised face and never
+    # resets, so a reading older than the cache window must be dropped, and a real
+    # age surfaced (not 10**9).
+    from datetime import datetime, timedelta, timezone
+    fresh = _St("sensor.a_last_recognized_face", "Sam", score=0.9)
+    fresh.last_changed = datetime.now(timezone.utc) - timedelta(minutes=5)
+    stale = _St("sensor.b_last_recognized_face", "Alex", score=0.9)
+    stale.last_changed = datetime.now(timezone.utc) - timedelta(hours=5)   # > CACHE_MAX_AGE
+    found = rec.read_frigate_face_sensors(_Hass([fresh, stale]))
+    assert {f["name"] for f in found} == {"Sam"}            # stale Alex dropped
+    sam = next(f for f in found if f["name"] == "Sam")
+    assert sam["age_seconds"] is not None and sam["age_seconds"] >= 250

@@ -2641,7 +2641,12 @@ def _guests_present(hass) -> bool:
         for name in (recognition.who_is_where(hass) or {}).values():
             if not name:
                 continue
-            if recognition._is_unknown(name) or not face_roster.is_resident(name):
+            # #41 Phase 3: a transient "unknown" sighting is NOT a guest signal —
+            # only a recognised non-resident is (who_is_where already filters
+            # unknowns; this is defense-in-depth).
+            if recognition._is_unknown(name):
+                continue
+            if not face_roster.is_resident(name):
                 return True
         return False
     except Exception:
