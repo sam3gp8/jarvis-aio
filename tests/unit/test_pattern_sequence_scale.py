@@ -181,3 +181,76 @@ def test_sequence_falls_back_to_time_without_location(analyzer, tmp_path):
     m = [p for p in pats if p.details["trigger"]["entity"] == "binary_sensor.hall_motion"]
     assert m and m[0].details["condition"][0]["condition"] == "time"
     conn.close()
+
+
+# ── §7C: inflation guards, multi-day spread, controllable-effect gating ──────
+
+def test_burst_flicker_counts_once_per_window(analyzer, tmp_path):
+    # The trigger flickers several times right before each single action; those
+    # flickers must collapse to ONE co-occurrence per action, not inflate the
+    # count (track the latest epoch per (entity,state) in the window).
+    conn = _conn(tmp_path / "burst.db")
+    base = datetime.now() - timedelta(days=12)
+    for d in range(8):                       # 8 distinct days
+        t = base + timedelta(days=d, hours=18)
+        for k in range(5):                   # 5 rapid flickers of the trigger
+            _insert(conn, "switch.trigger", "on", t + timedelta(seconds=k))
+        _insert(conn, "light.follower", "on", t + timedelta(seconds=30))
+    conn.commit()
+    pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, None, None)
+    m = [p for p in pats if p.details["trigger"]["entity"] == "switch.trigger"
+         and p.details["action"]["entity"] == "light.follower"]
+    conn.close()
+    assert m, "expected the switch -> light sequence"
+    assert m[0].occurrences == 8            # 8 days × 1, NOT 8 × 5 flickers
+
+
+def test_single_day_burst_is_not_enough(analyzer, tmp_path):
+    # Many occurrences but all on ONE day → fails the multi-day spread requirement
+    # so a single noisy afternoon can't mint a high-confidence suggestion.
+    conn = _conn(tmp_path / "oneday.db")
+    base = datetime.now() - timedelta(days=5)
+    for i in range(10):                      # 10 occurrences, same day, 20 min apart
+        t = base + timedelta(minutes=20 * i)
+        _insert(conn, "switch.trigger", "on", t)
+        _insert(conn, "light.follower", "on", t + timedelta(seconds=30))
+    conn.commit()
+    pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, None, None)
+    m = [p for p in pats
+         if p.details.get("trigger", {}).get("entity") == "switch.trigger"
+         and p.details.get("action", {}).get("entity") == "light.follower"]
+    conn.close()
+    assert not m, "a single-day burst must not become a suggestion"
+
+
+def test_read_only_effect_is_not_a_sequence(analyzer, tmp_path):
+    # The "effect" is a read-only sensor — it can't be actuated (service_for is
+    # None), so it must not crowd the top-15 or produce a suggestion.
+    conn = _conn(tmp_path / "ro.db")
+    base = datetime.now() - timedelta(days=12)
+    for d in range(8):
+        t = base + timedelta(days=d, hours=18)
+        _insert(conn, "switch.trigger", "on", t)
+        _insert(conn, "binary_sensor.effect", "on", t + timedelta(seconds=30))
+    conn.commit()
+    pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, None, None)
+    m = [p for p in pats
+         if p.details.get("action", {}).get("entity") == "binary_sensor.effect"]
+    conn.close()
+    assert not m, "a read-only sensor effect is not an automatable sequence"
+
+
+def test_excluded_entity_is_filtered_from_sequences(analyzer, tmp_path):
+    conn = _conn(tmp_path / "excl.db")
+    base = datetime.now() - timedelta(days=12)
+    for d in range(8):
+        t = base + timedelta(days=d, hours=18)
+        _insert(conn, "switch.trigger", "on", t)
+        _insert(conn, "light.follower", "on", t + timedelta(seconds=30))
+    conn.commit()
+    pats = analyzer.PatternAnalyzer()._find_sequence_patterns(
+        conn, None, None, excluded={"light.follower"})
+    m = [p for p in pats
+         if p.details.get("action", {}).get("entity") == "light.follower"]
+    conn.close()
+    assert not m, "an excluded entity must not appear in a learned sequence"
