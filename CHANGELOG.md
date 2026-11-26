@@ -1,3 +1,30 @@
+## [9.176.0] — Suggestion engine: night-only condition that actually fires + garage-close safety
+
+The first Phase-2 tranche of the automation cleanup, fixing the passive pattern
+analyzer's two most consequential bugs.
+
+- **Learned "after dark" automations now actually fire.** `_sun_condition()`
+  emitted `{"condition":"sun","after":"sunset","before":"sunrise"}` — which Home
+  Assistant evaluates as a *same-day* logical AND, so it is **always false** and
+  every "mostly after dark" suggestion silently never ran. It now emits
+  `{"condition":"state","entity_id":"sun.sun","state":"below_horizon"}`, the
+  description still reads "mostly after dark", and `normalize_suggestion_automation`
+  **migrates** any suggestion stored with the old form so pending ones install
+  working.
+- **No house-wide confirmation for an auto-closing garage (safety).** The
+  confirmation-sequence finder learned "arrive → open the cover → a sensor
+  confirms → close it". When no sensor in the cover's own area had tripped, it
+  fell back to accepting *any* `binary_sensor` anywhere in the house — so indoor
+  motion could "confirm" and auto-close a garage with someone standing under it.
+  That fallback is removed: the confirmation sensor must belong to the cover's
+  area, or the event is not learned at all.
+
+New tests for the night-only condition (detector, human phrase, legacy migration)
+and for the same-area confirmation requirement. Remaining Phase-2 work
+(`pattern_analyzer` §7C–H): sequence-count inflation & causal-gate parity, numeric
+area-scoping, time-routine accuracy, dismissed-suggestion resurrection, and guarded
+installs.
+
 ## [9.175.0] — Automation drafter: correct prompt, tools-free fallback, retry memory
 
 The fifth tranche of the automation-drafter cleanup, fixing the one-shot composer
