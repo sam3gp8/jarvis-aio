@@ -109,6 +109,7 @@ would otherwise allow the action. Derived (child) tokens never outlive their par
 | `provenance` | ◐ shadow |
 | `resilience` | ◐ shadow |
 | `router` | ◑ parity |
+| `rsi` | · pure |
 | `self_model` | ● enforce |
 | `situation` | ● enforce |
 | `social` | · pure |

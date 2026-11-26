@@ -54,6 +54,7 @@ from . import (
     uncertainty,
     priority,
     resilience,
+    rsi,
     router,
     self_model,
     situation,
@@ -64,6 +65,19 @@ from . import (
 )
 from .actuator import ActuatorOutcome, ActuatorRequest, build_actuator_request
 from .loop_detect import LoopDetector, LoopVerdict
+from .rsi import (
+    IMMUTABLE_TARGETS,
+    MutationProposal,
+    OscillationGuard,
+    ProbationRecord,
+    ReplayEvaluation,
+    RSIBudget,
+    RSICoordinator,
+    RSIStore,
+    is_immutable,
+    mutation_hash,
+    normalize_target,
+)
 from .journal import ExecutionJournal, JournaledStep, RecoveryReport, recover
 from .budget import AgencyBudget, BudgetLimits, BudgetVerdict
 from .causal import CausalHypothesis, CausalModel, Explanation, Prediction
@@ -162,6 +176,18 @@ __all__ = [
     "agency_state",
     "JarvisEventBus",
     "EventLedger",
+    "rsi",
+    "RSICoordinator",
+    "MutationProposal",
+    "ReplayEvaluation",
+    "ProbationRecord",
+    "RSIBudget",
+    "OscillationGuard",
+    "RSIStore",
+    "IMMUTABLE_TARGETS",
+    "is_immutable",
+    "normalize_target",
+    "mutation_hash",
     "WorldModel",
     "situation",
     "Situation",
