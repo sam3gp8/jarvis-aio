@@ -91,6 +91,11 @@ _DECLARED: dict[str, dict] = {
     # persistence is an internal seam consumed by other kernel modules (ledger),
     # not by live callers directly — so "pure" from a live-adoption standpoint.
     "persistence":  {"stage": "pure",    "owners": []},
+    # rsi: recursive self-improvement engine (Phase 1 — guardrails only). The
+    # proposal record + immutable-governance denylist + budget + anti-oscillation
+    # rails; no live wiring yet (the off-peak cycle lands behind a default-off
+    # flag in a later phase), so "pure" is its honest live-adoption stage.
+    "rsi":          {"stage": "pure",    "owners": []},
     # agency_state: continuity of self (roadmap Phase I). A durable, versioned
     # snapshot of JARVIS's ongoing commitments (active goals, open situations,
     # mode) through the persistence seam, with a continuity summary + reconcile so
