@@ -51,6 +51,9 @@ _RECOGNITION_CACHE: dict[str, dict] = {}
 _RECENT_EVENTS: dict[str, dict] = {}
 CACHE_MAX_AGE = timedelta(hours=2)
 CONFIDENCE_THRESHOLD = 60  # anything below this is considered uncertain
+# A fresh, confident, NAMED resident sighting is protected from being clobbered by
+# a brief "unknown" frame on the same camera for this long (#41 Phase 1).
+_NAMED_PROTECT_SECS = 90.0
 
 # ── Pinned recognition-time face snapshots (#140 Phase 2) ───────────────────────
 # When a face is recognized confidently, JARVIS grabs the camera frame AT THAT
@@ -302,12 +305,31 @@ def read_frigate_face_sensors(hass) -> list[dict]:
             attrs = st.attributes or {}
             conf = _normalize_score(
                 attrs.get("score", attrs.get("confidence", attrs.get("sub_label_score"))))
+            # Freshness (#41 Phase 1D): the sensor holds the LAST recognised face
+            # and never resets, so yesterday's reading must not masquerade as
+            # current. Compute the age from the state's own timestamp; drop anything
+            # older than the cache window, and surface age_seconds so callers show a
+            # real age instead of 10**9. When no timestamp is available (minimal
+            # stubs), keep the entry rather than guess it stale.
+            age_seconds = None
+            try:
+                changed = getattr(st, "last_changed", None) or getattr(st, "last_updated", None)
+                if changed is not None:
+                    if changed.tzinfo is None:
+                        changed = changed.replace(tzinfo=timezone.utc)
+                    age_seconds = max(0, int(
+                        (datetime.now(timezone.utc) - changed).total_seconds()))
+            except Exception:
+                age_seconds = None
+            if age_seconds is not None and age_seconds > CACHE_MAX_AGE.total_seconds():
+                continue
             out.append({
                 "camera": slug,
                 "camera_entity": f"camera.{slug}",
                 "name": val,
                 "entity": eid,
                 "confidence": conf,
+                "age_seconds": age_seconds,
             })
         except Exception:
             continue
@@ -415,13 +437,51 @@ def remember_recognition(camera_name: str, name: str, confidence: float, hass=No
     entity_id = _camera_entity_from_name(camera_name)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     prev = _RECOGNITION_CACHE.get(entity_id, {})
+    incoming_unknown = _is_unknown(name)
+
+    def _prev_age() -> float:
+        try:
+            return (now - prev["ts"]).total_seconds()
+        except Exception:
+            return 10 ** 9
+
+    prev_named = bool(prev) and not _is_unknown(prev.get("name", ""))
+    prev_fresh_named = (prev_named and not prev.get("restored")
+                        and float(prev.get("confidence", 0) or 0) >= CONFIDENCE_THRESHOLD)
+
+    # (#41 Phase 1B) A brief "unknown" frame must NOT wipe a fresh, confident,
+    # named resident match on this camera — just bump unknown_count so the
+    # resident's identity (and the intrusion stand-down that rides on it) survives.
+    if incoming_unknown and prev_fresh_named and _prev_age() <= _NAMED_PROTECT_SECS:
+        prev["unknown_count"] = prev.get("unknown_count", 0) + 1
+        _persist(hass)
+        return
+
+    # Source thrashing under recognition_source:"both": two NAMED hits close
+    # together — keep the higher-confidence one for the same person, and don't let
+    # a weak, DIFFERENT name supplant a confident one (last-writer-wins only for a
+    # confident different identity).
+    if (not incoming_unknown and prev_named and not prev.get("restored")
+            and _prev_age() <= 15.0):
+        same_person = _face_norm(name) == _face_norm(prev.get("name", ""))
+        prev_conf = float(prev.get("confidence", 0) or 0)
+        if same_person:
+            confidence = max(float(confidence or 0), prev_conf)
+        elif float(confidence or 0) < CONFIDENCE_THRESHOLD:
+            return                     # keep the confident named sighting untouched
+
     _RECOGNITION_CACHE[entity_id] = {
         "name":       name,
         "confidence": confidence,
         "ts":         now,
-        "unknown_count": 0 if name.lower() != "unknown" else prev.get("unknown_count", 0) + 1,
+        "unknown_count": 0 if not incoming_unknown else prev.get("unknown_count", 0) + 1,
         "source":     source,
     }
+    # A confident NAMED sighting clears any stale unknown-face entry for this
+    # camera, so a lingering "unknown" can't keep re-priming stranger alerts.
+    if not incoming_unknown and float(confidence or 0) >= CONFIDENCE_THRESHOLD:
+        _UNKNOWN_FACE_CACHE.pop(entity_id, None)
+
     # Persist so the Faces panel survives a restart (#331). Fresh and untagged —
     # this overwrites any restored entry for the camera, so normal intrusion
     # stand-down behaviour resumes the moment a real sighting lands.
@@ -432,7 +492,7 @@ def remember_recognition(camera_name: str, name: str, confidence: float, hass=No
     # a sighting costs nothing when the queue is empty (the usual case); an unknown
     # face never triggers it.
     try:
-        if hass is not None and name and name.lower() != "unknown":
+        if hass is not None and name and not incoming_unknown:
             from . import notify_queue
             if notify_queue.has_pending():
                 notify_queue.schedule_delivery(hass, name, "camera")
@@ -816,6 +876,11 @@ def last_seen_at(hass: HomeAssistant, camera_entity: str) -> Optional[dict]:
         **rec,
         "age_seconds": int(age.total_seconds()),
         "camera_entity": camera_entity,
+        # #41 Phase 1A: surface confidence/unknown verdicts so camera.py Tier-1
+        # hinting works off the live cache (it was gated on an "is_confident" key
+        # this path never set, so Tier 1 never fired in production).
+        "is_confident": float(rec.get("confidence", 0.0) or 0.0) >= CONFIDENCE_THRESHOLD,
+        "is_unknown": _is_unknown(rec.get("name", "")),
     }
 
 
@@ -874,6 +939,8 @@ def who_is_where(hass: HomeAssistant) -> dict[str, str]:
     matches: list = []
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - CACHE_MAX_AGE
     for entity_id, rec in _RECOGNITION_CACHE.items():
+        if _is_unknown(rec.get("name", "")):
+            continue                               # #41 Phase 1C: never report "unknown"
         if rec["ts"] >= cutoff and rec["confidence"] >= CONFIDENCE_THRESHOLD:
             out[entity_id] = rec["name"]
             matches.append((entity_id, rec["name"], rec["confidence"], rec["ts"]))
@@ -883,7 +950,19 @@ def who_is_where(hass: HomeAssistant) -> dict[str, str]:
 
 
 def _is_unknown(name: str) -> bool:
-    return (name or "").strip().lower() in ("unknown", "unknown person", "unknown_face")
+    return (name or "").strip().lower() in (
+        "unknown", "unknown person", "unknown_face", "unrecognized", "unrecognised")
+
+
+def _roster_role(name: str) -> str:
+    """``resident`` when the name is a flagged household resident, else ``guest`` —
+    so the conversation model never mistakes a resident for a stranger (#41 Phase
+    1C). Best-effort; any roster error degrades to ``guest``."""
+    try:
+        from . import face_roster
+        return "resident" if face_roster.is_resident(name) else "guest"
+    except Exception:
+        return "guest"
 
 
 def _relationship_fields(name: str, is_unknown: bool) -> dict:
@@ -1147,7 +1226,7 @@ def recognition_context_string(hass: HomeAssistant) -> str:
         else:
             when = f"{age // 3600}h ago"
         friendly_cam = entity_id.replace("camera.", "").replace("_", " ")
-        bits.append(f"{name} seen at {friendly_cam} ({when})")
+        bits.append(f"{name} ({_roster_role(name)}) seen at {friendly_cam} ({when})")
         seen_names.add(name.lower())
         recognized_display.setdefault(name.lower(), name)
 
@@ -1155,11 +1234,11 @@ def recognition_context_string(hass: HomeAssistant) -> str:
     try:
         for f in read_frigate_face_sensors(hass):
             nm = f.get("name", "")
-            if nm and nm.lower() not in seen_names:
+            if nm and not _is_unknown(nm) and nm.lower() not in seen_names:
                 friendly_cam = f["camera"].replace("_", " ")
                 conf = f.get("confidence", 0)
                 tail = f" ~{conf:.0f}%" if conf else ""
-                bits.append(f"{nm} recognized at {friendly_cam}{tail}")
+                bits.append(f"{nm} ({_roster_role(nm)}) recognized at {friendly_cam}{tail}")
                 seen_names.add(nm.lower())
                 recognized_display.setdefault(nm.lower(), nm)
     except Exception:
@@ -1250,7 +1329,11 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
         remember_recognition(camera, name, confidence, hass=hass, source="doubletake")
         _schedule_face_capture(hass, camera, name, confidence)
 
-        # Fire a custom event that automations/blueprints can use
+        # Fire a custom event that automations/blueprints can use. is_confident is
+        # FALSE for an unknown (#41 Phase 1E): a 60%+ "unknown" must not satisfy the
+        # blueprint's is_confident gate and prime the vision model to call a
+        # resident a stranger.
+        name_unknown = _is_unknown(name)
         hass.bus.async_fire(
             "jarvis_face_recognized",
             {
@@ -1258,9 +1341,9 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                 "camera_entity": _camera_entity_from_name(camera),
                 "name":        name,
                 "confidence":  confidence,
-                "is_unknown":  name.lower() == "unknown",
-                "is_confident": confidence >= CONFIDENCE_THRESHOLD,
-                **_relationship_fields(name, name.lower() == "unknown"),
+                "is_unknown":  name_unknown,
+                "is_confident": (not name_unknown) and confidence >= CONFIDENCE_THRESHOLD,
+                **_relationship_fields(name, name_unknown),
             },
         )
         _LOGGER.info("JARVIS: face recognized — %s @ %s (%.1f%%)", name, camera, confidence)
@@ -1331,7 +1414,7 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                         if _raw is not None:
                             _sub_conf = _normalize_score(_raw)
                     if _sub_name and _subid_should_fire(after.get("id", ""), _sub_name):
-                        _is_unknown = _sub_name.lower() in ("unknown", "unknown person")
+                        sub_unknown = _is_unknown(_sub_name)
                         remember_recognition(camera, _sub_name, _sub_conf, hass=hass,
                                              source="frigate")
                         _schedule_face_capture(hass, camera, _sub_name, _sub_conf)
@@ -1340,9 +1423,9 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                             "camera_entity": f"camera.{camera}",
                             "name": _sub_name,
                             "confidence": _sub_conf,
-                            "is_unknown": _is_unknown,
-                            "is_confident": _sub_conf >= CONFIDENCE_THRESHOLD,
-                            **_relationship_fields(_sub_name, _is_unknown),
+                            "is_unknown": sub_unknown,
+                            "is_confident": (not sub_unknown) and _sub_conf >= CONFIDENCE_THRESHOLD,
+                            **_relationship_fields(_sub_name, sub_unknown),
                             "source": "frigate",
                         })
                         _LOGGER.info(
@@ -1409,7 +1492,7 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                         return
                     camera = str(payload.get("camera") or "").strip()
                     conf = _normalize_score(payload.get("score"))
-                    is_unknown = name.lower() in ("unknown", "unknown person")
+                    is_unknown = _is_unknown(name)
                     if camera:
                         remember_recognition(camera, name, conf, hass=hass,
                                              source="frigate")
@@ -1420,7 +1503,7 @@ async def register_recognition_listener(hass: HomeAssistant) -> list:
                         "name": name,
                         "confidence": conf,
                         "is_unknown": is_unknown,
-                        "is_confident": conf >= CONFIDENCE_THRESHOLD,
+                        "is_confident": (not is_unknown) and conf >= CONFIDENCE_THRESHOLD,
                         **_relationship_fields(name, is_unknown),
                         "source": "frigate_tracked_object",
                     })

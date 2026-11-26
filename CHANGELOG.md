@@ -1,3 +1,37 @@
+## [9.178.0] — Facial recognition Phase 1a: Tier-1 cache correctness + no false stranger alerts
+
+The first tranche of the facial-recognition cleanup (#41), fixing the
+recognition-layer root causes behind JARVIS calling a resident a stranger.
+
+- **Tier-1 camera hinting works again.** `last_seen_at()` now returns
+  `is_confident` / `is_unknown`, so `camera.py`'s per-camera identification (which
+  was gated on an `is_confident` key this path never set) can actually fire off the
+  live cache instead of never triggering in production.
+- **A brief "unknown" frame no longer wipes a resident.** `remember_recognition()`
+  protects a fresh (≤90 s), confident, named, non-restored match from being
+  clobbered by a transient `unknown` — it just bumps `unknown_count`. Under
+  `recognition_source: "both"` it keeps the higher-confidence hit and won't let a
+  weak different name supplant a confident one; a confident named sighting also
+  evicts any stale unknown-face entry.
+- **"unknown" stops leaking into chat & guest detection.** `who_is_where()` now
+  excludes every unknown variant, `recognition_context_string()` annotates each
+  face with its roster role (`(resident)` / `(guest)`) and never emits a bare
+  "unknown seen at …" line, and `_guests_present()` no longer flips
+  `guests_present` for two hours on a single `unknown` hit.
+- **Stale Frigate face sensors are dropped.** `read_frigate_face_sensors()` reads
+  each sensor's `last_changed`, skips readings older than the 2-hour cache window,
+  and reports a real `age_seconds`.
+- **No more stranger-alert priming.** The MQTT handlers all use the unified
+  `_is_unknown()` (now also matching `unrecognized`) and set
+  `is_confident = (not unknown) and conf ≥ threshold` on `jarvis_face_recognized`,
+  so a 60 %+ `unknown` on an indoor camera can no longer satisfy the blueprint's
+  `is_confident` gate and prime the vision model to label a resident a stranger.
+
+New tests for the confidence/unknown verdict, clobber protection, unknown
+isolation, sensor freshness, and the guest-signal guard. Remaining #41 work:
+camera-layer Tier-1/Tier-3 hints (§2), roster aliases + blueprint (§4–5), and
+Phase 2 multi-sample training + graduated LLM assist (§6–9).
+
 ## [9.177.0] — Suggestion engine: no sequence inflation, multi-day spread, causal-gate parity
 
 The second Phase-2 tranche, making the sequence finder's statistics honest so a

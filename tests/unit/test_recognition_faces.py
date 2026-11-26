@@ -614,7 +614,7 @@ def test_recognition_context_annotates_known_guest(recog, fake_hass, load, tmp_p
     _cache(mod, "camera.front_door", "Bob", 90.0, age_seconds=10)
 
     s = mod.recognition_context_string(fake_hass)
-    assert "Bob seen at front door" in s
+    assert "Bob (guest) seen at front door" in s   # #41 Phase 1C: role-annotated
     # The note is JSON-encoded (data, not prose) and framed by a guard clause so
     # a crafted note can't steer the agent (GHSA review on #549).
     assert 'Bob: "best friend; fine to be here alone"' in s
@@ -644,7 +644,7 @@ def test_recognition_context_no_guest_clause_for_plain_face(recog, fake_hass, lo
     _cache(mod, "camera.front_door", "Quentin", 90.0, age_seconds=10)
 
     s = mod.recognition_context_string(fake_hass)
-    assert "Quentin seen at front door" in s
+    assert "Quentin (guest) seen at front door" in s   # #41 Phase 1C: role-annotated
     assert "Known guests present" not in s
 
 
@@ -658,6 +658,63 @@ def test_recognition_context_guest_notes_toggle_off_omits_notes(recog, fake_hass
     _cache(mod, "camera.front_door", "Bob", 90.0, age_seconds=10)
 
     s = mod.recognition_context_string(fake_hass)
-    assert "Bob seen at front door" in s          # presence still surfaced
+    assert "Bob (guest) seen at front door" in s  # presence still surfaced (role-annotated)
     assert "Known guests present" not in s        # but no note text
     assert "has a key" not in s
+
+
+# ── #41 Phase 1: Tier-1 hint, unknown isolation, clobber protection ──────────
+
+def test_last_seen_at_reports_confidence_and_unknown(recog):
+    mod, _fr = recog
+    _cache(mod, "camera.front_door", "Sam", 90.0, age_seconds=5)
+    hi = mod.last_seen_at(None, "camera.front_door")
+    assert hi["is_confident"] is True and hi["is_unknown"] is False
+    _cache(mod, "camera.garage", "Sam", 40.0, age_seconds=5)      # below threshold
+    assert mod.last_seen_at(None, "camera.garage")["is_confident"] is False
+    _cache(mod, "camera.side", "unknown", 95.0, age_seconds=5)
+    assert mod.last_seen_at(None, "camera.side")["is_unknown"] is True
+
+
+def test_unknown_does_not_clobber_fresh_named_match(recog, monkeypatch):
+    mod, _fr = recog
+    monkeypatch.setattr(mod, "_persist", lambda *a, **k: None)
+    _cache(mod, "camera.front_door", "Sam", 94.0, age_seconds=5)   # fresh confident resident
+    mod.remember_recognition("front_door", "unknown", 95.0)
+    entry = mod._RECOGNITION_CACHE["camera.front_door"]
+    assert entry["name"] == "Sam" and entry["confidence"] == 94.0  # resident survives
+    assert entry["unknown_count"] == 1                             # only counted
+
+
+def test_unknown_overwrites_stale_named_match(recog, monkeypatch):
+    mod, _fr = recog
+    monkeypatch.setattr(mod, "_persist", lambda *a, **k: None)
+    _cache(mod, "camera.front_door", "Sam", 94.0, age_seconds=120)  # older than protect window
+    mod.remember_recognition("front_door", "unknown", 95.0)
+    assert mod._RECOGNITION_CACHE["camera.front_door"]["name"] == "unknown"
+
+
+def test_confident_named_sighting_evicts_unknown_face_cache(recog, monkeypatch):
+    mod, _fr = recog
+    monkeypatch.setattr(mod, "_persist", lambda *a, **k: None)
+    mod._UNKNOWN_FACE_CACHE["camera.front_door"] = {"ts": _now(), "url": None}
+    mod.remember_recognition("front_door", "Sam", 92.0)
+    assert "camera.front_door" not in mod._UNKNOWN_FACE_CACHE
+
+
+def test_who_is_where_excludes_unknown_variants(recog):
+    mod, _fr = recog
+    _cache(mod, "camera.a", "Sam", 90.0, age_seconds=5)
+    for i, u in enumerate(("unknown", "unknown person", "unknown_face", "unrecognized")):
+        _cache(mod, f"camera.u{i}", u, 95.0, age_seconds=5)
+    assert mod.who_is_where(None) == {"camera.a": "Sam"}
+
+
+def test_context_string_omits_unknown_keeps_resident(recog, fake_hass):
+    mod, fr = recog
+    fr.add_resident("Sam")
+    _cache(mod, "camera.door", "Sam", 90.0, age_seconds=5)
+    _cache(mod, "camera.side", "unknown", 99.0, age_seconds=5)
+    s = mod.recognition_context_string(fake_hass)
+    assert "Sam (resident) seen at" in s
+    assert "unknown" not in s.lower()
