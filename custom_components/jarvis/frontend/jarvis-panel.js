@@ -6727,6 +6727,7 @@ ${this._renderExcludedEntities(d)}
       briefing_include_presence:       d.config?.briefing_include_presence !== false,
       ollama_keep_warm:                d.config?.ollama_keep_warm !== false,
       goals_kernel_authoritative:      d.config?.goals_kernel_authoritative !== false,
+      camera_audio_enabled:            !!(d.config?.camera_audio_enabled),
     };
     return `
       <!-- OPENING WATCH (settings audit) -->
@@ -6838,6 +6839,18 @@ ${this._renderExcludedEntities(d)}
           <div class="cfg-row"><label>Custom modes <span class="mode-bind-sub">JSON map: mode name → definition</span></label><textarea class="cfg-field cfg-text" data-cfg-key="custom_modes" data-cfg-parse="json" rows="3" placeholder="{}">${jsnV(d.config?.custom_modes)}</textarea></div>
         </div>
       </div>
+
+      <!-- CAMERA AUDIO — TWO-WAY (talk half, #552) -->
+      <div class="panel">
+        <div class="head"><span>Camera Audio (Two-Way)</span><span class="side">INTERCOM</span></div>
+        <div class="mem-sub">Let JARVIS speak through a camera's speaker via go2rtc's backchannel (Frigate or HA go2rtc). Runs on the LAN, so it works even remotely over Nabu Casa. Ships <b>muted</b> — nothing speaks through a camera until you turn this on. Listen-only cameras (e.g. Nest) are refused automatically. Use the <code>jarvis.camera_speak</code> service (camera + message) once configured.</div>
+        <div class="home-cfg">
+          <div class="cfg-row"><label>Camera audio <span class="mode-bind-sub">master gate — muted until requested</span></label><button class="toggle-btn ${b.camera_audio_enabled ? 'on' : 'off'}" data-cfg-key="camera_audio_enabled" data-cfg-val="${b.camera_audio_enabled ? 'false' : 'true'}" data-confirm="Allow JARVIS to speak through your camera speakers? This opens an outbound audio backchannel to configured cameras via go2rtc. It never listens — only speaks — and listen-only cameras are refused. Enable camera talkback?">${b.camera_audio_enabled ? 'ON' : 'OFF'}</button></div>
+          <div class="cfg-row"><label>go2rtc base URL <span class="mode-bind-sub">default http://127.0.0.1:1984</span></label><input class="cfg-field cfg-text" type="text" data-cfg-key="go2rtc_base_url" value="${esc(d.config?.go2rtc_base_url || '')}" placeholder="http://127.0.0.1:1984"></div>
+          <div class="cfg-row"><label>Backchannel stream map <span class="mode-bind-sub">JSON: camera entity/name → go2rtc stream</span></label><textarea class="cfg-field cfg-text" data-cfg-key="camera_backchannel_map" data-cfg-parse="json" rows="3" placeholder='{"camera.garage": "Garage_2"}'>${jsnV(d.config?.camera_backchannel_map)}</textarea></div>
+          <div class="cfg-row"><label>Backchannel groups <span class="mode-bind-sub">JSON: camera → shared-NVR lock group</span></label><textarea class="cfg-field cfg-text" data-cfg-key="camera_backchannel_groups" data-cfg-parse="json" rows="3" placeholder='{"camera.garage": "lorex_nvr", "camera.well": "lorex_nvr"}'>${jsnV(d.config?.camera_backchannel_groups)}</textarea></div>
+        </div>
+      </div>
     `;
   }
 
@@ -6882,6 +6895,7 @@ ${this._renderExcludedEntities(d)}
       "Voice Identity & Confirmation": "voice",
       "Document Embeddings": "home",
       "Goals, Wellbeing & Modes": "general",
+      "Camera Audio (Two-Way)": "cameras",
     };
     // Inline stroke icons per sub-section (stroke:currentColor so they inherit
     // the button's active/hover colour). floorplan/governance have no grid cards

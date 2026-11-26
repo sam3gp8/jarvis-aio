@@ -1,3 +1,33 @@
+## [9.167.0] — JARVIS can speak through your cameras (#552, talk half)
+
+First tranche of two-way camera audio: JARVIS can now **speak through a camera's
+speaker** — deterrence, intercom replies, announcements — using **go2rtc's
+backchannel** (the media engine Frigate bundles and Home Assistant's native
+WebRTC stack ships). Because the push runs server-to-server on the LAN
+(JARVIS → go2rtc → camera), **it works even when you're remote over Nabu Casa**,
+where live browser WebRTC usually fails.
+
+- **New service `jarvis.camera_speak`** (camera + message) renders TTS and pushes
+  it into the camera's backchannel via go2rtc, transcoding to the camera's codec.
+- **Ships muted.** Nothing speaks through a camera until you turn on **Camera
+  Audio** in Settings → Cameras — a new command-center card with the master
+  toggle (confirmation-gated), the go2rtc URL, and JSON maps for per-camera
+  stream names and shared-NVR lock groups.
+- **Never assumes two-way works.** It probes go2rtc for a `sendonly` audio
+  backchannel and **refuses talkback on listen-only (recvonly) cameras** (e.g.
+  Nest via the SDM API). An idle on-demand stream reports unknown capabilities —
+  that's allowed to try, not hidden.
+- **Single-backchannel NVR safety.** Many multi-channel NVRs expose one RTSP
+  backchannel for the whole box; a second session is locked out. Pushes are
+  **serialised per `backchannel_group`**, and each TTS clip is finite so go2rtc
+  drops the producer at end-of-clip and frees the slot — no idle session holds a
+  camera's talkback hostage.
+- **go2rtc does the codec bridging** (pcma/pcmu/l16…); JARVIS never encodes RTP.
+
+This is the talk direction only. Live browser-mic two-way (WebRTC) and the
+RTSP-listen → speech-to-text direction are planned follow-up tranches; the
+provider and capability model here are shaped to accept them without a rewrite.
+
 ## [9.166.0] — Settings audit: 38 backend settings get real panel controls
 
 A cross-check of every writable backend key against the panel found **38 settings
