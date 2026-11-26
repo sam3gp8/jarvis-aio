@@ -1,3 +1,26 @@
+## [9.170.0] — RSI engine Phase 3a: probation watchdog + auto-rollback
+
+The safety net that makes the self-improvement engine *trustworthy* enough to one
+day enable: every applied Tier-1 change is on **probation** until it proves
+harmless, and this watchdog ends that probation one of two ways.
+
+- **Auto-rollback.** The moment a regression shows during probation — a boot
+  failure, a fault-rate spike (faults climb past a multiple of the pre-change
+  baseline), or a user-override spike — the change is **reverted to its prior
+  value** (through the same path that applied it) and its hash is **blacklisted**
+  so it can never be re-proposed. Rollback always wins over graduation: a
+  regression ends probation immediately, whatever the clock says. A restore that
+  fails is raised loudly, never swallowed.
+- **Graduation.** A change that survives its full window with none of those
+  regressions is marked **certified**.
+
+Pure, deterministic decision logic (every signal passed in), with the restore and
+the blacklist going through the same injected applier / store the apply path uses,
+and the rollback blacklist surviving a reload. The live wiring that *feeds* this
+watchdog — the scheduler cycle and the default-off `rsi_enabled` flag — is the
+next phase (3b); nothing runs it yet. All kernel governance gates stay green;
+`rsi` remains at the `pure` adoption stage.
+
 ## [9.169.0] — RSI engine Phase 2: Tier-1 parametric loop + shadow-replay fitness
 
 Building on Phase 1's guardrails, the self-improvement engine gains its first

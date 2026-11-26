@@ -529,6 +529,30 @@ class RSICoordinator:
         self._persist(proposal)
         return (ev, pr)
 
+    # ── Phase 3: probation watchdog ──────────────────────────────────────────
+    def watch_probation(
+        self,
+        proposal: "MutationProposal",
+        probation: "ProbationRecord",
+        *,
+        applier,
+        now: Optional[float] = None,
+        **signals,
+    ) -> "ProbationRecord":
+        """One probation tick: decide hold / rollback / graduate from the live
+        signals and act. Auto-rolls-back (restoring the checkpoint and blacklisting
+        the mutation) on a boot failure, fault-rate spike, or override spike;
+        graduates (CERTIFIED) once the window elapses cleanly; otherwise holds."""
+        now = time.time() if now is None else now
+        verdict = evaluate_probation(probation, now=now, **signals)
+        if verdict.action == PROBATION_ROLLBACK:
+            return rollback_tier1(proposal, probation, applier=applier, now=now,
+                                  reason=verdict.reason, oscillation=self._oscillation,
+                                  store=self._store)
+        if verdict.action == PROBATION_GRADUATE:
+            return graduate(proposal, probation, now=now, store=self._store)
+        return probation
+
     def _persist(self, p: MutationProposal) -> None:
         if self._store is None:
             return
@@ -760,3 +784,131 @@ def apply_tier1(
         except Exception:  # noqa: BLE001
             pass
     return pr
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 3 — Probation watchdog & auto-rollback (the loop's safety net)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# An applied Tier-1 mutation is on probation until it proves harmless. This is the
+# watchdog that ends probation one of two ways: auto-rollback — restore the prior
+# value and blacklist the mutation so it can't return — the moment a regression
+# shows (a boot failure, a fault-rate spike, or a user-override spike), or
+# graduation to CERTIFIED once the window closes with none of those. Pure decision
+# logic; the restore goes back through the same injected applier that applied it.
+
+PROBATION_HOLD = "hold"
+PROBATION_ROLLBACK = "rollback"
+PROBATION_GRADUATE = "graduate"
+
+_FAULT_SPIKE_FACTOR = 1.5      # fault rate above baseline×this ⇒ regression
+_OVERRIDE_SPIKE = 0.4          # override rate during probation ⇒ unwelcome
+
+
+@dataclass(frozen=True)
+class ProbationVerdict:
+    action: str
+    reason: str = ""
+
+
+def evaluate_probation(
+    probation: "ProbationRecord",
+    *,
+    now: float,
+    fault_rate: float = 0.0,
+    baseline_fault_rate: float = 0.0,
+    boot_ok: bool = True,
+    override_rate: float = 0.0,
+    fault_spike_factor: float = _FAULT_SPIKE_FACTOR,
+    override_spike: float = _OVERRIDE_SPIKE,
+) -> ProbationVerdict:
+    """Decide hold / rollback / graduate for one probation record. Rollback wins
+    over graduation: any regression ends probation immediately, whatever the
+    clock says. Pure — every signal is passed in."""
+    if not boot_ok:
+        return ProbationVerdict(PROBATION_ROLLBACK, "boot failure during probation")
+    threshold = max(baseline_fault_rate * fault_spike_factor, baseline_fault_rate + 1e-9)
+    if fault_rate > 0 and fault_rate > threshold:
+        return ProbationVerdict(
+            PROBATION_ROLLBACK,
+            f"fault rate spiked to {fault_rate:.3f} (baseline {baseline_fault_rate:.3f})")
+    if override_rate >= override_spike:
+        return ProbationVerdict(
+            PROBATION_ROLLBACK,
+            f"user override spike ({override_rate:.2f} ≥ {override_spike})")
+    if (now - probation.applied_ts) >= probation.window_s:
+        return ProbationVerdict(PROBATION_GRADUATE, "probation window elapsed with no regression")
+    return ProbationVerdict(PROBATION_HOLD, "within probation window, no regression")
+
+
+def rollback_tier1(
+    proposal: "MutationProposal",
+    probation: "ProbationRecord",
+    *,
+    applier,
+    now: Optional[float] = None,
+    reason: str = "",
+    oscillation: "Optional[OscillationGuard]" = None,
+    store: "Optional[RSIStore]" = None,
+    ledger_sink=None,
+) -> "ProbationRecord":
+    """Restore a probationary mutation's prior value and lock it out. Restores the
+    checkpoint through the injected ``applier`` (which raises on failure — a
+    mutation we could not revert is a loud error, never swallowed), blacklists the
+    mutation hash so it can't be re-proposed, and marks both records ROLLED_BACK."""
+    now = time.time() if now is None else now
+    try:
+        checkpoint_val = (json.loads(probation.checkpoint_ref)
+                          if probation.checkpoint_ref else proposal.current_value)
+    except Exception:  # noqa: BLE001
+        checkpoint_val = proposal.current_value
+
+    # Restore first. A failure raises out — an un-revertable mutation is loud.
+    applier(proposal.target_key_or_path, checkpoint_val)
+
+    proposal.status = ROLLED_BACK
+    proposal.reject_reason = reason or "probation rollback"
+    probation.status = ROLLED_BACK
+    if oscillation is not None:
+        oscillation.blacklist(proposal.mutation_hash)
+    if store is not None:
+        try:
+            store.blacklist(proposal.mutation_hash, now, reason or "probation rollback")
+            store.save_proposal(proposal)
+        except Exception:  # noqa: BLE001
+            pass
+    if ledger_sink is not None:
+        try:
+            ledger_sink({"event": "rsi_rollback", "ts": now,
+                         "proposal_id": proposal.proposal_id,
+                         "restored": checkpoint_val, "reason": reason})
+        except Exception:  # noqa: BLE001
+            pass
+    return probation
+
+
+def graduate(
+    proposal: "MutationProposal",
+    probation: "ProbationRecord",
+    *,
+    now: Optional[float] = None,
+    store: "Optional[RSIStore]" = None,
+    autonomy_sink=None,
+) -> "ProbationRecord":
+    """Mark a mutation that survived its probation window CERTIFIED. The optional
+    ``autonomy_sink`` is the hook the live wiring uses to nudge earned-trust
+    metrics; it never gates the certification."""
+    now = time.time() if now is None else now
+    proposal.status = CERTIFIED
+    probation.status = CERTIFIED
+    if store is not None:
+        try:
+            store.save_proposal(proposal)
+        except Exception:  # noqa: BLE001
+            pass
+    if autonomy_sink is not None:
+        try:
+            autonomy_sink(proposal)
+        except Exception:  # noqa: BLE001
+            pass
+    return probation
