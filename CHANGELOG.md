@@ -1,3 +1,41 @@
+## [9.168.0] — Recursive Self-Improvement engine: Phase 1 (guardrails)
+
+The foundation of a **closed-loop, constitutionally-gated self-improvement
+engine** (`kernel/rsi.py`) — the part that makes everything after it safe. This
+phase adds **no mutation of any kind**; it establishes the proposal record, the
+three mutation tiers, and the three hard rails every proposed change must clear
+*before* anything could ever be applied:
+
+- **Immutable governance core.** A non-overridable denylist — the Constitution,
+  the RSI engine itself, `authority.py`, `enforcement.py`, `certification.py`,
+  `boot_guard.py` — that **no tier, config, or trust level can ever edit**. A
+  proposal targeting one is rejected as a hard security violation and locked, and
+  the target path is normalised first so the guard can't be dodged by an
+  alternate spelling.
+- **Budget ceiling.** A daily mutation + token cap with an off-peak execution
+  window, so a self-improvement storm is impossible by construction. This is
+  RSI's *own*, far tighter, change budget — separate from the live-action budget.
+- **Anti-oscillation lock.** A mutation whose hash was previously rolled back, or
+  that would close an A→B→A flip of the same target inside the window, is rejected
+  and locked.
+
+Tiers are fixed up front: **Parametric** (numeric thresholds — autonomously
+promotable later), **Behavioral** (template/routing heuristics — autonomous only
+after repeated clean shadow replays), and **Structural** (core Python source) —
+which is **never live-applied**, only ever exported as a reviewable patch
+proposal for a human to merge.
+
+The engine is pure and deterministic (no wall clock, no Home Assistant import, no
+blocking I/O), persists proposals and the rollback blacklist through the
+canonical kernel SQLite seam, and **ships inert** — nothing runs until the later
+phases wire an off-peak cycle behind a feature flag that defaults off. All kernel
+governance gates (bypass, certification, closure, integration, docs-sync) stay
+green; `kernel/rsi.py` registers at the safest `pure` adoption stage.
+
+Follow-up phases (on these rails): Tier-1 parametric loop + shadow-replay fitness
+scoring, the probation watchdog + auto-rollback + scheduler wiring, then Tier-2
+behavioral and Tier-3 patch-proposal export.
+
 ## [9.167.0] — JARVIS can speak through your cameras (#552, talk half)
 
 First tranche of two-way camera audio: JARVIS can now **speak through a camera's
