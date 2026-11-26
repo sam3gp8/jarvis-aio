@@ -1,3 +1,38 @@
+## [9.180.0] — Facial recognition Phase 1c: resident aliases, unified identity & indoor unknown-alert suppression
+
+The third tranche of the facial-recognition cleanup (#41), reconciling the
+different names each backend uses for one resident and letting the recognition
+blueprint hold back a false stranger alert for an unrecognised resident indoors.
+
+- **Resident aliases → one identity.** `face_roster.json` now accepts, alongside
+  the legacy plain list, an object form carrying aliases
+  (`{"residents": [{"name": "Sam", "aliases": ["sam_g"]}], "aliases": {"sam_smith": "Sam"}}`).
+  `is_resident()` resolves against aliases too, and a new `canonical_name()` maps
+  Frigate's `"sam_g"` and DoubleTake's `"Sam"` to the one resident display name —
+  so a label difference across backends no longer silently demotes a resident to
+  "guest". New `add_alias()` helper; aliases persist atomically (the file stays a
+  plain list until an alias exists, then becomes the object form) and dangling
+  aliases are pruned when their resident is removed.
+- **Surface un-whitelisted residents.** New read-only `unflagged_ha_persons(hass)`
+  lists HA `person.*` friendly names that aren't flagged residents (nor a known
+  alias), so the Faces HUD can gently nudge the household to whitelist everyone.
+- **Indoor unknown-alert suppression.** The `jarvis_face_recognized` event now
+  carries best-effort `is_indoor` and `residents_home` booleans (`residents_home`
+  is false when the alarm is armed away), and the recognition blueprint gains a
+  `suppress_unknown_indoor_when_home` input (default on) that skips the
+  `alert_unknown` branch for an unknown face on an indoor camera while a resident
+  is home — the common "a resident the backend just didn't recognise" case.
+  Outdoor cameras always alert; either flag being unknown falls back to alerting.
+- The `unrecognis(z)ed` spellings now count as unknown in `face_roster` too, in
+  step with `recognition._is_unknown`.
+
+New tests for alias load (object + sidecar forms), `canonical_name`, `add_alias`
+round-trip persistence, alias pruning on removal, `unflagged_ha_persons`, and the
+`is_indoor` / `residents_home` event fields (including armed-away → not-home and
+omitted-when-unplaced). Intrusion stand-down remains strictly Tier-1; the
+blueprint guard only gates narration/announcement. Remaining #41 work: Phase 2
+multi-sample training + graduated LLM assist (§6–9).
+
 ## [9.179.0] — Facial recognition Phase 1b: camera-layer Tier-1 hint fix, Tier-3 presence guard & cropped snapshots
 
 The second tranche of the facial-recognition cleanup (#41), carrying the Tier-1

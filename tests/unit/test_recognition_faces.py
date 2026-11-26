@@ -116,6 +116,50 @@ def test_relationship_fields_for_event_payload(recog):
         "is_resident": False, "relationship": "unknown"}
 
 
+# ── §5: is_indoor / residents_home for the blueprint's indoor-suppress guard ──
+
+def _wire_indoor_home(load, monkeypatch, *, indoor, armed_away, home_count):
+    cam = load("camera")
+    pres = load("presence")
+    monkeypatch.setattr(cam, "_camera_is_indoor", lambda h, e: indoor, raising=False)
+    monkeypatch.setattr(cam, "_armed_away", lambda h: armed_away, raising=False)
+    monkeypatch.setattr(pres, "get_presence_summary",
+                        lambda h: {"home_count": home_count, "people": []}, raising=False)
+
+
+def test_indoor_home_fields_indoor_and_home(recog, fake_hass, load, monkeypatch):
+    mod, _ = recog
+    _wire_indoor_home(load, monkeypatch, indoor=True, armed_away=False, home_count=1)
+    assert mod._indoor_home_fields(fake_hass, "camera.living_room") == {
+        "is_indoor": True, "residents_home": True}
+
+
+def test_indoor_home_fields_armed_away_is_not_home(recog, fake_hass, load, monkeypatch):
+    # A declared-empty home (armed away) must NOT read as residents_home — an
+    # unknown face indoors is exactly what must still alert.
+    mod, _ = recog
+    _wire_indoor_home(load, monkeypatch, indoor=True, armed_away=True, home_count=2)
+    out = mod._indoor_home_fields(fake_hass, "camera.hall")
+    assert out["is_indoor"] is True and out["residents_home"] is False
+
+
+def test_indoor_home_fields_outdoor_no_one_home(recog, fake_hass, load, monkeypatch):
+    mod, _ = recog
+    _wire_indoor_home(load, monkeypatch, indoor=False, armed_away=False, home_count=0)
+    assert mod._indoor_home_fields(fake_hass, "camera.front") == {
+        "is_indoor": False, "residents_home": False}
+
+
+def test_indoor_home_fields_omits_indoor_when_unplaced(recog, fake_hass, load, monkeypatch):
+    # Camera not on the floor plan → is_indoor omitted, so the blueprint's
+    # `| default(false)` keeps full vigilance rather than guessing indoor.
+    mod, _ = recog
+    _wire_indoor_home(load, monkeypatch, indoor=None, armed_away=False, home_count=1)
+    out = mod._indoor_home_fields(fake_hass, "camera.unplaced")
+    assert "is_indoor" not in out
+    assert out["residents_home"] is True
+
+
 def test_recent_faces_sorted_newest_first_and_limited(recog, fake_hass):
     mod, _ = recog
     _cache(mod, "camera.a", "Old", 70.0, age_seconds=600)
