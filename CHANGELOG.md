@@ -1,3 +1,32 @@
+## [9.171.0] — Automation drafter: Gemma nested tool-call parser + robust arg decoding
+
+The first tranche of the automation-drafter cleanup, fixing the quietest and most
+damaging failure in the drafting path: **corrupted tool-call arguments.**
+
+- **Balanced Gemma parser.** Gemma-family models emit tool calls as
+  `call:NAME{…}` with their own `<|"|>…<|"|>` string quoting. The old parser
+  pulled the argument block out with a non-greedy `\{(.*?)\}` regex, which stops
+  at the **first** `}` — so a `create_automation` call with a nested
+  `trigger:[{…}]` / `action:[{…}]` was truncated mid-structure, and the mangled
+  remainder either failed validation or rendered as invalid YAML. It is replaced
+  with a **balanced recursive-descent parser** that scans the braces properly and
+  returns real `list`/`dict` structures (objects, arrays, Gemma- and JSON-quoted
+  strings, numbers, booleans, null, with escape handling). A malformed or
+  truncated call is **skipped, never raised** — best-effort, no crash.
+- **Robust provider-arg decoding.** OpenAI- and Groq-style tool calls used a bare
+  `json.loads(arguments or "{}")`, which throws on the malformed JSON these
+  endpoints occasionally return, taking down the whole turn. A shared
+  `_safe_parse_tool_args` guard now passes dicts through, parses clean JSON,
+  salvages the first balanced `{…}` object from noisy output, and falls back to an
+  empty dict with a logged warning instead of propagating the error.
+- **Composer tier label.** The refreshed main client is tagged
+  `tier = "conversation"` so downstream tier-aware routing classifies it
+  correctly.
+
+Parser and guard are covered by new structural tests (nested automations, scalar/
+array/escape handling, truncation, multi-call messages, unknown-tool rejection,
+arg-guard edge cases). No behavioural change for well-formed calls.
+
 ## [9.170.0] — RSI engine Phase 3a: probation watchdog + auto-rollback
 
 The safety net that makes the self-improvement engine *trustworthy* enough to one
