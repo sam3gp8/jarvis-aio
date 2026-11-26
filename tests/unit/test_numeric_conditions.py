@@ -96,10 +96,14 @@ def test_sequence_gets_numeric_and_sun_conditions(pa, tmp_path):
     conds = m[0].details["condition"]
     assert isinstance(conds, list)
     kinds = {c["condition"] for c in conds}
-    # a time-based discriminator (sun where dark, else a time window) AND a
-    # numeric condition both attach — the exact time kind depends on the
-    # host timezone, so accept either.
-    assert "numeric_state" in kinds and ("sun" in kinds or "time" in kinds)
+    # a time-based discriminator (the night-only sun.sun state where dark, else a
+    # time window) AND a numeric condition both attach — the exact time kind
+    # depends on the host timezone, so accept either.
+    assert "numeric_state" in kinds and ("state" in kinds or "time" in kinds)
+    if "state" in kinds:
+        sun = next(c for c in conds if c["condition"] == "state")
+        assert sun == {"condition": "state", "entity_id": "sun.sun",
+                       "state": "below_horizon"}
     num = next(c for c in conds if c["condition"] == "numeric_state")
     assert num["entity_id"] == "sensor.hall_temperature" and num["below"] <= 62.0
     assert "below" in m[0].description
@@ -137,4 +141,20 @@ def test_normalize_preserves_condition_list(pa):
                     "target": {"entity_id": "switch.space_heater"}}],
     }))
     assert len(norm["condition"]) == 2
-    assert {c["condition"] for c in norm["condition"]} == {"sun", "numeric_state"}
+    # the legacy always-false sun condition is migrated to the working form
+    assert {c["condition"] for c in norm["condition"]} == {"state", "numeric_state"}
+    sun = next(c for c in norm["condition"] if c["condition"] == "state")
+    assert sun == {"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}
+
+
+def test_normalize_migrates_sole_legacy_sun_condition(pa):
+    norm = pa.normalize_suggestion_automation(json.dumps({
+        "alias": "Porch after dark",
+        "trigger": {"platform": "state", "entity_id": "binary_sensor.porch_motion",
+                    "to": "on"},
+        "condition": {"condition": "sun", "after": "sunset", "before": "sunrise"},
+        "action": {"service": "light.turn_on", "entity_id": "light.porch"},
+    }))
+    assert norm["installable"] is True
+    assert norm["condition"] == [
+        {"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}]

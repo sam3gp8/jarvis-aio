@@ -87,8 +87,9 @@ def test_normalize_preserves_condition(pa):
 def test_sun_condition_when_mostly_dark(pa, monkeypatch):
     monkeypatch.setattr(pa, "_is_dark_at", lambda e, lat, lon: True)
     epochs = [_ep(h, d) for d in range(1, 6) for h in (20, 22)]
+    # the correct night-only condition — NOT the always-false sun after/before form
     assert pa._sun_condition(epochs, 40.7, -74.0) == {
-        "condition": "sun", "after": "sunset", "before": "sunrise"}
+        "condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}
 
 
 def test_no_sun_condition_when_mostly_light(pa, monkeypatch):
@@ -114,6 +115,26 @@ def test_sun_condition_needs_location(pa, monkeypatch):
 def test_sun_condition_needs_min_occurrences(pa, monkeypatch):
     monkeypatch.setattr(pa, "_is_dark_at", lambda e, lat, lon: True)
     assert pa._sun_condition([_ep(22), _ep(22)], 40.7, -74.0) is None
+
+
+def test_condition_phrase_reads_night_only_state_as_after_dark(pa):
+    # the new night-only condition still reads "mostly after dark" for humans
+    assert pa._condition_phrase(
+        {"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}
+    ) == ", mostly after dark"
+    # a normal state condition is unchanged
+    assert pa._condition_phrase(
+        {"condition": "state", "entity_id": "input_boolean.guest", "state": "on"}
+    ) == ", only when input_boolean.guest is on"
+
+
+def test_migrate_sun_condition_repairs_legacy_only(pa):
+    assert pa._migrate_sun_condition(
+        {"condition": "sun", "after": "sunset", "before": "sunrise"}
+    ) == {"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}
+    # a sun condition that isn't the always-false dusk-to-dawn form is untouched
+    other = {"condition": "sun", "after": "sunrise"}
+    assert pa._migrate_sun_condition(other) is other
 
 
 def test_generate_automation_emits_sun_condition(pa):

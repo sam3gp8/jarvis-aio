@@ -199,6 +199,30 @@ def test_find_confirmation_sequences_detects_choreography(pa, tmp_path):
     assert d["confirm"]["entity"] == "binary_sensor.bay_car"
 
 
+def test_confirmation_requires_same_area_sensor_no_house_wide_fallback(pa, tmp_path):
+    # SAFETY (#40, §7B): the confirming sensor that actually trips is NOT in the
+    # cover's area. The old house-wide fallback would wrongly accept it — indoor
+    # motion "confirming" an auto-close of the garage. It must be rejected now, so
+    # no confirm_sequence is learned at all.
+    conn = _conn(tmp_path / "sc_nofallback.db")
+    n = max(6, pa.MIN_OCCURRENCES + 3)
+    base = datetime.now() - timedelta(days=28)
+    for i in range(n):
+        t = base + timedelta(days=i, hours=17)
+        _add(conn, "device_tracker.jeep", "home", t)
+        _add(conn, "cover.garage", "open", t + timedelta(seconds=60))
+        _add(conn, "binary_sensor.hallway_motion", "on", t + timedelta(seconds=90))
+        _add(conn, "cover.garage", "closed", t + timedelta(seconds=150))
+    conn.commit()
+    an = pa.PatternAnalyzer()
+    # the garage area's sensor list does NOT contain the sensor that tripped
+    occ = {"hist": {}, "entity_area": {"cover.garage": "garage"},
+           "area_sensors": {"garage": ["binary_sensor.bay_car"]}}
+    pats = an._find_confirmation_sequences(conn, occ)
+    conn.close()
+    assert not any(p.pattern_type == "confirm_sequence" for p in pats)
+
+
 def test_confirm_sequence_gated_by_opt_in(pa, tmp_path):
     # The safety-sensitive Phase-3 finder must only run when the user opts in.
     conn_path = tmp_path / "gate.db"

@@ -397,6 +397,18 @@ def _is_actuating_action(action) -> bool:
     return svc.split(".", 1)[0] not in _READ_ONLY_ACTION_DOMAINS
 
 
+def _migrate_sun_condition(c):
+    """Repair the legacy always-false dusk-to-dawn sun condition
+    (``condition:sun`` with ``after:sunset`` AND ``before:sunrise``) into the
+    correct ``state``-on-``sun.sun`` form, so a pending suggestion stored before
+    the fix installs an automation that actually fires. Any other condition is
+    returned untouched. Pure."""
+    if (isinstance(c, dict) and c.get("condition") == "sun"
+            and c.get("after") == "sunset" and c.get("before") == "sunrise"):
+        return {"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}
+    return c
+
+
 def normalize_suggestion_automation(stored_yaml: str) -> dict:
     """
     Pure: turn a suggestion's stored automation JSON into structured args for
@@ -470,7 +482,9 @@ def normalize_suggestion_automation(stored_yaml: str) -> dict:
     # the installed automation.
     cond = data.get("condition")
     if cond:
-        out["condition"] = [cond] if isinstance(cond, dict) else list(cond)
+        conds = [cond] if isinstance(cond, dict) else list(cond)
+        # Repair any legacy always-false sun condition so it installs working.
+        out["condition"] = [_migrate_sun_condition(c) for c in conds]
     # Preserve the execution mode — a "hold until unoccupied" / confirmation
     # choreography needs `restart` so a re-trigger re-arms the wait.
     mode = data.get("mode")
@@ -936,10 +950,13 @@ def _is_dark_at(epoch: float, lat: float, lon: float) -> Optional[bool]:
 
 
 def _sun_condition(epochs: list, lat, lon) -> Optional[dict]:
-    """If the action consistently happens after dark, return an HA sun condition
-    ``{"condition": "sun", "after": "sunset", "before": "sunrise"}``; else None.
-    More precise than a fixed time window for "when it's dark" patterns because
-    it tracks the seasonal sunrise/sunset instead of a fixed clock time.
+    """If the action consistently happens after dark, return the HA condition that
+    is true while the sun is down —
+    ``{"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}`` —
+    else None. (NOT ``{"condition":"sun","after":"sunset","before":"sunrise"}``:
+    that reads as a same-day logical AND and is *always false*, so every such
+    learned "after dark" automation would silently never fire.) More precise than
+    a fixed time window because it tracks the seasonal sunset/sunrise.
     """
     if lat is None or lon is None or len(epochs) < MIN_OCCURRENCES:
         return None
@@ -955,7 +972,7 @@ def _sun_condition(epochs: list, lat, lon) -> Optional[dict]:
     if total < MIN_OCCURRENCES:
         return None
     if dark / total >= 0.8:               # consistently after dark
-        return {"condition": "sun", "after": "sunset", "before": "sunrise"}
+        return {"condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}
     return None
 
 
@@ -967,7 +984,7 @@ def _condition_phrase(cond) -> str:
     if not isinstance(cond, dict):
         return ""
     kind = cond.get("condition")
-    if kind == "sun":
+    if kind == "sun":            # legacy stored form, pre-migration
         return ", mostly after dark"
     if kind == "time":
         return f", mostly between {cond.get('after', '')[:5]} and {cond.get('before', '')[:5]}"
@@ -980,6 +997,8 @@ def _condition_phrase(cond) -> str:
     if kind == "state":
         ent = cond.get("entity_id", "")
         st = cond.get("state", "")
+        if ent == "sun.sun" and st == "below_horizon":   # the night-only condition
+            return ", mostly after dark"
         return f", only when {ent} is {st}"
     return ""
 
@@ -1998,17 +2017,16 @@ class PatternAnalyzer:
                     if not (j >= 0 and 0 <= open_ep - arr_ep[j] <= ARRIVE_BEFORE):
                         continue
                     trig_entity = arrivals[j][1]
-                    # confirmation sensor: on between open & close, area sensor first
+                    # Confirmation sensor: on between open & close, and it MUST be
+                    # in the cover's own area. The old house-wide fallback (any
+                    # binary_sensor anywhere) would let indoor motion "confirm" and
+                    # auto-close a garage with someone standing under it — a safety
+                    # hazard. No same-area confirmation → don't learn this event.
                     confirm = None
                     for s in area_sensors.get(entity_area.get(cover), []):
                         if any(open_ep <= t <= close_ep for t in on_events.get(s, [])):
                             confirm = s
                             break
-                    if not confirm:
-                        for s, ts in on_events.items():
-                            if any(open_ep <= t <= close_ep for t in ts):
-                                confirm = s
-                                break
                     if not confirm:
                         continue
                     key = (cover, trig_entity, confirm)

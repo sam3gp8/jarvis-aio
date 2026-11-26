@@ -160,8 +160,10 @@ def test_sequence_prefers_sun_condition_over_time(analyzer, tmp_path, monkeypatc
     conn.commit()
     pats = analyzer.PatternAnalyzer()._find_sequence_patterns(conn, 40.7, -74.0)
     m = [p for p in pats if p.details["trigger"]["entity"] == "binary_sensor.hall_motion"]
+    # the night-only condition is the working sun.sun state, not the always-false
+    # sun after/before window
     assert m and m[0].details["condition"] == [{
-        "condition": "sun", "after": "sunset", "before": "sunrise"}]
+        "condition": "state", "entity_id": "sun.sun", "state": "below_horizon"}]
     assert "after dark" in m[0].description
     conn.close()
 
