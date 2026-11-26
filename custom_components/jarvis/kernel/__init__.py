@@ -67,6 +67,7 @@ from .actuator import ActuatorOutcome, ActuatorRequest, build_actuator_request
 from .loop_detect import LoopDetector, LoopVerdict
 from .rsi import (
     IMMUTABLE_TARGETS,
+    FitnessWeights,
     MutationProposal,
     OscillationGuard,
     ProbationRecord,
@@ -74,9 +75,14 @@ from .rsi import (
     RSIBudget,
     RSICoordinator,
     RSIStore,
+    SubsystemAnomaly,
+    apply_tier1,
+    evaluate_parametric,
     is_immutable,
     mutation_hash,
     normalize_target,
+    observe as rsi_observe,
+    recommend_parametric,
 )
 from .journal import ExecutionJournal, JournaledStep, RecoveryReport, recover
 from .budget import AgencyBudget, BudgetLimits, BudgetVerdict
@@ -184,6 +190,12 @@ __all__ = [
     "RSIBudget",
     "OscillationGuard",
     "RSIStore",
+    "FitnessWeights",
+    "SubsystemAnomaly",
+    "evaluate_parametric",
+    "apply_tier1",
+    "recommend_parametric",
+    "rsi_observe",
     "IMMUTABLE_TARGETS",
     "is_immutable",
     "normalize_target",

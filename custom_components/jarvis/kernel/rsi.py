@@ -494,6 +494,41 @@ class RSICoordinator:
         self._persist(p)
         return p
 
+    # ── Phase 2: Tier-1 parametric evaluate → act ────────────────────────────
+    def promote_parametric(
+        self,
+        proposal: "MutationProposal",
+        records,
+        *,
+        applier,
+        weights: "Optional[FitnessWeights]" = None,
+        now: Optional[float] = None,
+    ):
+        """Shadow-evaluate a guardrail-cleared Tier-1 proposal and, only if its
+        fitness clears the bar with no safety regression, apply it atomically and
+        open probation. Returns ``(ReplayEvaluation, ProbationRecord | None)`` —
+        nothing is applied on a failed evaluation."""
+        now = time.time() if now is None else now
+        if proposal.tier != TIER_PARAMETRIC:
+            raise ValueError("promote_parametric handles Tier 1 (parametric) only")
+        if proposal.status != PROPOSED:
+            return (ReplayEvaluation(proposal.proposal_id, passed=False,
+                                     detail=f"proposal has not cleared the guardrails ({proposal.status})"),
+                    None)
+        ev = evaluate_parametric(proposal, records, weights=weights, now=now)
+        if not ev.passed:
+            proposal.status = REJECTED
+            proposal.reject_reason = ev.detail
+            self._persist(proposal)
+            return (ev, None)
+        pr = apply_tier1(proposal, ev, applier=applier, now=now, store=self._store)
+        # consume the change budget + note the application so a later flip back is
+        # caught by the anti-oscillation guard.
+        self._budget.record_spend(now)
+        self._oscillation.record(proposal, now)
+        self._persist(proposal)
+        return (ev, pr)
+
     def _persist(self, p: MutationProposal) -> None:
         if self._store is None:
             return
@@ -501,3 +536,227 @@ class RSICoordinator:
             self._store.save_proposal(p)
         except Exception as exc:  # noqa: BLE001 — persistence is best-effort
             _LOGGER.debug("rsi: proposal persist failed: %s", exc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2 — Tier-1 parametric loop (observe → evaluate → act)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Still bounded: only Tier-1 PARAMETRIC mutations (numeric thresholds) are
+# evaluated and applied here, and only after the Phase-1 guardrails. The shadow
+# evaluation is deterministic (replay over recorded, judged decisions) and applies
+# NOTHING unless the fitness delta clears the noise floor with zero safety
+# regression. The probation watchdog + auto-rollback that closes the loop is
+# Phase 3; apply_tier1 opens probation here but does not yet watch it.
+
+_OUTCOME_WRONG = "wrong"   # mirrors replay.WRONG; kept local so rsi stays HA-free
+
+# Subsystems whose regressions are safety-relevant: a candidate may never act on
+# MORE wrong cases (or lose MORE good calls) in one of these, whatever its ΔF.
+SAFETY_CRITICAL_SUBSYSTEMS = frozenset({
+    "intrusion", "hazard", "hazard_monitor", "sentinel", "lockdown", "security",
+})
+
+
+@dataclass(frozen=True)
+class FitnessWeights:
+    """Weights for ΔF = w1·ΔA − w2·ΔL − w3·ΔC − w4·ΔO, plus the promotion gates:
+    a strict improvement floor and a minimum judged-sample count."""
+    w_outcome: float = 1.0
+    w_latency: float = 0.25
+    w_tokens: float = 0.25
+    w_overrides: float = 0.5
+    delta_f_min: float = 0.01      # noise floor — ΔF must beat this to promote
+    min_samples: int = 25
+
+
+@dataclass(frozen=True)
+class SubsystemAnomaly:
+    """One subsystem whose recent decisions drifted enough to warrant a cycle."""
+    subsystem: str
+    score: float
+    samples: int
+    wrong: int
+    overrides: int
+
+
+def observe(
+    signals,
+    *,
+    now: Optional[float] = None,
+    drift_threshold: float = 0.15,
+    cooldown_s: float = 3600.0,
+    last_cycle_ts: float = 0.0,
+) -> list:
+    """Aggregate recent decision signals into per-subsystem anomalies, gated by a
+    cooldown. Pure: ``signals`` is a list of dicts (the live wiring feeds it from
+    decision_record / outcome / feedback) carrying some of {subsystem|kind,
+    outcome, success, verified, overridden}. Returns the subsystems whose
+    wrong+override rate meets ``drift_threshold``, worst first — or [] while the
+    cooldown since ``last_cycle_ts`` has not elapsed."""
+    now = time.time() if now is None else now
+    if last_cycle_ts and (now - last_cycle_ts) < cooldown_s:
+        return []
+    by_sub: dict = {}
+    for s in signals or []:
+        s = s or {}
+        sub = str(s.get("subsystem") or s.get("kind") or "").strip().lower()
+        if not sub:
+            continue
+        agg = by_sub.setdefault(sub, {"n": 0, "wrong": 0, "ovr": 0})
+        agg["n"] += 1
+        if s.get("outcome") == _OUTCOME_WRONG or s.get("success") is False or s.get("verified") is False:
+            agg["wrong"] += 1
+        if s.get("overridden") or s.get("override"):
+            agg["ovr"] += 1
+    out = []
+    for sub, a in by_sub.items():
+        if a["n"] <= 0:
+            continue
+        score = (a["wrong"] + a["ovr"]) / a["n"]
+        if score >= drift_threshold:
+            out.append(SubsystemAnomaly(sub, round(score, 4), a["n"], a["wrong"], a["ovr"]))
+    out.sort(key=lambda x: x.score, reverse=True)
+    return out
+
+
+def recommend_parametric(records, *, min_samples: int = 25) -> Optional[dict]:
+    """Best replay-recommended threshold over judged records (or None if there
+    aren't enough samples) — the bridge used to pick a candidate value for a
+    threshold-type parametric mutation."""
+    try:
+        from .. import replay
+    except Exception:  # noqa: BLE001
+        return None
+    return replay.recommend_threshold(records, min_samples=min_samples)
+
+
+def evaluate_parametric(
+    proposal: "MutationProposal",
+    records,
+    *,
+    weights: Optional[FitnessWeights] = None,
+    now: Optional[float] = None,
+) -> "ReplayEvaluation":
+    """Shadow-replay a Tier-1 threshold mutation: baseline(current) vs
+    candidate(proposed) over judged decision records, scored into a ΔF. Passes
+    only on a strict improvement above the noise floor, with enough samples and no
+    regression in a safety-critical subsystem. Deterministic; no side effects."""
+    weights = weights or FitnessWeights()
+    try:
+        cur = float(proposal.current_value)
+        cand = float(proposal.proposed_value)
+    except (TypeError, ValueError):
+        return ReplayEvaluation(proposal.proposal_id, passed=False,
+                                detail="non-numeric parametric value; not replay-evaluable")
+    try:
+        from .. import replay
+    except Exception as exc:  # noqa: BLE001
+        return ReplayEvaluation(proposal.proposal_id, passed=False,
+                                detail=f"replay unavailable: {exc}")
+    base = replay.evaluate_threshold(records, cur)
+    cand_r = replay.evaluate_threshold(records, cand)
+    if base.total < max(1, weights.min_samples):
+        return ReplayEvaluation(proposal.proposal_id, passed=False,
+                                detail=f"insufficient judged samples ({base.total} < {weights.min_samples})")
+    d_outcome = cand_r.accuracy - base.accuracy
+    # threshold replay carries no per-threshold latency/token delta; those terms
+    # are supplied by the live wiring for non-threshold mutation types later.
+    d_latency = 0.0
+    d_tokens = 0.0
+    d_overrides = ((cand_r.good_calls_lost - base.good_calls_lost) / base.total) if base.total else 0.0
+    delta_f = (weights.w_outcome * d_outcome
+               - weights.w_latency * d_latency
+               - weights.w_tokens * d_tokens
+               - weights.w_overrides * d_overrides)
+    sub = str(proposal.target_subsystem or "").strip().lower()
+    safety_regression = (
+        sub in SAFETY_CRITICAL_SUBSYSTEMS
+        and (cand_r.kept_wrong > base.kept_wrong or cand_r.good_calls_lost > base.good_calls_lost)
+    )
+    passed = (delta_f >= weights.delta_f_min) and not safety_regression
+    if safety_regression:
+        detail = f"safety regression in critical subsystem '{sub}' — candidate acts on more wrong cases"
+    elif not passed:
+        detail = f"ΔF {delta_f:.4f} below floor {weights.delta_f_min}"
+    else:
+        detail = f"ΔF {delta_f:.4f} over {base.total} judged samples"
+    return ReplayEvaluation(
+        proposal_id=proposal.proposal_id,
+        delta_fitness=round(delta_f, 6),
+        delta_outcome=round(d_outcome, 6),
+        delta_latency=d_latency,
+        delta_tokens=d_tokens,
+        delta_overrides=round(d_overrides, 6),
+        safety_violations=1 if safety_regression else 0,
+        passed=passed,
+        detail=detail,
+    )
+
+
+def apply_tier1(
+    proposal: "MutationProposal",
+    evaluation: "ReplayEvaluation",
+    *,
+    applier,
+    now: Optional[float] = None,
+    provenance_sink=None,
+    ledger_sink=None,
+    store: Optional["RSIStore"] = None,
+) -> "ProbationRecord":
+    """Atomically apply a passed Tier-1 parametric mutation and open probation.
+
+    Order: snapshot the prior value (the rollback checkpoint) → stamp provenance →
+    apply via the injected ``applier`` (which raises on failure, so nothing is
+    half-applied) → mark PROMOTED → record lineage. The probation window is opened
+    but not yet watched; Phase 3 adds the watchdog + auto-rollback."""
+    now = time.time() if now is None else now
+    checkpoint = proposal.current_value
+    prov = None
+    try:
+        from .provenance import record as _prov_record
+        prov = _prov_record(
+            proposal.proposed_value,
+            source=f"rsi:{proposal.proposal_id}",
+            confidence=max(0.0, min(1.0, float(evaluation.delta_outcome))),
+            model="rsi.tier1",
+            now=(lambda: now),
+        )
+    except Exception:  # noqa: BLE001 — provenance is best-effort metadata
+        prov = None
+
+    # The actuating step. A failure here raises out — the override is not applied
+    # and no probation record is returned, so the engine never half-mutates.
+    applier(proposal.target_key_or_path, proposal.proposed_value)
+
+    proposal.status = PROMOTED
+    pr = ProbationRecord(
+        proposal_id=proposal.proposal_id,
+        mutation_hash=proposal.mutation_hash,
+        applied_ts=now,
+        window_s=24 * 3600.0,
+        checkpoint_ref=json.dumps(checkpoint, default=str),
+        status=PROBATION,
+    )
+    if store is not None:
+        try:
+            store.save_proposal(proposal)
+        except Exception:  # noqa: BLE001
+            pass
+    if ledger_sink is not None:
+        try:
+            ledger_sink({
+                "event": "rsi_tier1_apply",
+                "ts": now,
+                "proposal": proposal.as_dict(),
+                "delta_fitness": evaluation.delta_fitness,
+                "checkpoint": checkpoint,
+            })
+        except Exception:  # noqa: BLE001
+            pass
+    if provenance_sink is not None and prov is not None:
+        try:
+            provenance_sink(prov)
+        except Exception:  # noqa: BLE001
+            pass
+    return pr
