@@ -329,9 +329,11 @@ async def test_oneshot_empty_response_reports_thinking_budget(creator, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_oneshot_recovers_automation_from_reasoning_channel(creator, tmp_path):
-    """Content empty but the automation JSON landed in the reasoning channel —
-    the composer recovers it from there instead of giving up."""
+async def test_oneshot_does_not_recover_automation_from_reasoning_channel(creator, tmp_path):
+    """The private reasoning channel is scratch work — discarded drafts and
+    half-formed JSON — not a committed answer. Even when a parseable automation
+    lands there (content still empty), the composer must NOT lift it into a draft:
+    only a native tool call or visible content counts. (Spec #40 Phase 1, 2D.)"""
     states = [_State("light.chaise_lamp", "Chaise Lamp"),
               _State("binary_sensor.living_room_presence", "Living Room Presence")]
     services = {"light": {"turn_on": None, "turn_off": None}}
@@ -346,8 +348,11 @@ async def test_oneshot_recovers_automation_from_reasoning_channel(creator, tmp_p
     res = await creator.draft_automation(
         hass, "turn on the chaise lamp when living room presence detects someone",
         client=client)
-    assert res["ok"] is True
-    assert "light.chaise_lamp" in res["draft"]["yaml"]
+    assert res["ok"] is False
+    # nothing was lifted out of the scratchpad into an installable draft
+    assert not res.get("draft")
+    # and nothing was written
+    assert not (tmp_path / "automations.yaml").exists()
 
 
 @pytest.mark.asyncio

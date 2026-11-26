@@ -154,3 +154,143 @@ def test_create_automation_tool_is_registered(load):
     assert "create_automation" in agent._TOOL_MAP
     names = {t["function"]["name"] for t in agent.JARVIS_TOOLS}
     assert "create_automation" in names
+
+
+# ── closed validation bypass: non-dotted refs are now FLAGGED (spec #40, 2C) ──
+
+def test_nondotted_entity_name_is_flagged_not_ignored(ac):
+    # The old _collect_refs silently dropped "Living Room Light" (ok=True on a
+    # hallucinated name). It must now be reported as invalid.
+    h = _hass_with(entities=["light.porch"], services=["light.turn_on"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "state", "entity_id": "Living Room Light"}],
+        condition=None,
+        action=[{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}])
+    assert report["ok"] is False
+    assert "Living Room Light" in report["invalid_entities"]
+
+
+def test_nondotted_action_service_is_flagged(ac):
+    h = _hass_with(entities=["light.porch"], services=["light.turn_on"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "state", "entity_id": "light.porch"}],
+        condition=None,
+        action=[{"action": "turn_on", "target": {"entity_id": "light.porch"}}])
+    assert report["ok"] is False
+    assert "turn_on" in report["invalid_services"]
+
+
+def test_mobile_notification_action_payload_is_not_a_service(ac):
+    # "action" inside a notify data payload is a button id, not a service ref —
+    # it must not be flagged.
+    h = _hass_with(entities=[], services=["notify.mobile_app"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "time", "at": "08:00:00"}], condition=None,
+        action=[{"action": "notify.mobile_app",
+                 "data": {"message": "hi", "data": {"actions": [
+                     {"action": "SNOOZE", "title": "Snooze"}]}}}])
+    assert report["ok"] is True
+    assert report["invalid_services"] == {}
+
+
+# ── semantic validation (spec #40, 2C) ───────────────────────────────────────
+
+def test_impossible_sun_condition_is_flagged(ac):
+    h = _hass_with(entities=["binary_sensor.door", "light.porch"],
+                   services=["light.turn_on"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "state", "entity_id": "binary_sensor.door", "to": "on"}],
+        condition=[{"condition": "sun", "after": "sunset", "before": "sunrise"}],
+        action=[{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}])
+    assert any("sun" in e for e in report["semantic_errors"])
+
+
+def test_binary_sensor_impossible_state_is_flagged(ac):
+    h = _hass_with(entities=["binary_sensor.front_door", "light.porch"],
+                   services=["light.turn_on"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "state", "entity_id": "binary_sensor.front_door",
+                     "to": "open"}],
+        condition=None,
+        action=[{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}])
+    assert any("binary_sensor" in e for e in report["semantic_errors"])
+
+
+def test_cross_domain_service_target_is_flagged(ac):
+    h = _hass_with(entities=["switch.porch"], services=["light.turn_on"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "state", "entity_id": "switch.porch"}],
+        condition=None,
+        action=[{"action": "light.turn_on", "target": {"entity_id": "switch.porch"}}])
+    assert any("different domain" in e for e in report["semantic_errors"])
+
+
+def test_homeassistant_service_is_allowed_cross_domain(ac):
+    h = _hass_with(entities=["switch.porch"], services=["homeassistant.turn_off"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "state", "entity_id": "switch.porch"}],
+        condition=None,
+        action=[{"action": "homeassistant.turn_off",
+                 "target": {"entity_id": "switch.porch"}}])
+    assert report["semantic_errors"] == []
+
+
+def test_typeless_trigger_and_actionless_step_are_flagged(ac):
+    h = _hass_with(entities=["light.porch"], services=["light.turn_on"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"entity_id": "light.porch", "to": "on"}],   # no trigger/platform
+        condition=None, action=[{"foo": "bar"}])                 # no action key
+    assert any("trigger" in e for e in report["semantic_errors"])
+    assert any("action" in e for e in report["semantic_errors"])
+
+
+def test_well_formed_config_has_no_semantic_errors(ac):
+    h = _hass_with(entities=["binary_sensor.door", "light.porch", "sun.sun"],
+                   services=["light.turn_on"])
+    report = ac.validate_automation_config(
+        h, trigger=[{"trigger": "state", "entity_id": "binary_sensor.door", "to": "on"}],
+        condition=[{"condition": "state", "entity_id": "sun.sun",
+                    "state": "below_horizon"}],
+        action=[{"action": "light.turn_on", "target": {"entity_id": "light.porch"}}])
+    assert report["ok"] is True
+    assert report["semantic_errors"] == []
+
+
+# ── modern plural-key coercion + strict structure (spec #40, 2D) ──────────────
+
+def test_coerce_accepts_modern_plural_keys(ac):
+    out = ac._coerce_automation({
+        "alias": "x",
+        "triggers": [{"trigger": "state", "entity_id": "binary_sensor.d", "to": "on"}],
+        "actions": [{"action": "light.turn_on"}]})
+    assert out is not None
+    assert out["trigger"] == [{"trigger": "state", "entity_id": "binary_sensor.d",
+                               "to": "on"}]
+    assert out["action"] == [{"action": "light.turn_on"}]
+    assert "triggers" not in out and "actions" not in out
+
+
+def test_coerce_rejects_string_and_empty_steps(ac):
+    assert ac._coerce_automation(
+        {"trigger": "state", "action": [{"action": "light.turn_on"}]}) is None
+    assert ac._coerce_automation(
+        {"trigger": [{"trigger": "state"}], "action": []}) is None
+    assert ac._coerce_automation(
+        {"trigger": [{"trigger": "state"}], "action": ["light.turn_on"]}) is None
+
+
+# ── alias / id hygiene (spec #40, 2A) ────────────────────────────────────────
+
+def test_clean_alias_strips_every_jarvis_prefix(ac):
+    assert ac._clean_alias("JARVIS · Porch") == "Porch"
+    assert ac._clean_alias("JARVIS Learned: Hall light") == "Hall light"
+    assert ac._clean_alias("JARVIS Learned (review): Close garage") == "Close garage"
+    assert ac._clean_alias("JARVIS · JARVIS Learned: Lamp") == "Lamp"
+    assert ac._clean_alias("Night Lights") == "Night Lights"
+    assert ac._clean_alias("") == "automation"
+
+
+def test_slug_alias_is_strict(ac):
+    assert ac._slug_alias("Porch @ Dusk!!") == "jarvis_auto_porch_dusk"
+    assert ac._slug_alias("") == "jarvis_auto_unnamed"
+    assert ac._slug_alias("---") == "jarvis_auto_unnamed"
