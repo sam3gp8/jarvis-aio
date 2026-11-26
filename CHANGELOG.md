@@ -1,3 +1,43 @@
+## [9.181.0] — Facial recognition Phase 2a: multi-sample training gallery + shadow calibration & graduation
+
+The first Phase-2 tranche of the facial-recognition cleanup (#41), building the
+substrate that lets the best-effort LLM matcher mature into a trustworthy
+assist: a lighting-diverse reference gallery and a rolling-window calibration
+that graduates (and auto-demotes) a resident's matcher. All of it is storage and
+pure math — the camera/LLM wiring that consumes it lands in the next tranche.
+
+- **Multi-sample reference gallery.** Auto-enrolled references now go into a
+  per-resident gallery `<config>/jarvis/faces_ref/<norm>/` (up to 4 frames)
+  alongside the sticky manual upload, instead of a single overwritten file. The
+  legacy single-file reference still works (it's slot 0, bootstrapped when nothing
+  is enrolled). Enrollment is diversity-gated — a new frame is skipped only when
+  it's within 30 min of the last one AND from the same camera AND the same
+  day/night lighting bucket — so the gallery naturally captures daytime, indoor
+  and night/IR looks; the bar rises from 80% to **85%** confidence. New
+  `face_reference_paths(name, prefer_night=…, limit=…)` returns the manual
+  reference first, then lighting-matched auto frames. References are keyed by the
+  **canonical** resident name, so a Frigate alias ("sam_g") and DoubleTake ("Sam")
+  share one gallery.
+- **Rolling-window shadow calibration & graduation.** A new
+  `calibration.json` tracks, per canonical resident, a 30-sample window of shadow
+  comparisons (`agreed` / `wrong_person` / `abstained`). `record_llm_calibration()`
+  appends outcomes; `is_llm_graduated()` evaluates live — ≥3 refs, ≥15 samples,
+  ≥90% agreement and ≤1 wrong-person error — so drift (or a Faces-tab user
+  correction) auto-demotes the resident back to shadow-only. `llm_calibration_summary()`
+  feeds the HUD, `has_graduated_llm_residents()` gates the camera path, and
+  `last_llm_guess_at(…, graduated_only=True)` exposes only trustworthy guesses.
+
+**Safety:** none of this touches `_RECOGNITION_CACHE` or `resident_present()` —
+intrusion stand-down stays strictly Tier-1; a graduated LLM matcher only assists
+narration/chat, never disables an away-mode alert.
+
+New tests for gallery bootstrap, diversity spacing, cap + FIFO eviction,
+lighting-matched `face_reference_paths`, the `_lighting_bucket` helper, and the
+calibration math (record/counts, below-threshold vs graduation, wrong-person
+auto-demotion, alias canonicalization, persistence + summary, graduated-only
+guess gating, and the resident_present safety boundary). Remaining #41 work:
+Tier-2 assist wiring (§7–8) and the Faces HUD training panel (§9).
+
 ## [9.180.0] — Facial recognition Phase 1c: resident aliases, unified identity & indoor unknown-alert suppression
 
 The third tranche of the facial-recognition cleanup (#41), reconciling the
