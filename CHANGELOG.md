@@ -1,3 +1,29 @@
+## [9.174.0] — Habit matrix & mutex debt: no Day-1 certainty, weekday/weekend-aware, self-healing locks
+
+The fourth tranche of the automation-drafter cleanup, paying down the habit-matrix
+and entity-lock debt behind pre-emptive automation.
+
+- **No more N+1 disk reads on the event loop.** `due_preemptions()` factored its
+  per-key probability into `_probability_from_events()`, so it now reads
+  `habit_matrix.json` **once** for every key instead of once per key.
+- **Minimum observed-days floor.** A probability returns `0.0` until at least
+  `DEFAULT_MIN_DAYS` (7) distinct days of the matching class have been observed, so
+  a single Day-1 event can no longer score `1.0` and pre-empt on no real evidence.
+  Callers can pass `min_days=` to opt into a small-sample estimate.
+- **Weekday vs. weekend separation.** Each observation records a `weekend` flag,
+  and probability is scoped to the matching class — a Saturday habit is no longer
+  taken as evidence for a Tuesday (and legacy records derive the flag from their
+  timestamp).
+- **Self-healing entity locks.** A `LockToken` now carries an `acquired_at` /
+  `ttl_s` (default 30 s; `None` = never). A lock whose holder never releases — a
+  crash mid-service-call, a lost awaitable — is treated as expired and evicted on
+  the next `try_acquire` / `is_locked` / `held_priority`, so an entity can't wedge
+  forever.
+
+Both modules stay stdlib-only (no Home Assistant import) and fully unit-tested;
+the predictor's recurrence tests were rebuilt around the new class-scoped,
+min-days semantics.
+
 ## [9.173.0] — Automation drafter: tool-driver call-chain fixes + composer on the reasoning tier
 
 The third tranche of the automation-drafter cleanup, fixing the execution-layer

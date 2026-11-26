@@ -20,9 +20,15 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from enum import IntEnum
 
 _LOGGER = logging.getLogger(__name__)
+
+# A lock whose holder never releases (a crash mid-service-call, a lost awaitable)
+# would wedge an entity forever. A time-to-live lets the registry self-heal:
+# past it, the stale token is treated as invalid and evicted on the next touch.
+DEFAULT_LOCK_TTL_S = 30.0
 
 
 class Priority(IntEnum):
@@ -35,14 +41,23 @@ class Priority(IntEnum):
 
 
 class LockToken:
-    """Opaque handle for a held lock; ``valid`` flips False if preempted/released."""
+    """Opaque handle for a held lock; ``valid`` flips False if preempted/released.
+    ``ttl_s`` (None = never) bounds how long it stays live before it self-expires."""
 
-    __slots__ = ("entity", "priority", "valid")
+    __slots__ = ("entity", "priority", "valid", "acquired_at", "ttl_s")
 
-    def __init__(self, entity: str, priority: int) -> None:
+    def __init__(self, entity: str, priority: int,
+                 *, ttl_s: float | None = DEFAULT_LOCK_TTL_S) -> None:
         self.entity = entity
         self.priority = priority
         self.valid = True
+        self.acquired_at = time.monotonic()
+        self.ttl_s = ttl_s
+
+    def expired(self, now: float | None = None) -> bool:
+        if self.ttl_s is None:
+            return False
+        return (time.monotonic() if now is None else now) - self.acquired_at >= self.ttl_s
 
 
 class EntityLockRegistry:
@@ -51,12 +66,27 @@ class EntityLockRegistry:
     def __init__(self) -> None:
         self._locks: dict[str, LockToken] = {}
 
-    def try_acquire(self, entity: str, priority: int) -> LockToken | None:
+    def _active(self, entity: str) -> LockToken | None:
+        """The live holder of ``entity``, evicting a released/preempted or
+        TTL-expired token so a wedged lock heals itself on the next touch."""
+        current = self._locks.get(entity)
+        if current is None:
+            return None
+        if not current.valid or current.expired():
+            current.valid = False
+            if self._locks.get(entity) is current:
+                del self._locks[entity]
+            return None
+        return current
+
+    def try_acquire(self, entity: str, priority: int,
+                    *, ttl_s: float | None = DEFAULT_LOCK_TTL_S) -> LockToken | None:
         """Acquire ``entity`` at ``priority``. Returns a token, or None if a lock
         of equal-or-higher priority is already held (the incoming request is
-        discarded). A strictly-higher priority preempts the current holder."""
-        current = self._locks.get(entity)
-        if current is not None and current.valid:
+        discarded). A strictly-higher priority preempts the current holder. A
+        stale (TTL-expired) holder is treated as not held."""
+        current = self._active(entity)
+        if current is not None:
             if int(priority) > current.priority:
                 current.valid = False  # preempt the lower-priority holder
                 _LOGGER.debug(
@@ -69,7 +99,7 @@ class EntityLockRegistry:
                     entity, current.priority, int(priority),
                 )
                 return None
-        token = LockToken(entity, int(priority))
+        token = LockToken(entity, int(priority), ttl_s=ttl_s)
         self._locks[entity] = token
         return token
 
@@ -84,18 +114,18 @@ class EntityLockRegistry:
             del self._locks[token.entity]
 
     def is_locked(self, entity: str) -> bool:
-        current = self._locks.get(entity)
-        return current is not None and current.valid
+        return self._active(entity) is not None
 
     def held_priority(self, entity: str) -> int | None:
-        current = self._locks.get(entity)
-        return current.priority if (current is not None and current.valid) else None
+        current = self._active(entity)
+        return current.priority if current is not None else None
 
     @contextlib.asynccontextmanager
-    async def guard(self, entity: str, priority: int):
+    async def guard(self, entity: str, priority: int,
+                    *, ttl_s: float | None = DEFAULT_LOCK_TTL_S):
         """Async context manager: yields a token (or None if contended) and always
         releases on exit."""
-        token = self.try_acquire(entity, priority)
+        token = self.try_acquire(entity, priority, ttl_s=ttl_s)
         try:
             yield token
         finally:

@@ -98,3 +98,47 @@ def test_priority_ladder_orders_presence_over_prediction():
     assert P.VISUAL > P.PREDICTIVE
     assert P.SAFETY > P.VISUAL
     assert P.INTENT > P.ROUTINE
+
+
+# ── TTL self-healing (#40, §6) ───────────────────────────────────────────────
+
+def test_expired_lock_is_evicted_and_reacquirable(monkeypatch):
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(mx.time, "monotonic", lambda: clock["t"])
+    reg = mx.EntityLockRegistry()
+    tok = reg.try_acquire("climate.office", P.INTENT, ttl_s=5.0)
+    assert tok is not None and reg.is_locked("climate.office") is True
+
+    clock["t"] += 6.0                               # past the TTL
+    # a stale holder is treated as gone and evicted on the next touch
+    assert reg.is_locked("climate.office") is False
+    # …so even a lower-priority request can now take the entity
+    assert reg.try_acquire("climate.office", P.PREDICTIVE) is not None
+
+
+def test_expired_holder_reports_no_priority(monkeypatch):
+    clock = {"t": 100.0}
+    monkeypatch.setattr(mx.time, "monotonic", lambda: clock["t"])
+    reg = mx.EntityLockRegistry()
+    reg.try_acquire("light.hall", P.VISUAL, ttl_s=5.0)
+    clock["t"] += 6.0
+    assert reg.held_priority("light.hall") is None
+
+
+def test_ttl_none_never_expires(monkeypatch):
+    clock = {"t": 0.0}
+    monkeypatch.setattr(mx.time, "monotonic", lambda: clock["t"])
+    reg = mx.EntityLockRegistry()
+    reg.try_acquire("lock.front", P.INTENT, ttl_s=None)
+    clock["t"] += 10_000.0
+    assert reg.is_locked("lock.front") is True
+
+
+def test_live_lock_within_ttl_still_blocks(monkeypatch):
+    clock = {"t": 50.0}
+    monkeypatch.setattr(mx.time, "monotonic", lambda: clock["t"])
+    reg = mx.EntityLockRegistry()
+    reg.try_acquire("fan.study", P.INTENT, ttl_s=30.0)
+    clock["t"] += 10.0                              # still within the TTL
+    assert reg.is_locked("fan.study") is True
+    assert reg.try_acquire("fan.study", P.PREDICTIVE) is None   # equal/lower discarded
