@@ -1,3 +1,33 @@
+## [9.169.0] — RSI engine Phase 2: Tier-1 parametric loop + shadow-replay fitness
+
+Building on Phase 1's guardrails, the self-improvement engine gains its first
+**closed evaluate→act loop** — for the safest tier only (numeric thresholds),
+and still applying **nothing** unless a change is *proven* better on history:
+
+- **Shadow-replay fitness scoring.** A candidate threshold is replayed against the
+  current one over recorded, judged decisions (`replay.evaluate_threshold`), and
+  scored into a fitness delta `ΔF = w₁·Δaccuracy − w₂·Δlatency − w₃·Δtokens −
+  w₄·Δoverrides`. A mutation promotes only on a **strict improvement above a noise
+  floor**, with enough judged samples — a worse or break-even candidate is
+  rejected.
+- **Safety gate.** In a safety-critical subsystem (intrusion, hazard, sentinel,
+  lockdown, …) a candidate that would act on **more wrong cases** — or lose more
+  good calls — is blocked *even when its overall fitness improved*. Safety never
+  trades against aggregate accuracy.
+- **Atomic apply → probation.** A promoted Tier-1 change snapshots its prior value
+  (the rollback checkpoint), stamps provenance, and applies through an injected
+  config applier that raises on failure — so the engine never half-mutates — then
+  opens a probation window. It consumes from the change budget and records the
+  application so a later flip back trips the anti-oscillation lock.
+- **Observe bridge.** Per-subsystem drift aggregation (wrong + override rate) with
+  a cooldown gate, pure and fed by the decision/outcome/feedback signals the live
+  wiring supplies later.
+
+Still **inert in production**: the probation *watchdog* and auto-rollback that
+close the loop, and the scheduler wiring behind a default-off flag, are Phase 3 —
+nothing instantiates or runs the loop yet. All kernel governance gates stay green;
+`rsi` remains at the `pure` adoption stage.
+
 ## [9.168.0] — Recursive Self-Improvement engine: Phase 1 (guardrails)
 
 The foundation of a **closed-loop, constitutionally-gated self-improvement
