@@ -1,3 +1,31 @@
+## [9.175.0] — Automation drafter: correct prompt, tools-free fallback, retry memory
+
+The fifth tranche of the automation-drafter cleanup, fixing the one-shot composer
+so a local model is taught the *right* patterns and recovers instead of failing.
+
+- **No longer teaches the always-false sun window.** The composer prompt was
+  literally instructing the model to use `{"condition":"sun","after":"sunset",
+  "before":"sunrise"}` for "night only" — the same impossible same-day AND the
+  9.172.0 validator now rejects. It now teaches
+  `{"condition":"state","entity_id":"sun.sun","state":"below_horizon"}`, plus a
+  concrete `trigger.id` + `choose` example so an on-AND-off request branches
+  properly instead of firing one unconditional sequence.
+- **Tools-free fallback.** If the provider can't parse the tool schema (some Ollama
+  tool-call setups raise), the composer drops to raw-JSON mode and retries within
+  its attempt budget instead of aborting the whole draft.
+- **`thinking=False`, defensively.** Passed to the composer call so a reasoning
+  model doesn't spend its whole budget on hidden scratch-work — and only when the
+  client's `chat()` accepts it, so minimal stubs still work.
+- **Retry memory.** When a native tool call fails validation, the visible text is
+  empty; the retry turn now carries the *serialized* draft (not a blank), so the
+  model remembers and corrects what it built.
+- **Honest retry feedback.** A validation failure that isn't a bad name (an
+  impossible sun window, a cross-domain service) no longer tells the model to
+  "use search_entities" — it surfaces the actual error to fix.
+
+New composer tests for the prompt, the tools-free fallback, and retry memory. No
+behavioural change for a first-try valid draft.
+
 ## [9.174.0] — Habit matrix & mutex debt: no Day-1 certainty, weekday/weekend-aware, self-healing locks
 
 The fourth tranche of the automation-drafter cleanup, paying down the habit-matrix
