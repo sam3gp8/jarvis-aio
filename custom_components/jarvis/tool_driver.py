@@ -124,7 +124,8 @@ def _extract_json(text: str):
     for obj in objs:
         if isinstance(obj, dict) and (
                 "tool" in obj or "automation" in obj
-                or ("trigger" in obj and "action" in obj)):
+                or ("trigger" in obj and "action" in obj)
+                or ("triggers" in obj and "actions" in obj)):   # HA modern plural
             return obj
     # 2) a weaker signal (a final answer, or a named draft).
     for obj in objs:
@@ -340,23 +341,47 @@ async def _dispatch(handlers: dict, name: str, args: dict):
     return out
 
 
+def _supports_kw(func, name: str) -> bool:
+    """True when ``func`` accepts keyword ``name`` (explicitly or via **kwargs).
+    Lets the driver pass optional provider kwargs (``run_state``, ``thinking``)
+    without breaking a minimal test stub whose ``chat`` takes a fixed signature.
+    Fails open (True) when a signature can't be introspected — the real providers
+    all accept these."""
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return True
+    if name in params:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
 async def _run_native(hass, client, *, tools, handlers, max_steps, temperature,
-                      allow_fallback, system=None, user=None, messages=None) -> dict:
+                      allow_fallback, max_tokens: int = 1024,
+                      system=None, user=None, messages=None) -> dict:
     """Native function-calling loop. Returns the standard result dict, or — when
     ``allow_fallback`` and the model never emits a tool call — a marker dict
     ``{"_fallback": True, "prose": …}`` so the caller can retry in JSON mode.
 
     Starts from a pre-built ``messages`` history when given (the system turn plus
-    conversation), otherwise from ``system`` + ``user``."""
+    conversation), otherwise from ``system`` + ``user``.
+
+    A single ``run_state`` dict is threaded through every turn so a provider that
+    keeps server-side continuation state across a tool chain (GeminiProvider stores
+    its ``previous_interaction_id`` there) doesn't lose the thread mid-loop."""
     working: list[dict] = (
         [dict(m) for m in messages] if messages is not None
         else [{"role": "system", "content": system or ""},
               {"role": "user", "content": user or ""}])
     saw_call = False
+    run_state: dict[str, Any] = {}
     for step in range(max_steps):
         def _call():
-            return client.chat(messages=working, tools=tools,
-                               max_tokens=1024, temperature=temperature)
+            kw = dict(messages=working, tools=tools,
+                      max_tokens=max_tokens, temperature=temperature)
+            if _supports_kw(client.chat, "run_state"):
+                kw["run_state"] = run_state
+            return client.chat(**kw)
         try:
             res = await hass.async_add_executor_job(_call)
         except Exception as exc:
@@ -396,7 +421,8 @@ _FINAL_TOOLS = ("final", "answer", "done")
 
 async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
                     default_tool=None, json_hint="", prior_prose=None,
-                    closing_prompt=None, system=None, user=None, messages=None) -> dict:
+                    closing_prompt=None, max_tokens: int = 1024,
+                    system=None, user=None, messages=None) -> dict:
     """Tools-free JSON-action loop for a model without function-calling. The
     model drives the SAME handlers by emitting one JSON action per turn.
 
@@ -430,7 +456,7 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
 
     async def _ask():
         def _call():
-            return client.chat(messages=messages, max_tokens=1024, temperature=temp)
+            return client.chat(messages=messages, max_tokens=max_tokens, temperature=temp)
         return await hass.async_add_executor_job(_call)
 
     for step in range(max_steps):
@@ -455,19 +481,25 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
         # the create); prefer the finishing action so it reaches the goal.
         target, args = _choose_action(actions, handlers, default_tool)
         if target is not None:
+            sig = f"{target}:{json.dumps(args, sort_keys=True, default=str)[:160]}"
+            if sig in seen_calls:
+                # An identical call already ran this loop — re-executing it would
+                # repeat the side effect (and burn a step) to no new effect. Block
+                # it BEFORE dispatch and nudge the model to do something different.
+                messages.append({"role": "user", "content":
+                                 "You already called that with the same arguments and "
+                                 "it did not help — do NOT repeat it. Try something "
+                                 'clearly different, or finish with '
+                                 '{"tool":"final","text":"..."}.'})
+                continue
+            seen_calls.add(sig)
             out = await _dispatch(handlers, target, args)
             if isinstance(out, Done):
                 return {"done": out.value, "text": "", "used": "json",
                         "steps": step + 1}
-            sig = f"{target}:{json.dumps(args, sort_keys=True, default=str)[:160]}"
-            repeat = sig in seen_calls
-            seen_calls.add(sig)
-            nudge = (" You already tried that and it did not help — do NOT repeat it. "
-                     "Try something clearly different, or finish with "
-                     '{"tool":"final","text":"..."}.') if repeat else ""
             messages.append({"role": "user",
                              "content": _as_text(out) +
-                             "\nReply with your next JSON action." + nudge})
+                             "\nReply with your next JSON action."})
             continue
 
         # Unparseable / unknown — nudge back to the protocol and try again.
@@ -510,7 +542,7 @@ async def _run_json(hass, client, *, tools, handlers, max_steps, temperature,
 async def run_tool_loop(hass, client, *, system=None, user=None, messages=None,
                         tools, handlers, json_system=None, json_hint="",
                         default_tool=None, closing_prompt=None,
-                        max_steps=MAX_DRIVER_STEPS,
+                        max_steps=MAX_DRIVER_STEPS, max_tokens=1024,
                         temperature=0.4, native=None) -> dict:
     """Drive an agentic tool loop, native or JSON, picking the mode by capability.
 
@@ -545,19 +577,19 @@ async def run_tool_loop(hass, client, *, system=None, user=None, messages=None,
         return await _run_json(
             hass, client, system=(json_system or system), user=user,
             messages=messages, tools=tools, handlers=handlers,
-            max_steps=max_steps, temperature=temperature,
+            max_steps=max_steps, temperature=temperature, max_tokens=max_tokens,
             default_tool=default_tool, json_hint=json_hint,
             closing_prompt=closing_prompt)
 
     res = await _run_native(
         hass, client, system=system, user=user, messages=messages, tools=tools,
         handlers=handlers, max_steps=max_steps, temperature=temperature,
-        allow_fallback=(cap is None))
+        max_tokens=max_tokens, allow_fallback=(cap is None))
     if res.get("_fallback"):
         return await _run_json(
             hass, client, system=(json_system or system), user=user,
             messages=messages, tools=tools, handlers=handlers,
-            max_steps=max_steps, temperature=temperature,
+            max_steps=max_steps, temperature=temperature, max_tokens=max_tokens,
             default_tool=default_tool, json_hint=json_hint,
             closing_prompt=closing_prompt, prior_prose=res.get("prose"))
     return res
