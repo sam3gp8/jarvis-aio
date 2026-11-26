@@ -187,3 +187,14 @@ def test_unflagged_ha_persons(fr, fake_hass):
     fake_hass.states.set("person.max", "home", friendly_name="Max")
     out = fr.unflagged_ha_persons(fake_hass)
     assert out == ["Max", "Quentin"]                    # Sam + alias-matched Alex excluded
+
+
+def test_aliases_getter(fr):
+    fr.add_resident("Sam")
+    fr.add_alias("sam_g", "Sam")
+    fr.add_alias("sam_smith", "Sam")
+    amap = fr.aliases()
+    assert amap == {"sam_g": "Sam", "sam_smith": "Sam"}
+    # Removing the resident drops its aliases from the getter too.
+    fr.remove_resident("Sam")
+    assert fr.aliases() == {}

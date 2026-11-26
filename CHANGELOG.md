@@ -1,3 +1,34 @@
+## [9.183.0] — Facial recognition Phase 2c: Faces HUD training panel (completes #41)
+
+The final tranche of the facial-recognition cleanup (#41 §9), surfacing the
+Phase-2 training machinery in the HUD so the household can see — and correct —
+how the best-effort LLM matcher is learning each resident. This completes the
+whole #41 effort (Tier-1 reliability → camera/presence hints → roster aliases →
+multi-sample training → graduated Tier-2 assist → this panel).
+
+- **Training telemetry over the wire.** `websocket.ws_faces` now returns
+  `calibration` (per-resident `llm_calibration_summary()` — refs, shadow samples,
+  agreement, graduated), `aliases` (registered backend-name aliases → canonical
+  resident), and `unflagged_persons` (HA `person.*` names not yet whitelisted).
+- **Correct a wrong guess.** A new admin-gated `correct_llm_guess` action records
+  a `wrong_person` user-correction into the rolling window, which can immediately
+  demote a resident's matcher back to shadow-only. A new `add_alias` action wires
+  `face_roster.add_alias` so a backend's alternate spelling can be mapped to a
+  resident from the panel. New read-only `face_roster.aliases()` getter.
+- **Per-resident progress in the Faces tab.** Each resident card shows a training
+  chip — `Refs N/4 · Shadow N/15 (P%) · TRAINING` / `GRADUATED` — so it's obvious
+  who the matcher can already assist with and who still needs more samples. The
+  chip only appears when LLM recognition is enabled, and is clearly labelled as
+  never affecting intrusion alerts.
+
+**Safety:** unchanged and intact — the panel reads and curates training data only;
+`resident_present()` remains strictly Tier-1, and a user correction only ever
+*lowers* a matcher's trust.
+
+New tests for the `ws_faces` §9 payload (calibration / aliases / unflagged), the
+`correct_llm_guess` + `add_alias` routing, the admin gate on the new write
+actions, and the `face_roster.aliases()` getter. With this, **#41 is complete**.
+
 ## [9.182.0] — Facial recognition Phase 2b: graduated LLM Tier-2 assist wiring
 
 The second Phase-2 tranche of the facial-recognition cleanup (#41), wiring the

@@ -232,6 +232,19 @@ def add_alias(alias: str, name: str) -> bool:
         return True
 
 
+def aliases() -> dict[str, str]:
+    """Read-only map of registered backend alias (normalized) → canonical resident
+    display name, for the Faces HUD (#41 §9). Dangling aliases are excluded.
+    Never raises."""
+    _load()
+    out: dict[str, str] = {}
+    for a, c in _aliases.items():
+        disp = _roster.get(c)
+        if disp:
+            out[a] = disp
+    return out
+
+
 def remove_resident(name: str) -> bool:
     """Un-flag ``name`` and drop any aliases pointing at it. Returns True if it
     was present. Never raises."""

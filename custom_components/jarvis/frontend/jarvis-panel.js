@@ -9927,6 +9927,7 @@ ${this._renderExcludedEntities(d)}
     const recent = Array.isArray(f.recent) ? f.recent : [];
     const refSet = new Set((Array.isArray(f.references) ? f.references : []).map(x => String(x).toLowerCase()));
     const autoRefSet = new Set((Array.isArray(f.auto_references) ? f.auto_references : []).map(x => String(x).toLowerCase()));
+    const calib = (f.calibration && typeof f.calibration === "object") ? f.calibration : {};
     const llmOn = !!f.llm_face_recognition;
     const countEl = this.shadowRoot?.getElementById("faces-count");
     if (countEl) countEl.textContent = `◉ ${residents.length} RESIDENT${residents.length === 1 ? "" : "S"}`;
@@ -9962,6 +9963,8 @@ ${this._renderExcludedEntities(d)}
           ref_hint: llmOn,
           // Enroll straight from the camera that last saw them (#140).
           can_capture: !!(seen && seen.camera_entity),
+          // Best-effort-matcher training progress for this resident (#41 §9).
+          training: calib[this._faceNorm(n)] || null,
         });
       }).join("") + `</div>`;
     } else {
@@ -10270,7 +10273,7 @@ ${this._renderExcludedEntities(d)}
   // One face card: snapshot (or an initial placeholder) with the name under it.
   _faceCard({ name, camera_entity, camera, confidence, age_seconds, relation, actions,
               snapshot_url, low_conf, source, ref_name, has_ref, auto_ref, ref_hint,
-              labelable, can_capture }) {
+              labelable, can_capture, training }) {
     const safe = this._esc(name || "Unknown");
     const initial = this._esc((name || "?").trim().charAt(0).toUpperCase() || "?");
     let badge = relation === "resident" ? `<span class="faces-badge resident">RESIDENT</span>`
@@ -10349,11 +10352,27 @@ ${this._renderExcludedEntities(d)}
         + `<button class="btn faces-mark faces-label-btn" data-faces-label="1">Label</button>`
         + `</div>`;
     }
+    // Per-resident best-effort-matcher training progress (#41 §9). Only shown when
+    // the LLM matcher is enabled (ref_hint) and we have calibration for this
+    // person: references enrolled, shadow comparisons in the window + agreement,
+    // and whether they've GRADUATED to assisting narration (vs still TRAINING).
+    let trainChip = "";
+    if (training && ref_hint) {
+      const refs = Number(training.refs || 0);
+      const samples = Number(training.samples || 0);
+      const grad = !!training.graduated;
+      const pct = samples ? Math.round(Number(training.precision || 0) * 100) : 0;
+      const col = grad ? "#36d399" : "#9aa7b4";
+      trainChip = `<div class="faces-train" title="Best-effort LLM face matcher training for this resident — it assists camera narration only once GRADUATED, and never affects intrusion alerts." `
+        + `style="font-size:10px;letter-spacing:.3px;margin-top:4px;color:${col}">`
+        + `Refs ${refs}/4 · Shadow ${samples}/15${samples ? ` (${pct}%)` : ""} · <b>${grad ? "GRADUATED" : "TRAINING"}</b></div>`;
+    }
     return `<div class="faces-card" data-cam="${this._esc(camera_entity || "")}">
       <div class="faces-thumb" title="Click to enlarge">${thumb}${badge}${srcChip}</div>
       ${labelCtl}
       <div class="faces-card-name">${safe}</div>
       <div class="faces-card-meta">${meta.join(" · ")}</div>
+      ${trainChip}
       ${acts ? `<div class="faces-card-act">${acts}</div>` : ""}
       ${refCtl ? `<div class="faces-card-ref">${refCtl}</div>` : ""}
       ${snapCtl}
