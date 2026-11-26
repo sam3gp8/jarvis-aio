@@ -372,6 +372,9 @@ _SCENE_SEVERITY_RUBRIC = (
     "Anyone merely present, passing through, or out in public space — someone "
     "walking down the street or sidewalk, a neighbour, a passer-by, traffic — "
     "is 'routine', recognised or not. Do NOT announce ordinary passers-by.\n"
+    "On an indoor camera when household residents are home and no alarm/breach is "
+    "active, an unlabelled person is routine unless they are clearly behaving "
+    "suspiciously.\n"
 )
 
 # Property-only scope (v9.80.0). When on (the default), JARVIS confines its
@@ -418,6 +421,9 @@ async def _reason_about_scene(
     offsite_areas: list | None = None,
     boundary: str = "",
     beyond_property: bool = False,
+    indoor: Optional[bool] = None,
+    presence_line: str = "",
+    recognition_line: str = "",
 ) -> dict:
     """
     Camera-reasoning step: interpret a raw vision description into a judgment.
@@ -547,12 +553,25 @@ async def _reason_about_scene(
             _parts.append(label)
         if _parts:
             areas_line = f"Areas in view: {', '.join(_parts)}\n"
+    # Presence / recognition / placement context, so the triage step does not
+    # escalate an unlabelled resident on an indoor or entry camera into a
+    # "stranger" (#41). Each line is best-effort and omitted when unknown/empty.
+    loc_line = ""
+    if indoor is True:
+        loc_line = "Camera location: indoor\n"
+    elif indoor is False:
+        loc_line = "Camera location: outdoor\n"
+    presence_l = f"Household presence: {presence_line.strip()}\n" if presence_line and presence_line.strip() else ""
+    recog_l = f"Face recognition: {recognition_line.strip()}\n" if recognition_line and recognition_line.strip() else ""
     user = (
         f"Camera: {camera_name}\n"
         + areas_line
+        + loc_line
         + f"Time: {now}\n"
         f"Detection: {det_type}\n"
         + fg_line
+        + presence_l
+        + recog_l
         + f"Vision description: {description}\n"
         + (f"\nRecent home activity:\n{context}" if context and context != "quiet — no notable recent activity" else "")
     )
@@ -886,7 +905,7 @@ def _frigate_camera_name(entity_id: str) -> str:
 
 
 async def _fetch_frigate_image(
-    hass: HomeAssistant, entity_id: str
+    hass: HomeAssistant, entity_id: str, *, crop: bool = False
 ) -> Optional[bytes]:
     """
     Try Frigate's higher-quality endpoints in order:
@@ -898,6 +917,12 @@ async def _fetch_frigate_image(
     public (no auth). The /api/frigate/{cam}/latest.jpg endpoint requires
     the Frigate integration to be configured with unauthenticated access
     or we need to fall through to the default snapshot.
+
+    When ``crop`` is True, request Frigate's face-cropped snapshot
+    (``snapshot.jpg?crop=1``) first and fall back to the uncropped frame on a
+    non-200 or empty response — so auto-enrolled reference photos and pinned
+    face cards show the actual person instead of a ~25–40px silhouette in a
+    wide-angle room shot.
     """
     session = async_get_clientsession(hass)
     try:
@@ -907,6 +932,24 @@ async def _fetch_frigate_image(
 
     camera = _frigate_camera_name(entity_id)
 
+    async def _grab(url: str) -> Optional[bytes]:
+        try:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    if len(data) > MIN_IMAGE_SIZE:
+                        _LOGGER.debug(
+                            "JARVIS: got Frigate event snapshot (%d bytes)", len(data))
+                        return data
+                else:
+                    _LOGGER.debug(
+                        "JARVIS: Frigate event snapshot returned %d", resp.status)
+        except Exception as exc:
+            _LOGGER.debug("JARVIS: Frigate event snapshot failed: %s", exc)
+        return None
+
     # 1. Try cached event snapshot — best quality, event-cropped, public endpoint
     cached = _EVENT_CACHE.get(entity_id)
     if cached and cached.get("source") == "frigate":
@@ -914,27 +957,14 @@ async def _fetch_frigate_image(
         if age < EVENT_FRESH_SECONDS:
             event_id = cached.get("event_id")
             if event_id:
-                url = f"{base_url}/api/frigate/notifications/{event_id}/snapshot.jpg"
-                try:
-                    async with session.get(
-                        url, timeout=aiohttp.ClientTimeout(total=10)
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.read()
-                            if len(data) > MIN_IMAGE_SIZE:
-                                _LOGGER.debug(
-                                    "JARVIS: got Frigate event snapshot (%d bytes)",
-                                    len(data),
-                                )
-                                return data
-                        else:
-                            _LOGGER.debug(
-                                "JARVIS: Frigate event snapshot returned %d", resp.status
-                            )
-                except Exception as exc:
-                    _LOGGER.debug("JARVIS: Frigate event snapshot failed: %s", exc)
-
-    return None
+                base = f"{base_url}/api/frigate/notifications/{event_id}/snapshot.jpg"
+                if crop:
+                    data = await _grab(base + "?crop=1")
+                    if data:
+                        return data
+                data = await _grab(base)
+                if data:
+                    return data
 
     return None
 
@@ -1798,35 +1828,118 @@ def _announce_decision(judgment: dict, analysis: str, *, gate_announce: bool,
     return None
 
 
+def _armed_away(hass: HomeAssistant) -> bool:
+    """True when any alarm panel is armed in an AWAY posture (``armed_away`` /
+    ``armed_vacation``). The home is empty by the resident's own declaration, so
+    presence-based stranger suppression must NOT apply — a person indoors while
+    armed-away is exactly what we want flagged. Best-effort; never raises."""
+    try:
+        for st in hass.states.async_all("alarm_control_panel"):
+            if str(getattr(st, "state", "")).lower() in ("armed_away", "armed_vacation"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _join_names(names: list) -> str:
+    """'Sam', 'Sam and Alex', or 'Sam, Alex, and Max' — for soft presence hints."""
+    names = [str(n).strip() for n in names if str(n or "").strip()]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + f", and {names[-1]}"
+
+
+def _recent_person_change(hass: HomeAssistant, secs: float = 120.0) -> Optional[str]:
+    """Friendly name of a ``person.*`` entity whose state changed within ``secs``,
+    preferring one now ``home`` (an arrival) — else None. Lets an entry/outdoor
+    camera avoid calling a person a stranger right after a resident came or went,
+    without muting vigilance the rest of the time. Best-effort; never raises."""
+    try:
+        try:
+            from .entity_filter import is_excluded as _excl
+        except Exception:
+            _excl = lambda _h, _e: False
+        now = datetime.now(timezone.utc)
+        best: Optional[str] = None
+        for st in hass.states.async_all("person"):
+            try:
+                if _excl(hass, st.entity_id):
+                    continue
+            except Exception:
+                pass   # an exclusion-check failure must not blind the arrival signal
+            changed = getattr(st, "last_changed", None)
+            if changed is None:
+                continue
+            try:
+                if getattr(changed, "tzinfo", None) is None:
+                    changed = changed.replace(tzinfo=timezone.utc)
+                age = (now - changed).total_seconds()
+            except Exception:
+                continue
+            if age < 0 or age > secs:
+                continue
+            nm = st.attributes.get("friendly_name") or st.entity_id.split(".", 1)[-1]
+            if str(getattr(st, "state", "")).lower() == "home":
+                return nm          # an arrival — strongest signal
+            best = best or nm      # a departure still contextualises the frame
+        return best
+    except Exception:
+        return None
+
+
 def _recognition_hint(hass: HomeAssistant, entity_id: str) -> str:
-    """Face-recognition context for the vision prompt. Two tiers:
+    """Face-recognition context for the vision prompt. Tiers, in order:
 
     1. A fresh, confident recognition ON THIS camera → name the person directly.
-    2. Home-wide fallback: no match on this camera, but a flagged resident was
+    1b. Home-wide fallback: no match on this camera, but a flagged resident was
        confidently recognised on ANOTHER camera within the last few minutes. A
        person here is then almost certainly that resident, not a stranger —
        per-camera recognition is incomplete by nature (a subject whose back is to
        one camera still shows a face to another), so without this a resident whose
        face a given camera can't see gets narrated as an 'unidentified person' and,
-       at the 'important' alert level, announced as one. Deliberately soft: it
-       steers away from a false stranger alarm while still letting the model flag a
-       genuine stranger it can plainly see.
+       at the 'important' alert level, announced as one.
+    3. Presence guard (no face match anywhere): on an INDOOR camera with residents
+       tracked home (and not armed-away), a person is routine — steer the model off
+       a false stranger call. OUTDOOR/unplaced cameras keep vigilance EXCEPT right
+       after a resident arrival/departure (≤120s), when the person is likely them.
 
-    Returns '' when recognition is unavailable or nothing qualifies. Never raises."""
+    Deliberately soft throughout: it steers away from a false stranger alarm while
+    still letting the model flag a genuine stranger it can plainly see. Returns ''
+    when recognition is unavailable or nothing qualifies. Never raises."""
     if not _RECOGNITION_AVAILABLE:
         return ""
     try:
+        # ── Tier 1: a fresh, confident, named match on THIS camera ──────────────
+        # Default the is_confident gate from confidence so this works with the live
+        # last_seen_at() (which sets is_confident) AND legacy stubs that set only
+        # confidence; the per-field checks below still enforce name/threshold/age.
         last = last_seen_at(hass, entity_id)
-        if last and last.get("is_confident", False) is not False:
-            name = last.get("name", "")
-            confidence = last.get("confidence", 0)
-            age = last.get("age_seconds", 999)
-            if name and name.lower() != "unknown" and confidence >= 60 and age < 60:
-                return (
-                    f"\n\nIMPORTANT: Face recognition has identified the person "
-                    f"on camera as '{name}' (confidence {confidence:.0f}%). "
-                    f"Refer to them by name in your description."
-                )
+        if last:
+            default_conf = float(last.get("confidence", 0) or 0) >= 60
+            if last.get("is_confident", default_conf) is not False:
+                name = last.get("name", "")
+                confidence = float(last.get("confidence", 0) or 0)
+                age = last.get("age_seconds", 999)
+                # Reject every unknown variant, not just the bare "unknown": now
+                # that Tier 1 actually fires off the live cache, a confident
+                # "unknown person" / "unrecognized" reading must not be named.
+                is_unknown = last.get("is_unknown")
+                if is_unknown is None:
+                    is_unknown = name.strip().lower() in (
+                        "unknown", "unknown person", "unknown_face",
+                        "unrecognized", "unrecognised")
+                if name and not is_unknown and confidence >= 60 and age < 60:
+                    return (
+                        f"\n\nIMPORTANT: Face recognition has identified the person "
+                        f"on camera as '{name}' (confidence {confidence:.0f}%). "
+                        f"Refer to them by name in your description."
+                    )
+        # ── Tier 1b: a flagged resident recognised elsewhere moments ago ────────
         resident = resident_present(hass)   # any camera, ≤180s, confident, flagged resident
         if resident:
             return (
@@ -1835,6 +1948,38 @@ def _recognition_hint(hass: HomeAssistant, entity_id: str) -> str:
                 f"seen here is most likely '{resident}' or another resident. Do NOT "
                 f"describe them as 'unidentified' or flag a stranger unless the image "
                 f"clearly shows someone who is not a resident of this home."
+            )
+        # ── Tier 3: presence guard (no face match anywhere) ─────────────────────
+        if _armed_away(hass):
+            return ""   # declared-empty home: never soften a stranger call
+        indoor = _camera_is_indoor(hass, entity_id)
+        summary: dict = {}
+        try:
+            from .presence import get_presence_summary
+            summary = get_presence_summary(hass) or {}
+        except Exception:
+            summary = {}
+        home_count = int(summary.get("home_count", 0) or 0)
+        home_names = [p.get("name") for p in (summary.get("people") or [])
+                      if str(p.get("state", "")).lower() == "home" and p.get("name")]
+        if indoor is True and home_count > 0:
+            who = _join_names(home_names) or f"{home_count} resident(s)"
+            return (
+                f"\n\nCONTEXT: This is an indoor camera and household resident(s) "
+                f"{who} are currently home. Do NOT describe a person here as an "
+                f"unidentified stranger unless the scene clearly shows suspicious "
+                f"activity."
+            )
+        # Outdoor / unplaced: keep stranger vigilance, except just after an
+        # arrival or departure, when a person at an entry is most likely a resident.
+        moved = _recent_person_change(hass, 120.0)
+        if moved:
+            return (
+                f"\n\nCONTEXT: Household resident '{moved}' arrived or left moments "
+                f"ago (their presence just changed). A person on this camera is most "
+                f"likely '{moved}' or another resident — do not flag a stranger "
+                f"unless the image clearly shows someone who is not a resident of "
+                f"this home."
             )
     except Exception:
         pass
@@ -2084,6 +2229,19 @@ async def async_analyze_camera(
     # the boundary is read from the plan rather than guessed. `_scoped` (set
     # above) confines an automatic review to the property; a manual look is not
     # confined, but is still told where things are.
+    # Give the reasoning step the same presence/recognition/placement facts the
+    # Tier-1/Tier-3 vision hint used, so an unlabelled resident indoors or at an
+    # entry is triaged as routine rather than a stranger (#41). All best-effort.
+    _indoor = _camera_is_indoor(hass, entity_id)
+    try:
+        from .presence import presence_context_string as _pcs
+        _presence_line = _pcs(hass) or ""
+    except Exception:
+        _presence_line = ""
+    try:
+        _recog_line = recognition_context_string(hass) if _RECOGNITION_AVAILABLE else ""
+    except Exception:
+        _recog_line = ""
     judgment = await _reason_about_scene(
         hass, rsn_client, rsn_model, camera_name, analysis, det_type,
         covered=cov_rooms, frigate_dets=frigate_dets,
@@ -2092,6 +2250,9 @@ async def async_analyze_camera(
         offsite_areas=_frame["offsite"] or None,
         boundary=_frame["boundary"],
         beyond_property=beyond_property,
+        indoor=_indoor,
+        presence_line=_presence_line,
+        recognition_line=_recog_line,
     )
     summary = judgment["summary"]
 
