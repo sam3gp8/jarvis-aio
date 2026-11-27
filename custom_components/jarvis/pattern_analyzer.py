@@ -557,6 +557,58 @@ def suggestion_signature(stored_yaml: str) -> str:
     return json.dumps(payload, sort_keys=True, default=str)
 
 
+def suggestion_core_signature(stored_yaml: str) -> str:
+    """A stable CORE identity for a learned automation — strictly its triggers
+    and actuating actions.
+
+    Unlike :func:`suggestion_signature`, it deliberately drops the inferred
+    ``condition`` and ``mode`` (both volatile — a presence gate, a sun condition,
+    or ``mode: restart`` can appear or change between analysis passes) AND reduces
+    a ``time`` trigger's ``at`` to the hour, so a routine whose learned minute (or
+    a small window shift) drifts between runs still resolves to the SAME identity.
+
+    This is the key for respecting a user's decision across re-detections: a
+    suggestion the user already dismissed / installed / superseded must not come
+    back as a near-identical new row just because an inferred condition changed or
+    the learned minute moved. Returns "" for non-installable payloads (handled by
+    the actionability gate), matching :func:`suggestion_signature`.
+    """
+    norm = normalize_suggestion_automation(stored_yaml or "")
+    if not norm.get("installable"):
+        return ""
+    _KEEP = ("trigger", "platform", "entity_id", "to",
+             "above", "below", "zone", "event")
+    trigs = []
+    for t in norm.get("trigger") or []:
+        if not isinstance(t, dict):
+            continue
+        d = {k: t.get(k) for k in _KEEP if t.get(k) is not None}
+        at = t.get("at")
+        if at is not None:
+            # Hour granularity: 22:45:00 and 22:05:00 (and a minute-level drift
+            # from the §7E median-minute) collapse to the same core identity,
+            # while a genuinely different hour (07:00 vs 22:00) stays distinct.
+            d["at_hour"] = str(at)[:2]
+        trigs.append(d)
+    acts = []
+    for a in norm.get("action") or []:
+        if not isinstance(a, dict) or "delay" in a:
+            continue  # drop bare delays — measured timing, not identity
+        if "wait_for_trigger" in a:
+            ents = sorted(
+                w.get("entity_id") for w in (a.get("wait_for_trigger") or [])
+                if isinstance(w, dict) and w.get("entity_id"))
+            acts.append({"wait_for": ents})  # keep confirm entity, drop timeout
+            continue
+        acts.append({
+            "service": a.get("action") or a.get("service"),
+            "entity_id": a.get("entity_id") or (a.get("target") or {}).get("entity_id"),
+        })
+    # NO condition, NO mode — that is the whole point of the CORE signature.
+    payload = {"trigger": trigs, "action": acts}
+    return json.dumps(payload, sort_keys=True, default=str)
+
+
 def service_for(entity_id: str, state: str) -> Optional[dict]:
     """
     Map an entity + desired state to the correct HA service call (v6.52.1).
@@ -1449,7 +1501,11 @@ class PatternAnalyzer:
                 ("sequence patterns", lambda: self._find_sequence_patterns(
                     conn, lat, lon, sensor_hist, occ)),
                 ("numeric triggers", lambda: self._find_numeric_triggers(conn, sensor_hist, occ)),
-                ("presence patterns", lambda: self._find_presence_patterns(conn)),
+                # §7F: the standalone presence finder is retired — its person/
+                # device_tracker → device coverage is already learned by
+                # _find_sequence_patterns (modern `zone` arrive/leave triggers, a
+                # single-pass window instead of an O(N²) SQL self-join, and no
+                # duplicate rows under a second `presence` pattern_type).
             ]
             # Phase 3 is safety-sensitive (it can suggest auto-closing a cover), so
             # it only runs when the user has opted in under Settings.
@@ -1581,7 +1637,7 @@ class PatternAnalyzer:
 
         # Promote the most reliable routines/commands into the curated knowledge
         # store as *observed* facts, so they surface in the Memory tab (marked ~)
-        # and inject into conversation. Sequences/presence stay as automations only.
+        # and inject into conversation. Sequences stay as automations only.
         # v6.41.0: a pattern confidently owned by one person is attributed to
         # that person's knowledge subject rather than "household".
         promoted = await hass.async_add_executor_job(
@@ -2392,58 +2448,13 @@ class PatternAnalyzer:
                 ctx["hist"][eid] = series
         return ctx
 
-    def _find_presence_patterns(self, conn: sqlite3.Connection) -> list[DetectedPattern]:
-        """Find state changes correlated with person arrivals/departures."""
-        patterns = []
-
-        # Look for state changes that happen within 5 min of person state changes
-        try:
-            rows = conn.execute("""
-                SELECT
-                    a.entity_id as person_entity,
-                    a.new_state as person_state,
-                    b.entity_id as device_entity,
-                    b.new_state as device_state,
-                    COUNT(*) as cnt
-                FROM state_changes a
-                JOIN state_changes b ON
-                    b.timestamp > a.timestamp AND
-                    b.timestamp <= datetime(a.timestamp, '+5 minutes') AND
-                    a.entity_id != b.entity_id
-                WHERE a.timestamp > datetime('now', '-30 days')
-                    AND a.domain = 'person'
-                GROUP BY a.entity_id, a.new_state, b.entity_id, b.new_state
-                HAVING cnt >= ?
-                ORDER BY cnt DESC
-                LIMIT 10
-            """, (max(3, MIN_OCCURRENCES // 2),)).fetchall()
-        except Exception:
-            return patterns
-
-        for row in rows:
-            person = row["person_entity"]
-            p_state = row["person_state"]
-            device = row["device_entity"]
-            d_state = row["device_state"]
-            count = row["cnt"]
-
-            action_word = "arrives" if p_state == "home" else "leaves"
-            confidence = min(1.0, count / MIN_OCCURRENCES * 0.7)
-
-            patterns.append(DetectedPattern(
-                pattern_type="presence",
-                description=(
-                    f"When {person} {action_word}, {device} turns {d_state} "
-                    f"({count} times)"
-                ),
-                entity_ids=[person, device],
-                confidence=confidence,
-                occurrences=count,
-                details={"trigger_person": person, "trigger_state": p_state,
-                         "action_entity": device, "action_state": d_state},
-            ))
-
-        return patterns
+    # §7F: _find_presence_patterns() was retired in 9.186.0. It used an O(N²) SQL
+    # self-join to pair a person state-change with a following device change and
+    # emitted rows under a separate `presence` pattern_type, duplicating what
+    # _find_sequence_patterns already learns (as modern `zone` arrive/leave
+    # triggers, in a single indexed pass). The `presence` branches in
+    # _generate_automation(), explain_suggestion(), and normalize are kept so any
+    # presence row stored by an earlier version still displays and de-dupes.
 
     def _dominant_person(self, conn: sqlite3.Connection, table: str, *,
                          hour: int, entity: str | None = None,
@@ -2654,10 +2665,10 @@ class PatternAnalyzer:
                 "SELECT id, automation_yaml, confidence, pattern_count, created "
                 "FROM suggestions WHERE status = 'pending'"
             ).fetchall()
-            best: dict = {}       # signature -> (rank_key, id)
+            best: dict = {}       # core signature -> (rank_key, id)
             losers: list = []
             for rid, yml, conf, pcnt, created in rows:
-                sig = suggestion_signature(yml or "")
+                sig = suggestion_core_signature(yml or "")   # §7F: core identity
                 if not sig:
                     continue
                 rank = (conf or 0.0, pcnt or 0, created or "")
@@ -2725,32 +2736,41 @@ class PatternAnalyzer:
         auto_yaml = self._generate_automation(pattern)
         if not normalize_suggestion_automation(auto_yaml).get("installable"):
             return False
-        sig = suggestion_signature(auto_yaml)
+        # §7F: de-dup on the CORE identity (triggers + actuating actions only),
+        # across EVERY pattern_type and EVERY status — not on the count-bearing
+        # description, and not scoped to one pattern_type. This does two things:
+        #   • a suggestion the user already DISMISSED / INSTALLED / SUPERSEDED is
+        #     never resurrected as a near-identical new row just because an
+        #     inferred condition, mode, or the learned minute drifted, and
+        #   • the same behavior learned under two pattern_types (e.g. a retired
+        #     presence row and a sequence row) can never create a second copy.
+        core = suggestion_core_signature(auto_yaml)
         try:
             conn = sqlite3.connect(self._db, factory=ClosingConnection)
-            # De-dup on a stable structural signature rather than the description
-            # (which carries a volatile "N times in 30 days" count that used to
-            # defeat the check and spawn a fresh row on every pass). A re-detected
-            # automation refreshes the existing row in place — including its alias
-            # and description, so older entity-id-named rows migrate to friendly
-            # names — instead of being stored again.
-            existing = None
-            for rid, ryml in conn.execute(
-                "SELECT id, automation_yaml FROM suggestions WHERE pattern_type = ?",
-                (pattern.pattern_type,),
-            ).fetchall():
-                if sig and suggestion_signature(ryml or "") == sig:
-                    existing = (rid,)
-                    break
-            if existing:
-                # Refresh confidence, count, and the human-facing name/description.
-                conn.execute(
-                    "UPDATE suggestions SET confidence = ?, pattern_count = ?, "
-                    "description = ?, automation_yaml = ? WHERE id = ?",
-                    (pattern.confidence, pattern.occurrences, pattern.description,
-                     auto_yaml, existing[0]),
-                )
-                conn.commit()
+            existing_id = None
+            existing_status = None
+            if core:
+                for rid, ryml, rstatus in conn.execute(
+                    "SELECT id, automation_yaml, status FROM suggestions"
+                ).fetchall():
+                    if suggestion_core_signature(ryml or "") == core:
+                        existing_id, existing_status = rid, (rstatus or "")
+                        break
+            if existing_id is not None:
+                if existing_status == "pending":
+                    # Still pending: a re-detection refreshes its strength and
+                    # human-facing name/description in place — including migrating
+                    # an older entity-id-named row to friendly names.
+                    conn.execute(
+                        "UPDATE suggestions SET confidence = ?, pattern_count = ?, "
+                        "description = ?, automation_yaml = ? WHERE id = ?",
+                        (pattern.confidence, pattern.occurrences, pattern.description,
+                         auto_yaml, existing_id),
+                    )
+                    conn.commit()
+                # Any non-pending status (dismissed / installed / superseded /
+                # approved) is the user's standing decision — do NOT re-insert and
+                # do NOT flip it back to pending.
                 conn.close()
                 return False
 

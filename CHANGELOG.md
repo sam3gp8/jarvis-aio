@@ -1,3 +1,35 @@
+## [9.186.0] — Suggestion engine Phase 2e: retire the duplicate presence finder & stop dismissed-suggestion resurrection
+
+Continuing the automation suggestion-engine cleanup (#40 §7F): stop JARVIS from
+re-proposing a suggestion the household already decided on, and remove a
+redundant, expensive finder.
+
+- **Dismissals are respected across re-detections.** A new
+  `suggestion_core_signature()` identifies an automation by its triggers and
+  actuating actions *only* — deliberately ignoring the inferred `condition`,
+  `mode`, and sub-hour time drift (so a routine whose learned minute moves still
+  resolves to the same identity). `_store_suggestion()` now matches on this core
+  identity across **every** `pattern_type` and **every** status: if the matching
+  row was `dismissed`, `installed`, or `superseded`, the suggestion is **not**
+  re-inserted and is **not** flipped back to `pending` — the user's decision
+  stands even if a learned window shifts or a condition changes. Only a still-
+  `pending` row is refreshed in place. `_dedupe_pending_suggestions()` collapses
+  pending rows on the same core identity.
+- **Retired the standalone presence finder.** `_find_presence_patterns()` used an
+  O(N²) SQL self-join and emitted rows under a separate `presence` `pattern_type`,
+  duplicating what `_find_sequence_patterns()` already learns — person /
+  `device_tracker` arrivals and departures as modern `zone` triggers, in a single
+  indexed pass. The finder is removed from the analysis run; the `presence`
+  branches in automation generation, `explain_suggestion()`, and normalization are
+  kept so any presence row stored by an earlier version still displays and
+  de-dupes correctly.
+
+New tests: core-signature invariance to condition/mode and minute drift (but not
+to a different hour), and resurrection prevention for dismissed / installed rows
+on both a condition change and a minute shift, including across pattern_types.
+Remaining #40 work: §7G (guarded installs + nested-YAML modernization),
+§7H (exclusions plumbing, ISO timestamp bounds, multi-entity intent coverage).
+
 ## [9.185.0] — Suggestion engine Phase 2d: time-routine minute accuracy & controllable priority
 
 Continuing the automation suggestion-engine cleanup (#40 §7E), making learned
