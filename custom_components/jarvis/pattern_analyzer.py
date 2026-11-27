@@ -464,6 +464,14 @@ def normalize_suggestion_automation(stored_yaml: str) -> dict:
         a = dict(a)
         if "service" in a and "action" not in a:
             a["action"] = a.pop("service")
+        # §7G: modernize platform→trigger inside a nested wait_for_trigger list
+        # too. A learned "turn on, then hold until the room empties" sequence
+        # stores its wait as [{platform: state, ...}]; HA renamed that key, so an
+        # un-migrated `platform` there would make the installed automation invalid.
+        wft = a.get("wait_for_trigger")
+        if isinstance(wft, list):
+            a["wait_for_trigger"] = [
+                _modernize_trigger(w) if isinstance(w, dict) else w for w in wft]
         return a
 
     triggers = [trigger] if isinstance(trigger, dict) else list(trigger)
@@ -639,9 +647,6 @@ def service_for(entity_id: str, state: str) -> Optional[dict]:
         want_open = s in ("open", "opening")
         return {"service": f"cover.{'open' if want_open else 'close'}_cover",
                 "entity_id": entity_id}
-
-    if domain in ("switch", "input_boolean") and s in ("on", "off"):
-        return {"service": f"{domain}.turn_{s}", "entity_id": entity_id}
 
     # a scene target is always activated via scene.turn_on
     if domain == "scene":
@@ -3219,16 +3224,23 @@ async def install_approved_suggestion(hass, suggestion_id: int) -> dict:
         if not sug:
             return {"ok": False, "error": f"suggestion #{suggestion_id} not found"}
 
-        # Always record the user's approval first.
-        await hass.async_add_executor_job(analyzer.approve_suggestion, suggestion_id)
-
+        # §7G: decide what this suggestion IS before recording any decision on it,
+        # so a row is never left 'approved'/'installed' pointing at an automation
+        # that was never written.
         norm = normalize_suggestion_automation(sug.get("automation_yaml", ""))
         if not norm.get("installable"):
+            # Advisory-only (a note with no concrete trigger+action): the user
+            # acknowledged it, so record the approval — nothing is written to HA.
+            await hass.async_add_executor_job(
+                analyzer.approve_suggestion, suggestion_id)
             return {"ok": True, "installed": False,
                     "reason": norm.get("reason", "not installable"),
                     "suggestion_id": suggestion_id}
 
         from .automation_creator import create_automation
+        # §7G: validate=True so a learned automation that references a stale or
+        # renamed entity is rejected BEFORE automations.yaml is touched — silently
+        # writing a rule that can never fire is worse than saying why it didn't.
         result = await create_automation(
             hass,
             alias=norm["alias"],
@@ -3237,8 +3249,12 @@ async def install_approved_suggestion(hass, suggestion_id: int) -> dict:
             condition=norm.get("condition"),
             action=norm["action"],
             mode=norm.get("mode", "single"),
+            validate=True,
         )
         if result.get("success"):
+            # §7G: record approval + install ONLY now that the write succeeded.
+            await hass.async_add_executor_job(
+                analyzer.approve_suggestion, suggestion_id)
             await hass.async_add_executor_job(
                 analyzer.mark_installed, suggestion_id, result["automation_id"])
             try:
@@ -3251,8 +3267,10 @@ async def install_approved_suggestion(hass, suggestion_id: int) -> dict:
             return {"ok": True, "installed": True,
                     "automation_id": result["automation_id"],
                     "alias": result["alias"], "suggestion_id": suggestion_id}
-        return {"ok": True, "installed": False,
-                "reason": f"automation write failed: {result.get('error')}",
+        # §7G: validation or write failed — leave the row PENDING (do NOT approve)
+        # so the user can see why and fix or dismiss it, and signal ok=False.
+        return {"ok": False, "installed": False,
+                "error": f"automation validation/write failed: {result.get('error')}",
                 "suggestion_id": suggestion_id}
     except Exception as exc:
         _LOGGER.exception("install_approved_suggestion failed: %s", exc)

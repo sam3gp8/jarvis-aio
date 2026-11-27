@@ -3016,12 +3016,18 @@ async def ws_suggestion_action(
             elif res.get("ok"):
                 jarvis_log("LEARN", f"Suggestion #{sid} approved "
                                     f"(advisory — {res.get('reason')})")
-            connection.send_result(msg["id"], {
+            out = {
                 "ok": bool(res.get("ok")),
                 "installed": bool(res.get("installed")),
                 "reason": res.get("reason"),
                 "alias": res.get("alias"),
-            })
+            }
+            # §7G: surface the validation/write failure so the review UI can tell
+            # the user why an approved suggestion did not install. Only present on
+            # the failure path, so success/advisory results keep their shape.
+            if res.get("error"):
+                out["error"] = res["error"]
+            connection.send_result(msg["id"], out)
             return
         ok = await hass.async_add_executor_job(analyzer.dismiss_suggestion, sid)
         jarvis_log("LEARN", f"Suggestion #{sid} dismissed (ok={ok})")

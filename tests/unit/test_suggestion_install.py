@@ -55,6 +55,28 @@ def test_presence_pattern_installable(pa):
     assert out["alias"].startswith("JARVIS Learned")
 
 
+def test_normalize_modernizes_nested_wait_for_trigger(pa):
+    """§7G: a `platform` key inside a nested wait_for_trigger list is modernized
+    to `trigger` too, so a "hold until the room empties" sequence installs valid."""
+    stored = json.dumps({
+        "alias": "JARVIS Learned: hold hall light until empty",
+        "trigger": {"platform": "state", "entity_id": "binary_sensor.hall_motion", "to": "on"},
+        "action": [
+            {"service": "light.turn_on", "entity_id": "light.hall"},
+            {"wait_for_trigger": [
+                {"platform": "state", "entity_id": "binary_sensor.hall_motion",
+                 "to": "off", "for": "00:02:00"}]},
+            {"service": "light.turn_off", "entity_id": "light.hall"},
+        ],
+    })
+    out = pa.normalize_suggestion_automation(stored)
+    assert out["installable"] is True
+    wft = out["action"][1]["wait_for_trigger"][0]
+    assert wft["trigger"] == "state"       # platform → trigger
+    assert "platform" not in wft
+    assert wft["for"] == "00:02:00"        # the rest of the wait is untouched
+
+
 def test_manual_review_is_not_installable(pa):
     stored = json.dumps({"note": "Consider automating: 'goodnight' at 23:00",
                          "type": "manual_review"})
@@ -82,6 +104,15 @@ def test_service_for_onoff_domains(pa):
     assert pa.service_for("light.porch", "on") == {"service": "light.turn_on", "entity_id": "light.porch"}
     assert pa.service_for("switch.pump", "off") == {"service": "switch.turn_off", "entity_id": "switch.pump"}
     assert pa.service_for("fan.attic", "on")["service"] == "fan.turn_on"
+
+
+def test_service_for_input_boolean_still_maps(pa):
+    """§7G removed the dead duplicate switch/input_boolean branch — the onoff set
+    already covers both, so resolution must be unchanged."""
+    assert pa.service_for("input_boolean.guest_mode", "on") == {
+        "service": "input_boolean.turn_on", "entity_id": "input_boolean.guest_mode"}
+    assert pa.service_for("input_boolean.guest_mode", "off")["service"] == "input_boolean.turn_off"
+    assert pa.service_for("switch.pump", "on")["service"] == "switch.turn_on"
 
 
 def test_service_for_lock_uses_lock_service_not_turn(pa):
@@ -194,7 +225,9 @@ async def test_installer_missing_suggestion(pa, fake_hass, monkeypatch):
     assert res["ok"] is False and "not found" in res["error"]
 
 
-async def test_installer_reports_write_failure(pa, fake_hass, monkeypatch):
+async def test_installer_keeps_pending_on_write_failure(pa, fake_hass, monkeypatch):
+    """§7G: a failed validation/write must NOT mark the row approved — it stays
+    pending so the user can see why and fix or dismiss it, and ok is False."""
     sug = {"id": 3, "description": "d",
            "automation_yaml": json.dumps({
                "alias": "a", "trigger": {"platform": "time", "at": "18:00:00"},
@@ -203,11 +236,32 @@ async def test_installer_reports_write_failure(pa, fake_hass, monkeypatch):
     monkeypatch.setattr(pa, "get_analyzer", lambda: stub)
 
     async def _fail_create(hass, **kw):
-        return {"success": False, "error": "disk full"}
+        return {"success": False, "error": "stale entity light.p"}
     monkeypatch.setattr("jc.automation_creator.create_automation", _fail_create, raising=False)
 
     res = await pa.install_approved_suggestion(fake_hass, 3)
-    assert res["ok"] is True and res["installed"] is False
-    assert "disk full" in res["reason"]
-    assert stub.approved == 3        # approved, just not installed
+    assert res["ok"] is False and res["installed"] is False
+    assert "stale entity light.p" in res["error"]
+    assert stub.approved is None     # NOT approved — left pending
     assert stub.installed is None
+
+
+async def test_installer_passes_validate_true(pa, fake_hass, monkeypatch):
+    """§7G: create_automation is called with validate=True so a stale/renamed
+    entity is rejected before automations.yaml is touched."""
+    sug = {"id": 5, "description": "d",
+           "automation_yaml": json.dumps({
+               "alias": "a", "trigger": {"platform": "time", "at": "07:00:00"},
+               "action": {"service": "light.turn_on", "entity_id": "light.x"}})}
+    stub = _StubAnalyzer(sug)
+    monkeypatch.setattr(pa, "get_analyzer", lambda: stub)
+    seen = {}
+    async def _create(hass, **kw):
+        seen.update(kw)
+        return {"success": True, "automation_id": "jarvis_auto_a", "alias": "JARVIS · a"}
+    monkeypatch.setattr("jc.automation_creator.create_automation", _create, raising=False)
+
+    res = await pa.install_approved_suggestion(fake_hass, 5)
+    assert res["installed"] is True
+    assert seen.get("validate") is True
+    assert stub.approved == 5 and stub.installed == (5, "jarvis_auto_a")

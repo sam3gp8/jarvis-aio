@@ -1,3 +1,38 @@
+## [9.187.0] — Suggestion engine Phase 2f: guarded suggestion installs & nested-YAML modernization
+
+Continuing the automation suggestion-engine cleanup (#40 §7G): never leave a
+suggestion marked installed when its automation didn't actually write, and
+modernize the one YAML shape that still slipped through un-migrated.
+
+- **Validated, fail-safe installs.** `install_approved_suggestion()` now decides a
+  suggestion's installability **before** recording any decision on it, and passes
+  `validate=True` to `create_automation()` so a learned rule that references a
+  stale or renamed entity is rejected *before* `automations.yaml` is touched. It
+  marks the row `approved` / `installed` **only** when the write succeeds (or
+  acknowledges an advisory-only note); on a validation or write failure it leaves
+  the row `pending` and returns `{"ok": False, "installed": False, "error": …}` so
+  the review UI can show the user why it didn't install and let them fix or
+  dismiss it. The approval WebSocket handler now forwards that `error`.
+- **Nested `wait_for_trigger` modernization.** `normalize_suggestion_automation()`
+  already modernized top-level `platform`→`trigger` and `service`→`action` and
+  repaired legacy `sun` conditions; it now also modernizes `platform`→`trigger`
+  inside a nested `wait_for_trigger` list, so a learned "turn on, then hold until
+  the room empties" sequence installs as valid HA YAML.
+- **Dead branch removed.** `service_for()` dropped a duplicate
+  `switch`/`input_boolean` on/off branch that the `onoff` set already handled and
+  that could never be reached.
+
+Automation aliases were already de-double-branded at the install boundary
+(`create_automation()` strips any `JARVIS Learned:` / `JARVIS ·` prefix and
+re-applies `JARVIS · ` exactly once), so no generator change was needed; that
+invariant stays covered by the creator tests.
+
+New tests: install stays pending (not approved) on write/validation failure,
+`validate=True` is passed through, nested `wait_for_trigger` is modernized, and
+`input_boolean`/`switch` still resolve after the dead-branch removal.
+Remaining #40 work: §7H (excluded-entity plumbing, ISO timestamp bounds,
+multi-entity intent coverage).
+
 ## [9.186.0] — Suggestion engine Phase 2e: retire the duplicate presence finder & stop dismissed-suggestion resurrection
 
 Continuing the automation suggestion-engine cleanup (#40 §7F): stop JARVIS from
