@@ -230,3 +230,36 @@ def test_detector_rejects_passive_below_without_crossing(pa, tmp_path):
     pats = pa.PatternAnalyzer()._find_numeric_triggers(conn, hist, {})
     assert not [p for p in pats if p.details["action"]["entity"] == "switch.space_heater"]
     conn.close()
+
+
+# ── §7H-2: excluded action entities never yield a numeric trigger ───────────────
+
+def test_numeric_trigger_skips_excluded_action(pa, tmp_path):
+    conn = _conn(tmp_path / "ex.db")
+    base = datetime.now() - timedelta(days=12)
+    action_epochs = []
+    for d in range(8):
+        t = base + timedelta(days=d, hours=6, seconds=137)
+        conn.execute("INSERT INTO state_changes (timestamp, entity_id, domain, "
+                     "old_state, new_state, hour, day_of_week, person) "
+                     "VALUES (?,?,?,?,?,?,?,?)",
+                     (t.isoformat(), "switch.space_heater", "switch", "off", "on",
+                      t.hour, t.weekday(), "unknown"))
+        action_epochs.append(t.timestamp())
+    conn.commit()
+    series = []
+    warm_t = base - timedelta(hours=2)
+    for i in range(40):
+        series.append((warm_t.timestamp() + i * 900, 72.0 + (i % 5)))
+    for ep in action_epochs:
+        series += [(ep - k, 72.0) for k in (1800, 1500, 1200, 900, 600, 300)]
+        series.append((ep - 1, 61.0))
+    hist = {"sensor.living_room_temperature": series}
+    # Baseline: without exclusion the heater-when-cold trigger IS learned …
+    learned = pa.PatternAnalyzer()._find_numeric_triggers(conn, hist)
+    assert [p for p in learned if p.details["action"]["entity"] == "switch.space_heater"]
+    # … but an excluded heater yields nothing.
+    pats = pa.PatternAnalyzer()._find_numeric_triggers(
+        conn, hist, {}, {"switch.space_heater"})
+    assert not [p for p in pats if p.details["action"]["entity"] == "switch.space_heater"]
+    conn.close()

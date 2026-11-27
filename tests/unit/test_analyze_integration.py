@@ -116,7 +116,7 @@ async def test_analyze_wires_numeric_trigger_from_sensor_history(pa, tmp_path, m
         series += [(ep - k, 72.0) for k in (1800, 1500, 1200, 900, 600, 300)]
         series.append((ep - 1, 61.0))
 
-    async def _fake_fetch(hass):
+    async def _fake_fetch(hass, excluded=None):
         return {"sensor.living_room_temperature": series}
 
     an, stored = _capture(pa, db, monkeypatch)
@@ -189,9 +189,9 @@ async def test_analyze_finder_runs_on_a_different_thread(pa, tmp_path, monkeypat
     worker_threads: set[int] = set()
     real_find_time_routines = an._find_time_routines
 
-    def _spy(conn, person_map):
+    def _spy(conn, person_map, excluded=None):
         worker_threads.add(threading.current_thread().ident)
-        return real_find_time_routines(conn, person_map)
+        return real_find_time_routines(conn, person_map, excluded)
 
     monkeypatch.setattr(an, "_find_time_routines", _spy)
 
