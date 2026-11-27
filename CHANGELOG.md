@@ -1,3 +1,32 @@
+## [9.188.0] — Suggestion engine Phase 2g: correct history-window timestamp bounds
+
+Continuing the automation suggestion-engine cleanup (#40 §7H, part 1): fix a
+subtle but pervasive timestamp-comparison bug in the passive pattern analyzer's
+history queries.
+
+JARVIS writes every state-change and command timestamp with
+`datetime.isoformat()`, which puts a **`T`** between the date and the time. The
+analyzer's queries bounded the 30-day window with SQLite's
+`datetime('now', '-30 days')`, which renders a **space** there instead — and a
+`T` byte sorts *after* a space (and after every digit), so a
+`timestamp > datetime('now', …)` string comparison mis-sorts at the window
+boundary, letting rows from the wrong side of the cutoff slip in or out.
+
+- A new `_recent_cutoff_iso(days=30)` helper computes the bound as a
+  Python-side ISO string (`(datetime.now() - timedelta(days=days)).isoformat()`),
+  keeping it in the same lexicographic space as the stored timestamps.
+- Every `state_changes` / `commands` history query — across time routines, the
+  median-minute helper, repeated commands, sequence and confirmation detectors,
+  numeric triggers, the dominant-person resolver, the causal-firing and off-edge
+  helpers, and the diagnostic summary — now binds this value instead of the
+  space-separated SQLite expression.
+
+In-window behaviour is unchanged (recent rows matched exactly as before); only
+the boundary comparison is corrected. New tests assert the bound is `T`-separated
+and ~30 days back, and that a routine entirely older than the window is excluded
+while a recent one is learned. Remaining #40 work: §7H excluded-entity plumbing,
+then multi-entity intent coverage.
+
 ## [9.187.0] — Suggestion engine Phase 2f: guarded suggestion installs & nested-YAML modernization
 
 Continuing the automation suggestion-engine cleanup (#40 §7G): never leave a

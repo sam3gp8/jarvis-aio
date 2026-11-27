@@ -266,6 +266,20 @@ def _causal_gates_out(pattern) -> bool:
         return False
 
 
+def _recent_cutoff_iso(days: int = 30) -> str:
+    """ISO timestamp (local, 'T'-separated) ``days`` ago, as a bound parameter
+    for history-window queries.
+
+    JARVIS stores timestamps with ``datetime.isoformat()`` — a ``T`` between the
+    date and time — but SQLite's ``datetime('now','-30 days')`` renders a SPACE
+    there, so a ``timestamp > datetime('now', …)`` string comparison mis-sorts at
+    the boundary (``T`` (0x54) sorts after a space and after every digit). Binding
+    this value keeps the window bound in the same lexicographic space as the
+    stored timestamps, so the comparison is correct. Pure. (#40 §7H)
+    """
+    return (datetime.now() - timedelta(days=days)).isoformat()
+
+
 def _causal_firing_epochs(conn, entity: str, state: str) -> list:
     """Sorted epochs (last 30 days) of ``entity`` transitioning to ``state``."""
     out: list = []
@@ -273,8 +287,8 @@ def _causal_firing_epochs(conn, entity: str, state: str) -> list:
         rows = conn.execute(
             "SELECT timestamp FROM state_changes "
             "WHERE entity_id=? AND new_state=? "
-            "AND timestamp > datetime('now', '-30 days') ORDER BY timestamp",
-            (entity, state)).fetchall()
+            "AND timestamp > ? ORDER BY timestamp",
+            (entity, state, _recent_cutoff_iso())).fetchall()
     except Exception:
         return out
     for r in rows:
@@ -1445,23 +1459,24 @@ class PatternAnalyzer:
         if not conn:
             return out
         try:
+            cutoff = _recent_cutoff_iso()        # #40 §7H: ISO-bound window
             total_days = int((conn.execute(
                 "SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes "
-                "WHERE timestamp > datetime('now', '-30 days')").fetchone()[0]) or 0)
+                "WHERE timestamp > ?", (cutoff,)).fetchone()[0]) or 0)
             out["total_days"] = total_days
             # coverage >= 0.3 -> need ceil(0.3 * total_days) distinct days
             out["min_days"] = (total_days * 3 + 9) // 10 if total_days else 0
             for e, c in conn.execute(
                     "SELECT entity_id, COUNT(*) c FROM state_changes "
-                    "WHERE timestamp > datetime('now', '-30 days') "
-                    "GROUP BY entity_id ORDER BY c DESC LIMIT 10"):
+                    "WHERE timestamp > ? "
+                    "GROUP BY entity_id ORDER BY c DESC LIMIT 10", (cutoff,)):
                 out["top_sources"].append({"entity_id": e, "changes": int(c)})
             for e, s, h, cnt, days in conn.execute(
                     "SELECT entity_id, new_state, hour, COUNT(*) cnt, "
                     "COUNT(DISTINCT date(timestamp)) days FROM state_changes "
-                    "WHERE timestamp > datetime('now', '-30 days') "
+                    "WHERE timestamp > ? "
                     "GROUP BY entity_id, new_state, hour HAVING cnt >= 2 "
-                    "ORDER BY days DESC, cnt DESC LIMIT 12"):
+                    "ORDER BY days DESC, cnt DESC LIMIT 12", (cutoff,)):
                 out["candidates"].append({
                     "entity_id": e, "state": s, "hour": int(h),
                     "occurrences": int(cnt), "days": int(days),
@@ -1719,6 +1734,7 @@ class PatternAnalyzer:
         patterns = []
         advisory = []            # non-actuating (read-only) routines, capped separately
         excluded = excluded or set()
+        cutoff = _recent_cutoff_iso()        # #40 §7H: ISO-bound history window
 
         # Group state changes by entity + action, look for time clustering.
         # day_of_week is intentionally NOT selected: it isn't in the GROUP BY, so
@@ -1729,20 +1745,20 @@ class PatternAnalyzer:
         rows = conn.execute("""
             SELECT entity_id, new_state, hour, COUNT(*) as cnt
             FROM state_changes
-            WHERE timestamp > datetime('now', '-30 days')
+            WHERE timestamp > ?
               AND new_state NOT IN ('unavailable', 'unknown', '')
             GROUP BY entity_id, new_state, hour
             HAVING cnt >= ?
             ORDER BY cnt DESC
-        """, (MIN_OCCURRENCES,)).fetchall()
+        """, (cutoff, MIN_OCCURRENCES)).fetchall()
 
         # Opportunity days: distinct days we were observing at all (constant
         # across rows — computed once, was previously re-run per row and made a
         # large history crawl).
         total_days = conn.execute("""
             SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes
-            WHERE timestamp > datetime('now', '-30 days')
-        """).fetchone()[0] or 1
+            WHERE timestamp > ?
+        """, (cutoff,)).fetchone()[0] or 1
 
         for row in rows:
             entity = row["entity_id"]
@@ -1766,8 +1782,8 @@ class PatternAnalyzer:
             positive_days = conn.execute("""
                 SELECT COUNT(DISTINCT date(timestamp)) FROM state_changes
                 WHERE entity_id = ? AND new_state = ? AND hour = ?
-                  AND timestamp > datetime('now', '-30 days')
-            """, (entity, state, hour)).fetchone()[0] or 0
+                  AND timestamp > ?
+            """, (entity, state, hour, cutoff)).fetchone()[0] or 0
 
             # #594: discard a flapping entity before it becomes a "routine". A
             # router-type device_tracker with a short consider-home timeout can
@@ -1861,8 +1877,8 @@ class PatternAnalyzer:
             rows = conn.execute("""
                 SELECT timestamp FROM state_changes
                 WHERE entity_id = ? AND new_state = ? AND hour = ?
-                  AND timestamp > datetime('now', '-30 days')
-            """, (entity, state, hour)).fetchall()
+                  AND timestamp > ?
+            """, (entity, state, hour, _recent_cutoff_iso())).fetchall()
         except Exception:
             return 0
         mins: list[int] = []
@@ -1884,12 +1900,12 @@ class PatternAnalyzer:
             rows = conn.execute("""
                 SELECT text, hour, COUNT(*) as cnt
                 FROM commands
-                WHERE timestamp > datetime('now', '-30 days')
+                WHERE timestamp > ?
                 GROUP BY text, hour
                 HAVING cnt >= ?
                 ORDER BY cnt DESC
                 LIMIT 20
-            """, (MIN_OCCURRENCES,)).fetchall()
+            """, (_recent_cutoff_iso(), MIN_OCCURRENCES)).fetchall()
         except Exception:
             return patterns
 
@@ -1947,7 +1963,8 @@ class PatternAnalyzer:
         try:
             rows = conn.execute(
                 "SELECT timestamp, entity_id, domain, new_state FROM state_changes "
-                "WHERE timestamp > datetime('now', '-30 days') ORDER BY timestamp"
+                "WHERE timestamp > ? ORDER BY timestamp",
+                (_recent_cutoff_iso(),)
             ).fetchall()
         except Exception:
             return patterns
@@ -2095,8 +2112,9 @@ class PatternAnalyzer:
         try:
             rows = conn.execute(
                 "SELECT timestamp FROM state_changes WHERE entity_id = ? "
-                "AND new_state = 'off' AND timestamp > datetime('now','-30 days') "
-                "ORDER BY timestamp LIMIT 400", (entity_id,)).fetchall()
+                "AND new_state = 'off' AND timestamp > ? "
+                "ORDER BY timestamp LIMIT 400",
+                (entity_id, _recent_cutoff_iso())).fetchall()
             for r in rows:
                 try:
                     out.append(datetime.fromisoformat(r["timestamp"]).timestamp())
@@ -2122,8 +2140,9 @@ class PatternAnalyzer:
         try:
             rows = conn.execute(
                 "SELECT entity_id, new_state, timestamp FROM state_changes "
-                "WHERE timestamp > datetime('now', '-30 days') AND domain IN ({}) "
-                "ORDER BY timestamp".format(",".join("'%s'" % d for d in _ACT))
+                "WHERE timestamp > ? AND domain IN ({}) "
+                "ORDER BY timestamp".format(",".join("'%s'" % d for d in _ACT)),
+                (_recent_cutoff_iso(),)
             ).fetchall()
         except Exception:
             return patterns
@@ -2213,8 +2232,9 @@ class PatternAnalyzer:
         try:
             rows = conn.execute(
                 "SELECT timestamp, entity_id, domain, new_state FROM state_changes "
-                "WHERE timestamp > datetime('now','-30 days') AND domain IN "
-                "('cover','person','device_tracker','binary_sensor') ORDER BY timestamp"
+                "WHERE timestamp > ? AND domain IN "
+                "('cover','person','device_tracker','binary_sensor') ORDER BY timestamp",
+                (_recent_cutoff_iso(),)
             ).fetchall()
         except Exception:
             return patterns
@@ -2483,17 +2503,17 @@ class PatternAnalyzer:
                            SUM(COALESCE(NULLIF(person_confidence, 0), 0.5)) as wt
                     FROM state_changes
                     WHERE entity_id = ? AND new_state = ? AND hour = ?
-                        AND timestamp > datetime('now', '-30 days')
+                        AND timestamp > ?
                     GROUP BY person ORDER BY wt DESC
-                """, (entity, state, hour)).fetchall()
+                """, (entity, state, hour, _recent_cutoff_iso())).fetchall()
             else:
                 rows = conn.execute("""
                     SELECT person, COUNT(*) as cnt, COUNT(*) * 1.0 as wt
                     FROM commands
                     WHERE text = ? AND hour = ?
-                        AND timestamp > datetime('now', '-30 days')
+                        AND timestamp > ?
                     GROUP BY person ORDER BY wt DESC
-                """, (text, hour)).fetchall()
+                """, (text, hour, _recent_cutoff_iso())).fetchall()
         except Exception:
             # older DB without the confidence column — fall back to raw counts
             try:
@@ -2502,9 +2522,9 @@ class PatternAnalyzer:
                         SELECT person, COUNT(*) as cnt, COUNT(*) * 1.0 as wt
                         FROM state_changes
                         WHERE entity_id = ? AND new_state = ? AND hour = ?
-                            AND timestamp > datetime('now', '-30 days')
+                            AND timestamp > ?
                         GROUP BY person ORDER BY wt DESC
-                    """, (entity, state, hour)).fetchall()
+                    """, (entity, state, hour, _recent_cutoff_iso())).fetchall()
                 else:
                     return None
             except Exception:

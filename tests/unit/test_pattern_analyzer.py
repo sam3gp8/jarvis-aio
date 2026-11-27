@@ -466,3 +466,30 @@ def test_time_routine_ignores_unavailable_state(analyzer, tmp_path):
     assert "light.porch_test" in ents
     assert "light.flappy_test" not in ents
     conn.close()
+
+
+# ── §7H-1: ISO timestamp window bounds ───────────────────────────────────────
+
+def test_recent_cutoff_iso_is_t_separated(analyzer):
+    """The window bound uses JARVIS's own ISO 'T' separator, not SQLite's space,
+    so `timestamp > ?` compares in the same lexicographic space as stored rows."""
+    c = analyzer._recent_cutoff_iso(30)
+    assert "T" in c and " " not in c
+    days = (datetime.now() - datetime.fromisoformat(c)).total_seconds() / 86400
+    assert 29.9 < days < 30.1
+
+
+def test_time_routine_window_excludes_old_includes_recent(analyzer, tmp_path):
+    """A routine whose occurrences are all >30 days old is outside the window and
+    not learned; a recent one is — proving the ISO bound filters correctly."""
+    conn = _conn(tmp_path / "cut.db")
+    for d in range(40, 48):          # 40–47 days ago → outside the 30-day window
+        _add_state(conn, "light.old_test", "on", d, 18)
+    for d in range(5, 13):           # 5–12 days ago → inside the window
+        _add_state(conn, "light.new_test", "on", d, 18)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    ents = {e for p in pa._find_time_routines(conn) for e in p.entity_ids}
+    assert "light.new_test" in ents
+    assert "light.old_test" not in ents
+    conn.close()
