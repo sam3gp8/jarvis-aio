@@ -383,3 +383,86 @@ def test_event_domain_not_learned_as_routine(analyzer, tmp_path):
     assert "event.backup_backup_automatico" not in ents
     assert "light.porch_test" in ents
     conn.close()
+
+
+# ── §7E: median minute, controllable priority, exclusions, state hygiene ──────
+
+def test_time_routine_median_minute(analyzer, tmp_path):
+    """The routine fires at the learned median minute (rounded to 5), not always
+    the top of the hour, and _generate_automation emits HH:MM:00."""
+    import json
+    conn = _conn(tmp_path / "min.db")
+    for d in range(1, 9):                       # porch light ~22:45 every night
+        _add_state(conn, "light.porch_test", "on", d, 22, minute=44 if d % 2 else 46)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    m = [p for p in pa._find_time_routines(conn)
+         if p.entity_ids == ["light.porch_test"]][0]
+    assert m.details["hour"] == 22
+    assert m.details["minute"] == 45            # median(44,46) = 45, nearest 5
+    auto = json.loads(pa._generate_automation(m))
+    assert auto["trigger"]["at"] == "22:45:00"
+    conn.close()
+
+
+def test_median_minute_helper(analyzer, tmp_path):
+    conn = _conn(tmp_path / "mm.db")
+    for d in range(1, 7):
+        _add_state(conn, "light.x_test", "on", d, 9, minute=12)
+        _add_state(conn, "light.x_test", "on", d, 9, minute=18)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    assert pa._median_minute(conn, "light.x_test", "on", 9) == 15   # median(12,18)
+    assert pa._median_minute(conn, "light.none_test", "on", 9) == 0  # no rows → :00
+    conn.close()
+
+
+def test_time_routine_controllable_not_starved_by_readonly(analyzer, tmp_path):
+    """25 read-only sensors firing twice a day (higher raw count) must not evict
+    the 3 real controllable routines from the [:20] cap."""
+    conn = _conn(tmp_path / "starve.db")
+    for i in range(25):
+        for d in range(1, 9):
+            _add_state(conn, f"binary_sensor.ro_{i}", "on", d, i % 24, minute=10)
+            _add_state(conn, f"binary_sensor.ro_{i}", "on", d, i % 24, minute=50)
+    for j, h in enumerate((6, 12, 21)):
+        for d in range(1, 9):
+            _add_state(conn, f"light.ctrl_{j}", "on", d, h)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    found = pa._find_time_routines(conn)
+    ents = {e for p in found for e in p.entity_ids}
+    assert len(found) == 20                     # cap respected
+    for j in range(3):
+        assert f"light.ctrl_{j}" in ents, "a controllable routine was starved"
+    conn.close()
+
+
+def test_time_routine_skips_excluded(analyzer, tmp_path):
+    conn = _conn(tmp_path / "excl.db")
+    for d in range(1, 9):
+        _add_state(conn, "light.porch_test", "on", d, 18)
+        _add_state(conn, "light.noisy_test", "on", d, 7)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    found = pa._find_time_routines(conn, excluded={"light.noisy_test"})
+    ents = {e for p in found for e in p.entity_ids}
+    assert "light.porch_test" in ents
+    assert "light.noisy_test" not in ents
+    conn.close()
+
+
+def test_time_routine_ignores_unavailable_state(analyzer, tmp_path):
+    """A device dropping to unavailable/unknown at a regular time is not a
+    schedulable routine — it is filtered in SQL before it can look like one."""
+    conn = _conn(tmp_path / "unavail.db")
+    for d in range(1, 9):
+        _add_state(conn, "light.flappy_test", "unavailable", d, 3)
+        _add_state(conn, "light.porch_test", "on", d, 18)
+    conn.commit()
+    pa = analyzer.PatternAnalyzer()
+    found = pa._find_time_routines(conn)
+    ents = {e for p in found for e in p.entity_ids}
+    assert "light.porch_test" in ents
+    assert "light.flappy_test" not in ents
+    conn.close()

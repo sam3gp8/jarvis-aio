@@ -1652,15 +1652,24 @@ class PatternAnalyzer:
         return out
 
     def _find_time_routines(self, conn: sqlite3.Connection,
-                            person_map: dict = None) -> list[DetectedPattern]:
+                            person_map: dict = None,
+                            excluded: set = None) -> list[DetectedPattern]:
         """Find entities that change state at similar times each day."""
         patterns = []
+        advisory = []            # non-actuating (read-only) routines, capped separately
+        excluded = excluded or set()
 
-        # Group state changes by entity + action, look for time clustering
+        # Group state changes by entity + action, look for time clustering.
+        # day_of_week is intentionally NOT selected: it isn't in the GROUP BY, so
+        # SQLite would hand back an arbitrary member row's value for it, and
+        # nothing downstream reads it. `unavailable`/`unknown`/'' transitions are
+        # device dropouts, not a scheduled state, so they're filtered in SQL
+        # before they can masquerade as a nightly "routine".
         rows = conn.execute("""
-            SELECT entity_id, new_state, hour, day_of_week, COUNT(*) as cnt
+            SELECT entity_id, new_state, hour, COUNT(*) as cnt
             FROM state_changes
             WHERE timestamp > datetime('now', '-30 days')
+              AND new_state NOT IN ('unavailable', 'unknown', '')
             GROUP BY entity_id, new_state, hour
             HAVING cnt >= ?
             ORDER BY cnt DESC
@@ -1679,6 +1688,11 @@ class PatternAnalyzer:
             state = row["new_state"]
             hour = row["hour"]
             count = row["cnt"]
+
+            # #40 §7E: a user-excluded entity (telemetry noise, diagnostics)
+            # must never surface as a learned routine.
+            if entity in excluded:
+                continue
 
             # #560: skip internal/system lifecycle entities — a scheduled backup
             # (event.*) or an update check is not a household routine to push.
@@ -1715,9 +1729,15 @@ class PatternAnalyzer:
             sample_factor = min(1.0, positive_days / MIN_OCCURRENCES)
             confidence = round(coverage * sample_factor, 3)
 
-            time_str = f"{hour:02d}:00"
+            # #40 §7E: fire at the real time. Earlier code always truncated to
+            # the top of the hour (22:00) even for a routine that reliably
+            # happens at 22:45 — the median minute (rounded to 5) is far closer
+            # to what the household actually does. Computed only now, for a
+            # candidate that already cleared the gates above.
+            minute = self._median_minute(conn, entity, state, hour)
+            time_str = f"{hour:02d}:{minute:02d}"
             details = {
-                "hour": hour, "state": state, "entity": entity,
+                "hour": hour, "minute": minute, "state": state, "entity": entity,
                 "coverage": round(coverage, 2),
                 "consistency": round(coverage, 2),   # back-compat key
                 "observed_days": positive_days,
@@ -1747,7 +1767,7 @@ class PatternAnalyzer:
             else:
                 desc = f"{entity} changes to '{state}' around {time_str} {days_str}"
 
-            patterns.append(DetectedPattern(
+            dp = DetectedPattern(
                 pattern_type="time_routine",
                 description=desc,
                 entity_ids=[entity],
@@ -1755,9 +1775,45 @@ class PatternAnalyzer:
                 occurrences=count,
                 coverage=round(coverage, 3),
                 details=details,
-            ))
+            )
+            # #40 §7E: a controllable routine (a device with a real service) takes
+            # priority for the cap; a read-only sensor that merely changes state on
+            # a schedule is knowledge-only and must not evict a real routine.
+            if service_for(entity, state):
+                patterns.append(dp)
+            else:
+                advisory.append(dp)
 
-        return patterns[:20]  # Cap at 20
+        # Controllable first (cnt-desc order preserved), advisory fills whatever
+        # slots are left under the cap — so a burst of read-only sensors can
+        # never starve real actuatable routines past the [:20] ceiling.
+        return (patterns + advisory)[:20]
+
+    @staticmethod
+    def _median_minute(conn: sqlite3.Connection, entity: str, state: str,
+                       hour: int) -> int:
+        """Median minute-of-hour across a routine's observed occurrences, rounded
+        to the nearest 5 and clamped to [0, 55] so it stays inside the learned
+        hour. Pure read; returns 0 when nothing parses (top-of-hour fallback)."""
+        import statistics
+        try:
+            rows = conn.execute("""
+                SELECT timestamp FROM state_changes
+                WHERE entity_id = ? AND new_state = ? AND hour = ?
+                  AND timestamp > datetime('now', '-30 days')
+            """, (entity, state, hour)).fetchall()
+        except Exception:
+            return 0
+        mins: list[int] = []
+        for r in rows:
+            try:
+                mins.append(datetime.fromisoformat(str(r[0])).minute)
+            except Exception:
+                continue
+        if not mins:
+            return 0
+        m = int(round(statistics.median(mins) / 5.0) * 5)
+        return 55 if m >= 60 else max(0, m)
 
     def _find_repeated_commands(self, conn: sqlite3.Connection) -> list[DetectedPattern]:
         """Find voice commands that repeat at similar times."""
@@ -2792,16 +2848,20 @@ class PatternAnalyzer:
             # `binary_sensor.turn_on` would be nonsense, so mark it advisory and
             # let the store's actionability gate drop it.
             svc = service_for(p.entity_ids[0], d["state"])
+            # #40 §7E: fire at the learned median minute (HH:MM:00), not always
+            # the top of the hour. Falls back to :00 for rows stored before 9.185.
+            minute = int(d.get("minute", 0) or 0)
+            hhmm = f"{d['hour']:02d}:{minute:02d}"
             if not svc:
                 return json.dumps({
                     "type": "manual_review",
                     "note": (f"Consider automating: {p.entity_ids[0]} → "
-                             f"{d['state']} around {d['hour']:02d}:00"),
+                             f"{d['state']} around {hhmm}"),
                 }, indent=2)
             auto = {
                 "alias": (f"JARVIS Learned: {self._friendly(p.entity_ids[0])} "
-                          f"{d['state']} at {d['hour']:02d}:00"),
-                "trigger": {"platform": "time", "at": f"{d['hour']:02d}:00:00"},
+                          f"{d['state']} at {hhmm}"),
+                "trigger": {"platform": "time", "at": f"{hhmm}:00"},
                 "action": svc,
             }
             cond = d.get("condition")
