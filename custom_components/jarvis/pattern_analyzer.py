@@ -791,25 +791,90 @@ def _as_block_list(value) -> list:
     return [value] if isinstance(value, dict) else list(value)
 
 
+def _expand_entity_blocks(block) -> list:
+    """#40 §7H: one copy of a trigger/action block per entity in a LIST
+    ``entity_id`` (or ``target.entity_id``), so an automation that acts on several
+    entities is scored on ALL of them, not just the first (``_first_entity``). A
+    scalar or absent entity_id yields the block unchanged. Pure."""
+    if not isinstance(block, dict):
+        return [block]
+    ents = block.get("entity_id")
+    if isinstance(ents, (list, tuple)) and len(ents) > 1:
+        return [dict(block, entity_id=e) for e in ents]
+    tgt = block.get("target")
+    if isinstance(tgt, dict):
+        tents = tgt.get("entity_id")
+        if isinstance(tents, (list, tuple)) and len(tents) > 1:
+            return [dict(block, target={**tgt, "entity_id": e}) for e in tents]
+    return [block]
+
+
 def automation_intent(triggers, actions) -> tuple:
     """(frozenset of trigger situations, frozenset of action outcomes) — the
-    intent of an automation, for outcome-level cross-referencing. Pure."""
-    trg = frozenset(
-        s for s in (_trigger_situation(t) for t in _as_block_list(triggers)) if s)
-    out = frozenset(
-        o for o in (_outcome_of_action(a) for a in _as_block_list(actions)) if o)
-    return (trg, out)
+    intent of an automation, for outcome-level cross-referencing. A block that
+    targets a LIST of entities contributes a situation / outcome for each. Pure."""
+    trg: set = set()
+    for t in _as_block_list(triggers):
+        for b in _expand_entity_blocks(t):
+            s = _trigger_situation(b)
+            if s:
+                trg.add(s)
+    out: set = set()
+    for a in _as_block_list(actions):
+        for b in _expand_entity_blocks(a):
+            o = _outcome_of_action(b)
+            if o:
+                out.add(o)
+    return (frozenset(trg), frozenset(out))
+
+
+def _at_minutes(cond) -> Optional[int]:
+    """Minutes-since-midnight from a time situation's ``at:HH:MM[:SS]`` string, or
+    None when it isn't a parseable time. Pure."""
+    if not isinstance(cond, str) or not cond.startswith("at:"):
+        return None
+    parts = cond[3:].split(":")
+    try:
+        h = int(parts[0])
+        m = int(parts[1]) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        return None
+    if not (0 <= h < 24 and 0 <= m < 60):
+        return None
+    return h * 60 + m
+
+
+def _triggers_overlap(s_trg, e_trg) -> bool:
+    """True if two trigger-situation sets share a situation — an exact match, OR
+    two ``time`` triggers within ±15 minutes (wrapping midnight) or the same hour.
+    The time tolerance (#40 §7H) keeps a learned routine from re-surfacing when the
+    household already automates the same action a few minutes off the learned
+    time. Pure."""
+    if s_trg & e_trg:
+        return True
+    s_times = [m for (subj, c) in s_trg if subj == "time"
+               for m in (_at_minutes(c),) if m is not None]
+    e_times = [m for (subj, c) in e_trg if subj == "time"
+               for m in (_at_minutes(c),) if m is not None]
+    for st in s_times:
+        for et in e_times:
+            diff = abs(st - et)
+            diff = min(diff, 1440 - diff)          # wrap around midnight
+            if diff <= 15 or (st // 60) == (et // 60):
+                return True
+    return False
 
 
 def intent_is_covered(sug_intent: tuple, existing_intents) -> bool:
     """True if some existing automation shares BOTH a triggering situation AND a
     resulting outcome with the suggestion — i.e. the household already automates
-    this if-this-then-that. Pure."""
+    this if-this-then-that. Time triggers match within ±15 min / the same hour
+    (#40 §7H). Pure."""
     s_trg, s_out = sug_intent
     if not s_trg or not s_out:
         return False
     for e_trg, e_out in existing_intents or ():
-        if (s_trg & e_trg) and (s_out & e_out):
+        if _triggers_overlap(s_trg, e_trg) and (s_out & e_out):
             return True
     return False
 
