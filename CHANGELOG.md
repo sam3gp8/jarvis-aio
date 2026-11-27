@@ -1,3 +1,34 @@
+## [9.184.0] — Suggestion engine Phase 2c: area-scoped numeric correlations with real crossings
+
+Resuming the automation suggestion-engine cleanup (#40 §7D), stopping the passive
+pattern analyzer from learning spurious "when the temperature is low, turn on the
+lamp" rules by correlating whichever house-wide sensor happened to coincide.
+
+- **Area scoping.** A numeric sensor is now only correlated with an action in the
+  **same area** — a living-room lamp can no longer learn off a basement humidity
+  sensor. A `cover` / `climate` action (garage door, thermostat) is exempt, since
+  those legitimately respond to whole-home / outdoor conditions, and when an
+  entity's area is unknown (many setups don't assign areas) the crossing + scorer
+  guards carry the load rather than silently dropping the trigger. Numeric-sensor
+  areas are now recorded in the occupancy context so both `_find_numeric_triggers`
+  and `_numeric_condition` can enforce this.
+- **Genuine threshold crossings.** A numeric trigger now requires the sensor to
+  have actually **crossed** the threshold into the triggered side within 30 minutes
+  before the action, in ≥60% of occurrences (and at least the minimum count) —
+  eliminating evening lights that merely coincide with a slowly drifting indoor
+  temperature that sits below a bound without ever crossing it.
+- **Separation-ranked conditions.** When several sensors qualify as a numeric
+  condition, the winner is now the one that best *discriminates* the action (how
+  far its occurrence median sits from its baseline, normalized by range) rather
+  than simply the sensor with the most readings.
+
+New tests for the same-area guard (same/cross-room/cover-exempt/unknown), the
+crossing detector, cross-room rejection in `_find_numeric_triggers` /
+`_numeric_condition`, and a passive-below sensor correctly yielding no trigger.
+Remaining #40 work: §7E (time-routine minute accuracy), §7F (retire the duplicate
+presence finder + stop dismissed-suggestion resurrection), §7G (guarded installs),
+§7H (exclusions, ISO timestamps, multi-entity intent).
+
 ## [9.183.0] — Facial recognition Phase 2c: Faces HUD training panel (completes #41)
 
 The final tranche of the facial-recognition cleanup (#41 §9), surfacing the
