@@ -210,3 +210,114 @@ def test_humanize_entities_swaps_known_ids_only(pa):
         text, {"device_tracker.sam_s_jeep": "Sam's Jeep"})
     assert "Sam's Jeep" in out
     assert "cover.garage_2" in out     # unknown id left untouched, not dropped
+
+
+# ── §7F: core signature + dismissed-suggestion resurrection prevention ───────
+
+def _time_pattern(pa, entity, hour, minute, *, occ=12, cond=None, desc="t"):
+    d = {"hour": hour, "minute": minute, "state": "on", "entity": entity}
+    if cond is not None:
+        d["condition"] = cond
+    return pa.DetectedPattern(
+        pattern_type="time_routine", description=desc, entity_ids=[entity],
+        confidence=min(1.0, occ / 15), occurrences=occ, details=d)
+
+
+def _set_status(db, status):
+    c = sqlite3.connect(db)
+    c.execute("UPDATE suggestions SET status = ?", (status,))
+    c.commit(); c.close()
+
+
+def _statuses(db):
+    c = sqlite3.connect(db)
+    rows = [r[0] for r in c.execute("SELECT status FROM suggestions").fetchall()]
+    c.close()
+    return rows
+
+
+def test_core_signature_ignores_condition_and_mode(pa):
+    base = {"alias": "x",
+            "trigger": {"platform": "state", "entity_id": "binary_sensor.door", "to": "on"},
+            "action": [{"service": "light.turn_on", "entity_id": "light.hall"}]}
+    withcond = dict(base,
+                    condition=[{"condition": "state", "entity_id": "person.sam",
+                                "state": "home"}],
+                    mode="restart")
+    a, b = json.dumps(base), json.dumps(withcond)
+    # core identity is the same despite the extra condition + mode …
+    assert pa.suggestion_core_signature(a) == pa.suggestion_core_signature(b) != ""
+    # … while the FULL signature (condition/mode-sensitive) still tells them apart
+    assert pa.suggestion_signature(a) != pa.suggestion_signature(b)
+
+
+def test_core_signature_tolerates_minute_drift_not_hour(pa):
+    at2245 = {"alias": "x", "trigger": {"platform": "time", "at": "22:45:00"},
+              "action": {"service": "light.turn_on", "entity_id": "light.porch"}}
+    at2205 = dict(at2245, trigger={"platform": "time", "at": "22:05:00"})
+    at0700 = dict(at2245, trigger={"platform": "time", "at": "07:00:00"})
+    s = pa.suggestion_core_signature(json.dumps(at2245))
+    assert s == pa.suggestion_core_signature(json.dumps(at2205)) != ""  # same hour
+    assert s != pa.suggestion_core_signature(json.dumps(at0700))        # distinct hour
+
+
+def test_dismissed_not_resurrected_on_condition_change(pa, tmp_path):
+    an, db = _analyzer(pa, tmp_path)
+    assert an._store_suggestion(
+        _seq_pattern(pa, "binary_sensor.door", "light.hall",
+                     delay=10, occ=9, desc="v1")) is True
+    _set_status(db, "dismissed")                 # the user says no
+    # a later pass re-learns the same behavior but with an inferred presence gate
+    p2 = _seq_pattern(pa, "binary_sensor.door", "light.hall",
+                      delay=10, occ=12, desc="v2")
+    p2.details["condition"] = {"condition": "state",
+                               "entity_id": "person.sam", "state": "home"}
+    assert an._store_suggestion(p2) is False     # not re-inserted
+    assert _statuses(db) == ["dismissed"]        # one row, still dismissed
+    assert _pending(db) == []                    # nothing resurrected to pending
+
+
+def test_dismissed_not_resurrected_on_minute_shift(pa, tmp_path):
+    an, db = _analyzer(pa, tmp_path)
+    assert an._store_suggestion(_time_pattern(pa, "light.porch", 22, 0, desc="v1")) is True
+    _set_status(db, "dismissed")
+    # §7E can re-learn the same routine at a drifted minute within the hour
+    assert an._store_suggestion(_time_pattern(pa, "light.porch", 22, 45, desc="v2")) is False
+    assert _statuses(db) == ["dismissed"]
+    assert _pending(db) == []
+
+
+def test_installed_not_resurrected(pa, tmp_path):
+    an, db = _analyzer(pa, tmp_path)
+    assert an._store_suggestion(_time_pattern(pa, "light.porch", 22, 0)) is True
+    _set_status(db, "installed")
+    assert an._store_suggestion(_time_pattern(pa, "light.porch", 22, 5)) is False
+    assert _statuses(db) == ["installed"]        # not flipped back, not duplicated
+
+
+def test_pending_still_refreshed_on_minute_drift(pa, tmp_path):
+    an, db = _analyzer(pa, tmp_path)
+    assert an._store_suggestion(_time_pattern(pa, "light.porch", 22, 0, occ=8)) is True
+    assert an._store_suggestion(_time_pattern(pa, "light.porch", 22, 45, occ=14)) is False
+    rows = _pending(db)
+    assert len(rows) == 1
+    assert rows[0][3] == 14                                   # refreshed count
+    assert json.loads(rows[0][1])["trigger"]["at"] == "22:45:00"  # latest yaml
+
+
+def test_cross_type_dedup_across_pattern_types(pa, tmp_path):
+    """A dismissed row stored under one pattern_type (e.g. a legacy `presence`
+    row) suppresses a re-learned `sequence` row with the same core identity."""
+    an, db = _analyzer(pa, tmp_path)
+    seq = _seq_pattern(pa, "binary_sensor.door", "light.hall",
+                       delay=10, occ=9, desc="x")
+    yml = an._generate_automation(seq)
+    c = sqlite3.connect(db)
+    c.execute("INSERT INTO suggestions (created, description, automation_yaml, "
+              "confidence, pattern_count, pattern_type, status) "
+              "VALUES ('2026-01-01','legacy presence row', ?, 0.8, 9, "
+              "'presence', 'dismissed')", (yml,))
+    c.commit(); c.close()
+    assert an._store_suggestion(seq) is False    # matched across pattern_type
+    assert _pending(db) == []
+    assert _statuses(db) == ["dismissed"]
