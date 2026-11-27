@@ -1,3 +1,26 @@
+## [9.189.0] — Suggestion engine Phase 2h: keep excluded entities out of learning
+
+Continuing the automation suggestion-engine cleanup (#40 §7H, part 2): a user who
+excludes an entity (telemetry noise, a diagnostic sensor, a device they don't want
+automated) should never see it resurface inside a learned suggestion.
+
+- `analyze(hass)` now resolves the excluded-entity set **once**, on the event
+  loop, via `entity_filter.excluded_entity_ids(hass)` (which expands excluded
+  ids, domains, and labels across the live registry), and threads that
+  `set[str]` through every data path.
+- `_fetch_numeric_sensor_history()` and `_fetch_occupancy_context()` skip excluded
+  entities while gathering sensors, occupancy sensors, and controllable action
+  entities — so an excluded entity never even enters the history/context the
+  finders see.
+- `_run_all_finders()` passes the set to each finder. `_find_numeric_triggers()`
+  now takes and honours it (skipping an excluded action entity), joining
+  `_find_time_routines()` and `_find_sequence_patterns()`, which already did.
+
+Defensive throughout: the set defaults to empty, so every finder and fetch stays
+usable in isolation (and unit-testable without a live Home Assistant). New test:
+an excluded action entity yields no numeric trigger even when the correlation is
+otherwise learnable. Remaining #40 work: §7H multi-entity intent coverage.
+
 ## [9.188.0] — Suggestion engine Phase 2g: correct history-window timestamp bounds
 
 Continuing the automation suggestion-engine cleanup (#40 §7H, part 1): fix a

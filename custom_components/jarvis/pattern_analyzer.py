@@ -1494,6 +1494,7 @@ class PatternAnalyzer:
     def _run_all_finders(self, person_map: dict,
                          lat, lon, sensor_hist: dict,
                          occ_ctx: dict = None,
+                         excluded: set = None,
                          confirm_enabled: bool = None) -> list[DetectedPattern]:
         """Open the DB, run every finder, and close it on one executor thread.
 
@@ -1513,14 +1514,16 @@ class PatternAnalyzer:
         if confirm_enabled is None:
             confirm_enabled = _garage_confirm_enabled()
         patterns: list[DetectedPattern] = []
+        excluded = excluded or set()        # #40 §7H
         try:
             occ = occ_ctx or {}
             finders = [
-                ("time routines", lambda: self._find_time_routines(conn, person_map)),
+                ("time routines", lambda: self._find_time_routines(conn, person_map, excluded)),
                 ("repeated commands", lambda: self._find_repeated_commands(conn)),
                 ("sequence patterns", lambda: self._find_sequence_patterns(
-                    conn, lat, lon, sensor_hist, occ)),
-                ("numeric triggers", lambda: self._find_numeric_triggers(conn, sensor_hist, occ)),
+                    conn, lat, lon, sensor_hist, occ, excluded)),
+                ("numeric triggers", lambda: self._find_numeric_triggers(
+                    conn, sensor_hist, occ, excluded)),
                 # §7F: the standalone presence finder is retired — its person/
                 # device_tracker → device coverage is already learned by
                 # _find_sequence_patterns (modern `zone` arrive/leave triggers, a
@@ -1552,18 +1555,28 @@ class PatternAnalyzer:
         patterns = []
         try:
             person_map = self._person_entity_map(hass)
+            # #40 §7H: resolve the user's excluded entities ONCE, here on the event
+            # loop, and thread the set through every data path (history fetch,
+            # occupancy context, and the finders) so an excluded entity — telemetry
+            # noise, a diagnostic sensor — can never leak into a learned suggestion.
             try:
-                _sensor_hist = await self._fetch_numeric_sensor_history(hass)
+                from .entity_filter import excluded_entity_ids
+                _excluded = excluded_entity_ids(hass)
+            except Exception:
+                _excluded = set()
+            try:
+                _sensor_hist = await self._fetch_numeric_sensor_history(hass, _excluded)
             except Exception:
                 _sensor_hist = {}
             _lat = getattr(hass.config, "latitude", None)
             _lon = getattr(hass.config, "longitude", None)
             try:
-                _occ_ctx = await self._fetch_occupancy_context(hass)
+                _occ_ctx = await self._fetch_occupancy_context(hass, _excluded)
             except Exception:
                 _occ_ctx = {}
             executor_job = hass.async_add_executor_job(
-                self._run_all_finders, person_map, _lat, _lon, _sensor_hist, _occ_ctx)
+                self._run_all_finders, person_map, _lat, _lon, _sensor_hist,
+                _occ_ctx, _excluded)
             # Shielded: if this await is cancelled, only our wait on the job
             # stops — the job itself is not cancelled, so it can't be pulled
             # out of the executor queue before _run_all_finders starts (which
@@ -2125,7 +2138,8 @@ class PatternAnalyzer:
         return out
 
     def _find_numeric_triggers(self, conn: sqlite3.Connection,
-                               sensor_hist: dict, occ_ctx=None) -> list[DetectedPattern]:
+                               sensor_hist: dict, occ_ctx=None,
+                               excluded=None) -> list[DetectedPattern]:
         """Learn "when a sensor crosses a threshold, an action happens" from
         history. ``sensor_hist`` maps sensor_id -> chronological ``[(epoch,
         float)]`` (fetched from the recorder by the caller and passed in, so this
@@ -2135,6 +2149,7 @@ class PatternAnalyzer:
         patterns: list = []
         if not sensor_hist:
             return patterns
+        excluded = excluded or set()        # #40 §7H
         _ACT = ("light", "switch", "cover", "lock", "climate", "fan",
                 "media_player", "humidifier", "water_heater", "valve")
         try:
@@ -2151,6 +2166,8 @@ class PatternAnalyzer:
         for r in rows:
             st = r["new_state"]
             if st in ("unavailable", "unknown"):
+                continue
+            if r["entity_id"] in excluded:        # #40 §7H: skip excluded action
                 continue
             try:
                 ep = datetime.fromisoformat(r["timestamp"]).timestamp()
@@ -2312,11 +2329,12 @@ class PatternAnalyzer:
             ))
         return patterns
 
-    async def _fetch_numeric_sensor_history(self, hass) -> dict:
+    async def _fetch_numeric_sensor_history(self, hass, excluded=None) -> dict:
         """Fetch recent recorder history for numeric sensors likely to drive
         automations (temperature / humidity / illuminance). Returns
         {sensor_id: [(epoch, float)]}. Bounded and failure-tolerant (→ {})."""
         out: dict = {}
+        excluded = excluded or set()        # #40 §7H
         try:
             from homeassistant.components.recorder import get_instance, history
             from homeassistant.util import dt as dt_util
@@ -2326,6 +2344,8 @@ class PatternAnalyzer:
         ids: list = []
         try:
             for st in hass.states.async_all("sensor"):
+                if st.entity_id in excluded:        # #40 §7H
+                    continue
                 if st.attributes.get("device_class") in wanted:
                     ids.append(st.entity_id)
         except Exception:
@@ -2364,7 +2384,7 @@ class PatternAnalyzer:
                 out[eid] = series
         return out
 
-    async def _fetch_occupancy_context(self, hass) -> dict:
+    async def _fetch_occupancy_context(self, hass, excluded=None) -> dict:
         """Build the occupancy context the occupancy-aware finders need:
           hist:         {occupancy_sensor: [(epoch, is_on_bool)]}  (recorder)
           entity_area:  {entity_id: area_id}  for occupancy sensors AND
@@ -2372,6 +2392,7 @@ class PatternAnalyzer:
           area_sensors: {area_id: [occupancy_sensor, …]}  presence/occupancy first
         Bounded and failure-tolerant (→ empty context)."""
         ctx: dict = {"hist": {}, "entity_area": {}, "area_sensors": {}}
+        excluded = excluded or set()        # #40 §7H
         try:
             from homeassistant.components.recorder import get_instance, history
             from homeassistant.util import dt as dt_util
@@ -2401,6 +2422,8 @@ class PatternAnalyzer:
         occ_ids: list = []
         try:
             for st in hass.states.async_all("binary_sensor"):
+                if st.entity_id in excluded:        # #40 §7H
+                    continue
                 dc = st.attributes.get("device_class")
                 if dc not in ("occupancy", "presence", "motion"):
                     continue
@@ -2421,6 +2444,8 @@ class PatternAnalyzer:
             for dom in ("light", "switch", "fan", "cover", "climate", "lock",
                         "media_player"):
                 for st in hass.states.async_all(dom):
+                    if st.entity_id in excluded:        # #40 §7H
+                        continue
                     area = _area_of(st.entity_id)
                     if area:
                         ctx["entity_area"][st.entity_id] = area
@@ -2432,6 +2457,8 @@ class PatternAnalyzer:
         # cross-room correlation (#40 §7D) when both areas are known.
         try:
             for st in hass.states.async_all("sensor"):
+                if st.entity_id in excluded:        # #40 §7H
+                    continue
                 if st.attributes.get("device_class") in (
                         "temperature", "humidity", "illuminance"):
                     area = _area_of(st.entity_id)
