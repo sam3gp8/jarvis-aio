@@ -82,6 +82,64 @@ def test_same_outcome_via_position_matches_open_cover(pa):
     assert pa.intent_is_covered(sug, [existing]) is True
 
 
+# ── §7H-3: multi-entity expansion + time-trigger tolerance ───────────────────
+
+def test_automation_intent_expands_multi_entity_actions(pa):
+    # An action on a LIST of lights contributes an outcome for EACH, not just
+    # the first.
+    _, out = pa.automation_intent(
+        {"platform": "state", "entity_id": "binary_sensor.door", "to": "on"},
+        {"service": "light.turn_on", "entity_id": ["light.hall", "light.porch"]})
+    assert ("light.hall", "on") in out
+    assert ("light.porch", "on") in out
+
+
+def test_automation_intent_expands_multi_entity_triggers(pa):
+    trg, _ = pa.automation_intent(
+        {"platform": "state", "entity_id": ["binary_sensor.a", "binary_sensor.b"], "to": "on"},
+        {"service": "light.turn_on", "entity_id": "light.hall"})
+    assert ("binary_sensor.a", "to:on") in trg
+    assert ("binary_sensor.b", "to:on") in trg
+
+
+def test_intent_covered_matches_one_of_multi_entity_existing(pa):
+    # Suggestion turns on the hall light; an existing automation turns on BOTH
+    # hall and porch on the same trigger → already covered.
+    sug = pa.automation_intent(
+        {"platform": "state", "entity_id": "binary_sensor.door", "to": "on"},
+        {"service": "light.turn_on", "entity_id": "light.hall"})
+    existing = pa.automation_intent(
+        {"platform": "state", "entity_id": "binary_sensor.door", "to": "on"},
+        {"action": "light.turn_on", "target": {"entity_id": ["light.hall", "light.porch"]}})
+    assert pa.intent_is_covered(sug, [existing]) is True
+
+
+def test_intent_covered_time_trigger_tolerance(pa):
+    sug = pa.automation_intent(
+        {"platform": "time", "at": "22:00:00"},
+        {"service": "light.turn_on", "entity_id": "light.porch"})
+    near = pa.automation_intent(                       # +10 min
+        {"platform": "time", "at": "22:10:00"},
+        {"service": "light.turn_on", "entity_id": "light.porch"})
+    same_hour = pa.automation_intent(                  # :45 — same hour, >15 min
+        {"platform": "time", "at": "22:45:00"},
+        {"service": "light.turn_on", "entity_id": "light.porch"})
+    far = pa.automation_intent(                        # different hour, >15 min
+        {"platform": "time", "at": "23:30:00"},
+        {"service": "light.turn_on", "entity_id": "light.porch"})
+    assert pa.intent_is_covered(sug, [near]) is True
+    assert pa.intent_is_covered(sug, [same_hour]) is True
+    assert pa.intent_is_covered(sug, [far]) is False
+
+
+def test_at_minutes_parses_and_rejects(pa):
+    assert pa._at_minutes("at:22:45:00") == 22 * 60 + 45
+    assert pa._at_minutes("at:07:00") == 420
+    assert pa._at_minutes("to:on") is None
+    assert pa._at_minutes("at:bad") is None
+    assert pa._at_minutes(None) is None
+
+
 # ── reading existing automations from automations.yaml ───────────────────────
 
 def test_read_existing_automation_intents(pa, tmp_path):

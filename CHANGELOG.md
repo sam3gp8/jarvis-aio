@@ -1,3 +1,31 @@
+## [9.190.0] — Suggestion engine Phase 2i: multi-entity & time-tolerant cross-referencing (completes #40)
+
+The final part of the automation suggestion-engine cleanup (#40 §7H, part 3).
+JARVIS cross-references each learned suggestion against the household's existing
+automations and retires any whose intent is already covered; two gaps let a
+duplicate slip through.
+
+- **Multi-entity intent.** `automation_intent()` previously read only
+  `_first_entity()` of a trigger or action, so an automation that turns on a
+  *list* of lights was scored on the first alone. A new `_expand_entity_blocks()`
+  helper fans a block out to one situation / outcome per entity, so an existing
+  "turn on the hall AND porch lights when the door opens" now correctly covers a
+  learned "turn on the hall light when the door opens".
+- **Time-trigger tolerance.** `intent_is_covered()` matched time triggers only on
+  an exact `at:` string, so an existing "lights at 22:00" would not suppress a
+  learned "lights at 22:10". Time triggers now count as the same situation when
+  they fall within **±15 minutes** (wrapping midnight) or **the same hour** — the
+  same granularity the §7E median-minute detector learns at — so a routine the
+  household already automates a few minutes off the learned time is recognised as
+  covered.
+
+New tests cover multi-entity expansion (triggers and actions), coverage against a
+multi-entity existing automation, the ±15-min / same-hour time tolerance (and its
+rejection of a different hour), and the `_at_minutes` parser.
+
+This completes #40: the automation drafter, tool driver, provider, and the whole
+passive pattern-analyzer / suggestion pipeline (§7A–§7H) have been worked through.
+
 ## [9.189.0] — Suggestion engine Phase 2h: keep excluded entities out of learning
 
 Continuing the automation suggestion-engine cleanup (#40 §7H, part 2): a user who
