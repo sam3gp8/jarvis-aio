@@ -1,3 +1,33 @@
+## [9.185.0] — Suggestion engine Phase 2d: time-routine minute accuracy & controllable priority
+
+Continuing the automation suggestion-engine cleanup (#40 §7E), making learned
+time routines fire at the time the household actually does things and stopping
+read-only telemetry from crowding out real controllable routines.
+
+- **Real firing time, not the top of the hour.** A routine that reliably happens
+  at 22:45 was always emitted as `22:00:00`. The detector now computes the
+  **median minute** of the observed occurrences (rounded to the nearest 5 and
+  clamped inside the hour), stores it as `minute` in the pattern, and
+  `_generate_automation()` emits `HH:MM:00` (e.g. `22:45:00`).
+- **Controllable routines take priority.** When selecting candidates under the
+  20-routine cap, a real actuatable device (one with a resolvable service) is
+  ranked ahead of a read-only sensor that merely changes state on a schedule, so
+  a burst of knowledge-only sensors can no longer starve genuine routines out of
+  the list.
+- **State & query hygiene.** `unavailable` / `unknown` / empty transitions are
+  filtered in SQL (a device dropout is not a schedulable routine), and the
+  ungrouped `day_of_week` column — which SQLite returned arbitrarily and nothing
+  read — is dropped from the `SELECT`. `_find_time_routines()` now also accepts an
+  `excluded` set so user-excluded entities never surface as routines (wired fully
+  in §7H).
+
+New tests for the median-minute computation and helper, controllable-priority
+under the cap, excluded-entity skipping, and the unavailable-state filter.
+Remaining #40 work: §7F (retire the duplicate presence finder + stop
+dismissed-suggestion resurrection), §7G (guarded installs + nested-YAML
+modernization), §7H (exclusions plumbing, ISO timestamp bounds, multi-entity
+intent coverage).
+
 ## [9.184.0] — Suggestion engine Phase 2c: area-scoped numeric correlations with real crossings
 
 Resuming the automation suggestion-engine cleanup (#40 §7D), stopping the passive
